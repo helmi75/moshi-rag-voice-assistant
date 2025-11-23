@@ -42,7 +42,7 @@ Ce guide vous explique comment connecter votre numéro Twilio à l'application.
 
 1. Configurez votre domaine pour pointer vers l'IP de votre instance Vast.ai
 2. Configurez Caddy pour HTTPS (voir `caddy/Caddyfile`)
-3. Utilisez `https://votre-domaine.com/twilio/webhook` comme URL webhook
+3. Utilisez `https://77.104.167.149:53007/twilio/webhook` comme URL webhook
 
 #### Option B : Avec ngrok (pour les tests)
 

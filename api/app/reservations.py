@@ -1,5 +1,7 @@
-import os, json
+import json
 from datetime import datetime
+import os
+
 os.makedirs('./data', exist_ok=True)
 DBPATH = './data/reservations.json'
 
