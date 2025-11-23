@@ -1,0 +1,57 @@
+version: "3.8"
+services:
+  moshi:
+    build: ./moshi
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - MOSHI_MODEL_DIR=/models/moshi
+      - MOSHI_DEVICE=gpu
+      - MOSHI_BATCH_SIZE=1
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+    volumes:
+      - ./volumes/models:/models:rw
+    ports:
+      - "8091:8091"
+    shm_size: '2gb'
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      - MODEL_API_URL=http://moshi:8091
+      - DATABASE_URL=sqlite:///./data/db.sqlite3
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_NUMBER=${TWILIO_NUMBER}
+    depends_on:
+      - moshi
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./volumes/data:/app/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - moshi
+
+volumes:
+  caddy_data:
+  caddy_config:

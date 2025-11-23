@@ -1,0 +1,92 @@
+# Variables d'environnement
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Modèles et données (volumes Docker)
+volumes/models/
+volumes/data/
+*.ckpt
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Caddy
+caddy_data/
+caddy_config/
+
+# Fichiers temporaires
+*.tmp
+*.temp
+.cache/
+
+# Base de données
+*.db
+*.sqlite
+*.sqlite3
+
+# Archives (sauf celles nécessaires)
+*.zip
+*.tar.gz
+*.rar
+!projet-moshi-vast.zip
+
+# OS
+Thumbs.db
+.DS_Store
+

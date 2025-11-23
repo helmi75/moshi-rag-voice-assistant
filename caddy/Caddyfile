@@ -1,0 +1,11 @@
+# Configuration simplifiée pour Vast.ai
+# Redirige toutes les requêtes HTTP vers l'API
+:80 {
+    reverse_proxy api:8000
+}
+
+# Pour HTTPS avec Let's Encrypt (si vous avez un domaine)
+# Décommentez et remplacez votre-domaine.com par votre vrai domaine
+# votre-domaine.com {
+#     reverse_proxy api:8000
+# }
