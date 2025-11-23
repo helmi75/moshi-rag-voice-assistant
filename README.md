@@ -141,7 +141,21 @@ docker compose up -d --build --force-recreate
 ## 📚 Documentation supplémentaire
 
 - [MOSHI_INTEGRATION.md](MOSHI_INTEGRATION.md) : Guide détaillé sur l'intégration avec Moshi
+- [TWILIO_SETUP.md](TWILIO_SETUP.md) : **Guide complet pour configurer Twilio**
 - [GITHUB_SETUP.md](GITHUB_SETUP.md) : Instructions pour créer le dépôt GitHub
+
+## 📞 Configuration Twilio
+
+Pour connecter votre numéro Twilio à l'application :
+
+1. **Configuration manuelle** : Suivez le guide [TWILIO_SETUP.md](TWILIO_SETUP.md)
+2. **Configuration automatique** : Utilisez le script `setup_twilio.py` :
+   ```bash
+   pip install twilio python-dotenv
+   python setup_twilio.py
+   ```
+
+L'URL du webhook à configurer dans Twilio est : `https://VOTRE_DOMAINE/twilio/webhook`
 
 ## 📄 Licence
 
