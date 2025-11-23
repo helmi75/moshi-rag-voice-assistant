@@ -5,15 +5,14 @@ RUN apt-get update && apt-get install -y git python3 python3-pip python3-venv ff
 
 WORKDIR /opt/moshi
 
-# Clone the official Moshi repo (will be built inside the container)
-ARG GIT_REPO="https://github.com/kyutai-labs/moshi.git"
-RUN git clone $GIT_REPO .
-
-# Install Python deps (may require adjustment depending on repo changes)
+# Installer Moshi depuis PyPI (méthode recommandée)
 RUN pip3 install --upgrade pip
-RUN if [ -f requirements.txt ]; then pip3 install -r requirements.txt || true; fi
-RUN if [ -f requirements-dev.txt ]; then pip3 install -r requirements-dev.txt || true; fi
-RUN pip3 install .
+RUN pip3 install -U moshi
+
+# Alternative: installer depuis le repo GitHub (décommentez si nécessaire)
+# ARG GIT_REPO="https://github.com/kyutai-labs/moshi.git"
+# RUN git clone $GIT_REPO .
+# RUN pip3 install -e moshi/
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

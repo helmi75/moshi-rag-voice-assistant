@@ -12,12 +12,14 @@ services:
               capabilities: [gpu]
     environment:
       - CUDA_VISIBLE_DEVICES=0
-      - MOSHI_MODEL_DIR=/models/moshi
-      - MOSHI_DEVICE=gpu
-      - MOSHI_BATCH_SIZE=1
+      - MOSHI_HF_REPO=${MOSHI_HF_REPO:-kyutai/moshika-pytorch-bf16}
+      - MOSHI_PORT=8091
+      - MOSHI_HOST=0.0.0.0
       - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+      - HF_HOME=/models/.cache
     volumes:
       - ./volumes/models:/models:rw
+      - moshi_cache:/root/.cache/huggingface
     ports:
       - "8091:8091"
     shm_size: '2gb'
@@ -55,3 +57,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  moshi_cache:

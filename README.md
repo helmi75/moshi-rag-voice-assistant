@@ -32,9 +32,14 @@ cp env.example .env
 # Éditez .env avec vos vraies valeurs Twilio
 ```
 
-### 3. Préparer les modèles
+### 3. Configuration du modèle (optionnel)
 
-Placez les fichiers du modèle Moshi dans `./volumes/models/moshi/`
+Les modèles Moshi sont **automatiquement téléchargés** depuis HuggingFace au premier démarrage. Par défaut, le modèle `kyutai/moshika-pytorch-bf16` (voix féminine) est utilisé.
+
+Pour changer de modèle, modifiez `MOSHI_HF_REPO` dans votre `.env` :
+- `kyutai/moshika-pytorch-bf16` (voix féminine, par défaut)
+- `kyutai/moshiko-pytorch-bf16` (voix masculine)
+- `kyutai/moshika-pytorch-q8` (quantifié 8 bits, expérimental)
 
 ### 4. Démarrer les services
 
@@ -85,9 +90,9 @@ projet-moshi-vast/
 - `TWILIO_ACCOUNT_SID` : Identifiant compte Twilio
 - `TWILIO_AUTH_TOKEN` : Token d'authentification Twilio
 - `TWILIO_NUMBER` : Numéro de téléphone Twilio
-- `MOSHI_MODEL_DIR` : Chemin vers les modèles (défaut: `/models/moshi`)
-- `MOSHI_DEVICE` : Device à utiliser (`gpu` ou `cpu`)
-- `MOSHI_BATCH_SIZE` : Taille du batch (défaut: `1`)
+- `MOSHI_HF_REPO` : Repository HuggingFace du modèle (défaut: `kyutai/moshika-pytorch-bf16`)
+- `MOSHI_PORT` : Port du serveur Moshi (défaut: `8091`)
+- `MOSHI_HOST` : Host du serveur Moshi (défaut: `0.0.0.0`)
 
 ### Ports
 
@@ -119,16 +124,24 @@ docker compose up -d --build --force-recreate
 
 ## 📝 Notes importantes
 
-- Les poids des modèles ne sont **PAS** inclus dans ce dépôt
-- Montez vos fichiers de modèle dans `./volumes/models` sur l'hôte
-- Le script `moshi/entrypoint.sh` doit être ajusté selon le README du repo Moshi officiel
+- Les modèles sont **automatiquement téléchargés** depuis HuggingFace au premier démarrage
+- Les modèles sont mis en cache dans le volume Docker `moshi_cache` pour éviter les re-téléchargements
+- Le premier démarrage peut prendre plusieurs minutes pour télécharger les modèles (plusieurs GB)
 - Ce package automatise le build et le démarrage pour faciliter le déploiement sur Vast.ai
+- Le serveur Moshi utilise Gradio qui expose une interface web sur le port configuré
 
 ## 🔗 Liens utiles
 
 - [Moshi (Kyutai Labs)](https://github.com/kyutai-labs/moshi)
+- [Moshi Demo](https://moshi.chat)
+- [Modèles HuggingFace](https://huggingface.co/collections/kyutai/moshi-v01-release-66eaeaf3302bef6bd9ad7acd)
 - [Vast.ai](https://vast.ai)
 - [Docker Compose](https://docs.docker.com/compose/)
+
+## 📚 Documentation supplémentaire
+
+- [MOSHI_INTEGRATION.md](MOSHI_INTEGRATION.md) : Guide détaillé sur l'intégration avec Moshi
+- [GITHUB_SETUP.md](GITHUB_SETUP.md) : Instructions pour créer le dépôt GitHub
 
 ## 📄 Licence
 
