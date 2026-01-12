@@ -25,15 +25,11 @@ if ! python3 -c "import moshi" 2>/dev/null; then
     exit 1
 fi
 
-# Démarrer le serveur Moshi avec les paramètres corrects
-# Le serveur télécharge automatiquement les modèles depuis HuggingFace si nécessaire
-# Les modèles seront mis en cache dans ~/.cache/huggingface/
 echo "Démarrage du serveur Moshi..."
 echo "Les modèles seront téléchargés automatiquement depuis HuggingFace si nécessaire."
 echo "Premier démarrage peut prendre du temps pour télécharger les modèles."
 
-# Commande selon le README officiel de Moshi
-# python -m moshi.server [--gradio-tunnel] [--hf-repo kyutai/moshika-pytorch-bf16]
+# Lancer le serveur Moshi (sans --enable-http qui n'existe pas)
 exec python3 -m moshi.server \
     --hf-repo "${MOSHI_HF_REPO}" \
     --port "${MOSHI_PORT}" \

@@ -2,10 +2,5 @@ fastapi
 uvicorn[standard]
 httpx
 python-dotenv
-sqlalchemy
 pydantic
-requests
-faiss-cpu
 python-multipart
-twilio
-moshi

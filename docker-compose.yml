@@ -1,48 +1,37 @@
-version: "3.8"
 services:
   moshi:
     build: ./moshi
-    restart: unless-stopped
+    ports:
+      - "8091:8091"
+    runtime: nvidia
+    environment:
+      MOSHI_HF_REPO: "${MOSHI_HF_REPO:-kyutai/moshika-pytorch-q8}"
+      MOSHI_PORT: "8091"
+      MOSHI_HOST: "0.0.0.0"
+    volumes:
+      - moshi_cache:/root/.cache/huggingface
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
-      - MOSHI_HF_REPO=${MOSHI_HF_REPO:-kyutai/moshika-pytorch-bf16}
-      - MOSHI_PORT=8091
-      - MOSHI_HOST=0.0.0.0
-      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-      - HF_HOME=/models/.cache
-    volumes:
-      - ./volumes/models:/models:rw
-      - moshi_cache:/root/.cache/huggingface
-    ports:
-      - "8091:8091"
-    shm_size: '2gb'
+              capabilities: [ gpu ]
 
   api:
     build: ./api
-    restart: unless-stopped
-    environment:
-      - MODEL_API_URL=http://moshi:8091
-      - DATABASE_URL=sqlite:///./data/db.sqlite3
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
-      - TWILIO_NUMBER=${TWILIO_NUMBER}
-    depends_on:
-      - moshi
     ports:
       - "8000:8000"
-    volumes:
-      - ./volumes/data:/app/data
+    depends_on:
+      - moshi
+    environment:
+      MODEL_API_URL: "http://moshi:8091"
+      TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
+      TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
+      TWILIO_NUMBER: "${TWILIO_NUMBER}"
 
   caddy:
-    image: caddy:2
-    restart: unless-stopped
+    image: caddy:2-alpine
     ports:
       - "80:80"
       - "443:443"
@@ -52,9 +41,8 @@ services:
       - caddy_config:/config
     depends_on:
       - api
-      - moshi
 
 volumes:
+  moshi_cache:
   caddy_data:
   caddy_config:
-  moshi_cache:
