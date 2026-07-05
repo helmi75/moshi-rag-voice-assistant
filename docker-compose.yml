@@ -1,34 +1,17 @@
 services:
-  moshi:
-    build: ./moshi
-    ports:
-      - "8091:8091"
-    runtime: nvidia
-    environment:
-      MOSHI_HF_REPO: "${MOSHI_HF_REPO:-kyutai/moshika-pytorch-q8}"
-      MOSHI_PORT: "8091"
-      MOSHI_HOST: "0.0.0.0"
-    volumes:
-      - moshi_cache:/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [ gpu ]
-
   api:
     build: ./api
     ports:
       - "8000:8000"
-    depends_on:
-      - moshi
     environment:
-      MODEL_API_URL: "http://moshi:8091"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      LLM_MODEL: "${LLM_MODEL:-claude-sonnet-5}"
       TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
       TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
       TWILIO_NUMBER: "${TWILIO_NUMBER}"
+      DB_PATH: "/app/data/app.db"
+    volumes:
+      - api_data:/app/data
 
   caddy:
     image: caddy:2-alpine
@@ -43,6 +26,6 @@ services:
       - api
 
 volumes:
-  moshi_cache:
+  api_data:
   caddy_data:
   caddy_config:

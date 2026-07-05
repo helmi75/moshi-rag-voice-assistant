@@ -1,73 +1,39 @@
-# Changelog - Nettoyage et Optimisation
+# Changelog
 
-## 🧹 Nettoyage effectué
+## 2026-07 — Pivot SaaS : cerveau multi-tenant, abandon de Moshi (phase 1)
 
-### Fichiers supprimés
-- ✅ `README.txt` - Fichier obsolète remplacé par `README.md`
+Refonte complète orientée produit SaaS (voir ROADMAP.md et ARCHITECTURE.md).
 
-### Fichiers corrigés
+### Ajouté
+- **Multi-tenant** : `api/app/tenants.py` — routage par numéro Twilio appelé (`To`),
+  base de connaissances, langue et message d'accueil par commerce (SQLite)
+- **LLM Claude** : `api/app/llm.py` — API Anthropic avec function calling
+  (`check_availability`, `create_reservation`), KB du tenant en prompt système,
+  mémoire de conversation par appel (`CallSid`)
+- **Réservations SQLite** : `api/app/reservations.py` réécrit (fichier JSON → SQLite,
+  rattachement au tenant), endpoint `GET /tenants/{id}/reservations`
+- `ROADMAP.md` (phases 1 → 4) et `ARCHITECTURE.md`
+- Suite de tests réécrite : 17 tests, LLM mocké (`api/tests/`)
 
-#### `TWILIO_SETUP.md`
-- ✅ Suppression de "clear" au début du fichier
+### Supprimé
+- Service **Moshi** (`moshi/`, `MOSHI_INTEGRATION.md`) et la réservation GPU du
+  docker-compose : modèle speech-to-speech incontrôlable pour un assistant métier et
+  coût GPU fixe — remplacé par des APIs cloud (justification dans ARCHITECTURE.md)
+- `api/app/rag.py` (stub) : la KB tenant tient dans le prompt système ; un vrai RAG
+  vectoriel est planifié en phase 4 quand les KB grossiront
 
-#### `api/app/main.py`
-- ✅ Suppression des imports inutilisés : `HTTPException`, `BackgroundTasks`, `json`, `list_reservations`
-- ✅ Refactorisation du code dupliqué :
-  - Création de `_call_moshi_api()` pour centraliser l'appel à l'API Moshi
-  - Création de `_process_user_message()` pour traiter les messages utilisateur
-  - Réduction de ~80 lignes de code dupliqué
-- ✅ Amélioration de la lisibilité et de la maintenabilité
+### Modifié
+- `api/app/main.py` : webhooks Twilio branchés sur le LLM (l'appel placeholder Moshi
+  qui ne fonctionnait pas est supprimé), gestion d'erreur polie, échappement XML
+- `docker-compose.yml` : 2 services (api + caddy), plus de GPU, volume de données
+- `env.example` : `ANTHROPIC_API_KEY` + `LLM_MODEL` remplacent les variables Moshi
+- `README.md` : pitch SaaS, quickstart sans GPU
+- `tests/test_e2e.sh` : adapté au routage multi-tenant
 
-#### `api/app/reservations.py`
-- ✅ Réorganisation des imports pour meilleure lisibilité
-- ✅ `os` est maintenant utilisé (pour `makedirs`)
+---
 
-### Structure du projet
+## Historique — Nettoyage et optimisation (prototype Moshi)
 
-```
-projet-moshi-vast/
-├── api/
-│   ├── app/
-│   │   ├── main.py          ✅ Nettoyé et optimisé
-│   │   ├── rag.py           ✅ OK
-│   │   ├── reservations.py  ✅ Nettoyé
-│   │   └── requirements.txt ✅ OK
-│   └── Dockerfile           ✅ OK
-├── moshi/
-│   ├── Dockerfile           ✅ OK
-│   └── entrypoint.sh        ✅ OK
-├── caddy/
-│   └── Caddyfile            ✅ OK
-├── volumes/                  ✅ OK
-├── .gitignore               ✅ OK
-├── docker-compose.yml       ✅ OK
-├── env.example              ✅ OK
-├── README.md                ✅ Documentation principale
-├── TWILIO_SETUP.md          ✅ Corrigé
-├── MOSHI_INTEGRATION.md     ✅ OK
-├── GITHUB_SETUP.md          ✅ OK
-├── setup_twilio.py          ✅ OK
-└── CHANGELOG.md             ✅ Nouveau (ce fichier)
-```
-
-## 📊 Statistiques
-
-- **Lignes de code supprimées** : ~80 lignes de duplication
-- **Imports nettoyés** : 4 imports inutilisés supprimés
-- **Fichiers supprimés** : 1 fichier obsolète
-- **Fonctions créées** : 2 fonctions utilitaires pour réduire la duplication
-
-## ✨ Améliorations
-
-1. **Code plus maintenable** : Logique centralisée dans des fonctions réutilisables
-2. **Meilleure lisibilité** : Code organisé et commenté
-3. **Moins d'erreurs potentielles** : Suppression des imports inutilisés
-4. **Documentation à jour** : Fichiers obsolètes supprimés
-
-## 🔄 Prochaines étapes recommandées
-
-- [ ] Ajouter des tests unitaires pour les fonctions utilitaires
-- [ ] Implémenter un vrai système RAG avec FAISS
-- [ ] Ajouter la gestion d'erreurs plus robuste
-- [ ] Ajouter des logs structurés
-
+- Suppression de `README.txt` obsolète, imports inutilisés nettoyés
+- Refactorisation de `main.py` (fonctions `_call_moshi_api`, `_process_user_message`)
+- Voir `git log` pour le détail du prototype initial basé sur Moshi/Vast.ai
