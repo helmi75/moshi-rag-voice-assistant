@@ -1,9 +1,11 @@
 """API du SaaS d'accueil téléphonique : webhooks Twilio multi-tenant + Claude."""
+import json
+import os
 import time
 from typing import Optional
 from xml.sax.saxutils import escape
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
 from . import db, llm, reservations, tenants
@@ -39,6 +41,32 @@ def _twiml(inner: str) -> Response:
     )
 
 
+def _voice_mode() -> str:
+    """"gather" (défaut, boucle Say/Gather) ou "stream" (Media Streams + Pipecat).
+    Lu à chaque requête pour rester configurable sans redémarrage (et testable)."""
+    return os.getenv("VOICE_MODE", "gather").strip().lower()
+
+
+def _stream_ws_url(request: Request) -> str:
+    """URL WebSocket annoncée à Twilio. PUBLIC_WS_URL prime (derrière un proxy,
+    l'hôte vu par l'app n'est pas forcément le domaine public)."""
+    explicit = os.getenv("PUBLIC_WS_URL")
+    if explicit:
+        return explicit
+    return f"wss://{request.url.netloc}/ws/voice"
+
+
+def _stream_twiml(request: Request, to: str, call_sid: str) -> Response:
+    return _twiml(
+        "    <Connect>\n"
+        f'        <Stream url="{escape(_stream_ws_url(request))}">\n'
+        f'            <Parameter name="To" value="{escape(to)}"/>\n'
+        f'            <Parameter name="CallSid" value="{escape(call_sid)}"/>\n'
+        "        </Stream>\n"
+        "    </Connect>"
+    )
+
+
 def _say_and_gather(text: str, language: str) -> Response:
     return _twiml(
         f'    <Say language="{language}">{escape(text)}</Say>\n'
@@ -50,7 +78,7 @@ def _say_and_gather(text: str, language: str) -> Response:
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "model": llm.MODEL}
+    return {"status": "ok", "model": llm.MODEL, "voice_mode": _voice_mode()}
 
 
 @app.post("/twilio/voice")
@@ -67,6 +95,10 @@ async def voice_webhook(
             '    <Say language="fr-FR">Ce numéro n\'est pas encore configuré. Au revoir.</Say>\n'
             "    <Hangup/>"
         )
+
+    # Mode streaming : on branche l'appel sur le pipeline Pipecat via Media Streams
+    if _voice_mode() == "stream":
+        return _stream_twiml(request, To or "", CallSid or "")
 
     # Premier tour : accueil sans appel LLM (latence nulle)
     if not SpeechResult:
@@ -132,3 +164,55 @@ async def tenant_reservations(tenant_id: int):
     if tenants.get_by_id(tenant_id) is None:
         raise HTTPException(status_code=404, detail="Tenant inconnu")
     return {"reservations": reservations.list_reservations(tenant_id)}
+
+
+def _get_bot_runner():
+    """Import paresseux du bot Pipecat (mockable en test, extras optionnels en gather)."""
+    from .voice.bot import run_bot
+
+    return run_bot
+
+
+# Nombre max de messages lus avant le "start" Twilio (protocole: connected -> start)
+_WS_START_MAX_MESSAGES = 10
+
+
+@app.websocket("/ws/voice")
+async def voice_stream(websocket: WebSocket):
+    """Point d'entrée Twilio Media Streams : poignée de main puis pipeline Pipecat."""
+    await websocket.accept()
+
+    start_data = None
+    try:
+        for _ in range(_WS_START_MAX_MESSAGES):
+            message = json.loads(await websocket.receive_text())
+            if message.get("event") == "start":
+                start_data = message
+                break
+    except (WebSocketDisconnect, json.JSONDecodeError, TypeError):
+        pass
+
+    if not start_data:
+        await websocket.close(code=1002)  # protocole non respecté
+        return
+
+    start = start_data.get("start") or {}
+    stream_sid = start_data.get("streamSid") or start.get("streamSid")
+    call_sid = start.get("callSid")
+    to_number = (start.get("customParameters") or {}).get("To")
+
+    tenant = tenants.get_by_phone(to_number)
+    if tenant is None or not stream_sid:
+        print(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
+        await websocket.close(code=1008)  # policy violation
+        return
+
+    run_bot = _get_bot_runner()
+    try:
+        await run_bot(websocket, stream_sid, call_sid, tenant)
+    except Exception as exc:
+        print(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
+        try:
+            await websocket.close(code=1011)
+        except RuntimeError:
+            pass  # déjà fermée

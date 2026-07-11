@@ -73,23 +73,26 @@ quand l'API sera répliquée.
 les tours de parole téléphoniques sont courts et la latence prime. Monter en gamme
 (`claude-opus-4-8`) se fait par variable d'environnement, par tenant plus tard.
 
-## Phase 2 — transport streaming (cible)
+## Phase 2 — transport streaming (implémenté, `VOICE_MODE=stream`)
 
-La boucle Gather/Say (2-4 s de latence) sera remplacée par un pipeline audio streaming.
-Stack arrêtée après étude comparative (détail et sources : [docs/VOICE_STACK.md](docs/VOICE_STACK.md)) :
+La boucle Gather/Say (2-4 s de latence) est doublée d'un pipeline audio streaming
+(`api/app/voice/bot.py`). Stack arrêtée après étude comparative (détail et sources :
+[docs/VOICE_STACK.md](docs/VOICE_STACK.md)) :
 
 ```
-Appel ──▶ Twilio Media Streams (WebSocket audio)
-              │
+Appel ──▶ POST /twilio/voice ──▶ TwiML <Connect><Stream>   [VOICE_MODE=stream]
+Appel ──▶ WS /ws/voice (Twilio Media Streams)
+              │  (résolution du tenant via <Parameter To>)
               ▼
         ┌──────────────────── Pipecat ────────────────────┐
-        │  STT Kyutai (streaming, VAD sémantique, fr)     │
+        │  STT Deepgram fr (phase A) → Kyutai (phase B)   │
+        │        │   VAD Silero + smart-turn v3 (barge-in)│
+        │        ▼                                        │
+        │  Claude + outils métier (mêmes TOOLS,           │
+        │  même prompt système que le mode gather)        │
         │        │                                        │
         │        ▼                                        │
-        │  llm.py (INCHANGÉ : tenant + KB + outils)       │
-        │        │                                        │
-        │        ▼                                        │
-        │  TTS Kyutai 1.6B (parle avant la fin du texte)  │
+        │  TTS Cartesia fr (phase A) → Kyutai (phase B)   │
         └─────────────────────────────────────────────────┘
                        Latence cible ≈ 1,0-1,3 s
 ```

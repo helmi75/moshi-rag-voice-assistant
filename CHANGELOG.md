@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-07 — Phase 2A : voix temps réel (Twilio Media Streams + Pipecat)
+
+### Ajouté
+- **Mode `VOICE_MODE=stream`** : pipeline audio streaming, latence ~1 s, barge-in
+  - `api/app/voice/bot.py` : pipeline Pipecat 1.5 (Deepgram STT fr → Claude + outils
+    → Cartesia TTS fr), VAD Silero + smart-turn v3, raccrochage auto si identifiants
+    Twilio présents
+  - `POST /twilio/voice` renvoie `<Connect><Stream>` en mode stream (tenant transmis
+    via `<Parameter To>`)
+  - `WS /ws/voice` : poignée de main Media Streams, résolution du tenant, garde-fous
+    (tenant inconnu → 1008, protocole invalide → 1002, crash pipeline → 1011)
+- Cerveau partagé entre les deux modes : `llm.run_tool` (ex-`_run_tool`), mêmes
+  `TOOLS` et prompt système
+- 17 nouveaux tests (`api/tests/test_voice_stream.py`) : TwiML stream, WebSocket,
+  outils partagés, pont Pipecat — LLM et bot mockés, zéro réseau
+- `/health` expose `voice_mode` ; `tests/test_e2e.sh` s'adapte au mode du serveur
+- Docker : `pipecat-ai[anthropic,cartesia,deepgram,silero]~=1.5.0`, `libgomp1`,
+  variables `VOICE_MODE`/`PUBLIC_WS_URL`/`DEEPGRAM_*`/`CARTESIA_*` dans compose et env
+
+### Inchangé
+- Mode `gather` par défaut : fonctionne sans clés Deepgram/Cartesia, aucun test cassé
+
+---
+
 ## 2026-07 — Pivot SaaS : cerveau multi-tenant, abandon de Moshi (phase 1)
 
 Refonte complète orientée produit SaaS (voir ROADMAP.md et ARCHITECTURE.md).

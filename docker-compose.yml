@@ -10,6 +10,12 @@ services:
       TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
       TWILIO_NUMBER: "${TWILIO_NUMBER}"
       DB_PATH: "/app/data/app.db"
+      # Pipeline vocal : "gather" (défaut, sans clés STT/TTS) ou "stream"
+      VOICE_MODE: "${VOICE_MODE:-gather}"
+      PUBLIC_WS_URL: "${PUBLIC_WS_URL:-}"
+      DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
+      CARTESIA_API_KEY: "${CARTESIA_API_KEY:-}"
+      CARTESIA_VOICE_ID: "${CARTESIA_VOICE_ID:-}"
     volumes:
       - api_data:/app/data
 

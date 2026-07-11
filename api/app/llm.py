@@ -84,7 +84,9 @@ Informations de l'établissement :
 {tenant.knowledge_base}"""
 
 
-async def _run_tool(tenant: Tenant, name: str, tool_input: dict) -> str:
+async def run_tool(tenant: Tenant, name: str, tool_input: dict) -> str:
+    """Exécute un outil métier. Partagé entre le mode Gather (respond) et le
+    pipeline streaming Pipecat (voice/bot.py)."""
     if name == "check_availability":
         booked = reservations.count_for_slot(
             tenant.id, tool_input["date"], tool_input["time"]
@@ -136,7 +138,7 @@ async def respond(tenant: Tenant, history: list, user_text: str) -> tuple[str, l
             if block.type != "tool_use":
                 continue
             try:
-                result = await _run_tool(tenant, block.name, block.input)
+                result = await run_tool(tenant, block.name, block.input)
                 tool_results.append(
                     {"type": "tool_result", "tool_use_id": block.id, "content": result}
                 )

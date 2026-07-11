@@ -7,7 +7,7 @@ set -e
 
 HOST="${1:-localhost}"
 TENANT_NUMBER="${2:-+33100000000}"
-API_PORT="8000"
+API_PORT="${API_PORT:-8000}"
 BASE_URL="http://${HOST}:${API_PORT}"
 
 echo "========================================"
@@ -67,10 +67,19 @@ echo ""
 # Test 1: Health check
 test_endpoint "Health Check" "GET" "${BASE_URL}/health" "" '"status":"ok"'
 
-# Test 2: Appel entrant (accueil + Gather)
-echo -n "Test: Voice Webhook (accueil)... "
+# Mode vocal du serveur (gather ou stream) — dicte le TwiML attendu
+VOICE_MODE=$(curl -s "${BASE_URL}/health" | grep -o '"voice_mode":"[a-z]*"' | cut -d'"' -f4)
+echo "Mode vocal serveur: ${VOICE_MODE:-inconnu}"
+
+# Test 2: Appel entrant (Gather en mode gather, Connect/Stream en mode stream)
+if [ "$VOICE_MODE" = "stream" ]; then
+    EXPECTED_TWIML="<Connect>"
+else
+    EXPECTED_TWIML="<Gather"
+fi
+echo -n "Test: Voice Webhook (accueil, attendu ${EXPECTED_TWIML})... "
 body=$(twilio_post "${BASE_URL}/twilio/voice" --data-urlencode "CallSid=CA123" --data-urlencode "To=${TENANT_NUMBER}")
-if echo "$body" | grep -q "<Gather"; then
+if echo "$body" | grep -q "$EXPECTED_TWIML"; then
     echo -e "${GREEN}PASS${NC}"; passed=$((passed+1))
 else
     echo -e "${RED}FAIL${NC}"; echo "  Got: $body"; failed=$((failed+1))
@@ -85,17 +94,22 @@ else
     echo -e "${RED}FAIL${NC}"; echo "  Got: $body"; failed=$((failed+1))
 fi
 
-# Test 4: Tour de conversation (nécessite ANTHROPIC_API_KEY côté serveur,
-# sinon le message d'erreur poli est retourné — dans les deux cas un <Say>)
-echo -n "Test: Voice Webhook (tour de parole)... "
-body=$(twilio_post "${BASE_URL}/twilio/voice" \
-    --data-urlencode "CallSid=CA123" \
-    --data-urlencode "To=${TENANT_NUMBER}" \
-    --data-urlencode "SpeechResult=Quels sont vos horaires ?")
-if echo "$body" | grep -q "<Say"; then
-    echo -e "${GREEN}PASS${NC}"; passed=$((passed+1))
+# Test 4: Tour de conversation (mode gather uniquement — en stream la conversation
+# passe par le WebSocket, pas par ce webhook). Nécessite ANTHROPIC_API_KEY côté
+# serveur, sinon le message d'erreur poli est retourné — dans les deux cas un <Say>.
+if [ "$VOICE_MODE" != "stream" ]; then
+    echo -n "Test: Voice Webhook (tour de parole)... "
+    body=$(twilio_post "${BASE_URL}/twilio/voice" \
+        --data-urlencode "CallSid=CA123" \
+        --data-urlencode "To=${TENANT_NUMBER}" \
+        --data-urlencode "SpeechResult=Quels sont vos horaires ?")
+    if echo "$body" | grep -q "<Say"; then
+        echo -e "${GREEN}PASS${NC}"; passed=$((passed+1))
+    else
+        echo -e "${RED}FAIL${NC}"; echo "  Got: $body"; failed=$((failed+1))
+    fi
 else
-    echo -e "${RED}FAIL${NC}"; echo "  Got: $body"; failed=$((failed+1))
+    echo "Test: Voice Webhook (tour de parole)... SKIP (mode stream: conversation via WebSocket)"
 fi
 
 # Test 5: Webhook générique (vide)

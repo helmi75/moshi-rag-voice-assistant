@@ -5,3 +5,5 @@ httpx
 python-dotenv
 pydantic
 python-multipart
+# Pipeline vocal streaming (mode VOICE_MODE=stream)
+pipecat-ai[anthropic,cartesia,deepgram,silero]~=1.5.0

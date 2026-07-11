@@ -35,14 +35,15 @@ Remplacer la boucle Gather/Say par un pipeline audio streaming, latence cible ~1
 Stack arrêtée après étude de l'état de l'art open source — détail, comparatifs et
 sources dans **[docs/VOICE_STACK.md](docs/VOICE_STACK.md)** :
 
-- [ ] Twilio **Media Streams** (WebSocket audio bidirectionnel)
-- [ ] Orchestration **Pipecat** (open source, Python, étages STT/LLM/TTS interchangeables)
-- [ ] STT streaming français : **Kyutai STT** (`stt-1b-en_fr`, open source, ~500 ms,
-      VAD sémantique intégré) — via API/GPU à l'heure au début, auto-hébergé ensuite
-- [ ] TTS streaming français : **Kyutai TTS 1.6B** (open source, parle avant que le LLM
-      ait fini d'écrire) ; **Pocket TTS** (temps réel sur CPU) comme option zéro-GPU
-- [ ] Barge-in (le client peut couper la parole à l'assistant)
-- [ ] LLM : API Claude conservée (`llm.py` inchangé) — le function calling fiable prime
+- [x] Twilio **Media Streams** (WebSocket audio bidirectionnel) — `VOICE_MODE=stream`
+- [x] Orchestration **Pipecat** (open source, Python, étages STT/LLM/TTS interchangeables)
+      — `api/app/voice/bot.py`
+- [x] STT streaming français : **Deepgram** (API, phase A) — bascule **Kyutai STT**
+      auto-hébergé prévue en phase B (interface Pipecat identique)
+- [x] TTS streaming français : **Cartesia** (API, phase A) — bascule **Kyutai TTS 1.6B**
+      / **Pocket TTS** (CPU) prévue en phase B
+- [x] Barge-in et détection de fin de tour (VAD Silero + smart-turn v3, embarqués)
+- [x] LLM : API Claude conservée (function calling via Pipecat, mêmes outils/prompts)
 - Le module `llm.py` (tenant + outils) est réutilisé tel quel : seul le transport audio change.
 
 **Coût estimé par minute d'appel** (phase A, tout API) : STT ~0,005 $ + LLM ~0,01-0,03 $
