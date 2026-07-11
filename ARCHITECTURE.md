@@ -73,6 +73,32 @@ quand l'API sera répliquée.
 les tours de parole téléphoniques sont courts et la latence prime. Monter en gamme
 (`claude-opus-4-8`) se fait par variable d'environnement, par tenant plus tard.
 
+## Phase 2 — transport streaming (cible)
+
+La boucle Gather/Say (2-4 s de latence) sera remplacée par un pipeline audio streaming.
+Stack arrêtée après étude comparative (détail et sources : [docs/VOICE_STACK.md](docs/VOICE_STACK.md)) :
+
+```
+Appel ──▶ Twilio Media Streams (WebSocket audio)
+              │
+              ▼
+        ┌──────────────────── Pipecat ────────────────────┐
+        │  STT Kyutai (streaming, VAD sémantique, fr)     │
+        │        │                                        │
+        │        ▼                                        │
+        │  llm.py (INCHANGÉ : tenant + KB + outils)       │
+        │        │                                        │
+        │        ▼                                        │
+        │  TTS Kyutai 1.6B (parle avant la fin du texte)  │
+        └─────────────────────────────────────────────────┘
+                       Latence cible ≈ 1,0-1,3 s
+```
+
+Règle d'architecture : **le cerveau (`llm.py`, `tenants.py`, `reservations.py`) ignore
+le transport**. Gather/Say aujourd'hui, Media Streams/Pipecat demain, 100 % local
+(Kyutai + Qwen3 8B quantisé sur une RTX 4090) après-demain — mêmes modules, seuls les
+étages audio de Pipecat changent. Chaque étage est interchangeable API ↔ auto-hébergé.
+
 ## Sécurité / production (à traiter avant mise en production réelle)
 
 - Valider la signature des webhooks Twilio (`X-Twilio-Signature`)

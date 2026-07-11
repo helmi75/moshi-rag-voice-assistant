@@ -31,19 +31,24 @@ C'est suffisant pour valider le produit avec un premier restaurant pilote.
 
 ## Phase 2 — Voix temps réel (streaming)
 
-Remplacer la boucle Gather/Say par un pipeline audio streaming, latence cible < 1,5 s :
+Remplacer la boucle Gather/Say par un pipeline audio streaming, latence cible ~1-1,3 s.
+Stack arrêtée après étude de l'état de l'art open source — détail, comparatifs et
+sources dans **[docs/VOICE_STACK.md](docs/VOICE_STACK.md)** :
 
 - [ ] Twilio **Media Streams** (WebSocket audio bidirectionnel)
-- [ ] Orchestration **Pipecat** (framework open source dédié aux agents vocaux)
-- [ ] STT streaming français : Deepgram Nova (ou Kyutai STT auto-hébergé plus tard)
-- [ ] TTS streaming français : Cartesia Sonic ou ElevenLabs Flash
+- [ ] Orchestration **Pipecat** (open source, Python, étages STT/LLM/TTS interchangeables)
+- [ ] STT streaming français : **Kyutai STT** (`stt-1b-en_fr`, open source, ~500 ms,
+      VAD sémantique intégré) — via API/GPU à l'heure au début, auto-hébergé ensuite
+- [ ] TTS streaming français : **Kyutai TTS 1.6B** (open source, parle avant que le LLM
+      ait fini d'écrire) ; **Pocket TTS** (temps réel sur CPU) comme option zéro-GPU
 - [ ] Barge-in (le client peut couper la parole à l'assistant)
-- [ ] Détection de fin de parole (VAD) fine
+- [ ] LLM : API Claude conservée (`llm.py` inchangé) — le function calling fiable prime
 - Le module `llm.py` (tenant + outils) est réutilisé tel quel : seul le transport audio change.
 
-**Coût estimé par minute d'appel** : STT ~0,005 $ + LLM ~0,01-0,03 $ + TTS ~0,02-0,05 $
-+ Twilio ~0,01 $ ≈ **0,05 à 0,10 $/min**. À 500 min/mois par client, marge confortable
-sur un abonnement à 99-199 €/mois.
+**Coût estimé par minute d'appel** (phase A, tout API) : STT ~0,005 $ + LLM ~0,01-0,03 $
++ TTS ~0,02-0,05 $ + Twilio ~0,01 $ ≈ **0,05 à 0,10 $/min**. À 500 min/mois par client,
+marge confortable sur un abonnement à 99-199 €/mois. Référence latence : Unmute (Kyutai)
+prouve < 1 s avec ces mêmes briques.
 
 ## Phase 3 — Couche SaaS
 
@@ -73,6 +78,11 @@ Ce qui transforme le pipeline en produit vendable en self-service :
 - [ ] Base de connaissances enrichie : ingestion de documents (PDF menus, site web) avec
       embeddings + vector store quand les KB dépassent la taille d'un prompt
 - [ ] Numéros et téléphonie locale (portabilité, SIP trunking pour réduire les coûts)
+- [ ] **Option 100 % local / souverain** : Kyutai STT + Kyutai TTS + Qwen3 8B quantisé
+      (AWQ, vLLM) tiennent ensemble sur **une RTX 4090 louée (~150-250 €/mois)** et
+      servent des dizaines d'appels simultanés. À déclencher quand : volume > ~2 000
+      min/mois, ou client santé (argument RGPD « aucune donnée ne sort du serveur »),
+      ou besoin de latence < 1 s. Grille de coûts et seuils dans docs/VOICE_STACK.md.
 
 ---
 
