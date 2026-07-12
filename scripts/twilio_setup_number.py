@@ -16,13 +16,15 @@ import base64
 import json
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 API = "https://api.twilio.com/2010-04-01"
 
 
-def _request(method: str, url: str, sid: str, token: str, data: dict | None = None) -> dict:
+def _request(method: str, url: str, sid: str, token: str, data: Optional[dict] = None) -> dict:
     body = urllib.parse.urlencode(data).encode() if data else None
     req = urllib.request.Request(url, data=body, method=method)
     auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
