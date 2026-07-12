@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-07 — Bascule du LLM vers OpenRouter (choix libre du modèle)
+
+### Pourquoi
+Blocage de facturation côté compte Anthropic (compte classé « Team », questionnaire
+Trust & Safety requis avant tout achat de crédits). OpenRouter donne accès à
+n'importe quel modèle (Claude, GPT, Gemini, Llama, Mistral, DeepSeek...) avec une
+seule clé, un onboarding paiement plus simple, et surtout des **modèles gratuits
+avec function calling** (`openrouter/free`) — débloque les tests immédiatement sans
+dépenser, tout en donnant la liberté de choix de modèle.
+
+### Modifié
+- `api/app/llm.py` : `anthropic` → `openai` (`AsyncOpenAI` pointé sur
+  `https://openrouter.ai/api/v1`), boucle d'outils réécrite au format Chat
+  Completions (function calling OpenAI : `tool_calls`, arguments JSON en chaîne).
+  `MODEL` par défaut : `openrouter/free`. Invariant conservé : l'historique retourné
+  ne contient jamais le message système (ré-injecté à chaque appel) — **aucun
+  changement dans `main.py`**
+- `api/app/voice/bot.py` : `AnthropicLLMService` → `OpenAILLMService` (pipecat,
+  pointé sur OpenRouter) — seul le bloc de construction du service change, le reste
+  du pipeline (contexte, VAD, function calling) était déjà écrit de façon neutre
+- `api/app/requirements.txt` : `anthropic` → `openai`, extra pipecat
+  `[anthropic,...]` → `[openai,...]`
+- `env.example`, `docker-compose.yml`, `api/tests/conftest.py` : `ANTHROPIC_API_KEY`
+  → `OPENROUTER_API_KEY` (+ `OPENROUTER_BASE_URL`, `OPENROUTER_SITE_URL`,
+  `OPENROUTER_APP_NAME` optionnels)
+- Tests : `TestLLMToolLoop` réécrite au format OpenAI (2 nouveaux tests : schéma
+  d'outils, robustesse aux arguments JSON malformés du modèle) — 36 tests au total,
+  toujours zéro appel réseau. `test_voice_stream.py` inchangé (déjà neutre vis-à-vis
+  du fournisseur LLM)
+
+---
+
 ## 2026-07 — Phase 2A : voix temps réel (Twilio Media Streams + Pipecat)
 
 ### Ajouté

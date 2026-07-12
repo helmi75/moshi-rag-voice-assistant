@@ -3,6 +3,7 @@
 Exécuter depuis api/ avec : pytest tests/ -v
 Le LLM est mocké partout — aucun appel réseau.
 """
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -17,18 +18,22 @@ DEMO_NUMBER = "+33100000000"
 
 
 def _text_response(text):
-    """Fabrique une réponse Anthropic minimale (fin de tour, texte seul)."""
-    return SimpleNamespace(
-        stop_reason="end_turn",
-        content=[SimpleNamespace(type="text", text=text)],
-    )
+    """Fabrique une réponse Chat Completions minimale (fin de tour, texte seul)."""
+    message = SimpleNamespace(content=text, tool_calls=None)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
-def _tool_response(name, tool_input, tool_id="toolu_01"):
-    return SimpleNamespace(
-        stop_reason="tool_use",
-        content=[SimpleNamespace(type="tool_use", name=name, input=tool_input, id=tool_id)],
+def _tool_response(name, tool_input, tool_id="call_01"):
+    """Fabrique une réponse Chat Completions demandant un appel d'outil.
+
+    `function.arguments` est une chaîne JSON (format réel OpenAI/OpenRouter),
+    pas un dict — contrairement à l'ancien format Anthropic."""
+    tool_call = SimpleNamespace(
+        id=tool_id,
+        function=SimpleNamespace(name=name, arguments=json.dumps(tool_input)),
     )
+    message = SimpleNamespace(content=None, tool_calls=[tool_call])
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
 class TestHealth:
@@ -123,27 +128,26 @@ class TestVoiceWebhook:
         assert "a &lt; b &amp; c" in response.text
 
 
+def _fake_openai_client(*responses):
+    create = AsyncMock(side_effect=list(responses))
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+
 class TestLLMToolLoop:
     def test_tool_use_then_final_answer(self):
         """Le modèle demande create_reservation, l'outil s'exécute, puis il conclut."""
         tenant = tenants.get_by_phone(DEMO_NUMBER)
-        fake_client = SimpleNamespace(
-            messages=SimpleNamespace(
-                create=AsyncMock(
-                    side_effect=[
-                        _tool_response(
-                            "create_reservation",
-                            {
-                                "customer_name": "Durand",
-                                "date": "2026-07-10",
-                                "time": "20:00",
-                                "party_size": 4,
-                            },
-                        ),
-                        _text_response("C'est réservé pour quatre personnes."),
-                    ]
-                )
-            )
+        fake_client = _fake_openai_client(
+            _tool_response(
+                "create_reservation",
+                {
+                    "customer_name": "Durand",
+                    "date": "2026-07-10",
+                    "time": "20:00",
+                    "party_size": 4,
+                },
+            ),
+            _text_response("C'est réservé pour quatre personnes."),
         )
         with patch.object(llm, "get_client", return_value=fake_client):
             import asyncio
@@ -153,13 +157,47 @@ class TestLLMToolLoop:
             )
 
         assert text == "C'est réservé pour quatre personnes."
-        assert fake_client.messages.create.await_count == 2
-        # le tool_result a bien été renvoyé au modèle (dans l'historique retourné :
-        # user → assistant(tool_use) → user(tool_result) → assistant(final))
-        assert messages[2]["content"][0]["type"] == "tool_result"
+        assert fake_client.chat.completions.create.await_count == 2
+        # historique retourné : user → assistant(tool_calls) → tool(résultat) → assistant(final)
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "assistant"
+        assert messages[1]["tool_calls"][0]["function"]["name"] == "create_reservation"
+        assert messages[2]["role"] == "tool"
+        assert json.loads(messages[2]["content"])["status"] == "confirmed"
+        assert messages[3]["role"] == "assistant"
         # et la réservation est en base
         rows = reservations.list_reservations(tenant.id)
         assert any(r["customer_name"] == "Durand" and r["party_size"] == 4 for r in rows)
+
+    def test_malformed_tool_arguments_do_not_crash(self):
+        """Des arguments JSON invalides renvoyés par le modèle -> traités comme {} plutôt que de planter le tour."""
+        tenant = tenants.get_by_phone(DEMO_NUMBER)
+        tool_call = SimpleNamespace(
+            id="call_bad",
+            function=SimpleNamespace(name="check_availability", arguments="{not valid json"),
+        )
+        bad_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tool_call]))]
+        )
+        fake_client = _fake_openai_client(
+            bad_response, _text_response("Un instant, je vérifie autrement.")
+        )
+        with patch.object(llm, "get_client", return_value=fake_client):
+            import asyncio
+
+            text, messages = asyncio.run(llm.respond(tenant, [], "Vous avez de la place ?"))
+
+        assert text == "Un instant, je vérifie autrement."
+        # l'outil a bien été appelé avec des args vides (KeyError -> message d'erreur en tool result)
+        assert messages[2]["role"] == "tool"
+        assert "Erreur" in messages[2]["content"]
+
+    def test_openai_tools_schema_matches_tools(self):
+        schemas = llm._openai_tools()
+        assert {s["function"]["name"] for s in schemas} == {t["name"] for t in llm.TOOLS}
+        for schema, tool in zip(schemas, llm.TOOLS):
+            assert schema["type"] == "function"
+            assert schema["function"]["parameters"] == tool["input_schema"]
 
 
 class TestSMSWebhook:

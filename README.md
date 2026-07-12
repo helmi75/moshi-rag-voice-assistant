@@ -17,20 +17,22 @@ Deux modes vocaux, même cerveau (`VOICE_MODE`) :
 
 **Mode `gather` (défaut — zéro clé supplémentaire, latence 2-4 s)**
 ```
-Appel → Twilio (STT) → FastAPI → tenant (par numéro appelé) → Claude + outils métier
+Appel → Twilio (STT) → FastAPI → tenant (par numéro appelé) → LLM + outils métier
       ← Twilio (TTS) ←         ← réponse + réservation en base
 ```
 
 **Mode `stream` (temps réel — latence ~1 s, barge-in)**
 ```
 Appel → Twilio Media Streams (WebSocket audio) → Pipecat
-        → STT Deepgram (fr) → Claude + outils → TTS Cartesia (fr) → audio
+        → STT Deepgram (fr) → LLM + outils → TTS Cartesia (fr) → audio
 ```
 
 - **FastAPI** : webhooks Twilio voix/SMS, WebSocket Media Streams, routage multi-tenant
 - **Pipecat** : orchestration temps réel (VAD Silero + smart-turn, interruptions)
-- **Claude (API Anthropic)** : conversation + function calling (`create_reservation`,
-  `check_availability`), base de connaissances du commerce en prompt système
+- **LLM via OpenRouter** : conversation + function calling (`create_reservation`,
+  `check_availability`), base de connaissances du commerce en prompt système — le
+  modèle se choisit librement (Claude, GPT, Gemini, Llama...), y compris un modèle
+  gratuit par défaut
 - **SQLite** : tenants et réservations (`data/app.db`)
 - **Caddy** : reverse proxy TLS (WebSockets inclus)
 - **Aucun GPU requis** : tout fonctionne sur un petit VPS
@@ -38,7 +40,8 @@ Appel → Twilio Media Streams (WebSocket audio) → Pipecat
 ## 📋 Prérequis
 
 - Docker et Docker Compose (ou Python 3.11+ en local)
-- Une clé API Anthropic ([platform.claude.com](https://platform.claude.com))
+- Une clé API OpenRouter ([openrouter.ai/keys](https://openrouter.ai/keys)) —
+  un modèle gratuit est disponible par défaut, aucun paiement requis pour démarrer
 - Un compte Twilio avec un numéro de téléphone
 
 ## 🛠️ Installation
@@ -49,7 +52,7 @@ Appel → Twilio Media Streams (WebSocket audio) → Pipecat
 git clone https://github.com/helmi75/moshi-rag-voice-assistant.git
 cd moshi-rag-voice-assistant
 cp env.example .env
-# Éditez .env : ANTHROPIC_API_KEY + identifiants Twilio
+# Éditez .env : OPENROUTER_API_KEY + identifiants Twilio
 ```
 
 ### 2. Démarrer
@@ -119,7 +122,7 @@ curl http://localhost:8000/tenants/1/reservations
 ├── api/
 │   ├── app/
 │   │   ├── main.py          # Webhooks Twilio (voix, SMS), routage tenant
-│   │   ├── llm.py           # Claude + outils métier (function calling)
+│   │   ├── llm.py           # LLM (OpenRouter) + outils métier (function calling)
 │   │   ├── tenants.py       # Tenants et résolution par numéro appelé
 │   │   ├── reservations.py  # Réservations (SQLite)
 │   │   └── db.py            # Connexion et schéma SQLite
@@ -136,8 +139,8 @@ curl http://localhost:8000/tenants/1/reservations
 
 | Variable | Description |
 |---|---|
-| `ANTHROPIC_API_KEY` | Clé API Anthropic (obligatoire) |
-| `LLM_MODEL` | Modèle Claude (défaut : `claude-sonnet-5`) |
+| `OPENROUTER_API_KEY` | Clé API OpenRouter (obligatoire) |
+| `LLM_MODEL` | Modèle utilisé (défaut : `openrouter/free`) — catalogue complet sur [openrouter.ai/models](https://openrouter.ai/models) |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | Identifiants Twilio |
 | `TWILIO_NUMBER` | Numéro du tenant de démo (E.164) |
 | `DB_PATH` | Chemin SQLite (défaut : `./data/app.db`) |

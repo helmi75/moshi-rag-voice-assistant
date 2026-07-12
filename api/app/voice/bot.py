@@ -27,7 +27,7 @@ def make_tool_handler(tenant: Tenant):
 
 
 def build_function_schemas():
-    """Convertit llm.TOOLS (format Anthropic) en FunctionSchema Pipecat."""
+    """Convertit llm.TOOLS (schéma neutre) en FunctionSchema Pipecat."""
     from pipecat.adapters.schemas.function_schema import FunctionSchema
 
     return [
@@ -54,9 +54,9 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         LLMUserAggregatorParams,
     )
     from pipecat.serializers.twilio import TwilioFrameSerializer
-    from pipecat.services.anthropic.llm import AnthropicLLMService
     from pipecat.services.cartesia.tts import CartesiaTTSService
     from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
+    from pipecat.services.openai.llm import OpenAILLMService
     from pipecat.transports.websocket.fastapi import (
         FastAPIWebsocketParams,
         FastAPIWebsocketTransport,
@@ -103,9 +103,16 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         model=os.getenv("CARTESIA_MODEL") or None,
     )
 
-    llm_service = AnthropicLLMService(
-        api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+    headers = {}
+    if os.getenv("OPENROUTER_SITE_URL"):
+        headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL")
+    if os.getenv("OPENROUTER_APP_NAME"):
+        headers["X-Title"] = os.getenv("OPENROUTER_APP_NAME")
+    llm_service = OpenAILLMService(
+        api_key=os.getenv("OPENROUTER_API_KEY", ""),
+        base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         model=llm.MODEL,
+        default_headers=headers or None,
     )
     tool_handler = make_tool_handler(tenant)
     for tool in llm.TOOLS:

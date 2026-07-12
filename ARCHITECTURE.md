@@ -10,8 +10,8 @@ Appel entrant
 │ Twilio  │ ───────────────────────────────────────────▶│ FastAPI (api/app/main.py)│
 │ STT/TTS │ ◀─────────────────────────────────────────── │  ├─ tenants.py  (routage │
 └─────────┘        TwiML <Say> + <Gather>               │  │   par numéro appelé)  │
-                                                        │  ├─ llm.py (Claude +     │
-                                                        │  │   outils métier)      │
+                                                        │  ├─ llm.py (LLM via      │
+                                                        │  │   OpenRouter + outils)│
                                                         │  └─ reservations.py      │
                                                         └──────────┬───────────────┘
                                                                    │
@@ -23,9 +23,11 @@ Appel entrant
 
 - **Un déploiement, N clients** : le numéro Twilio appelé (`To`) identifie le tenant.
   Chaque tenant a sa base de connaissances, sa langue, son message d'accueil.
-- **Le LLM (Claude, API Anthropic)** reçoit la KB du tenant en prompt système et expose
+- **Le LLM (via OpenRouter)** reçoit la KB du tenant en prompt système et expose
   des outils métier (function calling) : `check_availability`, `create_reservation`.
-  La boucle d'outils est dans `api/app/llm.py`.
+  La boucle d'outils est dans `api/app/llm.py`. OpenRouter donne accès à n'importe
+  quel modèle (Claude, GPT, Gemini, Llama, Mistral, DeepSeek...) derrière une seule
+  clé et une API OpenAI-compatible — le choix se fait via `LLM_MODEL`.
 - **La voix (phase 1)** est déléguée à Twilio : `<Gather input="speech">` pour le STT,
   `<Say>` pour le TTS. Simple et sans infrastructure, au prix d'une latence de 2-4 s.
   La phase 2 (voir ROADMAP.md) remplace ce transport par Twilio Media Streams + Pipecat
@@ -52,8 +54,9 @@ L'historique reste dans git (`git log -- moshi/`).
 
 La base de connaissances d'un restaurant ou d'un cabinet tient en 1 à 5 K tokens : elle
 est injectée intégralement dans le prompt système (`llm.build_system_prompt`). C'est plus
-simple, plus fiable (pas de rappel manqué) et moins cher qu'un vector store, et le prompt
-système bénéficie du prompt caching d'Anthropic.
+simple, plus fiable (pas de rappel manqué) et moins cher qu'un vector store — et certains
+modèles servis par OpenRouter (dont Claude) bénéficient nativement d'un cache de prompt
+côté fournisseur, sans rien à configurer côté application.
 
 **Chemin d'upgrade** (phase 4) : quand un tenant aura des documents volumineux (menus PDF,
 sites web), on ajoutera une ingestion → chunking → embeddings → vector store (pgvector),
@@ -69,9 +72,12 @@ quand l'API sera répliquée.
 
 ### Modèle LLM
 
-`claude-sonnet-5` par défaut (variable `LLM_MODEL`), avec `output_config.effort: "low"` :
-les tours de parole téléphoniques sont courts et la latence prime. Monter en gamme
-(`claude-opus-4-8`) se fait par variable d'environnement, par tenant plus tard.
+Le LLM passe par **OpenRouter** (`api/app/llm.py`, API OpenAI-compatible), ce qui
+permet de choisir librement le modèle via `LLM_MODEL` sans changer de code : un
+modèle gratuit par défaut (`openrouter/free`) pour démarrer sans dépenser, ou un
+modèle précis (`anthropic/claude-sonnet-5`, `openai/gpt-4o-mini`...) une fois le
+produit validé. Monter en gamme ou faire varier le modèle par tenant se fait par
+variable d'environnement, sans changement de code.
 
 ## Phase 2 — transport streaming (implémenté, `VOICE_MODE=stream`)
 
@@ -88,8 +94,8 @@ Appel ──▶ WS /ws/voice (Twilio Media Streams)
         │  STT Deepgram fr (phase A) → Kyutai (phase B)   │
         │        │   VAD Silero + smart-turn v3 (barge-in)│
         │        ▼                                        │
-        │  Claude + outils métier (mêmes TOOLS,           │
-        │  même prompt système que le mode gather)        │
+        │  LLM via OpenRouter + outils métier (mêmes      │
+        │  TOOLS, même prompt système qu'en mode gather)  │
         │        │                                        │
         │        ▼                                        │
         │  TTS Cartesia fr (phase A) → Kyutai (phase B)   │

@@ -1,4 +1,9 @@
-"""Cerveau conversationnel : Claude (API Anthropic) + outils métier du tenant.
+"""Cerveau conversationnel : LLM via OpenRouter (choix libre du modèle) + outils
+métier du tenant.
+
+OpenRouter donne accès à n'importe quel modèle (Claude, GPT, Gemini, Llama,
+Mistral, DeepSeek...) derrière une API OpenAI-compatible unique, avec un modèle
+gratuit disponible par défaut (`openrouter/free`) — voir env.example.
 
 La base de connaissances du tenant est injectée dans le prompt système : pour un
 commerce (menu, horaires, adresse), elle tient largement dans le prompt — un RAG
@@ -8,12 +13,13 @@ import json
 import os
 from datetime import date
 
-import anthropic
+from openai import AsyncOpenAI
 
 from . import reservations
 from .tenants import Tenant
 
-MODEL = os.getenv("LLM_MODEL", "claude-sonnet-5")
+MODEL = os.getenv("LLM_MODEL", "openrouter/free")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 MAX_TOOL_ROUNDS = 5
 
 TOOLS = [
@@ -55,13 +61,38 @@ TOOLS = [
     },
 ]
 
-_client: anthropic.AsyncAnthropic | None = None
+_client: AsyncOpenAI | None = None
 
 
-def get_client() -> anthropic.AsyncAnthropic:
+def _openai_tools() -> list[dict]:
+    """Convertit TOOLS (schéma neutre, aussi consommé tel quel par voice/bot.py)
+    au format d'appel de fonctions OpenAI/OpenRouter."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["input_schema"],
+            },
+        }
+        for tool in TOOLS
+    ]
+
+
+def get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = anthropic.AsyncAnthropic()
+        headers = {}
+        if os.getenv("OPENROUTER_SITE_URL"):
+            headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL")
+        if os.getenv("OPENROUTER_APP_NAME"):
+            headers["X-Title"] = os.getenv("OPENROUTER_APP_NAME")
+        _client = AsyncOpenAI(
+            base_url=OPENROUTER_BASE_URL,
+            api_key=os.getenv("OPENROUTER_API_KEY", ""),
+            default_headers=headers or None,
+        )
     return _client
 
 
@@ -112,48 +143,53 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict) -> str:
 async def respond(tenant: Tenant, history: list, user_text: str) -> tuple[str, list]:
     """Fait avancer la conversation d'un tour.
 
-    `history` est la liste de messages Anthropic des tours précédents ; retourne
-    la réponse à prononcer et l'historique mis à jour.
+    `history` est la liste de messages (format OpenAI/OpenRouter, sans le message
+    système) des tours précédents. Le prompt système est ré-injecté à chaque appel
+    à partir du tenant, puis retiré de l'historique retourné — celui-ci ne contient
+    donc jamais de message système, quel que soit le nombre de tours.
     """
     client = get_client()
-    messages = history + [{"role": "user", "content": user_text}]
+    api_messages = (
+        [{"role": "system", "content": build_system_prompt(tenant)}]
+        + history
+        + [{"role": "user", "content": user_text}]
+    )
 
-    response = None
+    msg = None
     for _ in range(MAX_TOOL_ROUNDS):
-        response = await client.messages.create(
+        response = await client.chat.completions.create(
             model=MODEL,
             max_tokens=1024,
-            output_config={"effort": "low"},
-            system=build_system_prompt(tenant),
-            tools=TOOLS,
-            messages=messages,
+            tools=_openai_tools(),
+            messages=api_messages,
         )
-        messages.append({"role": "assistant", "content": response.content})
+        msg = response.choices[0].message
 
-        if response.stop_reason != "tool_use":
+        assistant_entry = {"role": "assistant", "content": msg.content}
+        if msg.tool_calls:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+        api_messages.append(assistant_entry)
+
+        if not msg.tool_calls:
             break
 
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
+        for tc in msg.tool_calls:
             try:
-                result = await run_tool(tenant, block.name, block.input)
-                tool_results.append(
-                    {"type": "tool_result", "tool_use_id": block.id, "content": result}
-                )
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            try:
+                result = await run_tool(tenant, tc.function.name, args)
             except Exception as exc:  # l'outil a échoué, on laisse le modèle s'excuser
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": f"Erreur: {exc}",
-                        "is_error": True,
-                    }
-                )
-        messages.append({"role": "user", "content": tool_results})
+                result = f"Erreur: {exc}"
+            api_messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-    text = " ".join(
-        block.text for block in response.content if block.type == "text"
-    ).strip()
-    return text, messages
+    text = (msg.content or "").strip() if msg else ""
+    return text, api_messages[1:]

@@ -68,9 +68,19 @@ de référence d'architecture et de preuve que la latence < 1 s est atteignable 
 - Mistral Small / Ministral 8B : alternative française crédible.
 - Le tool calling tient bien en GGUF quantisé (llama.cpp/Ollama pour le dev, vLLM en prod).
 
-**Pour le premier client on reste sur l'API Claude** (le `api/app/llm.py` actuel) :
+**Pour le premier client on passe par une API** (le `api/app/llm.py` actuel) :
 le function calling fiable (réservations) est le cœur du produit, l'API coûte quelques
 euros/mois à faible volume, zéro maintenance, et `LLM_MODEL` permet déjà d'ajuster.
+
+**Mise à jour (juillet 2026) : intégration via OpenRouter.** `llm.py` et `bot.py`
+parlent à OpenRouter (API OpenAI-compatible) plutôt qu'à un fournisseur unique. Ça
+simplifie la trajectoire phase A → phase B décrite ci-dessus : OpenRouter sert aussi
+bien les modèles propriétaires (Claude, GPT, Gemini) que les modèles open source
+quantisés cités plus haut (Qwen3, Llama, Mistral...), donc la bascule reste un simple
+changement de `LLM_MODEL` — l'auto-hébergement complet (Kyutai + Qwen3 sur une 4090)
+n'est nécessaire que pour la souveraineté totale des données (§6), pas pour le choix
+du modèle. Un modèle gratuit (`openrouter/free`) est disponible par défaut pour
+tester à coût nul avant le premier client payant.
 
 **CAG vs RAG** : notre approche actuelle — KB du commerce entière dans le prompt système
 (= CAG, avec prompt caching) — reste la bonne : une KB de restaurant fait 1-5 K tokens,
