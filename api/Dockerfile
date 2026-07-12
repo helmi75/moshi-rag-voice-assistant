@@ -2,9 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# libgomp1 : requis par onnxruntime (VAD Silero / smart-turn du pipeline vocal)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copier d'abord requirements.txt pour utiliser le cache Docker
 COPY ./app/requirements.txt /app/requirements.txt
-RUN pip install --upgrade pip
+# setuptools/wheel récents : certaines dépendances (docopt) ne buildent pas sans
+RUN pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copier le reste de l'application

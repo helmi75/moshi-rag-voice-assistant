@@ -1,171 +1,168 @@
-# Projet Moshi Voice Assistant (Vast.ai)
+# Assistant téléphonique IA pour commerces (SaaS)
 
-Assistant vocal intelligent basé sur Moshi (Kyutai Labs) déployé sur Vast.ai avec support GPU.
+Un assistant qui répond au téléphone à la place des commerces débordés d'appels —
+restaurants, cabinets médicaux, artisans : renseigner les clients (horaires, menu,
+adresse), prendre des réservations, 24h/24.
 
-## 🚀 Fonctionnalités
+**Multi-tenant dès le départ** : un seul déploiement sert plusieurs commerces, chacun
+identifié par son numéro de téléphone Twilio, avec sa propre base de connaissances et
+ses réservations.
 
-- **Moshi AI** : Modèle de voix conversationnelle avancé
-- **API FastAPI** : Backend pour gestion des réservations et RAG
-- **Caddy** : Reverse proxy avec support TLS
-- **Support GPU** : Optimisé pour GPU NVIDIA (24 Go recommandé)
+📍 Voir [ROADMAP.md](ROADMAP.md) pour le plan produit et [ARCHITECTURE.md](ARCHITECTURE.md)
+pour les choix techniques (dont l'abandon de Moshi/GPU).
+
+## 🚀 Fonctionnement
+
+Deux modes vocaux, même cerveau (`VOICE_MODE`) :
+
+**Mode `gather` (défaut — zéro clé supplémentaire, latence 2-4 s)**
+```
+Appel → Twilio (STT) → FastAPI → tenant (par numéro appelé) → LLM + outils métier
+      ← Twilio (TTS) ←         ← réponse + réservation en base
+```
+
+**Mode `stream` (temps réel — latence ~1 s, barge-in)**
+```
+Appel → Twilio Media Streams (WebSocket audio) → Pipecat
+        → STT Deepgram (fr) → LLM + outils → TTS Cartesia (fr) → audio
+```
+
+- **FastAPI** : webhooks Twilio voix/SMS, WebSocket Media Streams, routage multi-tenant
+- **Pipecat** : orchestration temps réel (VAD Silero + smart-turn, interruptions)
+- **LLM via OpenRouter** : conversation + function calling (`create_reservation`,
+  `check_availability`), base de connaissances du commerce en prompt système — le
+  modèle se choisit librement (Claude, GPT, Gemini, Llama...), y compris un modèle
+  gratuit par défaut
+- **SQLite** : tenants et réservations (`data/app.db`)
+- **Caddy** : reverse proxy TLS (WebSockets inclus)
+- **Aucun GPU requis** : tout fonctionne sur un petit VPS
 
 ## 📋 Prérequis
 
-- Instance Vast.ai avec GPU NVIDIA (24 Go recommandé)
-- Docker et Docker Compose installés
-- `nvidia-container-toolkit` configuré
-- Fichiers de modèle Moshi
+- Docker et Docker Compose (ou Python 3.11+ en local)
+- Une clé API OpenRouter ([openrouter.ai/keys](https://openrouter.ai/keys)) —
+  un modèle gratuit est disponible par défaut, aucun paiement requis pour démarrer
+- Un compte Twilio avec un numéro de téléphone
 
 ## 🛠️ Installation
 
-### 1. Cloner le dépôt
+### 1. Cloner et configurer
 
 ```bash
-git clone https://github.com/helmi75/porjet-oshi-vast.git
-cd porjet-oshi-vast
-```
-
-### 2. Configuration des variables d'environnement
-
-```bash
+git clone https://github.com/helmi75/moshi-rag-voice-assistant.git
+cd moshi-rag-voice-assistant
 cp env.example .env
-# Éditez .env avec vos vraies valeurs Twilio
+# Éditez .env : OPENROUTER_API_KEY + identifiants Twilio
 ```
 
-### 3. Configuration du modèle (optionnel)
-
-Les modèles Moshi sont **automatiquement téléchargés** depuis HuggingFace au premier démarrage. Par défaut, le modèle `kyutai/moshika-pytorch-bf16` (voix féminine) est utilisé.
-
-Pour changer de modèle, modifiez `MOSHI_HF_REPO` dans votre `.env` :
-- `kyutai/moshika-pytorch-bf16` (voix féminine, par défaut)
-- `kyutai/moshiko-pytorch-bf16` (voix masculine)
-- `kyutai/moshika-pytorch-q8` (quantifié 8 bits, expérimental)
-
-### 4. Démarrer les services
+### 2. Démarrer
 
 ```bash
 docker compose up -d --build
+docker compose logs -f api
 ```
 
-### 5. Surveiller les logs
+Ou en local sans Docker :
 
 ```bash
-# Logs Moshi
-docker compose logs -f moshi
+cd api
+pip install -r app/requirements.txt
+uvicorn app.main:app --reload
+```
 
-# Logs API
-docker compose logs -f api
+Au premier démarrage, un restaurant de démonstration est créé, rattaché au numéro
+`TWILIO_NUMBER` de votre `.env`.
 
-# Tous les logs
-docker compose logs -f
+### 3. Connecter Twilio
+
+Pointez le webhook vocal de votre numéro Twilio sur `https://VOTRE_DOMAINE/twilio/webhook`
+(guide : [TWILIO_SETUP.md](TWILIO_SETUP.md), ou script automatique `python setup_twilio.py`).
+
+Appelez votre numéro : l'assistant décroche, renseigne et prend des réservations.
+
+### 4. (Optionnel) Activer la voix temps réel
+
+Dans `.env` :
+
+```bash
+VOICE_MODE=stream
+PUBLIC_WS_URL=wss://VOTRE_DOMAINE/ws/voice
+DEEPGRAM_API_KEY=...      # STT français streaming (deepgram.com)
+CARTESIA_API_KEY=...      # TTS français streaming (cartesia.ai)
+CARTESIA_VOICE_ID=...     # une voix française du catalogue Cartesia
+```
+
+Puis `docker compose up -d --build`. La latence passe de 2-4 s à ~1 s et l'appelant
+peut couper la parole à l'assistant. Repasser à `VOICE_MODE=gather` ramène au mode
+sans clés. La bascule vers Kyutai STT/TTS auto-hébergés (100 % local) est prévue en
+phase B — voir [docs/VOICE_STACK.md](docs/VOICE_STACK.md).
+
+## 🧪 Tests
+
+```bash
+# Tests unitaires (LLM mocké, aucun appel réseau)
+cd api && pip install -r tests/requirements-test.txt && pytest tests/ -v
+
+# Test de bout en bout contre une instance qui tourne
+./tests/test_e2e.sh localhost +33100000000
+
+# Simuler un tour de conversation à la main
+curl -X POST http://localhost:8000/twilio/voice \
+  --data-urlencode "CallSid=CA_test" \
+  --data-urlencode "To=+33100000000" \
+  --data-urlencode "SpeechResult=Je voudrais réserver pour 4 personnes demain à 20h, au nom de Durand"
+
+# Voir les réservations du tenant 1
+curl http://localhost:8000/tenants/1/reservations
 ```
 
 ## 📁 Structure du projet
 
 ```
-projet-moshi-vast/
-├── api/                 # API FastAPI
+├── api/
 │   ├── app/
-│   │   ├── main.py      # Point d'entrée API
-│   │   ├── rag.py       # RAG (Recherche augmentée)
-│   │   └── reservations.py
+│   │   ├── main.py          # Webhooks Twilio (voix, SMS), routage tenant
+│   │   ├── llm.py           # LLM (OpenRouter) + outils métier (function calling)
+│   │   ├── tenants.py       # Tenants et résolution par numéro appelé
+│   │   ├── reservations.py  # Réservations (SQLite)
+│   │   └── db.py            # Connexion et schéma SQLite
+│   ├── tests/               # Tests pytest (LLM mocké)
 │   └── Dockerfile
-├── moshi/               # Service Moshi
-│   ├── Dockerfile
-│   └── entrypoint.sh
-├── caddy/               # Reverse proxy
-│   └── Caddyfile
-├── volumes/
-│   ├── models/          # Modèles ML (non versionné)
-│   └── data/            # Données (non versionné)
+├── caddy/Caddyfile          # Reverse proxy
 ├── docker-compose.yml
-├── env.example
-└── README.md
+├── ROADMAP.md               # Plan produit (phases 1 → 4)
+├── ARCHITECTURE.md          # Choix techniques
+└── env.example
 ```
 
-## 🔧 Configuration
+## 🔧 Variables d'environnement
 
-### Variables d'environnement
+| Variable | Description |
+|---|---|
+| `OPENROUTER_API_KEY` | Clé API OpenRouter (obligatoire) |
+| `LLM_MODEL` | Modèle utilisé (défaut : `openrouter/free`) — catalogue complet sur [openrouter.ai/models](https://openrouter.ai/models) |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | Identifiants Twilio |
+| `TWILIO_NUMBER` | Numéro du tenant de démo (E.164) |
+| `DB_PATH` | Chemin SQLite (défaut : `./data/app.db`) |
 
-- `TWILIO_ACCOUNT_SID` : Identifiant compte Twilio
-- `TWILIO_AUTH_TOKEN` : Token d'authentification Twilio
-- `TWILIO_NUMBER` : Numéro de téléphone Twilio
-- `MOSHI_HF_REPO` : Repository HuggingFace du modèle (défaut: `kyutai/moshika-pytorch-bf16`)
-- `MOSHI_PORT` : Port du serveur Moshi (défaut: `8091`)
-- `MOSHI_HOST` : Host du serveur Moshi (défaut: `0.0.0.0`)
+## ➕ Ajouter un commerce (tenant)
 
-### Ports
-
-- **80** : Caddy (HTTP)
-- **443** : Caddy (HTTPS)
-- **8000** : API FastAPI
-- **8091** : Service Moshi
-
-## 🐛 Dépannage
-
-### Vérifier la disponibilité du GPU
+Pour l'instant directement en base (le dashboard arrive en phase 3, voir ROADMAP.md) :
 
 ```bash
-docker compose exec moshi nvidia-smi
+sqlite3 data/app.db "INSERT INTO tenants (name, business_type, phone_number, language, greeting, knowledge_base)
+VALUES ('Pizzeria Bella', 'restaurant', '+33187654321', 'fr-FR',
+        'Bonjour, Pizzeria Bella, que puis-je faire pour vous ?',
+        '## Horaires\nOuvert du mardi au dimanche, 12h-14h30 et 19h-23h. ...');"
 ```
 
-### Redémarrer un service
-
-```bash
-docker compose restart moshi
-docker compose restart api
-```
-
-### Reconstruire les images
-
-```bash
-docker compose up -d --build --force-recreate
-```
-
-## 📝 Notes importantes
-
-- Les modèles sont **automatiquement téléchargés** depuis HuggingFace au premier démarrage
-- Les modèles sont mis en cache dans le volume Docker `moshi_cache` pour éviter les re-téléchargements
-- Le premier démarrage peut prendre plusieurs minutes pour télécharger les modèles (plusieurs GB)
-- Ce package automatise le build et le démarrage pour faciliter le déploiement sur Vast.ai
-- Le serveur Moshi utilise Gradio qui expose une interface web sur le port configuré
-
-## 🔗 Liens utiles
-
-- [Moshi (Kyutai Labs)](https://github.com/kyutai-labs/moshi)
-- [Moshi Demo](https://moshi.chat)
-- [Modèles HuggingFace](https://huggingface.co/collections/kyutai/moshi-v01-release-66eaeaf3302bef6bd9ad7acd)
-- [Vast.ai](https://vast.ai)
-- [Docker Compose](https://docs.docker.com/compose/)
-
-## 📚 Documentation supplémentaire
-
-- [MOSHI_INTEGRATION.md](MOSHI_INTEGRATION.md) : Guide détaillé sur l'intégration avec Moshi
-- [TWILIO_SETUP.md](TWILIO_SETUP.md) : **Guide complet pour configurer Twilio**
-- [GITHUB_SETUP.md](GITHUB_SETUP.md) : Instructions pour créer le dépôt GitHub
-
-## 📞 Configuration Twilio
-
-Pour connecter votre numéro Twilio à l'application :
-
-1. **Configuration manuelle** : Suivez le guide [TWILIO_SETUP.md](TWILIO_SETUP.md)
-2. **Configuration automatique** : Utilisez le script `setup_twilio.py` :
-   ```bash
-   pip install twilio python-dotenv
-   python setup_twilio.py
-   ```
-
-L'URL du webhook à configurer dans Twilio est : `https://VOTRE_DOMAINE/twilio/webhook`
+Chaque numéro Twilio supplémentaire pointe vers le même webhook : le routage se fait
+automatiquement par le champ `To`.
 
 ## 📄 Licence
 
-Voir le fichier LICENSE pour plus de détails.
+Voir le fichier LICENSE.
 
 ## 👤 Auteur
 
 **helmi75**
-
----
-
-⭐ N'oubliez pas de mettre une étoile si ce projet vous est utile !
-

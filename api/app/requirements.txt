@@ -1,6 +1,9 @@
 fastapi
 uvicorn[standard]
+openai
 httpx
 python-dotenv
 pydantic
 python-multipart
+# Pipeline vocal streaming (mode VOICE_MODE=stream)
+pipecat-ai[openai,cartesia,deepgram,silero]~=1.5.0

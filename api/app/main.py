@@ -1,122 +1,218 @@
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import Response
-import httpx
+"""API du SaaS d'accueil téléphonique : webhooks Twilio multi-tenant + Claude."""
+import json
 import os
+import time
 from typing import Optional
+from xml.sax.saxutils import escape
 
-app = FastAPI()
-MOSHI_API = os.getenv("MODEL_API_URL", "http://moshi:8091")
+from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
+
+from . import db, llm, reservations, tenants
+
+app = FastAPI(title="Voice Assistant SaaS")
+
+db.init_db()
+tenants.seed_demo_tenant()
+
+# Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;
+# à remplacer par Redis quand l'API sera répliquée (phase 3 de la roadmap).
+CONVERSATION_TTL_SECONDS = 3600
+_conversations: dict[str, dict] = {}
+
+
+def _get_history(call_sid: str) -> list:
+    now = time.time()
+    for sid in [s for s, c in _conversations.items() if now - c["ts"] > CONVERSATION_TTL_SECONDS]:
+        del _conversations[sid]
+    entry = _conversations.get(call_sid)
+    return entry["messages"] if entry else []
+
+
+def _save_history(call_sid: str, messages: list) -> None:
+    _conversations[call_sid] = {"messages": messages, "ts": time.time()}
+
+
+def _twiml(inner: str) -> Response:
+    body = f"<Response>\n{inner}\n</Response>" if inner else "<Response></Response>"
+    return Response(
+        content=f'<?xml version="1.0" encoding="UTF-8"?>\n{body}',
+        media_type="text/xml",
+    )
+
+
+def _voice_mode() -> str:
+    """"gather" (défaut, boucle Say/Gather) ou "stream" (Media Streams + Pipecat).
+    Lu à chaque requête pour rester configurable sans redémarrage (et testable)."""
+    return os.getenv("VOICE_MODE", "gather").strip().lower()
+
+
+def _stream_ws_url(request: Request) -> str:
+    """URL WebSocket annoncée à Twilio. PUBLIC_WS_URL prime (derrière un proxy,
+    l'hôte vu par l'app n'est pas forcément le domaine public)."""
+    explicit = os.getenv("PUBLIC_WS_URL")
+    if explicit:
+        return explicit
+    return f"wss://{request.url.netloc}/ws/voice"
+
+
+def _stream_twiml(request: Request, to: str, call_sid: str) -> Response:
+    return _twiml(
+        "    <Connect>\n"
+        f'        <Stream url="{escape(_stream_ws_url(request))}">\n'
+        f'            <Parameter name="To" value="{escape(to)}"/>\n'
+        f'            <Parameter name="CallSid" value="{escape(call_sid)}"/>\n'
+        "        </Stream>\n"
+        "    </Connect>"
+    )
+
+
+def _say_and_gather(text: str, language: str) -> Response:
+    return _twiml(
+        f'    <Say language="{language}">{escape(text)}</Say>\n'
+        f'    <Gather input="speech" language="{language}" timeout="5" speechTimeout="auto"'
+        f' action="/twilio/voice" method="POST"/>\n'
+        f'    <Say language="{language}">Merci pour votre appel. Au revoir.</Say>'
+    )
+
 
 @app.get("/health")
 async def health_check():
-    """Endpoint de vérification de santé"""
-    return {"status": "ok", "moshi_api": MOSHI_API}
+    return {"status": "ok", "model": llm.MODEL, "voice_mode": _voice_mode()}
+
 
 @app.post("/twilio/voice")
 async def voice_webhook(
     request: Request,
+    CallSid: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
     SpeechResult: Optional[str] = Form(None),
-    CallSid: Optional[str] = Form(None)
 ):
-    """
-    Webhook pour les appels vocaux Twilio.
-    - Premier appel: retourne un Gather pour collecter la parole
-    - Appels suivants: traite SpeechResult et répond
-    """
-    # Si pas de SpeechResult, c'est le premier appel - demander à l'utilisateur de parler
+    """Webhook vocal Twilio : boucle Gather/Say pilotée par le LLM du tenant."""
+    tenant = tenants.get_by_phone(To)
+    if tenant is None:
+        return _twiml(
+            '    <Say language="fr-FR">Ce numéro n\'est pas encore configuré. Au revoir.</Say>\n'
+            "    <Hangup/>"
+        )
+
+    # Mode streaming : on branche l'appel sur le pipeline Pipecat via Media Streams
+    if _voice_mode() == "stream":
+        return _stream_twiml(request, To or "", CallSid or "")
+
+    # Premier tour : accueil sans appel LLM (latence nulle)
     if not SpeechResult:
-        twiml = """<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say language="fr-FR">Bonjour, je suis votre assistant vocal. Comment puis-je vous aider?</Say>
-    <Gather input="speech" language="fr-FR" timeout="5" action="/twilio/voice" method="POST">
-        <Say language="fr-FR">Je vous écoute.</Say>
-    </Gather>
-    <Say language="fr-FR">Je n'ai pas entendu de réponse. Au revoir.</Say>
-</Response>"""
-        return Response(content=twiml, media_type="text/xml")
-    
-    # Traiter la parole de l'utilisateur
+        return _say_and_gather(tenant.greeting, tenant.language)
+
     try:
-        async with httpx.AsyncClient() as client:
-            # Note: Moshi n'expose pas une API OpenAI-compatible
-            # Ceci est un placeholder - à adapter selon l'API réelle de Moshi
-            r = await client.post(
-                f"{MOSHI_API}/v1/chat/completions",
-                json={
-                    "model": "moshika-pytorch-bf16",
-                    "messages": [{"role": "user", "content": SpeechResult}],
-                    "max_tokens": 150
-                },
-                timeout=60.0
-            )
-            if r.status_code == 200:
-                text = r.json()["choices"][0]["message"]["content"]
-            else:
-                text = "Désolé, je n'ai pas pu traiter votre demande."
-    except Exception as e:
-        print(f"Erreur appel Moshi: {e}")
-        text = "Désolé, une erreur s'est produite."
-    
-    # Répondre et continuer la conversation
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say language="fr-FR">{text}</Say>
-    <Gather input="speech" language="fr-FR" timeout="5" action="/twilio/voice" method="POST">
-        <Say language="fr-FR">Avez-vous autre chose à demander?</Say>
-    </Gather>
-    <Say language="fr-FR">Merci d'avoir appelé. Au revoir.</Say>
-</Response>"""
-    return Response(content=twiml, media_type="text/xml")
+        history = _get_history(CallSid or "")
+        text, messages = await llm.respond(tenant, history, SpeechResult)
+        if CallSid:
+            _save_history(CallSid, messages)
+        if not text:
+            text = "Je n'ai pas bien compris, pouvez-vous répéter ?"
+    except Exception as exc:
+        print(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
+        text = "Désolé, je rencontre un problème technique. Pouvez-vous rappeler dans quelques instants ?"
+
+    return _say_and_gather(text, tenant.language)
+
 
 @app.post("/twilio/sms")
-async def sms_webhook(Body: str = Form(...), From: Optional[str] = Form(None)):
-    """Webhook pour les SMS Twilio"""
-    try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                f"{MOSHI_API}/v1/chat/completions",
-                json={
-                    "model": "moshika-pytorch-bf16",
-                    "messages": [{"role": "user", "content": Body}],
-                    "max_tokens": 150
-                },
-                timeout=60.0
-            )
-            if r.status_code == 200:
-                text = r.json()["choices"][0]["message"]["content"]
-            else:
-                text = "Désolé, je n'ai pas pu traiter votre message."
-    except Exception as e:
-        print(f"Erreur appel Moshi: {e}")
-        text = "Désolé, une erreur s'est produite."
-    
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Message>{text}</Message>
-</Response>"""
-    return Response(content=twiml, media_type="text/xml")
+async def sms_webhook(
+    Body: str = Form(...),
+    From: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+):
+    """Webhook SMS Twilio : réponse mono-tour via le LLM du tenant."""
+    tenant = tenants.get_by_phone(To)
+    if tenant is None:
+        text = "Ce numéro n'est pas encore configuré."
+    else:
+        try:
+            text, _ = await llm.respond(tenant, [], Body)
+        except Exception as exc:
+            print(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
+            text = "Désolé, une erreur s'est produite. Réessayez dans quelques instants."
 
-# Webhook générique (pour compatibilité avec l'ancien setup)
+    return _twiml(f"    <Message>{escape(text)}</Message>")
+
+
 @app.post("/twilio/webhook")
 async def twilio_webhook(request: Request):
-    """Webhook générique qui redirige vers voice ou sms selon le type"""
+    """Webhook générique : route vers voice ou sms selon la charge utile."""
     form_data = await request.form()
-    
-    # Déterminer le type de webhook (Voice ou SMS)
+
     if "CallSid" in form_data:
         return await voice_webhook(
             request,
+            CallSid=form_data.get("CallSid"),
+            To=form_data.get("To"),
             SpeechResult=form_data.get("SpeechResult"),
-            CallSid=form_data.get("CallSid")
         )
-    elif "Body" in form_data:
+    if "Body" in form_data:
         return await sms_webhook(
             Body=form_data.get("Body"),
-            From=form_data.get("From")
+            From=form_data.get("From"),
+            To=form_data.get("To"),
         )
-    else:
-        # Requête inconnue
-        return Response(
-            content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-            media_type="text/xml"
-        )
+    return _twiml("")
+
+
+@app.get("/tenants/{tenant_id}/reservations")
+async def tenant_reservations(tenant_id: int):
+    if tenants.get_by_id(tenant_id) is None:
+        raise HTTPException(status_code=404, detail="Tenant inconnu")
+    return {"reservations": reservations.list_reservations(tenant_id)}
+
+
+def _get_bot_runner():
+    """Import paresseux du bot Pipecat (mockable en test, extras optionnels en gather)."""
+    from .voice.bot import run_bot
+
+    return run_bot
+
+
+# Nombre max de messages lus avant le "start" Twilio (protocole: connected -> start)
+_WS_START_MAX_MESSAGES = 10
+
+
+@app.websocket("/ws/voice")
+async def voice_stream(websocket: WebSocket):
+    """Point d'entrée Twilio Media Streams : poignée de main puis pipeline Pipecat."""
+    await websocket.accept()
+
+    start_data = None
+    try:
+        for _ in range(_WS_START_MAX_MESSAGES):
+            message = json.loads(await websocket.receive_text())
+            if message.get("event") == "start":
+                start_data = message
+                break
+    except (WebSocketDisconnect, json.JSONDecodeError, TypeError):
+        pass
+
+    if not start_data:
+        await websocket.close(code=1002)  # protocole non respecté
+        return
+
+    start = start_data.get("start") or {}
+    stream_sid = start_data.get("streamSid") or start.get("streamSid")
+    call_sid = start.get("callSid")
+    to_number = (start.get("customParameters") or {}).get("To")
+
+    tenant = tenants.get_by_phone(to_number)
+    if tenant is None or not stream_sid:
+        print(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
+        await websocket.close(code=1008)  # policy violation
+        return
+
+    run_bot = _get_bot_runner()
+    try:
+        await run_bot(websocket, stream_sid, call_sid, tenant)
+    except Exception as exc:
+        print(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
+        try:
+            await websocket.close(code=1011)
+        except RuntimeError:
+            pass  # déjà fermée
