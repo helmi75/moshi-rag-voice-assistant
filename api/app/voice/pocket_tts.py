@@ -15,6 +15,8 @@ le premier chargement télécharge les poids depuis Hugging Face (~30-60 s).
 """
 import asyncio
 import os
+import threading
+import time
 from collections.abc import AsyncGenerator
 
 import numpy as np
@@ -30,6 +32,10 @@ _MODEL_CACHE: tuple | None = None
 # Pocket TTS n'est pas thread-safe sur une même instance de modèle : on sérialise
 # les générations concurrentes (limite assumée en phase A — faible simultanéité).
 _GEN_LOCK: asyncio.Lock | None = None
+# Le chargement du modèle se fait depuis asyncio.to_thread (vrais threads) : un
+# threading.Lock est nécessaire (pas asyncio.Lock) pour garantir UN SEUL chargement,
+# même si plusieurs tours de parole déclenchent run_tts en parallèle.
+_MODEL_LOCK = threading.Lock()
 
 
 def _resolve_voice(voice: str) -> str:
@@ -47,19 +53,31 @@ def _resolve_voice(voice: str) -> str:
 
 
 def _load_model_and_state():
-    """Charge (une fois) le modèle Pocket TTS et l'état de la voix configurée."""
-    global _MODEL_CACHE
-    if _MODEL_CACHE is None:
-        from pocket_tts import TTSModel
+    """Charge le modèle Pocket TTS et l'état de la voix — EXACTEMENT une fois.
 
-        language = os.getenv("POCKET_TTS_LANGUAGE", "french_24l")
-        voice = os.getenv("POCKET_TTS_VOICE", "estelle")
-        logger.info(f"Chargement de Pocket TTS (langue={language}, voix={voice})...")
-        model = TTSModel.load_model(language=language)
-        voice_ref = _resolve_voice(voice)
-        base_state = model.get_state_for_audio_prompt(voice_ref)
-        _MODEL_CACHE = (model, base_state, int(model.sample_rate))
-        logger.info(f"Pocket TTS prêt ({_MODEL_CACHE[2]} Hz).")
+    Verrouillage à double vérification (threading.Lock car appelé depuis des
+    threads via asyncio.to_thread) : le premier appelant charge le modèle (long),
+    les appels concurrents attendent puis récupèrent le cache — évite le
+    rechargement en boucle à chaque tour de parole."""
+    global _MODEL_CACHE
+    if _MODEL_CACHE is not None:
+        return _MODEL_CACHE
+    with _MODEL_LOCK:
+        if _MODEL_CACHE is None:
+            from pocket_tts import TTSModel
+
+            language = os.getenv("POCKET_TTS_LANGUAGE", "french_24l")
+            voice = os.getenv("POCKET_TTS_VOICE", "estelle")
+            logger.info(f"Chargement de Pocket TTS (langue={language}, voix={voice})...")
+            started = time.monotonic()
+            model = TTSModel.load_model(language=language)
+            voice_ref = _resolve_voice(voice)
+            base_state = model.get_state_for_audio_prompt(voice_ref)
+            _MODEL_CACHE = (model, base_state, int(model.sample_rate))
+            logger.info(
+                f"Pocket TTS prêt ({_MODEL_CACHE[2]} Hz) en "
+                f"{time.monotonic() - started:.1f}s."
+            )
     return _MODEL_CACHE
 
 
