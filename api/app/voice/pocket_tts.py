@@ -124,15 +124,24 @@ class PocketTTSService(TTSService):
                 gen = model.generate_audio_stream(base_state, text, copy_state=True)
                 sentinel = object()
                 first = True
+                started = time.monotonic()
+                n_chunks = 0
+                n_samples = 0
                 while True:
                     chunk = await asyncio.to_thread(next, gen, sentinel)
                     if chunk is sentinel:
                         break
                     if first:
                         await self.stop_ttfb_metrics()
+                        logger.info(
+                            f"Pocket TTS : 1er chunk en "
+                            f"{time.monotonic() - started:.2f}s"
+                        )
                         first = False
                     # chunk : tenseur torch [samples] float dans [-1, 1]
                     samples = chunk.clamp(-1.0, 1.0).to("cpu").numpy()
+                    n_chunks += 1
+                    n_samples += samples.shape[0]
                     audio_int16 = (samples * 32767).astype(np.int16).tobytes()
                     audio_data = await self._resampler.resample(
                         audio_int16, native_rate, self.sample_rate
@@ -143,6 +152,14 @@ class PocketTTSService(TTSService):
                         num_channels=1,
                         context_id=context_id,
                     )
+                wall = time.monotonic() - started
+                audio_sec = n_samples / native_rate if native_rate else 0.0
+                rtf = audio_sec / wall if wall else 0.0
+                # rtf > 1 = plus rapide que le temps réel (indispensable au téléphone).
+                logger.info(
+                    f"Pocket TTS : {n_chunks} chunks, {audio_sec:.2f}s d'audio "
+                    f"généré en {wall:.2f}s (x{rtf:.2f} temps réel)."
+                )
         except Exception as e:
             logger.error(f"Pocket TTS erreur: {e}")
             yield ErrorFrame(error=f"Pocket TTS error: {e}")
