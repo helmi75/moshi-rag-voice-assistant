@@ -78,9 +78,13 @@ def _stream_ws_url(request: Request) -> str:
 
 
 def _stream_twiml(request: Request, to: str, call_sid: str) -> Response:
+    ws_url = _stream_ws_url(request)
+    # Log explicite : si Twilio ne joint pas cette URL (mauvais tunnel ngrok, http
+    # au lieu de wss...), le flux média ne se connecte jamais et l'appel raccroche.
+    print(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, CallSid={call_sid})")
     return _twiml(
         "    <Connect>\n"
-        f'        <Stream url="{escape(_stream_ws_url(request))}">\n'
+        f'        <Stream url="{escape(ws_url)}">\n'
         f'            <Parameter name="To" value="{escape(to)}"/>\n'
         f'            <Parameter name="CallSid" value="{escape(call_sid)}"/>\n'
         "        </Stream>\n"
@@ -201,6 +205,7 @@ _WS_START_MAX_MESSAGES = 10
 @app.websocket("/ws/voice")
 async def voice_stream(websocket: WebSocket):
     """Point d'entrée Twilio Media Streams : poignée de main puis pipeline Pipecat."""
+    print("[stream] WebSocket /ws/voice : connexion entrante (Twilio a joint l'URL).")
     await websocket.accept()
 
     start_data = None
