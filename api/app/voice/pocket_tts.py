@@ -22,6 +22,7 @@ from loguru import logger
 
 from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import ErrorFrame, Frame, TTSAudioRawFrame
+from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
 
 # Chargé paresseusement : (model, base_voice_state, native_sample_rate)
@@ -73,7 +74,20 @@ class PocketTTSService(TTSService):
     """TTS Pipecat utilisant Kyutai Pocket TTS (CPU, français, voix Unmute)."""
 
     def __init__(self, **kwargs):
-        super().__init__(push_start_frame=True, push_stop_frames=True, **kwargs)
+        # La voix et la langue sont pilotées par les variables d'environnement
+        # (résolues au chargement du modèle) ; on renseigne quand même le settings
+        # Pipecat pour satisfaire sa validation (model/voice/language "given").
+        settings = TTSSettings(
+            model=None,
+            voice=os.getenv("POCKET_TTS_VOICE", "estelle"),
+            language=None,
+        )
+        super().__init__(
+            push_start_frame=True,
+            push_stop_frames=True,
+            settings=settings,
+            **kwargs,
+        )
         self._resampler = create_stream_resampler()
 
     def can_generate_metrics(self) -> bool:
