@@ -15,6 +15,27 @@ app = FastAPI(title="Voice Assistant SaaS")
 db.init_db()
 tenants.seed_demo_tenant()
 
+
+@app.on_event("startup")
+async def _preload_voice_model():
+    """Précharge le modèle TTS local au démarrage (mode stream + TTS_PROVIDER=pocket),
+    dans un thread, pour éviter un gel de 30-60 s au tout premier appel et pour que
+    les logs de démarrage confirment le bon chargement du modèle."""
+    if _voice_mode() != "stream" or os.getenv("TTS_PROVIDER", "pocket").lower() != "pocket":
+        return
+    import asyncio
+
+    async def _load():
+        try:
+            from .voice.pocket_tts import _load_model_and_state
+
+            await asyncio.to_thread(_load_model_and_state)
+            print("Modèle TTS Pocket TTS préchargé (prêt pour le premier appel).")
+        except Exception as exc:
+            print(f"Préchargement Pocket TTS échoué (sera retenté au 1er appel): {exc}")
+
+    asyncio.create_task(_load())
+
 # Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;
 # à remplacer par Redis quand l'API sera répliquée (phase 3 de la roadmap).
 CONVERSATION_TTL_SECONDS = 3600

@@ -9,6 +9,8 @@ utilisable en mode `gather` même si les extras audio ne sont pas installés.
 """
 import os
 
+from loguru import logger
+
 from .. import llm
 from ..tenants import Tenant
 
@@ -112,7 +114,8 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
     stt = DeepgramSTTService(
         api_key=os.getenv("DEEPGRAM_API_KEY", ""),
         live_options=LiveOptions(
-            model=os.getenv("DEEPGRAM_MODEL", "nova-3"),
+            # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL
+            model=os.getenv("DEEPGRAM_MODEL", "nova-2"),
             language=language,
         ),
     )
@@ -167,14 +170,16 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         ),
     )
 
-    @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client):
-        # Accueil immédiat sans tour LLM (latence nulle), comme en mode gather
-        await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
-
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
+        logger.info(f"Appel terminé (tenant {tenant.id}, {call_sid}), arrêt du pipeline.")
         await task.cancel()
+
+    # Message d'accueil : mis en file AVANT le démarrage du pipeline (déterministe,
+    # ne dépend pas de l'événement on_client_connected qui peut être manqué puisque
+    # les messages Twilio "connected"/"start" ont déjà été consommés par le webhook).
+    logger.info(f"Démarrage du pipeline vocal (tenant {tenant.id}, {call_sid}).")
+    await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
 
     runner = PipelineRunner(handle_sigint=False)
     await runner.run(task)
