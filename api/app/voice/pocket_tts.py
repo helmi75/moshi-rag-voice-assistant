@@ -4,9 +4,13 @@ Pocket TTS (kyutai-labs, MIT) : 100 M paramètres, tourne sur CPU en temps réel
 français natif, voix préréglées ou clonage de voix. C'est le petit frère du TTS
 1.6B qui donne la voix d'unmute.sh — même famille technologique, sans GPU.
 
-- Voix préréglée (défaut) : `POCKET_TTS_VOICE=estelle` (voix française).
+- Voix du catalogue (défaut) : `POCKET_TTS_VOICE=estelle` (voix française prête,
+  chargée depuis un .safetensors préréglé, sans clonage). Catalogue : estelle,
+  cosette, marius, alba, jean, anna, vera, fantine, paul, eponine, george...
 - Clonage : `POCKET_TTS_VOICE` = chemin d'un fichier audio, ou une référence
-  `hf://...` / URL vers un échantillon → la voix est clonée depuis cet extrait.
+  `hf://...` / URL vers un échantillon → la voix est clonée depuis cet extrait
+  (nécessite les poids de cloning : accepter les conditions sur huggingface.co
+  et être authentifié `hf auth login`).
 - Langue : `POCKET_TTS_LANGUAGE=french` (défaut), `french_24l` = meilleure qualité,
   plus lente.
 
@@ -41,14 +45,11 @@ _MODEL_LOCK = threading.Lock()
 def _resolve_voice(voice: str) -> str:
     """Transforme la valeur POCKET_TTS_VOICE en référence audio pour le modèle.
 
-    Un nom préréglé ("estelle", "alba"...) est mappé vers l'échantillon audio
-    officiel Kyutai (dont plusieurs voix du site Unmute) ; sinon la valeur est
-    passée telle quelle — chemin local, URL http(s) ou hf:// vers un extrait audio
-    à cloner. La résolution est indépendante de la langue du modèle."""
-    from pocket_tts.utils.utils import _ORIGINS_OF_PREDEFINED_VOICES
-
-    if voice in _ORIGINS_OF_PREDEFINED_VOICES:
-        return _ORIGINS_OF_PREDEFINED_VOICES[voice]
+    Un nom du catalogue ("estelle", "alba"...) est passé TEL QUEL : le modèle
+    charge alors la voix depuis son fichier .safetensors préréglé — aucun clonage,
+    donc pas besoin d'accepter les conditions HF ni des poids de cloning. Toute
+    autre valeur (chemin local, URL http(s), hf:// vers un extrait audio) est aussi
+    passée telle quelle mais déclenche le clonage de voix (poids dédiés requis)."""
     return voice
 
 

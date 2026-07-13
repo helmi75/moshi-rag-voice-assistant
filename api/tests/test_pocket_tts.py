@@ -43,20 +43,12 @@ async def _collect(gen):
 
 
 class TestVoiceResolution:
-    def test_preset_name_maps_to_official_sample(self, monkeypatch):
-        monkeypatch.setattr(
-            "pocket_tts.utils.utils._ORIGINS_OF_PREDEFINED_VOICES",
-            {"estelle": "hf://kyutai/tts-voices/unmute/dev.wav"},
-            raising=False,
-        )
-        assert pocket_tts._resolve_voice("estelle") == "hf://kyutai/tts-voices/unmute/dev.wav"
+    def test_preset_name_passed_through_as_catalog_name(self):
+        # Un nom du catalogue doit rester tel quel : le modèle charge alors la
+        # voix depuis son .safetensors préréglé (aucun clonage).
+        assert pocket_tts._resolve_voice("estelle") == "estelle"
 
-    def test_custom_ref_passed_through_for_cloning(self, monkeypatch):
-        monkeypatch.setattr(
-            "pocket_tts.utils.utils._ORIGINS_OF_PREDEFINED_VOICES",
-            {"estelle": "hf://x.wav"},
-            raising=False,
-        )
+    def test_custom_ref_passed_through_for_cloning(self):
         for value in ("hf://kyutai/x.wav", "/data/ma_voix.wav", "https://x/a.mp3"):
             assert pocket_tts._resolve_voice(value) == value
 
