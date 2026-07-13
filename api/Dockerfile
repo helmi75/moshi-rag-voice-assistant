@@ -2,9 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# libgomp1 : requis par onnxruntime (VAD Silero / smart-turn du pipeline vocal)
+# libgomp1  : requis par onnxruntime (VAD Silero / smart-turn du pipeline vocal)
+# libsndfile1 : requis par soundfile (chargement des voix Pocket TTS)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1 libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copier d'abord requirements.txt pour utiliser le cache Docker

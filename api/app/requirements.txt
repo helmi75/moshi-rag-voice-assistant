@@ -7,3 +7,6 @@ pydantic
 python-multipart
 # Pipeline vocal streaming (mode VOICE_MODE=stream)
 pipecat-ai[openai,cartesia,deepgram,silero]~=1.5.0
+# TTS Kyutai Pocket TTS (voix de la famille Unmute, CPU) — TTS_PROVIDER=pocket
+# [audio] tire soundfile (chargement des voix ; nécessite libsndfile1, cf. Dockerfile)
+pocket-tts[audio]

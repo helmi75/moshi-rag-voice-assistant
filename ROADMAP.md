@@ -40,10 +40,11 @@ sources dans **[docs/VOICE_STACK.md](docs/VOICE_STACK.md)** :
       — `api/app/voice/bot.py`
 - [x] STT streaming français : **Deepgram** (API, phase A) — bascule **Kyutai STT**
       auto-hébergé prévue en phase B (interface Pipecat identique)
-- [x] TTS streaming français : **Cartesia** (API, phase A) — bascule **Kyutai TTS 1.6B**
-      / **Pocket TTS** (CPU) prévue en phase B
+- [x] TTS streaming français : **Kyutai Pocket TTS** (voix de la famille Unmute, CPU,
+      sans clé — `TTS_PROVIDER=pocket`, défaut) ou **Cartesia** (API) en alternative.
+      Montée vers **Kyutai TTS 1.6B** (GPU, voix exacte d'unmute.sh) prévue en phase B
 - [x] Barge-in et détection de fin de tour (VAD Silero + smart-turn v3, embarqués)
-- [x] LLM : API Claude conservée (function calling via Pipecat, mêmes outils/prompts)
+- [x] LLM : via OpenRouter (function calling via Pipecat, mêmes outils/prompts)
 - Le module `llm.py` (tenant + outils) est réutilisé tel quel : seul le transport audio change.
 
 **Coût estimé par minute d'appel** (phase A, tout API) : STT ~0,005 $ + LLM ~0,01-0,03 $
