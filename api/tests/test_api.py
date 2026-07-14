@@ -77,6 +77,20 @@ class TestTenantRouting:
         assert "<Hangup/>" in response.text
 
 
+class TestStreamWsUrl:
+    def test_strips_stray_space_in_public_ws_url(self, monkeypatch):
+        # Une espace collée par erreur dans .env ne doit pas casser l'URL Twilio.
+        from app import main
+        monkeypatch.setenv("PUBLIC_WS_URL", "wss://6e24.ngrok-free.app /ws/voice")
+        assert main._stream_ws_url(None) == "wss://6e24.ngrok-free.app/ws/voice"
+
+    def test_strips_non_breaking_space(self, monkeypatch):
+        # Espace insécable \xa0 (copier-coller depuis un navigateur/chat).
+        from app import main
+        monkeypatch.setenv("PUBLIC_WS_URL", "wss://6e24.ngrok-free.app\xa0/ws/voice")
+        assert main._stream_ws_url(None) == "wss://6e24.ngrok-free.app/ws/voice"
+
+
 class TestVoiceWebhook:
     def test_initial_call_greets_and_gathers(self):
         response = client.post(

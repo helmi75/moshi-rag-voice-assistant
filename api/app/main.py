@@ -70,10 +70,17 @@ def _voice_mode() -> str:
 
 def _stream_ws_url(request: Request) -> str:
     """URL WebSocket annoncée à Twilio. PUBLIC_WS_URL prime (derrière un proxy,
-    l'hôte vu par l'app n'est pas forcément le domaine public)."""
+    l'hôte vu par l'app n'est pas forcément le domaine public).
+
+    On retire TOUTE espace de l'URL : une URL n'en contient jamais, et une seule
+    espace parasite (souvent une espace insécable \\xa0 issue d'un copier-coller
+    depuis un navigateur ou un chat) suffit à empêcher Twilio de joindre le flux
+    média — l'appel raccroche alors sans un mot."""
     explicit = os.getenv("PUBLIC_WS_URL")
     if explicit:
-        return explicit
+        # str.split() sans argument découpe sur toute espace Unicode, \xa0 compris ;
+        # "".join(...) les supprime toutes (début, fin et milieu).
+        return "".join(explicit.split())
     return f"wss://{request.url.netloc}/ws/voice"
 
 
