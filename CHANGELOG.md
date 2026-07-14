@@ -1,5 +1,25 @@
 # Changelog
 
+## En cours (branche `claude/moshi-gpu-980ti-0w8lsv`) — Pocket TTS sur GPU
+
+### Pourquoi
+Sur CPU, `french_24l` met 5-10 s à produire son premier morceau → voix saccadée. Un
+GPU (même une GTX 980 Ti / Maxwell) rend la génération temps réel (< 1 s).
+
+### Ajouté
+- `_select_device()` dans `pocket_tts.py` : `POCKET_TTS_DEVICE=auto` (défaut : GPU si
+  dispo, sinon CPU) / `cuda` / `cpu`. Le modèle (`nn.Module`) est déplacé sur le GPU
+  via `.to(device)` avant la préparation de l'état de voix.
+- `api/Dockerfile.gpu` : PyTorch **2.5.1 + CUDA 12.1** épinglé — dernière lignée
+  compatible Maxwell (sm_52) satisfaisant pocket-tts (>=2.5).
+- `docker-compose.gpu.yml` : surcouche réservant un GPU NVIDIA + `POCKET_TTS_DEVICE=cuda`.
+  Lancement : `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build`.
+- `POCKET_TTS_DEVICE` dans le compose de base et `env.example` ; `docs/GPU.md`
+  (prérequis nvidia-container-toolkit, lancement, vérification, note sur le 1.6B).
+- 4 tests de sélection de device. 53 tests au total, toujours zéro appel réseau.
+
+---
+
 ## v0.2.0 — 2026-07-14 — Pipeline vocal temps réel + voix française fiable
 
 Point stable pour un premier client. Ce qui marche de bout en bout :

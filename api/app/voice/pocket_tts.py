@@ -42,6 +42,29 @@ _GEN_LOCK: asyncio.Lock | None = None
 _MODEL_LOCK = threading.Lock()
 
 
+def _select_device() -> str:
+    """Choisit le périphérique d'inférence pour Pocket TTS.
+
+    `POCKET_TTS_DEVICE` : "auto" (défaut) -> "cuda" si un GPU CUDA est visible,
+    sinon "cpu" ; ou forcer "cuda"/"cpu". Sur GPU, Pocket TTS génère en temps réel
+    (1er chunk < 1 s) — indispensable pour éviter la voix saccadée obtenue sur CPU
+    (où `french_24l` met 5-10 s à produire son premier morceau)."""
+    choice = os.getenv("POCKET_TTS_DEVICE", "auto").strip().lower()
+    if choice in ("cuda", "gpu"):
+        return "cuda"
+    if choice == "cpu":
+        return "cpu"
+    # auto : GPU si disponible, sinon CPU.
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
+
+
 def _resolve_voice(voice: str) -> str:
     """Transforme la valeur POCKET_TTS_VOICE en référence audio pour le modèle.
 
@@ -72,11 +95,18 @@ def _load_model_and_state():
             logger.info(f"Chargement de Pocket TTS (langue={language}, voix={voice})...")
             started = time.monotonic()
             model = TTSModel.load_model(language=language)
+            device = _select_device()
+            if device != "cpu":
+                # TTSModel est un nn.Module : .to() déplace tous ses poids sur le GPU.
+                # Fait AVANT get_state_for_audio_prompt pour que l'état de voix vive
+                # aussi sur le bon périphérique.
+                model = model.to(device)
+                logger.info(f"Pocket TTS : modèle déplacé sur {device} (GPU).")
             voice_ref = _resolve_voice(voice)
             base_state = model.get_state_for_audio_prompt(voice_ref)
             _MODEL_CACHE = (model, base_state, int(model.sample_rate))
             logger.info(
-                f"Pocket TTS prêt ({_MODEL_CACHE[2]} Hz) en "
+                f"Pocket TTS prêt ({_MODEL_CACHE[2]} Hz, device={device}) en "
                 f"{time.monotonic() - started:.1f}s."
             )
     return _MODEL_CACHE

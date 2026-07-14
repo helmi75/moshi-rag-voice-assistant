@@ -22,6 +22,10 @@ services:
       TTS_PROVIDER: "${TTS_PROVIDER:-pocket}"
       POCKET_TTS_VOICE: "${POCKET_TTS_VOICE:-estelle}"
       POCKET_TTS_LANGUAGE: "${POCKET_TTS_LANGUAGE:-french_24l}"
+      # Périphérique d'inférence Pocket TTS : "auto" (GPU si dispo, sinon CPU),
+      # "cuda" (force le GPU) ou "cpu". Le GPU rend le TTS temps réel (voir
+      # docker-compose.gpu.yml et docs/GPU.md). Sur CPU, préférez VOICE_MODE=gather.
+      POCKET_TTS_DEVICE: "${POCKET_TTS_DEVICE:-auto}"
       HF_HOME: "/app/data/hf"
       CARTESIA_API_KEY: "${CARTESIA_API_KEY:-}"
       CARTESIA_VOICE_ID: "${CARTESIA_VOICE_ID:-}"
