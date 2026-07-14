@@ -150,38 +150,71 @@ class PocketTTSService(TTSService):
 
             # Une génération à la fois (modèle non thread-safe). copy_state=True
             # préserve l'état de voix de base d'un énoncé à l'autre.
+            #
+            # PIPELINE : la génération tourne EN CONTINU dans un thread dédié qui
+            # pousse les morceaux (déjà convertis en int16) dans une file ; la boucle
+            # asyncio consomme en parallèle (rééchantillonnage + envoi). Ainsi le GPU
+            # enchaîne les pas sans attendre le traitement aval — sur la version
+            # précédente, il redemandait un chunk seulement APRÈS l'envoi du précédent,
+            # d'où un GPU à ~30 % et un débit sous le temps réel (voix saccadée).
             async with _gen_lock():
-                gen = model.generate_audio_stream(base_state, text, copy_state=True)
-                sentinel = object()
-                first = True
+                loop = asyncio.get_running_loop()
+                queue: asyncio.Queue = asyncio.Queue()
+                done = object()
+                err: dict = {}
+
+                def _produce():
+                    """Génère tous les morceaux dans un thread, sans rendre la main
+                    entre chaque pas — le GPU reste alimenté en permanence."""
+                    try:
+                        gen = model.generate_audio_stream(
+                            base_state, text, copy_state=True
+                        )
+                        for chunk in gen:
+                            # chunk : tenseur torch [samples] float dans [-1, 1].
+                            samples = chunk.clamp(-1.0, 1.0).to("cpu").numpy()
+                            audio_int16 = (samples * 32767).astype(np.int16).tobytes()
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, (audio_int16, samples.shape[0])
+                            )
+                    except Exception as e:  # remonté côté consommateur
+                        err["e"] = e
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, done)
+
                 started = time.monotonic()
+                producer = asyncio.create_task(asyncio.to_thread(_produce))
+                first = True
                 n_chunks = 0
                 n_samples = 0
-                while True:
-                    chunk = await asyncio.to_thread(next, gen, sentinel)
-                    if chunk is sentinel:
-                        break
-                    if first:
-                        await self.stop_ttfb_metrics()
-                        logger.info(
-                            f"Pocket TTS : 1er chunk en "
-                            f"{time.monotonic() - started:.2f}s"
+                try:
+                    while True:
+                        item = await queue.get()
+                        if item is done:
+                            break
+                        audio_int16, n = item
+                        if first:
+                            await self.stop_ttfb_metrics()
+                            logger.info(
+                                f"Pocket TTS : 1er chunk en "
+                                f"{time.monotonic() - started:.2f}s"
+                            )
+                            first = False
+                        n_chunks += 1
+                        n_samples += n
+                        audio_data = await self._resampler.resample(
+                            audio_int16, native_rate, self.sample_rate
                         )
-                        first = False
-                    # chunk : tenseur torch [samples] float dans [-1, 1]
-                    samples = chunk.clamp(-1.0, 1.0).to("cpu").numpy()
-                    n_chunks += 1
-                    n_samples += samples.shape[0]
-                    audio_int16 = (samples * 32767).astype(np.int16).tobytes()
-                    audio_data = await self._resampler.resample(
-                        audio_int16, native_rate, self.sample_rate
-                    )
-                    yield TTSAudioRawFrame(
-                        audio=audio_data,
-                        sample_rate=self.sample_rate,
-                        num_channels=1,
-                        context_id=context_id,
-                    )
+                        yield TTSAudioRawFrame(
+                            audio=audio_data,
+                            sample_rate=self.sample_rate,
+                            num_channels=1,
+                            context_id=context_id,
+                        )
+                finally:
+                    await producer
+                if err:
+                    raise err["e"]
                 wall = time.monotonic() - started
                 audio_sec = n_samples / native_rate if native_rate else 0.0
                 rtf = audio_sec / wall if wall else 0.0
