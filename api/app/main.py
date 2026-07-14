@@ -92,12 +92,29 @@ def _stream_twiml(request: Request, to: str, call_sid: str) -> Response:
     )
 
 
+def _say_voice() -> str:
+    """Voix du <Say> Twilio en mode gather. Défaut : voix neuronale Amazon Polly
+    française (Léa) — naturelle, incluse dans Twilio, latence nulle. Bien meilleure
+    que la voix standard robotique. Surchargeable via TWILIO_VOICE (ex. Polly.Remi-Neural,
+    voix masculine). Mettre TWILIO_VOICE="" pour revenir à la voix standard."""
+    return os.getenv("TWILIO_VOICE", "Polly.Lea-Neural")
+
+
+def _say(text: str, language: str) -> str:
+    """Balise <Say> : avec une voix Polly, la langue est portée par la voix ;
+    sinon on retombe sur l'attribut language standard."""
+    voice = _say_voice()
+    if voice:
+        return f'    <Say voice="{escape(voice)}">{escape(text)}</Say>'
+    return f'    <Say language="{language}">{escape(text)}</Say>'
+
+
 def _say_and_gather(text: str, language: str) -> Response:
     return _twiml(
-        f'    <Say language="{language}">{escape(text)}</Say>\n'
+        f"{_say(text, language)}\n"
         f'    <Gather input="speech" language="{language}" timeout="5" speechTimeout="auto"'
         f' action="/twilio/voice" method="POST"/>\n'
-        f'    <Say language="{language}">Merci pour votre appel. Au revoir.</Say>'
+        f'{_say("Merci pour votre appel. Au revoir.", language)}'
     )
 
 
@@ -116,10 +133,8 @@ async def voice_webhook(
     """Webhook vocal Twilio : boucle Gather/Say pilotée par le LLM du tenant."""
     tenant = tenants.get_by_phone(To)
     if tenant is None:
-        return _twiml(
-            '    <Say language="fr-FR">Ce numéro n\'est pas encore configuré. Au revoir.</Say>\n'
-            "    <Hangup/>"
-        )
+        not_configured = _say("Ce numéro n'est pas encore configuré. Au revoir.", "fr-FR")
+        return _twiml(not_configured + "\n    <Hangup/>")
 
     # Mode streaming : on branche l'appel sur le pipeline Pipecat via Media Streams
     if _voice_mode() == "stream":
