@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.2.0 — 2026-07-14 — Pipeline vocal temps réel + voix française fiable
+
+Point stable pour un premier client. Ce qui marche de bout en bout :
+
+- **Routage multi-tenant** par numéro Twilio appelé, avec réalignement automatique du
+  tenant de démo sur `TWILIO_NUMBER` au démarrage (fin du « ce numéro n'est pas encore
+  configuré » quand un mauvais numéro s'était figé dans le volume Docker).
+- **Mode `gather` (défaut, recommandé sur CPU)** : voix **neuronale** Amazon Polly
+  française (Léa) via `<Say voice="Polly.Lea-Neural">` — naturelle, incluse dans Twilio,
+  zéro latence, zéro clé. Surchargeable par `TWILIO_VOICE`.
+- **Mode `stream`** : pipeline Pipecat temps réel (Deepgram STT + LLM OpenRouter +
+  Pocket TTS / Cartesia). Voix Kyutai « Pocket TTS » branchée.
+- **LLM** OpenRouter avec function calling (`check_availability`, `create_reservation`).
+
+**Limite connue, cause de la voix saccadée en `stream` :** Pocket TTS français
+(`french_24l`) sur **CPU** met 5–10 s à produire son premier morceau, au-delà du seuil
+de Pipecat → l'audio est haché ou perdu. Sur CPU, utiliser `VOICE_MODE=gather` (Polly)
+ou `TTS_PROVIDER=cartesia`. Le support **GPU** (qui rend Pocket TTS temps réel) est la
+suite, sur une branche dédiée.
+
+---
+
 ## 2026-07 — Voix Kyutai (Pocket TTS) dans le pipeline streaming
 
 ### Pourquoi
