@@ -25,8 +25,8 @@ Pourquoi Kyutai STT gagne pour nous :
 
 | Modèle | Streaming | Français | TTFA | Licence | Verdict |
 |---|---|---|---|---|---|
-| **Kyutai TTS 1.6B** | ✅ (parle avant la fin du texte) | ✅ | ~450-750 ms | Open source | ✅ **Retenu** |
-| **Kyutai Pocket TTS** (100M) | ✅ | ✅ (depuis avr. 2026) | temps réel **sur CPU** | Open source | ✅ Option zéro-GPU |
+| **Kyutai Pocket TTS** (100M) | ✅ | ✅ (`french_24l`) | temps réel **sur CPU** | MIT | ✅ **Retenu phase A** (implémenté, `TTS_PROVIDER=pocket`) |
+| **Kyutai TTS 1.6B** | ✅ (parle avant la fin du texte) | ✅ | ~450-750 ms | Open source | ✅ Cible phase B (GPU, voix exacte d'unmute.sh) |
 | Chatterbox / Turbo (Resemble) | ✅ | ⚠️ Turbo = anglais seul | ~rapide | Open | Multilingue hors Turbo, moins bon fit FR |
 | Fish Speech / OpenAudio | ✅ | ✅ | ~100 ms (API) | **CC-BY-NC** | ❌ non commercial sans licence payante |
 | Kokoro | ✅ | ⚠️ limité | rapide | Apache | Français trop juste |

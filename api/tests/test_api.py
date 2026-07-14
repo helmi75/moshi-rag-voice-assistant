@@ -51,6 +51,19 @@ class TestTenantRouting:
         assert tenant is not None
         assert tenant.business_type == "restaurant"
 
+    def test_seed_realigns_demo_number_on_restart(self, monkeypatch):
+        # Un premier démarrage a pu figer un mauvais numéro dans le volume ;
+        # au redémarrage avec le bon TWILIO_NUMBER, le tenant démo doit suivre.
+        new_number = "+19998887777"
+        monkeypatch.setattr(tenants, "DEMO_TENANT_NUMBER", new_number)
+        tenants.seed_demo_tenant()
+        assert tenants.get_by_phone(new_number) is not None
+        # Restaure le numéro de démo pour ne pas perturber les autres tests.
+        monkeypatch.setattr(tenants, "DEMO_TENANT_NUMBER", DEMO_NUMBER)
+        tenants.seed_demo_tenant()
+        assert tenants.get_by_phone(DEMO_NUMBER) is not None
+        assert tenants.get_by_phone(new_number) is None
+
     def test_unknown_number_hangs_up(self):
         response = client.post(
             "/twilio/voice", data={"CallSid": "CA1", "To": "+19999999999"}
@@ -73,6 +86,28 @@ class TestVoiceWebhook:
         assert "text/xml" in response.headers["content-type"]
         assert "<Gather" in response.text
         assert "Fouquet" in response.text
+        assert 'language="fr-FR"' in response.text
+
+    def test_greeting_uses_neural_voice_by_default(self):
+        # Par défaut, la voix neuronale Amazon Polly (Léa) est utilisée pour le <Say>.
+        response = client.post(
+            "/twilio/voice", data={"CallSid": "CA100b", "To": DEMO_NUMBER}
+        )
+        assert 'voice="Polly.Lea-Neural"' in response.text
+
+    def test_voice_is_configurable(self, monkeypatch):
+        monkeypatch.setenv("TWILIO_VOICE", "Polly.Remi-Neural")
+        response = client.post(
+            "/twilio/voice", data={"CallSid": "CA100c", "To": DEMO_NUMBER}
+        )
+        assert 'voice="Polly.Remi-Neural"' in response.text
+
+    def test_voice_can_fallback_to_standard(self, monkeypatch):
+        monkeypatch.setenv("TWILIO_VOICE", "")
+        response = client.post(
+            "/twilio/voice", data={"CallSid": "CA100d", "To": DEMO_NUMBER}
+        )
+        assert "voice=" not in response.text
         assert 'language="fr-FR"' in response.text
 
     def test_speech_result_calls_llm(self):

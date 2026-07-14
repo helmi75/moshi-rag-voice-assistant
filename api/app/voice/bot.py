@@ -9,6 +9,8 @@ utilisable en mode `gather` même si les extras audio ne sont pas installés.
 """
 import os
 
+from loguru import logger
+
 from .. import llm
 from ..tenants import Tenant
 
@@ -24,6 +26,27 @@ def make_tool_handler(tenant: Tenant):
         await params.result_callback(result)
 
     return handle
+
+
+def build_tts():
+    """Construit le service TTS selon TTS_PROVIDER (défaut : pocket = voix Kyutai,
+    CPU, sans clé). `cartesia` en alternative (API, nécessite CARTESIA_API_KEY)."""
+    provider = os.getenv("TTS_PROVIDER", "pocket").strip().lower()
+    if provider == "pocket":
+        from .pocket_tts import PocketTTSService
+
+        return PocketTTSService()
+    if provider == "cartesia":
+        from pipecat.services.cartesia.tts import CartesiaTTSService
+
+        return CartesiaTTSService(
+            api_key=os.getenv("CARTESIA_API_KEY", ""),
+            voice_id=os.getenv("CARTESIA_VOICE_ID", ""),
+            model=os.getenv("CARTESIA_MODEL") or None,
+        )
+    raise ValueError(
+        f"TTS_PROVIDER inconnu : {provider!r} (valeurs acceptées : pocket, cartesia)"
+    )
 
 
 def build_function_schemas():
@@ -54,7 +77,6 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         LLMUserAggregatorParams,
     )
     from pipecat.serializers.twilio import TwilioFrameSerializer
-    from pipecat.services.cartesia.tts import CartesiaTTSService
     from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
     from pipecat.services.openai.llm import OpenAILLMService
     from pipecat.transports.websocket.fastapi import (
@@ -92,16 +114,13 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
     stt = DeepgramSTTService(
         api_key=os.getenv("DEEPGRAM_API_KEY", ""),
         live_options=LiveOptions(
-            model=os.getenv("DEEPGRAM_MODEL", "nova-3"),
+            # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL
+            model=os.getenv("DEEPGRAM_MODEL", "nova-2"),
             language=language,
         ),
     )
 
-    tts = CartesiaTTSService(
-        api_key=os.getenv("CARTESIA_API_KEY", ""),
-        voice_id=os.getenv("CARTESIA_VOICE_ID", ""),
-        model=os.getenv("CARTESIA_MODEL") or None,
-    )
+    tts = build_tts()
 
     headers = {}
     if os.getenv("OPENROUTER_SITE_URL"):
@@ -151,14 +170,16 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         ),
     )
 
-    @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client):
-        # Accueil immédiat sans tour LLM (latence nulle), comme en mode gather
-        await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
-
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
+        logger.info(f"Appel terminé (tenant {tenant.id}, {call_sid}), arrêt du pipeline.")
         await task.cancel()
+
+    # Message d'accueil : mis en file AVANT le démarrage du pipeline (déterministe,
+    # ne dépend pas de l'événement on_client_connected qui peut être manqué puisque
+    # les messages Twilio "connected"/"start" ont déjà été consommés par le webhook).
+    logger.info(f"Démarrage du pipeline vocal (tenant {tenant.id}, {call_sid}).")
+    await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
 
     runner = PipelineRunner(handle_sigint=False)
     await runner.run(task)

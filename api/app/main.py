@@ -15,6 +15,27 @@ app = FastAPI(title="Voice Assistant SaaS")
 db.init_db()
 tenants.seed_demo_tenant()
 
+
+@app.on_event("startup")
+async def _preload_voice_model():
+    """Précharge le modèle TTS local au démarrage (mode stream + TTS_PROVIDER=pocket),
+    dans un thread, pour éviter un gel de 30-60 s au tout premier appel et pour que
+    les logs de démarrage confirment le bon chargement du modèle."""
+    if _voice_mode() != "stream" or os.getenv("TTS_PROVIDER", "pocket").lower() != "pocket":
+        return
+    import asyncio
+
+    async def _load():
+        try:
+            from .voice.pocket_tts import _load_model_and_state
+
+            await asyncio.to_thread(_load_model_and_state)
+            print("Modèle TTS Pocket TTS préchargé (prêt pour le premier appel).")
+        except Exception as exc:
+            print(f"Préchargement Pocket TTS échoué (sera retenté au 1er appel): {exc}")
+
+    asyncio.create_task(_load())
+
 # Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;
 # à remplacer par Redis quand l'API sera répliquée (phase 3 de la roadmap).
 CONVERSATION_TTL_SECONDS = 3600
@@ -57,9 +78,13 @@ def _stream_ws_url(request: Request) -> str:
 
 
 def _stream_twiml(request: Request, to: str, call_sid: str) -> Response:
+    ws_url = _stream_ws_url(request)
+    # Log explicite : si Twilio ne joint pas cette URL (mauvais tunnel ngrok, http
+    # au lieu de wss...), le flux média ne se connecte jamais et l'appel raccroche.
+    print(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, CallSid={call_sid})")
     return _twiml(
         "    <Connect>\n"
-        f'        <Stream url="{escape(_stream_ws_url(request))}">\n'
+        f'        <Stream url="{escape(ws_url)}">\n'
         f'            <Parameter name="To" value="{escape(to)}"/>\n'
         f'            <Parameter name="CallSid" value="{escape(call_sid)}"/>\n'
         "        </Stream>\n"
@@ -67,12 +92,29 @@ def _stream_twiml(request: Request, to: str, call_sid: str) -> Response:
     )
 
 
+def _say_voice() -> str:
+    """Voix du <Say> Twilio en mode gather. Défaut : voix neuronale Amazon Polly
+    française (Léa) — naturelle, incluse dans Twilio, latence nulle. Bien meilleure
+    que la voix standard robotique. Surchargeable via TWILIO_VOICE (ex. Polly.Remi-Neural,
+    voix masculine). Mettre TWILIO_VOICE="" pour revenir à la voix standard."""
+    return os.getenv("TWILIO_VOICE", "Polly.Lea-Neural")
+
+
+def _say(text: str, language: str) -> str:
+    """Balise <Say> : avec une voix Polly, la langue est portée par la voix ;
+    sinon on retombe sur l'attribut language standard."""
+    voice = _say_voice()
+    if voice:
+        return f'    <Say voice="{escape(voice)}">{escape(text)}</Say>'
+    return f'    <Say language="{language}">{escape(text)}</Say>'
+
+
 def _say_and_gather(text: str, language: str) -> Response:
     return _twiml(
-        f'    <Say language="{language}">{escape(text)}</Say>\n'
+        f"{_say(text, language)}\n"
         f'    <Gather input="speech" language="{language}" timeout="5" speechTimeout="auto"'
         f' action="/twilio/voice" method="POST"/>\n'
-        f'    <Say language="{language}">Merci pour votre appel. Au revoir.</Say>'
+        f'{_say("Merci pour votre appel. Au revoir.", language)}'
     )
 
 
@@ -91,10 +133,8 @@ async def voice_webhook(
     """Webhook vocal Twilio : boucle Gather/Say pilotée par le LLM du tenant."""
     tenant = tenants.get_by_phone(To)
     if tenant is None:
-        return _twiml(
-            '    <Say language="fr-FR">Ce numéro n\'est pas encore configuré. Au revoir.</Say>\n'
-            "    <Hangup/>"
-        )
+        not_configured = _say("Ce numéro n'est pas encore configuré. Au revoir.", "fr-FR")
+        return _twiml(not_configured + "\n    <Hangup/>")
 
     # Mode streaming : on branche l'appel sur le pipeline Pipecat via Media Streams
     if _voice_mode() == "stream":
@@ -180,6 +220,7 @@ _WS_START_MAX_MESSAGES = 10
 @app.websocket("/ws/voice")
 async def voice_stream(websocket: WebSocket):
     """Point d'entrée Twilio Media Streams : poignée de main puis pipeline Pipecat."""
+    print("[stream] WebSocket /ws/voice : connexion entrante (Twilio a joint l'URL).")
     await websocket.accept()
 
     start_data = None

@@ -67,8 +67,26 @@ def get_by_id(tenant_id: int) -> Optional[Tenant]:
 
 
 def seed_demo_tenant() -> None:
-    """Crée le restaurant de démonstration si la base est vide."""
+    """Crée le restaurant de démonstration si absent, et garde son numéro aligné
+    sur TWILIO_NUMBER.
+
+    Le numéro est réaligné à chaque démarrage : sans ça, un premier démarrage avec
+    un mauvais TWILIO_NUMBER (ou le défaut) fige le numéro dans le volume Docker et
+    tous les appels tombent sur « numéro non configuré ». Pour ne pas écraser une
+    vraie prod, on ne sème rien si d'autres tenants existent déjà."""
     with db.get_conn() as conn:
+        demo = conn.execute(
+            "SELECT id, phone_number FROM tenants WHERE name = ? AND business_type = ?",
+            ("Le Fouquet's Paris", "restaurant"),
+        ).fetchone()
+        if demo is not None:
+            if DEMO_TENANT_NUMBER and demo["phone_number"] != DEMO_TENANT_NUMBER:
+                conn.execute(
+                    "UPDATE tenants SET phone_number = ? WHERE id = ?",
+                    (DEMO_TENANT_NUMBER, demo["id"]),
+                )
+            return
+        # Pas de tenant démo : ne semer que si la base est vide (jamais en prod).
         count = conn.execute("SELECT COUNT(*) FROM tenants").fetchone()[0]
         if count:
             return

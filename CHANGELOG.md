@@ -1,5 +1,58 @@
 # Changelog
 
+## v0.2.0 — 2026-07-14 — Pipeline vocal temps réel + voix française fiable
+
+Point stable pour un premier client. Ce qui marche de bout en bout :
+
+- **Routage multi-tenant** par numéro Twilio appelé, avec réalignement automatique du
+  tenant de démo sur `TWILIO_NUMBER` au démarrage (fin du « ce numéro n'est pas encore
+  configuré » quand un mauvais numéro s'était figé dans le volume Docker).
+- **Mode `gather` (défaut, recommandé sur CPU)** : voix **neuronale** Amazon Polly
+  française (Léa) via `<Say voice="Polly.Lea-Neural">` — naturelle, incluse dans Twilio,
+  zéro latence, zéro clé. Surchargeable par `TWILIO_VOICE`.
+- **Mode `stream`** : pipeline Pipecat temps réel (Deepgram STT + LLM OpenRouter +
+  Pocket TTS / Cartesia). Voix Kyutai « Pocket TTS » branchée.
+- **LLM** OpenRouter avec function calling (`check_availability`, `create_reservation`).
+
+**Limite connue, cause de la voix saccadée en `stream` :** Pocket TTS français
+(`french_24l`) sur **CPU** met 5–10 s à produire son premier morceau, au-delà du seuil
+de Pipecat → l'audio est haché ou perdu. Sur CPU, utiliser `VOICE_MODE=gather` (Polly)
+ou `TTS_PROVIDER=cartesia`. Le support **GPU** (qui rend Pocket TTS temps réel) est la
+suite, sur une branche dédiée.
+
+---
+
+## 2026-07 — Voix Kyutai (Pocket TTS) dans le pipeline streaming
+
+### Pourquoi
+La voix du mode `gather` est le TTS robotique de Twilio. L'utilisateur veut la voix
+de la famille Unmute (Kyutai). Kyutai TTS 1.6B (la voix exacte d'unmute.sh) exige un
+GPU ; **Pocket TTS** (kyutai-labs, MIT, 100 M params) offre la même famille de voix
+en tournant sur **CPU** — dont la voix `estelle`, littéralement un échantillon du
+site Unmute.
+
+### Ajouté
+- `api/app/voice/pocket_tts.py` : `PocketTTSService(TTSService)` — service TTS Pipecat
+  basé sur Pocket TTS. Chargement du modèle + voix en singleton (une fois par process),
+  génération streaming (`generate_audio_stream`) offloadée en thread, resample vers le
+  8 kHz Twilio, sérialisée par un lock (modèle non thread-safe). Voix préréglée
+  (`estelle`, défaut) ou clonage depuis un extrait audio (`POCKET_TTS_VOICE=chemin/url`).
+- `bot.build_tts()` : sélecteur `TTS_PROVIDER` — **`pocket` par défaut** (voix Kyutai,
+  CPU, sans clé), `cartesia` en alternative API.
+- `pocket-tts[audio]` dans requirements ; `libsndfile1` dans le Dockerfile (soundfile) ;
+  `TTS_PROVIDER`/`POCKET_TTS_VOICE`/`POCKET_TTS_LANGUAGE`/`HF_HOME` dans compose et env.
+- 9 nouveaux tests (`api/tests/test_pocket_tts.py`, modèle mocké) : résolution de voix,
+  frames audio produites, gestion d'erreur, singleton, sélecteur `build_tts`. 45 tests
+  au total, toujours zéro appel réseau.
+
+### Notes
+- Le français impose la variante `french_24l` (bug attrapé en test réel : `french`
+  seul lève une ValueError côté pocket-tts).
+- Limite assumée phase A : génération TTS sérialisée (faible simultanéité). Le 1.6B GPU
+  reste la cible phase B pour la qualité maximale et la concurrence.
+
+---
+
 ## 2026-07 — Bascule du LLM vers OpenRouter (choix libre du modèle)
 
 ### Pourquoi

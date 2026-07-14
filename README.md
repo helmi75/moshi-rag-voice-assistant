@@ -24,7 +24,7 @@ Appel → Twilio (STT) → FastAPI → tenant (par numéro appelé) → LLM + ou
 **Mode `stream` (temps réel — latence ~1 s, barge-in)**
 ```
 Appel → Twilio Media Streams (WebSocket audio) → Pipecat
-        → STT Deepgram (fr) → LLM + outils → TTS Cartesia (fr) → audio
+        → STT Deepgram (fr) → LLM + outils → TTS Kyutai/Pocket (fr, CPU) → audio
 ```
 
 - **FastAPI** : webhooks Twilio voix/SMS, WebSocket Media Streams, routage multi-tenant
@@ -80,22 +80,32 @@ Pointez le webhook vocal de votre numéro Twilio sur `https://VOTRE_DOMAINE/twil
 
 Appelez votre numéro : l'assistant décroche, renseigne et prend des réservations.
 
-### 4. (Optionnel) Activer la voix temps réel
+### 4. (Optionnel) Activer la voix temps réel (belle voix Kyutai)
 
+La voix robotique du mode `gather` laisse place à la voix **Kyutai Pocket TTS** (la
+famille de voix d'Unmute), qui tourne en local sur CPU — aucune clé TTS requise.
 Dans `.env` :
 
 ```bash
 VOICE_MODE=stream
-PUBLIC_WS_URL=wss://VOTRE_DOMAINE/ws/voice
-DEEPGRAM_API_KEY=...      # STT français streaming (deepgram.com)
-CARTESIA_API_KEY=...      # TTS français streaming (cartesia.ai)
-CARTESIA_VOICE_ID=...     # une voix française du catalogue Cartesia
+PUBLIC_WS_URL=wss://VOTRE_DOMAINE/ws/voice   # en test : wss://xxxx.ngrok-free.app/ws/voice
+DEEPGRAM_API_KEY=...      # STT français streaming (deepgram.com, crédits gratuits)
+# TTS_PROVIDER=pocket (défaut) — voix Kyutai sur CPU, rien d'autre à configurer
 ```
 
-Puis `docker compose up -d --build`. La latence passe de 2-4 s à ~1 s et l'appelant
-peut couper la parole à l'assistant. Repasser à `VOICE_MODE=gather` ramène au mode
-sans clés. La bascule vers Kyutai STT/TTS auto-hébergés (100 % local) est prévue en
-phase B — voir [docs/VOICE_STACK.md](docs/VOICE_STACK.md).
+Puis `docker compose up -d --build`. La latence passe de 2-4 s à ~1 s, la voix devient
+naturelle, et l'appelant peut couper la parole à l'assistant. **Premier appel** :
+~30-60 s de préchauffage (téléchargement du modèle Pocket TTS, mis en cache ensuite).
+Repasser à `VOICE_MODE=gather` ramène au mode sans clé.
+
+- **Cloner une voix** : `POCKET_TTS_VOICE=/chemin/extrait.wav` (ou une URL `hf://`) —
+  Pocket TTS imite la voix de l'échantillon.
+- **Autre voix française prête** : `POCKET_TTS_VOICE=estelle` (défaut).
+- **Alternative TTS payante** (API Cartesia) : `TTS_PROVIDER=cartesia` +
+  `CARTESIA_API_KEY` / `CARTESIA_VOICE_ID`.
+
+La montée en qualité vers le TTS Kyutai 1.6B (GPU, la voix exacte d'unmute.sh) reste
+prévue en phase B — voir [docs/VOICE_STACK.md](docs/VOICE_STACK.md).
 
 ## 🧪 Tests
 
