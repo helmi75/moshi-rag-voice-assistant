@@ -37,6 +37,11 @@ def build_tts():
         from .pocket_tts import PocketTTSService
 
         return PocketTTSService()
+    if provider == "kyutai":
+        # Kyutai TTS 1.6B (la voix d'unmute.sh), GPU requis — déploiement Modal.
+        from .kyutai_tts import KyutaiTTSService
+
+        return KyutaiTTSService()
     if provider == "cartesia":
         from pipecat.services.cartesia.tts import CartesiaTTSService
         from pipecat.transcriptions.language import Language
@@ -55,7 +60,8 @@ def build_tts():
             params=CartesiaTTSService.InputParams(language=language),
         )
     raise ValueError(
-        f"TTS_PROVIDER inconnu : {provider!r} (valeurs acceptées : pocket, cartesia)"
+        f"TTS_PROVIDER inconnu : {provider!r} "
+        "(valeurs acceptées : pocket, kyutai, cartesia)"
     )
 
 

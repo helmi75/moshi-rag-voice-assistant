@@ -150,6 +150,13 @@ class TestBuildTTS:
         monkeypatch.setenv("TTS_PROVIDER", "pocket")
         assert isinstance(bot.build_tts(), pocket_tts.PocketTTSService)
 
+    def test_kyutai_selected(self, monkeypatch):
+        # Le provider kyutai s'instancie sans charger `moshi` (imports paresseux).
+        monkeypatch.setenv("TTS_PROVIDER", "kyutai")
+        from app.voice.kyutai_tts import KyutaiTTSService
+
+        assert isinstance(bot.build_tts(), KyutaiTTSService)
+
     def test_cartesia_selected(self, monkeypatch):
         monkeypatch.setenv("TTS_PROVIDER", "cartesia")
         monkeypatch.setenv("CARTESIA_API_KEY", "fake")
