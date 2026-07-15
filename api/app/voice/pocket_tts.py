@@ -109,6 +109,14 @@ def _load_model_and_state():
                 f"Pocket TTS prêt ({_MODEL_CACHE[2]} Hz, device={device}) en "
                 f"{time.monotonic() - started:.1f}s."
             )
+            if device == "cpu":
+                logger.warning(
+                    "Pocket TTS tourne sur CPU : la voix française (french_24l) y est "
+                    "TROP LENTE (débit < temps réel) et sera SACCADÉE au téléphone. "
+                    "Pour le GPU, lancez avec la surcouche : "
+                    "docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d. "
+                    "Sinon, préférez TTS_PROVIDER=cartesia ou VOICE_MODE=gather."
+                )
     return _MODEL_CACHE
 
 

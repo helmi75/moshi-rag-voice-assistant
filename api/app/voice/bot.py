@@ -32,6 +32,7 @@ def build_tts():
     """Construit le service TTS selon TTS_PROVIDER (défaut : pocket = voix Kyutai,
     CPU, sans clé). `cartesia` en alternative (API, nécessite CARTESIA_API_KEY)."""
     provider = os.getenv("TTS_PROVIDER", "pocket").strip().lower()
+    logger.info(f"TTS provider sélectionné : {provider}")
     if provider == "pocket":
         from .pocket_tts import PocketTTSService
 
