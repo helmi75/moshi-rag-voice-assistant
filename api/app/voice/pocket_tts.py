@@ -162,6 +162,12 @@ class PocketTTSService(TTSService):
                 queue: asyncio.Queue = asyncio.Queue()
                 done = object()
                 err: dict = {}
+                # Signal d'arrêt anticipé : si l'appelant coupe la parole (barge-in),
+                # Pipecat annule run_tts ; on pose ce drapeau pour que le thread de
+                # génération s'arrête au pas suivant (~110 ms) au lieu de terminer tout
+                # l'énoncé — supprime le « timed out waiting for task to cancel » et la
+                # latence d'~1 s avant que le bot se taise.
+                stop_event = threading.Event()
 
                 # Mouchards : décomposent le temps pour localiser le goulot.
                 # Producteur (thread) : "gen" = pas de génération du modèle (GPU),
@@ -175,11 +181,12 @@ class PocketTTSService(TTSService):
                     """Génère tous les morceaux dans un thread, sans rendre la main
                     entre chaque pas — le GPU reste alimenté en permanence."""
                     prod_started = time.monotonic()
+                    gen = None
                     try:
                         gen = model.generate_audio_stream(
                             base_state, text, copy_state=True
                         )
-                        while True:
+                        while not stop_event.is_set():
                             t0 = time.monotonic()
                             try:
                                 chunk = next(gen)
@@ -207,6 +214,12 @@ class PocketTTSService(TTSService):
                     except Exception as e:  # remonté côté consommateur
                         err["e"] = e
                     finally:
+                        # Libère le générateur (et son état GPU) sans attendre.
+                        if gen is not None:
+                            try:
+                                gen.close()
+                            except Exception:
+                                pass
                         prof["wall"] = time.monotonic() - prod_started
                         loop.call_soon_threadsafe(queue.put_nowait, done)
 
@@ -246,6 +259,10 @@ class PocketTTSService(TTSService):
                             context_id=context_id,
                         )
                 finally:
+                    # Coupe la génération (barge-in / fin normale) puis attend que
+                    # le thread se termine — il s'arrête au pas suivant (~110 ms)
+                    # grâce à stop_event, au lieu de finir tout l'énoncé.
+                    stop_event.set()
                     await producer
                 if err:
                     raise err["e"]
