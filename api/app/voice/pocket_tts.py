@@ -163,23 +163,51 @@ class PocketTTSService(TTSService):
                 done = object()
                 err: dict = {}
 
+                # Mouchards : décomposent le temps pour localiser le goulot.
+                # Producteur (thread) : "gen" = pas de génération du modèle (GPU),
+                # "conv" = copie GPU->CPU + conversion int16, "wall" = total thread.
+                # Consommateur (boucle) : "wait" = temps passé à ATTENDRE un morceau
+                # (file vide = producteur trop lent), "resample" = rééchantillonnage 8 kHz.
+                prof = {"gen": 0.0, "conv": 0.0, "steps": 0, "wall": 0.0}
+                profile_each = os.getenv("POCKET_TTS_PROFILE", "").strip() not in ("", "0")
+
                 def _produce():
                     """Génère tous les morceaux dans un thread, sans rendre la main
                     entre chaque pas — le GPU reste alimenté en permanence."""
+                    prod_started = time.monotonic()
                     try:
                         gen = model.generate_audio_stream(
                             base_state, text, copy_state=True
                         )
-                        for chunk in gen:
+                        while True:
+                            t0 = time.monotonic()
+                            try:
+                                chunk = next(gen)
+                            except StopIteration:
+                                break
+                            t1 = time.monotonic()
                             # chunk : tenseur torch [samples] float dans [-1, 1].
+                            # .to("cpu") force une synchro CUDA (copie GPU->CPU).
                             samples = chunk.clamp(-1.0, 1.0).to("cpu").numpy()
                             audio_int16 = (samples * 32767).astype(np.int16).tobytes()
+                            t2 = time.monotonic()
+                            prof["gen"] += t1 - t0
+                            prof["conv"] += t2 - t1
+                            prof["steps"] += 1
+                            if profile_each:
+                                logger.debug(
+                                    f"Pocket TTS pas #{prof['steps']} : "
+                                    f"gen {1000 * (t1 - t0):.0f}ms, "
+                                    f"conv {1000 * (t2 - t1):.0f}ms, "
+                                    f"{samples.shape[0]} éch."
+                                )
                             loop.call_soon_threadsafe(
                                 queue.put_nowait, (audio_int16, samples.shape[0])
                             )
                     except Exception as e:  # remonté côté consommateur
                         err["e"] = e
                     finally:
+                        prof["wall"] = time.monotonic() - prod_started
                         loop.call_soon_threadsafe(queue.put_nowait, done)
 
                 started = time.monotonic()
@@ -187,9 +215,13 @@ class PocketTTSService(TTSService):
                 first = True
                 n_chunks = 0
                 n_samples = 0
+                cons_wait = 0.0
+                cons_resample = 0.0
                 try:
                     while True:
+                        tw = time.monotonic()
                         item = await queue.get()
+                        cons_wait += time.monotonic() - tw
                         if item is done:
                             break
                         audio_int16, n = item
@@ -202,9 +234,11 @@ class PocketTTSService(TTSService):
                             first = False
                         n_chunks += 1
                         n_samples += n
+                        tr = time.monotonic()
                         audio_data = await self._resampler.resample(
                             audio_int16, native_rate, self.sample_rate
                         )
+                        cons_resample += time.monotonic() - tr
                         yield TTSAudioRawFrame(
                             audio=audio_data,
                             sample_rate=self.sample_rate,
@@ -222,6 +256,19 @@ class PocketTTSService(TTSService):
                 logger.info(
                     f"Pocket TTS : {n_chunks} chunks, {audio_sec:.2f}s d'audio "
                     f"généré en {wall:.2f}s (x{rtf:.2f} temps réel)."
+                )
+                steps = max(prof["steps"], 1)
+                # Décomposition du goulot. Lecture :
+                # - producteur(total) ~= mur ET attente file élevée -> génération GPU = goulot
+                # - dans le producteur : gen >> conv -> le modèle lui-même (Maxwell lent)
+                #                        conv élevé   -> la copie/synchro GPU->CPU
+                # - resample élevé (et producteur < mur) -> le rééchantillonnage CPU
+                logger.info(
+                    f"Pocket TTS profil : [producteur] génération {prof['gen']:.2f}s "
+                    f"({1000 * prof['gen'] / steps:.0f}ms/pas) | copie GPU→CPU {prof['conv']:.2f}s "
+                    f"| total {prof['wall']:.2f}s || [consommateur] attente file "
+                    f"{cons_wait:.2f}s | resample {cons_resample:.2f}s || mur {wall:.2f}s "
+                    f"| {steps} pas"
                 )
         except Exception as e:
             logger.error(f"Pocket TTS erreur: {e}")
