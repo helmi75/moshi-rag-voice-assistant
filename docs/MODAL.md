@@ -1,4 +1,38 @@
-# Déploiement serverless GPU sur Modal — voix Kyutai 1.6B (celle d'unmute.sh)
+# Déploiement serverless GPU sur Modal — voix Moshi 1.6B (celle d'unmute.sh)
+
+## ⭐ Voie recommandée : serveur Rust `moshi-server` (voix fluide)
+
+Le chemin PyTorch décrit plus bas (`TTS_PROVIDER=kyutai`, tout dans un conteneur) **reste
+sous le temps réel sur L4/T4 → voix saccadée**. La voie de production de Kyutai est le
+**serveur Rust `moshi-server`** (CUDA graphs + batching, fluide). L'app devient simple
+cliente websocket (`TTS_PROVIDER=moshi_server`).
+
+**1. Déployer le serveur TTS sur Modal :**
+```bash
+modal deploy deploy/modal_moshi_server.py
+```
+La 1re construction compile le binaire Rust (`cargo install moshi-server@0.6.4`, ~10-15 min).
+Modal affiche ensuite l'URL publique du serveur, ex. :
+`https://<vous>--moshi-server-tts-server.modal.run`
+(Prérequis : licence acceptée sur huggingface.co/kyutai/tts-1.6b-en_fr + `HF_TOKEN` dans le `.env`.)
+
+**2. Pointer l'app dessus** — dans le `.env` du serveur applicatif :
+```
+TTS_PROVIDER=moshi_server
+MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run   # l'URL ci-dessus (https ok)
+MOSHI_TTS_API_KEY=public_token
+MOSHI_TTS_VOICE=unmute-prod-website/ex04_narration_longform_00001.wav
+```
+
+**3. Vérifier** : dans les logs de l'app, `moshi-server : … (xF.FF temps réel)` avec **F ≥ 1**
+= voix fluide. Le serveur scale-to-zero (payé seulement pendant les appels).
+
+> Architecture cible (voir `docs/ARCHI.md`) : l'app (webhooks + BDD + orchestration) tourne
+> sur un serveur CPU 24/7 ; SEUL ce `moshi-server` est sur Modal GPU.
+
+---
+
+## (Historique) Voix Kyutai 1.6B en PyTorch dans l'app
 
 Ce guide déploie **toute l'appli** (webhook Twilio + WebSocket Media Streams + cerveau
 LLM/réservations) sur **Modal**, avec le TTS **Kyutai 1.6B** (`kyutai/tts-1.6b-en_fr`)
