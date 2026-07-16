@@ -55,6 +55,20 @@ image = (
 app = modal.App(APP_NAME)
 
 
+def _force_server_env() -> None:
+    """Impose la config serveur quoi qu'il y ait dans le .env envoyé.
+
+    Le secret .env peut contenir des valeurs pensées pour le déploiement local
+    (TTS_PROVIDER vide, un vieux PUBLIC_WS_URL ngrok, VOICE_MODE=gather...). On les
+    écrase ici pour que Modal serve TOUJOURS le pipeline streaming + Kyutai 1.6B sur
+    GPU, et que l'URL WebSocket soit déduite du domaine modal.run (pas d'ancien ngrok)."""
+    os.environ["VOICE_MODE"] = "stream"
+    os.environ["TTS_PROVIDER"] = "kyutai"
+    os.environ["KYUTAI_TTS_DEVICE"] = "cuda"
+    # Supprime un éventuel PUBLIC_WS_URL périmé -> l'app dérive wss://<hôte modal>/ws/voice.
+    os.environ.pop("PUBLIC_WS_URL", None)
+
+
 @app.cls(
     image=image,
     gpu=GPU,
@@ -73,6 +87,7 @@ class VoiceAssistant:
     def warm(self):
         """Précharge le 1.6B au démarrage du conteneur (une fois), pour que le
         premier appel n'attende pas le chargement du modèle."""
+        _force_server_env()
         try:
             from app.voice.kyutai_tts import _load_model_and_voice
 
@@ -83,6 +98,7 @@ class VoiceAssistant:
     @modal.asgi_app()
     def web(self):
         """Monte l'appli FastAPI existante (webhook Twilio + /ws/voice)."""
+        _force_server_env()
         from app.main import app as fastapi_app
 
         return fastapi_app
