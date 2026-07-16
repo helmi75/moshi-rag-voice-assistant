@@ -63,8 +63,14 @@ def _force_server_env() -> None:
     écrase ici pour que Modal serve TOUJOURS le pipeline streaming + Kyutai 1.6B sur
     GPU, et que l'URL WebSocket soit déduite du domaine modal.run (pas d'ancien ngrok)."""
     os.environ["VOICE_MODE"] = "stream"
-    os.environ["TTS_PROVIDER"] = "kyutai"
-    os.environ["KYUTAI_TTS_DEVICE"] = "cuda"
+    # Si MOSHI_TTS_URL est défini, on utilise le serveur Rust moshi-server (voix FLUIDE)
+    # au lieu du chemin PyTorch local (kyutai, qui sacade). Bascule automatique.
+    if os.environ.get("MOSHI_TTS_URL"):
+        os.environ["TTS_PROVIDER"] = "moshi_server"
+        print("[env] MOSHI_TTS_URL détecté -> TTS_PROVIDER=moshi_server (voix fluide).")
+    else:
+        os.environ["TTS_PROVIDER"] = "kyutai"
+        os.environ["KYUTAI_TTS_DEVICE"] = "cuda"
     # Supprime un éventuel PUBLIC_WS_URL périmé (vieux ngrok du .env) -> l'app dérive
     # wss://<hôte modal>/ws/voice à partir de la requête Twilio entrante.
     stale = os.environ.pop("PUBLIC_WS_URL", None)
@@ -91,6 +97,12 @@ class VoiceAssistant:
         """Précharge le 1.6B au démarrage du conteneur (une fois), pour que le
         premier appel n'attende pas le chargement du modèle."""
         _force_server_env()
+        # En mode moshi_server, l'app est simple cliente websocket : aucun modèle local
+        # à précharger (le GPU de CE conteneur ne sert alors à rien -> voir Phase 2 :
+        # déplacer l'app sur un serveur CPU 24/7 et ne garder que moshi-server sur GPU).
+        if os.environ.get("TTS_PROVIDER") == "moshi_server":
+            print("[warm] TTS_PROVIDER=moshi_server : pas de modèle local à précharger.")
+            return
         try:
             from app.voice.kyutai_tts import _load_model_and_voice
 
