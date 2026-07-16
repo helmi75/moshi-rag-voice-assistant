@@ -219,6 +219,109 @@ class TestKyutaiRunTTS:
         assert any(isinstance(f, ErrorFrame) for f in frames)
 
 
+class _FakeWS:
+    """Websocket factice : enregistre les envois, itère des messages en réception."""
+
+    def __init__(self, messages):
+        self._messages = messages
+        self.sent = []
+
+    async def send(self, data):
+        self.sent.append(data)
+
+    def __aiter__(self):
+        async def _gen():
+            # Cède la main à l'event loop pour laisser la tâche d'envoi s'exécuter
+            # (en réel, l'attente réseau joue ce rôle).
+            await asyncio.sleep(0)
+            for m in self._messages:
+                yield m
+
+        return _gen()
+
+
+class _FakeConnect:
+    def __init__(self, ws):
+        self._ws = ws
+
+    async def __aenter__(self):
+        return self._ws
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _install_fake_ws(monkeypatch, messages):
+    """Injecte de faux modules `websockets` et `msgpack` pour run_tts (imports paresseux).
+    msgpack.unpackb renvoie l'objet tel quel : on fait circuler des dicts directement."""
+    import sys
+    import types
+
+    ws = _FakeWS(messages)
+    fake_websockets = types.ModuleType("websockets")
+    fake_websockets.connect = lambda uri, additional_headers=None, max_size=None: _FakeConnect(ws)
+
+    fake_msgpack = types.ModuleType("msgpack")
+    fake_msgpack.packb = lambda obj: obj
+    fake_msgpack.unpackb = lambda b: b
+
+    monkeypatch.setitem(sys.modules, "websockets", fake_websockets)
+    monkeypatch.setitem(sys.modules, "msgpack", fake_msgpack)
+    return ws
+
+
+class TestMoshiServerRunTTS:
+    def test_streams_audio_frames_from_websocket(self, monkeypatch):
+        from app.voice.moshi_server_tts import MoshiServerTTSService
+
+        messages = [
+            {"type": "Audio", "pcm": [0.0, 0.5, -0.5]},
+            {"type": "Ready"},  # message non-audio -> ignoré
+            {"type": "Audio", "pcm": [0.25, -0.25]},
+        ]
+        ws = _install_fake_ws(monkeypatch, messages)
+
+        svc = MoshiServerTTSService()
+
+        async def _identity(audio, in_rate, out_rate):
+            return audio
+
+        monkeypatch.setattr(svc._resampler, "resample", _identity)
+        from pipecat.frames.frames import TTSAudioRawFrame
+
+        frames = asyncio.run(_collect(svc.run_tts("Bonjour tout le monde", "ctx-m")))
+        audio_frames = [f for f in frames if isinstance(f, TTSAudioRawFrame)]
+        assert len(audio_frames) == 2
+        assert all(f.context_id == "ctx-m" for f in audio_frames)
+        assert len(audio_frames[0].audio) == 6  # 3 échantillons int16
+        # 4 mots (Text) + 1 Eos envoyés
+        assert len(ws.sent) == 5
+        assert ws.sent[-1] == {"type": "Eos"}
+
+    def test_websocket_error_yields_error_frame(self, monkeypatch):
+        import sys
+        import types
+
+        from app.voice.moshi_server_tts import MoshiServerTTSService
+
+        def _boom(*a, **k):
+            raise RuntimeError("connexion refusée")
+
+        fake_websockets = types.ModuleType("websockets")
+        fake_websockets.connect = _boom
+        fake_msgpack = types.ModuleType("msgpack")
+        fake_msgpack.packb = lambda obj: obj
+        fake_msgpack.unpackb = lambda b: b
+        monkeypatch.setitem(sys.modules, "websockets", fake_websockets)
+        monkeypatch.setitem(sys.modules, "msgpack", fake_msgpack)
+
+        from pipecat.frames.frames import ErrorFrame
+
+        svc = MoshiServerTTSService()
+        frames = asyncio.run(_collect(svc.run_tts("Bonjour", "ctx-m")))
+        assert any(isinstance(f, ErrorFrame) for f in frames)
+
+
 class TestBuildTTS:
     def test_default_is_pocket(self, monkeypatch):
         monkeypatch.delenv("TTS_PROVIDER", raising=False)
@@ -235,6 +338,13 @@ class TestBuildTTS:
         from app.voice.kyutai_tts import KyutaiTTSService
 
         assert isinstance(bot.build_tts(), KyutaiTTSService)
+
+    def test_moshi_server_selected(self, monkeypatch):
+        # Le provider moshi_server s'instancie sans websockets/msgpack (imports paresseux).
+        monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+        from app.voice.moshi_server_tts import MoshiServerTTSService
+
+        assert isinstance(bot.build_tts(), MoshiServerTTSService)
 
     def test_cartesia_selected(self, monkeypatch):
         monkeypatch.setenv("TTS_PROVIDER", "cartesia")

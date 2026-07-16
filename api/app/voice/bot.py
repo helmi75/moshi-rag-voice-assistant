@@ -37,8 +37,16 @@ def build_tts():
         from .pocket_tts import PocketTTSService
 
         return PocketTTSService()
+    if provider == "moshi_server":
+        # Voix Moshi 1.6B via le serveur Rust moshi-server (production, fluide).
+        # L'app est simple cliente websocket (aucun modèle en local) ; le serveur
+        # tourne sur Modal GPU (voir deploy/modal_moshi_server.py).
+        from .moshi_server_tts import MoshiServerTTSService
+
+        return MoshiServerTTSService()
     if provider == "kyutai":
-        # Kyutai TTS 1.6B (la voix d'unmute.sh), GPU requis — déploiement Modal.
+        # Kyutai TTS 1.6B en PyTorch DANS l'app (GPU requis). Reste sous le temps réel
+        # (sacade) sur L4/T4 — préférer moshi_server. Conservé pour référence/repli.
         from .kyutai_tts import KyutaiTTSService
 
         return KyutaiTTSService()
@@ -61,7 +69,7 @@ def build_tts():
         )
     raise ValueError(
         f"TTS_PROVIDER inconnu : {provider!r} "
-        "(valeurs acceptées : pocket, kyutai, cartesia)"
+        "(valeurs acceptées : moshi_server, pocket, kyutai, cartesia)"
     )
 
 
