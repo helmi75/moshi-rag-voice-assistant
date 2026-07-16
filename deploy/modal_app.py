@@ -25,7 +25,7 @@ APP_NAME = "moshi-voice-assistant"
 
 # GPU : A10G (24 Go) suffit largement pour le 1.6B (~6 Go). L4 = moins cher,
 # A100 = plus rapide. Surchargeable via la variable d'env MODAL_GPU au déploiement.
-GPU = os.environ.get("MODAL_GPU", "A10G")
+GPU = os.environ.get("MODAL_GPU", "L4")
 
 # Volume persistant : cache des poids Hugging Face + base SQLite (réservations).
 cache = modal.Volume.from_name("moshi-voice-cache", create_if_missing=True)
@@ -80,8 +80,8 @@ def _force_server_env() -> None:
     secrets=[modal.Secret.from_dotenv()],
     volumes={"/cache": cache},
     # 1 conteneur chaud = pas de cold start pendant un appel ; scale-to-zero après 5 min.
-    min_containers=int(os.environ.get("MODAL_MIN_CONTAINERS", "1")),
-    scaledown_window=300,
+    min_containers=int(os.environ.get("MODAL_MIN_CONTAINERS", "0")),
+    scaledown_window=120,
     timeout=3600,
 )
 @modal.concurrent(max_inputs=8)
