@@ -140,6 +140,85 @@ class TestPocketRunTTS:
         assert calls["get_state"] == 1
 
 
+class _FakeCpuTensor:
+    """Imite le retour de mimi.decode(...) : .cpu().numpy() -> ndarray."""
+
+    def __init__(self, arr):
+        self._arr = arr
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        return self._arr
+
+
+class _FakeMimi:
+    sample_rate = 24000
+
+    def decode(self, _frame_slice):
+        # PCM factice de forme (batch=1, canal=1, échantillons=3).
+        return _FakeCpuTensor(np.array([[[0.0, 0.5, -0.5]]], dtype=np.float32))
+
+
+class _FakeKyutaiModel:
+    """tts_model minimal : prepare_script + generate(on_frame=...) comme moshi 0.2.13."""
+
+    mimi = _FakeMimi()
+
+    def prepare_script(self, script, padding_between=0):
+        return ["entry"]
+
+    def generate(self, all_entries, attributes, on_frame=None, **kwargs):
+        # Deux frames « prêtes » (aucune valeur == -1) -> deux morceaux audio.
+        frame = np.zeros((1, 33, 1), dtype=np.int64)
+        on_frame(frame)
+        on_frame(frame)
+
+
+class TestKyutaiRunTTS:
+    def test_generate_path_yields_audio_frames(self, monkeypatch):
+        # Verrouille l'API moshi 0.2.13 : run_tts doit passer par
+        # tts_model.generate(..., on_frame=...) et produire des TTSAudioRawFrame.
+        from app.voice import kyutai_tts
+
+        monkeypatch.setattr(
+            kyutai_tts, "_load_model_and_voice",
+            lambda: (_FakeKyutaiModel(), object(), 24000),
+        )
+        svc = kyutai_tts.KyutaiTTSService()
+
+        async def _identity(audio, in_rate, out_rate):
+            return audio
+
+        monkeypatch.setattr(svc._resampler, "resample", _identity)
+        from pipecat.frames.frames import TTSAudioRawFrame
+
+        frames = asyncio.run(_collect(svc.run_tts("Bonjour", "ctx-k")))
+        audio_frames = [f for f in frames if isinstance(f, TTSAudioRawFrame)]
+        assert len(audio_frames) == 2
+        assert all(f.context_id == "ctx-k" for f in audio_frames)
+        # 3 échantillons int16 = 6 octets
+        assert len(audio_frames[0].audio) == 6
+
+    def test_generate_error_yields_error_frame(self, monkeypatch):
+        from app.voice import kyutai_tts
+
+        class _BoomModel(_FakeKyutaiModel):
+            def generate(self, *a, **k):
+                raise RuntimeError("boom moshi")
+
+        monkeypatch.setattr(
+            kyutai_tts, "_load_model_and_voice",
+            lambda: (_BoomModel(), object(), 24000),
+        )
+        from pipecat.frames.frames import ErrorFrame
+
+        svc = kyutai_tts.KyutaiTTSService()
+        frames = asyncio.run(_collect(svc.run_tts("Bonjour", "ctx-k")))
+        assert any(isinstance(f, ErrorFrame) for f in frames)
+
+
 class TestBuildTTS:
     def test_default_is_pocket(self, monkeypatch):
         monkeypatch.delenv("TTS_PROVIDER", raising=False)

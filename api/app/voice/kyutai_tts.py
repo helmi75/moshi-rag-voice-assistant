@@ -4,18 +4,15 @@ C'est le grand frère GPU de Pocket TTS : modèle 1.6B (kyutai/tts-1.6b-en_fr),
 anglais + français, ~220 ms de latence, streaming natif (Delayed Streams Modeling).
 Nécessite un GPU (~5-6 Go VRAM) — pensé pour tourner sur Modal (voir deploy/).
 
-API vérifiée sur scripts/tts_pytorch_streaming.py du dépôt kyutai-labs :
+API vérifiée sur moshi.models.tts (paquet moshi 0.2.13) :
     checkpoint = CheckpointInfo.from_hf_repo(repo)
     tts_model  = TTSModel.from_checkpoint_info(checkpoint, n_q=32, temp=..., device=...)
     voice_path = tts_model.get_voice_path(voice)
     cond       = tts_model.make_condition_attributes([voice_path], cfg_coef=2.0)
-    entries    = script_to_entries(tts_model.tokenizer, tts_model.machine.token_ids,
-                                   tts_model.mimi.frame_rate, [texte],
-                                   multi_speaker=..., padding_between=1)
-    gen = TTSGen(tts_model, [cond], on_frame=cb)  # cb reçoit chaque frame
-    for e in entries: gen.append_entry(e); gen.process()
-    gen.process_last()
+    entries    = tts_model.prepare_script([texte], padding_between=1)
+    tts_model.generate([entries], [cond], on_frame=cb)  # cb reçoit chaque frame mimi
     # frame -> pcm : tts_model.mimi.decode(frame[:, 1:, :]) ; sr = tts_model.mimi.sample_rate
+    # (la classe TTSGen n'existe pas dans moshi 0.2.13 ; generate() streame via on_frame)
 
 Le modèle et la voix sont chargés une seule fois par process (singleton).
 """
@@ -104,18 +101,8 @@ def _load_model_and_voice():
 
 
 def _prepare_entries(tts_model, text: str):
-    """Texte -> liste d'Entry, exactement comme prepare_script(..., first_turn=True)."""
-    from moshi.models.tts import script_to_entries
-
-    multi_speaker = bool(getattr(tts_model, "multi_speaker", False))
-    return script_to_entries(
-        tts_model.tokenizer,
-        tts_model.machine.token_ids,
-        tts_model.mimi.frame_rate,
-        [text],
-        multi_speaker=multi_speaker,
-        padding_between=1,
-    )
+    """Texte -> liste d'Entry via l'API publique prepare_script (moshi 0.2.13)."""
+    return tts_model.prepare_script([text], padding_between=1)
 
 
 def _gen_lock() -> asyncio.Lock:
@@ -162,11 +149,19 @@ class KyutaiTTSService(TTSService):
 
                 def _produce():
                     """Génère l'énoncé dans un thread ; le callback on_frame pousse
-                    chaque morceau PCM dans la file (le GPU reste alimenté)."""
-                    from moshi.models.tts import TTSGen
+                    chaque morceau PCM dans la file (le GPU reste alimenté).
+
+                    generate() est un appel bloquant qui invoque on_frame à chaque
+                    frame mimi produite. Pour couper net sur un barge-in, on lève
+                    _Stopped depuis on_frame -> l'exception remonte hors de generate()."""
+
+                    class _Stopped(Exception):
+                        pass
 
                     def _on_frame(frame):
-                        # frame == -1 : pas encore d'audio prêt (padding).
+                        if stop_event.is_set():
+                            raise _Stopped()
+                        # frame == -1 : pas encore d'audio prêt (padding initial).
                         if (frame != -1).all():
                             pcm = tts_model.mimi.decode(frame[:, 1:, :]).cpu().numpy()
                             samples = np.clip(pcm[0, 0], -1.0, 1.0)
@@ -177,14 +172,11 @@ class KyutaiTTSService(TTSService):
 
                     try:
                         entries = _prepare_entries(tts_model, text)
-                        gen = TTSGen(tts_model, [condition_attributes], on_frame=_on_frame)
-                        for entry in entries:
-                            if stop_event.is_set():
-                                break
-                            gen.append_entry(entry)
-                            gen.process()
-                        if not stop_event.is_set():
-                            gen.process_last()
+                        tts_model.generate(
+                            [entries], [condition_attributes], on_frame=_on_frame
+                        )
+                    except _Stopped:
+                        pass  # interruption (barge-in) demandée : arrêt silencieux
                     except Exception as e:  # remonté côté consommateur
                         err["e"] = e
                     finally:
