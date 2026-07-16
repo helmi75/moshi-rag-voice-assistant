@@ -65,8 +65,11 @@ def _force_server_env() -> None:
     os.environ["VOICE_MODE"] = "stream"
     os.environ["TTS_PROVIDER"] = "kyutai"
     os.environ["KYUTAI_TTS_DEVICE"] = "cuda"
-    # Supprime un éventuel PUBLIC_WS_URL périmé -> l'app dérive wss://<hôte modal>/ws/voice.
-    os.environ.pop("PUBLIC_WS_URL", None)
+    # Supprime un éventuel PUBLIC_WS_URL périmé (vieux ngrok du .env) -> l'app dérive
+    # wss://<hôte modal>/ws/voice à partir de la requête Twilio entrante.
+    stale = os.environ.pop("PUBLIC_WS_URL", None)
+    if stale:
+        print(f"[env] PUBLIC_WS_URL périmé ignoré ({stale!r}) -> URL WS déduite du domaine Modal.")
 
 
 @app.cls(
