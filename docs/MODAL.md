@@ -14,9 +14,11 @@ facturation à la seconde.
 ## Prérequis (une seule fois)
 1. **Compte Modal** + CLI :
    ```bash
-   pip install modal
-   modal setup          # ouvre le navigateur pour authentifier
+   pip install modal python-dotenv   # python-dotenv : requis pour envoyer le .env
+   modal setup                       # ouvre le navigateur pour authentifier
    ```
+   > Si le navigateur ne s'ouvre pas (WSL/serveur), `modal setup` affiche une URL à
+   > ouvrir manuellement, puis écrit le token dans `~/.modal.toml`. C'est normal.
 2. **`.env` à la racine** (copié de `env.example`, rempli). Doivent y figurer au moins :
    ```
    OPENROUTER_API_KEY=...

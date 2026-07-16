@@ -16,6 +16,13 @@ if ! command -v modal >/dev/null 2>&1; then
   exit 1
 fi
 
+# modal_app.py envoie le .env via modal.Secret.from_dotenv(), qui exige le paquet
+# python-dotenv côté client. On l'installe automatiquement s'il manque.
+if ! python3 -c "import dotenv" >/dev/null 2>&1; then
+  echo "📦 python-dotenv manquant (requis pour envoyer le .env) — installation..."
+  python3 -m pip install python-dotenv
+fi
+
 if [ ! -f .env ]; then
   echo "❌ Fichier .env manquant à la racine. Créez-le : cp env.example .env  (puis remplissez)"
   exit 1
