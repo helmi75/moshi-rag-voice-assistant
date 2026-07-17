@@ -83,8 +83,15 @@ class MoshiServerTTSService(TTSService):
             first = True
             n_samples = 0
 
+            # open_timeout large : si le serveur Modal a scale-to-zero, la 1re connexion
+            # réveille la box GPU + recharge le modèle (~30-60 s). Le défaut (10 s) ferait
+            # échouer le handshake au réveil. (La latence perçue du 1er appel est traitée
+            # séparément par le greeting pré-rendu + le ping de warmup — voir plan Phase 3.)
             async with websockets.connect(
-                uri, additional_headers=headers, max_size=None
+                uri,
+                additional_headers=headers,
+                max_size=None,
+                open_timeout=float(os.getenv("MOSHI_TTS_OPEN_TIMEOUT", "90")),
             ) as ws:
 
                 async def _send():

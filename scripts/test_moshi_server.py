@@ -54,6 +54,10 @@ async def _run(args: argparse.Namespace) -> int:
     print(f"→ connexion : {uri}")
     print(f"  voix       : {args.voice}")
     print(f"  texte      : {args.text!r}")
+    print(
+        f"  (handshake : jusqu'à {args.open_timeout}s — le 1er appel réveille la box "
+        f"GPU Modal et recharge le modèle, patiente)"
+    )
 
     chunks: list[np.ndarray] = []
     started = time.monotonic()
@@ -61,7 +65,10 @@ async def _run(args: argparse.Namespace) -> int:
 
     try:
         async with websockets.connect(
-            uri, additional_headers=headers, max_size=None
+            uri,
+            additional_headers=headers,
+            max_size=None,
+            open_timeout=args.open_timeout,
         ) as ws:
 
             async def _send():
@@ -119,6 +126,10 @@ def main() -> None:
     p.add_argument("--voice", default=_DEFAULT_VOICE, help="Voix (chemin dans tts-voices).")
     p.add_argument("--text", default=_DEFAULT_TEXT, help="Texte à synthétiser.")
     p.add_argument("--out", default="/tmp/moshi_test.wav", help="Fichier WAV de sortie.")
+    p.add_argument(
+        "--open-timeout", type=float, default=180.0,
+        help="Délai max du handshake websocket (s) — large pour absorber le cold start.",
+    )
     args = p.parse_args()
     raise SystemExit(asyncio.run(_run(args)))
 
