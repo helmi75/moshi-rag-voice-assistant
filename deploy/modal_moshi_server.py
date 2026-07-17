@@ -24,8 +24,9 @@ puis de démarrage.
     CUDA_COMPUTE_CAP (mappée sur MODAL_GPU) pour éviter l'appel à `nvidia-smi` — sinon
     le build échoue avec « `nvidia-smi` failed ». (corrigé ci-dessous)
   - Le binaire embarque Python (pyo3/tts_py) : il se lie à libpython3.12 au build.
-    On expose /usr/local/lib (LIBRARY_PATH) + on crée le lien non versionné, sinon
-    l'édition de liens échoue avec « unable to find library -lpython3.12 ». (corrigé)
+    add_python fournit déjà libpython3.12.so dans /usr/local/lib ; on expose ce dossier
+    via LIBRARY_PATH, sinon l'édition de liens échoue (« unable to find library
+    -lpython3.12 »). (corrigé)
   - Points restants à ajuster si besoin : l'adresse/port de bind (on suppose 0.0.0.0:8080)
     et le chemin/nom exact du fichier de config.
 """
@@ -79,17 +80,10 @@ image = (
     #    `nvidia-smi`, absent du builder -> échec).
     #  - LIBRARY_PATH : ajoute /usr/local/lib au chemin de recherche de l'éditeur de
     #    liens pour trouver libpython3.12 (le binaire embarque Python via pyo3/tts_py).
+    # NB : add_python fournit déjà libpython3.12.so (lien) + libpython3.12.so.1.0 dans
+    # /usr/local/lib ; il suffit d'exposer ce dossier via LIBRARY_PATH (ci-dessus) pour
+    # que l'éditeur de liens résolve -lpython3.12. Pas de symlink à créer.
     .env({"CUDA_COMPUTE_CAP": CUDA_COMPUTE_CAP, "LIBRARY_PATH": "/usr/local/lib"})
-    # moshi-server se lie à libpython AU BUILD. add_python fournit
-    # libpython3.12.so.1.0 dans /usr/local/lib mais pas toujours le lien non versionné
-    # que réclame l'éditeur de liens (-lpython3.12). On le crée (et on liste pour
-    # diagnostic si le nom réel diffère).
-    .run_commands(
-        "bash -lc 'set -eux; "
-        "so=$(ls /usr/local/lib/libpython3.12.so* 2>/dev/null | head -1); "
-        "ln -sf \"$so\" /usr/local/lib/libpython3.12.so; "
-        "ls -la /usr/local/lib/libpython3.12*'",
-    )
     # Compile et installe le binaire moshi-server (feature CUDA). Long la 1re fois,
     # mais mis en cache dans la couche d'image (pas refait à chaque déploiement).
     .run_commands(
