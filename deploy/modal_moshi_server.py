@@ -102,6 +102,13 @@ image = (
     .run_commands(
         "mkdir -p /root/configs /root/static",
         f"wget -qO /root/configs/config-tts.toml {CONFIG_URL}",
+        # La config amont télécharge TOUTES les voix (kyutai/tts-voices, ~901 fichiers)
+        # -> on sature la limite d'API HF (429 Too Many Requests) au démarrage et chaque
+        # cold start est lent. On restreint le glob au seul dossier de voix utilisé
+        # (unmute-prod-website : contient default_voice + ex04_narration_longform_00001).
+        # Élargir ce glob si on veut d'autres voix du dépôt.
+        r"sed -i 's#tts-voices/\*\*/#tts-voices/unmute-prod-website/#' "
+        "/root/configs/config-tts.toml",
     )
 )
 
