@@ -23,6 +23,9 @@ puis de démarrage.
   - La compilation des kernels CUDA (candle) au build N'A PAS de GPU : on force donc
     CUDA_COMPUTE_CAP (mappée sur MODAL_GPU) pour éviter l'appel à `nvidia-smi` — sinon
     le build échoue avec « `nvidia-smi` failed ». (corrigé ci-dessous)
+  - Le binaire embarque Python (pyo3/tts_py) : il se lie à libpython3.12 au build.
+    On expose /usr/local/lib (LIBRARY_PATH) + on crée le lien non versionné, sinon
+    l'édition de liens échoue avec « unable to find library -lpython3.12 ». (corrigé)
   - Points restants à ajuster si besoin : l'adresse/port de bind (on suppose 0.0.0.0:8080)
     et le chemin/nom exact du fichier de config.
 """
@@ -71,9 +74,22 @@ image = (
     # Le module `tts_py` du serveur appelle le paquet Python `moshi` ; il fournit aussi
     # la libpython pointée par LD_LIBRARY_PATH au démarrage.
     .pip_install("moshi", "huggingface_hub")
-    # Compute capability CUDA pour la compilation des kernels (candle) SANS GPU au build :
-    # sans ça, le build appelle `nvidia-smi` (absent du builder) et échoue.
-    .env({"CUDA_COMPUTE_CAP": CUDA_COMPUTE_CAP})
+    # Variables de BUILD :
+    #  - CUDA_COMPUTE_CAP : compile les kernels candle sans GPU (sinon appel à
+    #    `nvidia-smi`, absent du builder -> échec).
+    #  - LIBRARY_PATH : ajoute /usr/local/lib au chemin de recherche de l'éditeur de
+    #    liens pour trouver libpython3.12 (le binaire embarque Python via pyo3/tts_py).
+    .env({"CUDA_COMPUTE_CAP": CUDA_COMPUTE_CAP, "LIBRARY_PATH": "/usr/local/lib"})
+    # moshi-server se lie à libpython AU BUILD. add_python fournit
+    # libpython3.12.so.1.0 dans /usr/local/lib mais pas toujours le lien non versionné
+    # que réclame l'éditeur de liens (-lpython3.12). On le crée (et on liste pour
+    # diagnostic si le nom réel diffère).
+    .run_commands(
+        "bash -lc 'set -eux; "
+        "so=$(ls /usr/local/lib/libpython3.12.so* 2>/dev/null | head -1); "
+        "ln -sf \"$so\" /usr/local/lib/libpython3.12.so; "
+        "ls -la /usr/local/lib/libpython3.12*'",
+    )
     # Compile et installe le binaire moshi-server (feature CUDA). Long la 1re fois,
     # mais mis en cache dans la couche d'image (pas refait à chaque déploiement).
     .run_commands(
