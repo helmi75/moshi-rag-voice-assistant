@@ -17,9 +17,15 @@ services:
       TWILIO_VOICE: "${TWILIO_VOICE:-Polly.Lea-Neural}"
       PUBLIC_WS_URL: "${PUBLIC_WS_URL:-}"
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
-      # TTS du mode stream : "pocket" (défaut, voix Kyutai/Unmute, CPU, sans clé)
-      # ou "cartesia" (API). HF_HOME met le modèle Pocket TTS en cache dans le volume.
+      # TTS du mode stream : "moshi_server" (RECOMMANDÉ : voix Moshi fluide via le
+      # serveur Rust sur Modal), "pocket" (voix Kyutai/Unmute CPU, sans clé) ou
+      # "cartesia" (API). HF_HOME met le modèle Pocket TTS en cache dans le volume.
       TTS_PROVIDER: "${TTS_PROVIDER:-pocket}"
+      # Serveur Rust moshi-server (si TTS_PROVIDER=moshi_server) : URL wss de Modal,
+      # clé (défaut public_token) et voix française par défaut (« Développeuse »).
+      MOSHI_TTS_URL: "${MOSHI_TTS_URL:-}"
+      MOSHI_TTS_API_KEY: "${MOSHI_TTS_API_KEY:-public_token}"
+      MOSHI_TTS_VOICE: "${MOSHI_TTS_VOICE:-unmute-prod-website/developpeuse-3.wav}"
       POCKET_TTS_VOICE: "${POCKET_TTS_VOICE:-estelle}"
       POCKET_TTS_LANGUAGE: "${POCKET_TTS_LANGUAGE:-french_24l}"
       # Périphérique d'inférence Pocket TTS : "auto" (GPU si dispo, sinon CPU),

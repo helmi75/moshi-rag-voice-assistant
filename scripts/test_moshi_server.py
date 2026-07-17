@@ -25,7 +25,7 @@ from urllib.parse import quote
 import numpy as np
 
 _NATIVE_RATE = 24000  # le serveur renvoie du PCM 24 kHz
-_DEFAULT_VOICE = "unmute-prod-website/ex04_narration_longform_00001.wav"
+_DEFAULT_VOICE = "unmute-prod-website/developpeuse-3.wav"
 _DEFAULT_TEXT = (
     "Bonjour et bienvenue. Je suis l'assistant vocal du restaurant. "
     "Souhaitez-vous réserver une table pour ce soir ?"

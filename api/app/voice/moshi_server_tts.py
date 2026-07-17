@@ -29,8 +29,9 @@ from pipecat.frames.frames import ErrorFrame, Frame, TTSAudioRawFrame
 from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
 
-# Voix par défaut : timbre français natif du site unmute (existe dans kyutai/tts-voices).
-_DEFAULT_VOICE = "unmute-prod-website/ex04_narration_longform_00001.wav"
+# Voix par défaut : « Développeuse », voix française d'une développeuse de Kyutai
+# (site unmute). Timbre naturel, adapté à un accueil pro. Surchargeable via MOSHI_TTS_VOICE.
+_DEFAULT_VOICE = "unmute-prod-website/developpeuse-3.wav"
 _NATIVE_RATE = 24000  # le serveur renvoie du PCM 24 kHz
 
 
