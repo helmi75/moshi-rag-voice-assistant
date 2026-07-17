@@ -19,9 +19,12 @@ Prérequis : accepter la licence sur huggingface.co/kyutai/tts-1.6b-en_fr et fou
 token HF (secret Modal `huggingface` avec HF_TOKEN, ou .env via Secret.from_dotenv).
 
 ⚠️ 1er déploiement : surveiller les logs de build (cargo install ~10-15 min la 1re fois)
-puis de démarrage. Deux points à ajuster si besoin, tous deux localisés ici :
-  - l'adresse/port de bind du serveur (on suppose 0.0.0.0:8080) ;
-  - le chemin/nom exact du fichier de config.
+puis de démarrage.
+  - La compilation des kernels CUDA (candle) au build N'A PAS de GPU : on force donc
+    CUDA_COMPUTE_CAP (mappée sur MODAL_GPU) pour éviter l'appel à `nvidia-smi` — sinon
+    le build échoue avec « `nvidia-smi` failed ». (corrigé ci-dessous)
+  - Points restants à ajuster si besoin : l'adresse/port de bind (on suppose 0.0.0.0:8080)
+    et le chemin/nom exact du fichier de config.
 """
 import os
 
@@ -32,6 +35,16 @@ PORT = 8080
 
 # L4 : fluide en Rust d'après Kyutai. Surchargeable via MODAL_GPU (A10G plus rapide).
 GPU = os.environ.get("MODAL_GPU", "L4")
+
+# Compute capability CUDA par GPU. moshi-server (candle-kernels) compile ses kernels CUDA
+# AU BUILD de l'image, où AUCUN GPU n'est présent (`nvidia-smi` absent -> le build plante).
+# On fournit donc la valeur en dur via CUDA_COMPUTE_CAP, ce qui évite l'appel à nvidia-smi.
+# Elle DOIT correspondre au GPU d'exécution (kernels non rétro-compatibles vers le bas).
+_COMPUTE_CAP = {
+    "T4": "75", "L4": "89", "A10G": "86", "A100": "80",
+    "A100-40GB": "80", "A100-80GB": "80", "L40S": "89", "H100": "90",
+}
+CUDA_COMPUTE_CAP = _COMPUTE_CAP.get(GPU.split(":")[0].strip(), "89")
 
 # Version du serveur Rust (pinnée comme dans le script officiel d'unmute).
 MOSHI_SERVER_VERSION = "0.6.4"
@@ -58,6 +71,9 @@ image = (
     # Le module `tts_py` du serveur appelle le paquet Python `moshi` ; il fournit aussi
     # la libpython pointée par LD_LIBRARY_PATH au démarrage.
     .pip_install("moshi", "huggingface_hub")
+    # Compute capability CUDA pour la compilation des kernels (candle) SANS GPU au build :
+    # sans ça, le build appelle `nvidia-smi` (absent du builder) et échoue.
+    .env({"CUDA_COMPUTE_CAP": CUDA_COMPUTE_CAP})
     # Compile et installe le binaire moshi-server (feature CUDA). Long la 1re fois,
     # mais mis en cache dans la couche d'image (pas refait à chaque déploiement).
     .run_commands(
