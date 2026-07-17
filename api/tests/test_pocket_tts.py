@@ -53,6 +53,27 @@ class TestVoiceResolution:
             assert pocket_tts._resolve_voice(value) == value
 
 
+class TestDeviceSelection:
+    def test_auto_falls_back_to_cpu_without_gpu(self, monkeypatch):
+        # Aucun GPU dans l'environnement de test : "auto" doit choisir le CPU.
+        monkeypatch.setenv("POCKET_TTS_DEVICE", "auto")
+        assert pocket_tts._select_device() == "cpu"
+
+    def test_default_is_auto(self, monkeypatch):
+        monkeypatch.delenv("POCKET_TTS_DEVICE", raising=False)
+        # Défaut = auto -> cpu ici (pas de GPU).
+        assert pocket_tts._select_device() == "cpu"
+
+    def test_explicit_cpu(self, monkeypatch):
+        monkeypatch.setenv("POCKET_TTS_DEVICE", "cpu")
+        assert pocket_tts._select_device() == "cpu"
+
+    def test_explicit_cuda_is_honored(self, monkeypatch):
+        # "cuda" forcé est retourné tel quel (l'utilisateur assume la présence du GPU).
+        monkeypatch.setenv("POCKET_TTS_DEVICE", "cuda")
+        assert pocket_tts._select_device() == "cuda"
+
+
 class TestPocketRunTTS:
     def test_yields_audio_frames_at_service_rate(self, monkeypatch):
         chunks = [np.array([0.0, 0.5, -0.5], dtype=np.float32),

@@ -1,0 +1,35 @@
+# Image GPU pour Pocket TTS temps réel (mode VOICE_MODE=stream, TTS_PROVIDER=pocket).
+#
+# PyTorch est ÉPINGLÉ à 2.5.1 + CUDA 12.1. C'est la dernière lignée de PyTorch qui
+# embarque encore les noyaux CUDA de l'architecture Maxwell (sm_52, ex. GTX 980 Ti,
+# GTX 900) TOUT en satisfaisant la contrainte de pocket-tts (torch >= 2.5). Les
+# PyTorch > 2.5 ont retiré Maxwell ; CUDA 13.x aussi. Sur une carte Pascal (GTX 10xx)
+# ou plus récente, cette image fonctionne également.
+#
+# Prérequis côté HÔTE (non gérés par cette image) :
+#   - pilote NVIDIA récent (>= 525, compatible CUDA 12.1)
+#   - nvidia-container-toolkit installé et configuré pour Docker
+# Construction/lancement :
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# libgomp1  : requis par onnxruntime (VAD Silero / smart-turn du pipeline vocal)
+# libsndfile1 : requis par soundfile (chargement des voix Pocket TTS)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ./app/requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip setuptools wheel
+# PyTorch CUDA 12.1 installé AVANT le reste : fige la version compatible Maxwell,
+# pocket-tts (torch >= 2.5) s'en contente ensuite sans la remplacer.
+RUN pip install --no-cache-dir \
+    torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY ./app /app/app
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

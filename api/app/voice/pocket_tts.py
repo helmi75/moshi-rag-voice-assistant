@@ -42,6 +42,29 @@ _GEN_LOCK: asyncio.Lock | None = None
 _MODEL_LOCK = threading.Lock()
 
 
+def _select_device() -> str:
+    """Choisit le périphérique d'inférence pour Pocket TTS.
+
+    `POCKET_TTS_DEVICE` : "auto" (défaut) -> "cuda" si un GPU CUDA est visible,
+    sinon "cpu" ; ou forcer "cuda"/"cpu". Sur GPU, Pocket TTS génère en temps réel
+    (1er chunk < 1 s) — indispensable pour éviter la voix saccadée obtenue sur CPU
+    (où `french_24l` met 5-10 s à produire son premier morceau)."""
+    choice = os.getenv("POCKET_TTS_DEVICE", "auto").strip().lower()
+    if choice in ("cuda", "gpu"):
+        return "cuda"
+    if choice == "cpu":
+        return "cpu"
+    # auto : GPU si disponible, sinon CPU.
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
+
+
 def _resolve_voice(voice: str) -> str:
     """Transforme la valeur POCKET_TTS_VOICE en référence audio pour le modèle.
 
@@ -72,13 +95,28 @@ def _load_model_and_state():
             logger.info(f"Chargement de Pocket TTS (langue={language}, voix={voice})...")
             started = time.monotonic()
             model = TTSModel.load_model(language=language)
+            device = _select_device()
+            if device != "cpu":
+                # TTSModel est un nn.Module : .to() déplace tous ses poids sur le GPU.
+                # Fait AVANT get_state_for_audio_prompt pour que l'état de voix vive
+                # aussi sur le bon périphérique.
+                model = model.to(device)
+                logger.info(f"Pocket TTS : modèle déplacé sur {device} (GPU).")
             voice_ref = _resolve_voice(voice)
             base_state = model.get_state_for_audio_prompt(voice_ref)
             _MODEL_CACHE = (model, base_state, int(model.sample_rate))
             logger.info(
-                f"Pocket TTS prêt ({_MODEL_CACHE[2]} Hz) en "
+                f"Pocket TTS prêt ({_MODEL_CACHE[2]} Hz, device={device}) en "
                 f"{time.monotonic() - started:.1f}s."
             )
+            if device == "cpu":
+                logger.warning(
+                    "Pocket TTS tourne sur CPU : la voix française (french_24l) y est "
+                    "TROP LENTE (débit < temps réel) et sera SACCADÉE au téléphone. "
+                    "Pour le GPU, lancez avec la surcouche : "
+                    "docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d. "
+                    "Sinon, préférez TTS_PROVIDER=cartesia ou VOICE_MODE=gather."
+                )
     return _MODEL_CACHE
 
 
@@ -120,38 +158,122 @@ class PocketTTSService(TTSService):
 
             # Une génération à la fois (modèle non thread-safe). copy_state=True
             # préserve l'état de voix de base d'un énoncé à l'autre.
+            #
+            # PIPELINE : la génération tourne EN CONTINU dans un thread dédié qui
+            # pousse les morceaux (déjà convertis en int16) dans une file ; la boucle
+            # asyncio consomme en parallèle (rééchantillonnage + envoi). Ainsi le GPU
+            # enchaîne les pas sans attendre le traitement aval — sur la version
+            # précédente, il redemandait un chunk seulement APRÈS l'envoi du précédent,
+            # d'où un GPU à ~30 % et un débit sous le temps réel (voix saccadée).
             async with _gen_lock():
-                gen = model.generate_audio_stream(base_state, text, copy_state=True)
-                sentinel = object()
-                first = True
+                loop = asyncio.get_running_loop()
+                queue: asyncio.Queue = asyncio.Queue()
+                done = object()
+                err: dict = {}
+                # Signal d'arrêt anticipé : si l'appelant coupe la parole (barge-in),
+                # Pipecat annule run_tts ; on pose ce drapeau pour que le thread de
+                # génération s'arrête au pas suivant (~110 ms) au lieu de terminer tout
+                # l'énoncé — supprime le « timed out waiting for task to cancel » et la
+                # latence d'~1 s avant que le bot se taise.
+                stop_event = threading.Event()
+
+                # Mouchards : décomposent le temps pour localiser le goulot.
+                # Producteur (thread) : "gen" = pas de génération du modèle (GPU),
+                # "conv" = copie GPU->CPU + conversion int16, "wall" = total thread.
+                # Consommateur (boucle) : "wait" = temps passé à ATTENDRE un morceau
+                # (file vide = producteur trop lent), "resample" = rééchantillonnage 8 kHz.
+                prof = {"gen": 0.0, "conv": 0.0, "steps": 0, "wall": 0.0}
+                profile_each = os.getenv("POCKET_TTS_PROFILE", "").strip() not in ("", "0")
+
+                def _produce():
+                    """Génère tous les morceaux dans un thread, sans rendre la main
+                    entre chaque pas — le GPU reste alimenté en permanence."""
+                    prod_started = time.monotonic()
+                    gen = None
+                    try:
+                        gen = model.generate_audio_stream(
+                            base_state, text, copy_state=True
+                        )
+                        while not stop_event.is_set():
+                            t0 = time.monotonic()
+                            try:
+                                chunk = next(gen)
+                            except StopIteration:
+                                break
+                            t1 = time.monotonic()
+                            # chunk : tenseur torch [samples] float dans [-1, 1].
+                            # .to("cpu") force une synchro CUDA (copie GPU->CPU).
+                            samples = chunk.clamp(-1.0, 1.0).to("cpu").numpy()
+                            audio_int16 = (samples * 32767).astype(np.int16).tobytes()
+                            t2 = time.monotonic()
+                            prof["gen"] += t1 - t0
+                            prof["conv"] += t2 - t1
+                            prof["steps"] += 1
+                            if profile_each:
+                                logger.debug(
+                                    f"Pocket TTS pas #{prof['steps']} : "
+                                    f"gen {1000 * (t1 - t0):.0f}ms, "
+                                    f"conv {1000 * (t2 - t1):.0f}ms, "
+                                    f"{samples.shape[0]} éch."
+                                )
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, (audio_int16, samples.shape[0])
+                            )
+                    except Exception as e:  # remonté côté consommateur
+                        err["e"] = e
+                    finally:
+                        # Libère le générateur (et son état GPU) sans attendre.
+                        if gen is not None:
+                            try:
+                                gen.close()
+                            except Exception:
+                                pass
+                        prof["wall"] = time.monotonic() - prod_started
+                        loop.call_soon_threadsafe(queue.put_nowait, done)
+
                 started = time.monotonic()
+                producer = asyncio.create_task(asyncio.to_thread(_produce))
+                first = True
                 n_chunks = 0
                 n_samples = 0
-                while True:
-                    chunk = await asyncio.to_thread(next, gen, sentinel)
-                    if chunk is sentinel:
-                        break
-                    if first:
-                        await self.stop_ttfb_metrics()
-                        logger.info(
-                            f"Pocket TTS : 1er chunk en "
-                            f"{time.monotonic() - started:.2f}s"
+                cons_wait = 0.0
+                cons_resample = 0.0
+                try:
+                    while True:
+                        tw = time.monotonic()
+                        item = await queue.get()
+                        cons_wait += time.monotonic() - tw
+                        if item is done:
+                            break
+                        audio_int16, n = item
+                        if first:
+                            await self.stop_ttfb_metrics()
+                            logger.info(
+                                f"Pocket TTS : 1er chunk en "
+                                f"{time.monotonic() - started:.2f}s"
+                            )
+                            first = False
+                        n_chunks += 1
+                        n_samples += n
+                        tr = time.monotonic()
+                        audio_data = await self._resampler.resample(
+                            audio_int16, native_rate, self.sample_rate
                         )
-                        first = False
-                    # chunk : tenseur torch [samples] float dans [-1, 1]
-                    samples = chunk.clamp(-1.0, 1.0).to("cpu").numpy()
-                    n_chunks += 1
-                    n_samples += samples.shape[0]
-                    audio_int16 = (samples * 32767).astype(np.int16).tobytes()
-                    audio_data = await self._resampler.resample(
-                        audio_int16, native_rate, self.sample_rate
-                    )
-                    yield TTSAudioRawFrame(
-                        audio=audio_data,
-                        sample_rate=self.sample_rate,
-                        num_channels=1,
-                        context_id=context_id,
-                    )
+                        cons_resample += time.monotonic() - tr
+                        yield TTSAudioRawFrame(
+                            audio=audio_data,
+                            sample_rate=self.sample_rate,
+                            num_channels=1,
+                            context_id=context_id,
+                        )
+                finally:
+                    # Coupe la génération (barge-in / fin normale) puis attend que
+                    # le thread se termine — il s'arrête au pas suivant (~110 ms)
+                    # grâce à stop_event, au lieu de finir tout l'énoncé.
+                    stop_event.set()
+                    await producer
+                if err:
+                    raise err["e"]
                 wall = time.monotonic() - started
                 audio_sec = n_samples / native_rate if native_rate else 0.0
                 rtf = audio_sec / wall if wall else 0.0
@@ -159,6 +281,19 @@ class PocketTTSService(TTSService):
                 logger.info(
                     f"Pocket TTS : {n_chunks} chunks, {audio_sec:.2f}s d'audio "
                     f"généré en {wall:.2f}s (x{rtf:.2f} temps réel)."
+                )
+                steps = max(prof["steps"], 1)
+                # Décomposition du goulot. Lecture :
+                # - producteur(total) ~= mur ET attente file élevée -> génération GPU = goulot
+                # - dans le producteur : gen >> conv -> le modèle lui-même (Maxwell lent)
+                #                        conv élevé   -> la copie/synchro GPU->CPU
+                # - resample élevé (et producteur < mur) -> le rééchantillonnage CPU
+                logger.info(
+                    f"Pocket TTS profil : [producteur] génération {prof['gen']:.2f}s "
+                    f"({1000 * prof['gen'] / steps:.0f}ms/pas) | copie GPU→CPU {prof['conv']:.2f}s "
+                    f"| total {prof['wall']:.2f}s || [consommateur] attente file "
+                    f"{cons_wait:.2f}s | resample {cons_resample:.2f}s || mur {wall:.2f}s "
+                    f"| {steps} pas"
                 )
         except Exception as e:
             logger.error(f"Pocket TTS erreur: {e}")

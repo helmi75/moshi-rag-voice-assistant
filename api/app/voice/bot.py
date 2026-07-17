@@ -32,17 +32,27 @@ def build_tts():
     """Construit le service TTS selon TTS_PROVIDER (défaut : pocket = voix Kyutai,
     CPU, sans clé). `cartesia` en alternative (API, nécessite CARTESIA_API_KEY)."""
     provider = os.getenv("TTS_PROVIDER", "pocket").strip().lower()
+    logger.info(f"TTS provider sélectionné : {provider}")
     if provider == "pocket":
         from .pocket_tts import PocketTTSService
 
         return PocketTTSService()
     if provider == "cartesia":
         from pipecat.services.cartesia.tts import CartesiaTTSService
+        from pipecat.transcriptions.language import Language
 
+        # Français par défaut + modèle multilingue : sans ça Cartesia lit le
+        # français avec un modèle/accent anglais.
+        lang_code = os.getenv("CARTESIA_LANGUAGE", "fr").strip().lower()
+        try:
+            language = Language(lang_code)
+        except ValueError:
+            language = Language.FR
         return CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY", ""),
             voice_id=os.getenv("CARTESIA_VOICE_ID", ""),
-            model=os.getenv("CARTESIA_MODEL") or None,
+            model=os.getenv("CARTESIA_MODEL", "sonic-2"),
+            params=CartesiaTTSService.InputParams(language=language),
         )
     raise ValueError(
         f"TTS_PROVIDER inconnu : {provider!r} (valeurs acceptées : pocket, cartesia)"

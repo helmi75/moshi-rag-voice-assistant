@@ -1,0 +1,27 @@
+# Surcouche GPU — Pocket TTS temps réel (voix Kyutai/Unmute sans saccade).
+#
+# Utilisation :
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Cette surcouche : (1) construit l'image GPU (Dockerfile.gpu, PyTorch CUDA 12.1
+# compatible Maxwell), (2) force l'inférence TTS sur le GPU, (3) réserve un GPU
+# NVIDIA au conteneur.
+#
+# Prérequis hôte : pilote NVIDIA + nvidia-container-toolkit. Pensez aussi à mettre
+# VOICE_MODE=stream (et TTS_PROVIDER=pocket, défaut) dans votre .env.
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.gpu
+    environment:
+      # Échoue franchement (log d'erreur) si le GPU n'est pas visible, au lieu de
+      # retomber silencieusement sur le CPU (lent). Mettre "auto" pour un repli CPU.
+      POCKET_TTS_DEVICE: "${POCKET_TTS_DEVICE:-cuda}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
