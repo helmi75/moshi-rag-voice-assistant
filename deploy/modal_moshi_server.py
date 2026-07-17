@@ -72,9 +72,16 @@ image = (
     )
     # Rust (rustup) — pour compiler moshi-server.
     .run_commands("curl https://sh.rustup.rs -sSf | sh -s -- -y")
-    # Le module `tts_py` du serveur appelle le paquet Python `moshi` ; il fournit aussi
-    # la libpython pointée par LD_LIBRARY_PATH au démarrage.
-    .pip_install("moshi", "huggingface_hub")
+    # Le module `tts_py` du serveur (config-tts.toml : [modules.tts_py] type="Py")
+    # exécute un script Python `tts.py` DANS le serveur (via pyo3). Ses dépendances sont
+    # celles du projet `tts-python` de moshi-server (rust/moshi-server/pyproject.toml) :
+    # moshi==0.2.13, setuptools, xformers, pydantic, julius, torchaudio. Sans elles, le
+    # serveur démarre puis plante (« ModuleNotFoundError: No module named 'pydantic' »).
+    # `moshi` fournit aussi la libpython pointée par LD_LIBRARY_PATH au démarrage.
+    .pip_install(
+        "moshi", "huggingface_hub",
+        "setuptools", "xformers", "pydantic", "julius", "torchaudio",
+    )
     # Variables de BUILD :
     #  - CUDA_COMPUTE_CAP : compile les kernels candle sans GPU (sinon appel à
     #    `nvidia-smi`, absent du builder -> échec).
