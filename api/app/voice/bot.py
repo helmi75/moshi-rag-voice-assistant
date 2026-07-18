@@ -7,6 +7,7 @@ Cartesia (APIs, phase A) pourront être remplacés par Kyutai STT/TTS auto-hébe
 Les imports Pipecat sont faits à l'intérieur des fonctions : l'application reste
 utilisable en mode `gather` même si les extras audio ne sont pas installés.
 """
+import asyncio
 import os
 
 from loguru import logger
@@ -203,7 +204,29 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
     # ne dépend pas de l'événement on_client_connected qui peut être manqué puisque
     # les messages Twilio "connected"/"start" ont déjà été consommés par le webhook).
     logger.info(f"Démarrage du pipeline vocal (tenant {tenant.id}, {call_sid}).")
-    await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
+
+    # Phase 3 — accueil pré-rendu + warmup : on réveille le TTS au plus tôt (pendant
+    # que l'accueil joue) et on rejoue l'accueil déjà rendu en voix « Développeuse »
+    # (latence 0), au lieu de le synthétiser en live et d'exposer le cold start.
+    from . import greeting as greeting_mod
+
+    if greeting_mod.is_moshi_server():
+        asyncio.create_task(greeting_mod.warmup_moshi_server())
+
+    greeting_path = (
+        greeting_mod.cached_greeting_path(tenant)
+        if greeting_mod.is_moshi_server()
+        else None
+    )
+    if greeting_path is not None:
+        logger.info(f"Accueil pré-rendu joué depuis {greeting_path.name} (latence 0).")
+        await task.queue_frames(greeting_mod.load_greeting_frames(greeting_path))
+    else:
+        # Pas de WAV en cache : accueil en TTS live (comportement d'origine) et
+        # pré-rendu en tâche de fond pour que les PROCHAINS appels soient instantanés.
+        await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
+        if greeting_mod.is_moshi_server():
+            asyncio.create_task(greeting_mod.ensure_greeting_wav(tenant))
 
     runner = PipelineRunner(handle_sigint=False)
     await runner.run(task)

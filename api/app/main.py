@@ -36,6 +36,32 @@ async def _preload_voice_model():
 
     asyncio.create_task(_load())
 
+
+@app.on_event("startup")
+async def _prerender_greetings():
+    """Phase 3 : pré-rend les accueils (voix « Développeuse ») HORS du chemin d'appel,
+    pour que le tout premier appelant entende un accueil instantané. Déclenche au
+    passage un cold start du GPU une seule fois, au démarrage, plutôt qu'en appel.
+    Active aussi le keep-warm périodique si MOSHI_KEEPWARM_SECONDS > 0."""
+    import asyncio
+
+    from .voice import greeting as greeting_mod
+
+    if _voice_mode() != "stream" or not greeting_mod.is_moshi_server():
+        return
+
+    async def _prerender():
+        try:
+            from . import tenants
+
+            for tenant in tenants.list_all():
+                await greeting_mod.ensure_greeting_wav(tenant)
+        except Exception as exc:
+            print(f"Pré-rendu des accueils échoué (repli TTS live au 1er appel): {exc}")
+
+    asyncio.create_task(_prerender())
+    asyncio.create_task(greeting_mod.keep_warm_loop())
+
 # Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;
 # à remplacer par Redis quand l'API sera répliquée (phase 3 de la roadmap).
 CONVERSATION_TTL_SECONDS = 3600

@@ -259,7 +259,8 @@ def _install_fake_ws(monkeypatch, messages):
 
     ws = _FakeWS(messages)
     fake_websockets = types.ModuleType("websockets")
-    fake_websockets.connect = lambda uri, additional_headers=None, max_size=None: _FakeConnect(ws)
+    # **kwargs : accepte open_timeout (cold start) et tout futur paramètre de connexion.
+    fake_websockets.connect = lambda uri, additional_headers=None, max_size=None, **kwargs: _FakeConnect(ws)
 
     fake_msgpack = types.ModuleType("msgpack")
     fake_msgpack.packb = lambda obj: obj

@@ -66,6 +66,13 @@ def get_by_id(tenant_id: int) -> Optional[Tenant]:
     return _row_to_tenant(row) if row else None
 
 
+def list_all() -> list[Tenant]:
+    """Tous les tenants (utilisé au démarrage pour pré-rendre les greetings)."""
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT * FROM tenants ORDER BY id").fetchall()
+    return [_row_to_tenant(row) for row in rows]
+
+
 def seed_demo_tenant() -> None:
     """Crée le restaurant de démonstration si absent, et garde son numéro aligné
     sur TWILIO_NUMBER.
