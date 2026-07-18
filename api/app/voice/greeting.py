@@ -197,11 +197,14 @@ def load_hold_music_chunks(chunk_ms: int = 20) -> tuple[int, list[bytes]]:
     return rate, [raw[i : i + step] for i in range(0, len(raw), step) if raw[i : i + step]]
 
 
-async def run_switchboard_intro(task, tenant: Tenant) -> None:
+async def run_switchboard_intro(task, output_transport, tenant: Tenant) -> None:
     """Flux « standardiste » (Phase 3) : accueil pré-rendu → musique d'attente pendant
-    le réveil du GPU → reprise proactive. Décorrélé du tour TTS déclenché par le client,
-    donc la musique n'est PAS annulée par le barge-in. Lancé en tâche de fond parallèle
-    au pipeline ; injecte les frames dans `task` au fil de l'eau.
+    le réveil du GPU → reprise proactive. Lancé en tâche de fond parallèle au pipeline.
+
+    L'accueil et la musique sont injectés via output_transport.send_audio() : ils vont
+    DIRECTEMENT à Twilio sans traverser STT/VAD. Sinon (injectés en tête de pipeline),
+    ces AudioRawFrame empoisonnaient Deepgram ET engorgeaient le VAD, bloquant l'audio
+    entrant réel après la reprise (« no audio received while speaking »).
 
     Séquence : « Bonjour … un instant s'il vous plaît » (WAV, latence 0) → 🎻 musique
     (bouclée) tant que le warmup n'a pas rendu le GPU chaud → « Merci d'avoir patienté,
@@ -209,46 +212,43 @@ async def run_switchboard_intro(task, tenant: Tenant) -> None:
     """
     from pipecat.frames.frames import OutputAudioRawFrame, STTMuteFrame, TTSSpeakFrame
 
-    # STT MUTÉ pendant tout l'intro : l'accueil et la musique sont des AudioRawFrame ;
-    # non muté, le STT les enverrait à Deepgram comme de la parole et empoisonnerait la
-    # transcription (le client resterait « inaudible » après la reprise). audio_passthrough
-    # laisse quand même l'audio filer vers la sortie → le client entend accueil + musique.
+    # STT muté pendant l'intro : la parole du client pendant l'attente est ignorée
+    # (il est « en ligne d'attente ») ; on écoute à la reprise. La musique, elle, ne
+    # passe plus par le STT (send_audio) : le mute ne concerne donc que l'entrée réelle.
     await task.queue_frames([STTMuteFrame(mute=True)])
     try:
-        # 1. Accueil pré-rendu (ou repli TTS live si pas de WAV en cache).
+        # 1. Accueil pré-rendu → envoyé DIRECT vers la sortie (bypass STT/VAD).
         greeting_path = cached_greeting_path(tenant)
         if greeting_path is not None:
             logger.info(f"Accueil pré-rendu joué depuis {greeting_path.name} (latence 0).")
-            await task.queue_frames(load_greeting_frames(greeting_path))
+            for frame in load_greeting_frames(greeting_path):
+                await output_transport.send_audio(frame)
         else:
-            await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
+            await task.queue_frames([TTSSpeakFrame(tenant.greeting)])  # repli TTS live
 
         if is_moshi_server():
             # 2. Réveil du GPU en tâche de fond (retourne quand le serveur est chaud).
             warm = asyncio.create_task(warmup_moshi_server())
 
-            # 3. Musique d'attente jusqu'au réveil (paced : petit tampon d'avance anti-
-            #    coupure, borné par MOSHI_HOLD_MAX_SECONDS si le warmup échoue).
-            rate, chunks = load_hold_music_chunks()
+            # 3. Musique d'attente jusqu'au réveil, en morceaux de 1 s envoyés DIRECT à la
+            #    sortie (pacé : le transport joue à débit réel, on garde un petit tampon).
+            rate, chunks = load_hold_music_chunks(chunk_ms=1000)
             deadline = time.monotonic() + float(os.getenv("MOSHI_HOLD_MAX_SECONDS", "90"))
             i = 0
             if chunks:
                 logger.info("Musique d'attente : lecture pendant le réveil du GPU.")
                 while not warm.done() and time.monotonic() < deadline:
-                    batch = []
-                    for _ in range(50):  # ~1 s (50 × 20 ms)
-                        batch.append(OutputAudioRawFrame(audio=chunks[i % len(chunks)],
-                                                         sample_rate=rate, num_channels=1))
-                        i += 1
-                    await task.queue_frames(batch)
+                    await output_transport.send_audio(OutputAudioRawFrame(
+                        audio=chunks[i % len(chunks)], sample_rate=rate, num_channels=1))
+                    i += 1
                     await asyncio.sleep(0.9)  # < 1 s : petit tampon d'avance anti-coupure
             try:
                 await asyncio.wait_for(warm, timeout=max(0.0, deadline - time.monotonic()))
             except Exception:
                 pass  # warmup KO/expiré : on reprend quand même la main
-            logger.info(f"Fin de l'attente ({i * 0.02:.0f}s de musique jouée) : reprise proactive.")
+            logger.info(f"Fin de l'attente (~{i}s de musique jouée) : reprise proactive.")
 
-        # 4. Reprise proactive (TTS désormais chaud → ~1,2 s).
+        # 4. Reprise proactive (TTS désormais chaud → ~1,2 s), via le pipeline normal.
         await task.queue_frames([TTSSpeakFrame(os.getenv("MOSHI_RESUME_TEXT", _RESUME_TEXT))])
     finally:
         # Démute : le client peut désormais parler et être transcrit.

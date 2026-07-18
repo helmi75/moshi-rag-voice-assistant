@@ -205,6 +205,9 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
     async def _reset_idle(aggregator, *args):
         _idle["n"] = 0
 
+    # Réf. sur le transport de sortie : le flux « standardiste » y injecte l'accueil et
+    # la musique via send_audio() (DIRECT vers Twilio), sans traverser STT/VAD.
+    output_transport = transport.output()
     pipeline = Pipeline(
         [
             transport.input(),
@@ -212,7 +215,7 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
             context_aggregator.user(),
             llm_service,
             tts,
-            transport.output(),
+            output_transport,
             context_aggregator.assistant(),
         ]
     )
@@ -244,7 +247,9 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
 
     intro_task = None
     if greeting_mod.is_moshi_server():
-        intro_task = asyncio.create_task(greeting_mod.run_switchboard_intro(task, tenant))
+        intro_task = asyncio.create_task(
+            greeting_mod.run_switchboard_intro(task, output_transport, tenant)
+        )
         # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
         # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).
         if greeting_mod.cached_greeting_path(tenant) is None:
