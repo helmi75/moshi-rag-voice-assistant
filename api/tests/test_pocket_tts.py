@@ -220,10 +220,14 @@ class TestKyutaiRunTTS:
 
 
 class _FakeWS:
-    """Websocket factice : enregistre les envois, itère des messages en réception."""
+    """Websocket factice : enregistre les envois, itère des messages en réception.
 
-    def __init__(self, messages):
+    `delay` simule l'attente avant le 1er message (cold start) : utilisé pour tester
+    le déclenchement de la musique d'attente."""
+
+    def __init__(self, messages, delay=0.0):
         self._messages = messages
+        self._delay = delay
         self.sent = []
 
     async def send(self, data):
@@ -233,7 +237,7 @@ class _FakeWS:
         async def _gen():
             # Cède la main à l'event loop pour laisser la tâche d'envoi s'exécuter
             # (en réel, l'attente réseau joue ce rôle).
-            await asyncio.sleep(0)
+            await asyncio.sleep(self._delay or 0)
             for m in self._messages:
                 yield m
 
@@ -251,13 +255,14 @@ class _FakeConnect:
         return False
 
 
-def _install_fake_ws(monkeypatch, messages):
+def _install_fake_ws(monkeypatch, messages, delay=0.0):
     """Injecte de faux modules `websockets` et `msgpack` pour run_tts (imports paresseux).
-    msgpack.unpackb renvoie l'objet tel quel : on fait circuler des dicts directement."""
+    msgpack.unpackb renvoie l'objet tel quel : on fait circuler des dicts directement.
+    `delay` diffère le 1er message (simule un cold start) pour tester l'attente."""
     import sys
     import types
 
-    ws = _FakeWS(messages)
+    ws = _FakeWS(messages, delay=delay)
     fake_websockets = types.ModuleType("websockets")
     # **kwargs : accepte open_timeout (cold start) et tout futur paramètre de connexion.
     fake_websockets.connect = lambda uri, additional_headers=None, max_size=None, **kwargs: _FakeConnect(ws)
@@ -295,9 +300,58 @@ class TestMoshiServerRunTTS:
         assert len(audio_frames) == 2
         assert all(f.context_id == "ctx-m" for f in audio_frames)
         assert len(audio_frames[0].audio) == 6  # 3 échantillons int16
-        # 4 mots (Text) + 1 Eos envoyés
-        assert len(ws.sent) == 5
+        assert len(ws.sent) == 5  # 4 mots (Text) + 1 Eos envoyés
         assert ws.sent[-1] == {"type": "Eos"}
+
+    _HOLD = b"\x11\x22\x33\x44"  # frame de musique d'attente reconnaissable
+
+    def _svc_with_hold(self, monkeypatch):
+        from app.voice.moshi_server_tts import MoshiServerTTSService
+
+        svc = MoshiServerTTSService()
+
+        async def _identity(audio, in_rate, out_rate):
+            return audio
+
+        monkeypatch.setattr(svc._resampler, "resample", _identity)
+
+        async def _hold():
+            return [self._HOLD]
+
+        monkeypatch.setattr(svc, "_hold_music_frames", _hold)
+        return svc
+
+    def test_hold_music_fills_while_waiting(self, monkeypatch):
+        """1er audio réel retardé (cold start) -> la musique d'attente meuble le blanc,
+        puis s'arrête dès l'arrivée du vrai audio."""
+        from pipecat.frames.frames import TTSAudioRawFrame
+
+        monkeypatch.setenv("MOSHI_HOLD_AFTER_SECONDS", "0")
+        _install_fake_ws(monkeypatch, [{"type": "Audio", "pcm": [0.5]}], delay=0.25)
+        svc = self._svc_with_hold(monkeypatch)
+
+        frames = asyncio.run(_collect(svc.run_tts("bonjour", "ctx")))
+        audio = [f for f in frames if isinstance(f, TTSAudioRawFrame)]
+        hold = [f for f in audio if f.audio == self._HOLD]
+        real = [f for f in audio if f.audio != self._HOLD]
+
+        assert hold, "la musique d'attente aurait dû meubler le délai"
+        assert len(real) == 1, "le vrai audio doit finir par être joué"
+        # La musique s'arrête au 1er audio réel : aucune frame d'attente après lui.
+        assert audio.index(real[0]) == len(hold), "l'attente doit précéder le vrai audio"
+
+    def test_no_hold_music_when_response_is_fast(self, monkeypatch):
+        """Réponse immédiate (GPU chaud) -> jamais de musique d'attente."""
+        from pipecat.frames.frames import TTSAudioRawFrame
+
+        monkeypatch.setenv("MOSHI_HOLD_AFTER_SECONDS", "3")
+        _install_fake_ws(monkeypatch, [{"type": "Audio", "pcm": [0.5, -0.5]}])
+        svc = self._svc_with_hold(monkeypatch)
+
+        frames = asyncio.run(_collect(svc.run_tts("bonjour", "ctx")))
+        audio = [f for f in frames if isinstance(f, TTSAudioRawFrame)]
+        assert all(f.audio != self._HOLD for f in audio), "pas d'attente si la réponse est rapide"
+        assert len(audio) == 1
 
     def test_websocket_error_yields_error_frame(self, monkeypatch):
         import sys
