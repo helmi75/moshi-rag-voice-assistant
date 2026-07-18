@@ -162,8 +162,16 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
     for tool in llm.TOOLS:
         llm_service.register_function(tool["name"], tool_handler)
 
+    messages = [{"role": "system", "content": llm.build_system_prompt(tenant)}]
+    if os.getenv("TTS_PROVIDER", "").strip().lower() == "moshi_server":
+        # Le flux « standardiste » a déjà salué et mis en relation (accueil pré-rendu +
+        # « merci d'avoir patienté ») : on l'inscrit au contexte pour que le modèle
+        # enchaîne directement sur la demande du client, sans re-saluer.
+        messages.append(
+            {"role": "assistant", "content": f"{tenant.greeting} Merci d'avoir patienté, je vous écoute."}
+        )
     context = LLMContext(
-        messages=[{"role": "system", "content": llm.build_system_prompt(tenant)}],
+        messages=messages,
         tools=build_function_schemas(),
     )
     context_aggregator = LLMContextAggregatorPair(
@@ -205,28 +213,24 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
     # les messages Twilio "connected"/"start" ont déjà été consommés par le webhook).
     logger.info(f"Démarrage du pipeline vocal (tenant {tenant.id}, {call_sid}).")
 
-    # Phase 3 — accueil pré-rendu + warmup : on réveille le TTS au plus tôt (pendant
-    # que l'accueil joue) et on rejoue l'accueil déjà rendu en voix « Développeuse »
-    # (latence 0), au lieu de le synthétiser en live et d'exposer le cold start.
+    # Phase 3 — flux « standardiste » : accueil pré-rendu (latence 0) → musique d'attente
+    # pendant le réveil du GPU (décorrélée du barge-in) → reprise proactive. Lancé en
+    # tâche de fond, en parallèle du pipeline, pour injecter les frames au fil de l'eau.
     from . import greeting as greeting_mod
 
+    intro_task = None
     if greeting_mod.is_moshi_server():
-        asyncio.create_task(greeting_mod.warmup_moshi_server())
-
-    greeting_path = (
-        greeting_mod.cached_greeting_path(tenant)
-        if greeting_mod.is_moshi_server()
-        else None
-    )
-    if greeting_path is not None:
-        logger.info(f"Accueil pré-rendu joué depuis {greeting_path.name} (latence 0).")
-        await task.queue_frames(greeting_mod.load_greeting_frames(greeting_path))
-    else:
-        # Pas de WAV en cache : accueil en TTS live (comportement d'origine) et
-        # pré-rendu en tâche de fond pour que les PROCHAINS appels soient instantanés.
-        await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
-        if greeting_mod.is_moshi_server():
+        intro_task = asyncio.create_task(greeting_mod.run_switchboard_intro(task, tenant))
+        # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
+        # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).
+        if greeting_mod.cached_greeting_path(tenant) is None:
             asyncio.create_task(greeting_mod.ensure_greeting_wav(tenant))
+    else:
+        await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
 
     runner = PipelineRunner(handle_sigint=False)
-    await runner.run(task)
+    try:
+        await runner.run(task)
+    finally:
+        if intro_task is not None:
+            intro_task.cancel()

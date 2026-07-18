@@ -7,6 +7,10 @@ from . import db
 
 DEMO_TENANT_NUMBER = os.getenv("TWILIO_NUMBER", "+33100000000")
 
+# Accueil du tenant démo : finit par « un instant s'il vous plaît » pour enchaîner sur
+# la musique d'attente pendant le réveil du GPU (flux standardiste, voir voice/greeting.py).
+_DEMO_GREETING = "Bonjour, restaurant Le Fouquet's Paris. Un instant s'il vous plaît."
+
 _DEMO_KNOWLEDGE_BASE = """\
 ## Restaurant
 Le Fouquet's Paris, 99 avenue des Champs-Élysées, au sein de l'hôtel Barrière.
@@ -83,7 +87,7 @@ def seed_demo_tenant() -> None:
     vraie prod, on ne sème rien si d'autres tenants existent déjà."""
     with db.get_conn() as conn:
         demo = conn.execute(
-            "SELECT id, phone_number FROM tenants WHERE name = ? AND business_type = ?",
+            "SELECT id, phone_number, greeting FROM tenants WHERE name = ? AND business_type = ?",
             ("Le Fouquet's Paris", "restaurant"),
         ).fetchone()
         if demo is not None:
@@ -91,6 +95,13 @@ def seed_demo_tenant() -> None:
                 conn.execute(
                     "UPDATE tenants SET phone_number = ? WHERE id = ?",
                     (DEMO_TENANT_NUMBER, demo["id"]),
+                )
+            # Réaligne l'accueil sur le texte courant (sinon l'ancien reste figé dans le
+            # volume Docker et ne finit pas par « un instant s'il vous plaît »).
+            if demo["greeting"] != _DEMO_GREETING:
+                conn.execute(
+                    "UPDATE tenants SET greeting = ? WHERE id = ?",
+                    (_DEMO_GREETING, demo["id"]),
                 )
             return
         # Pas de tenant démo : ne semer que si la base est vide (jamais en prod).
@@ -105,7 +116,7 @@ def seed_demo_tenant() -> None:
                 "restaurant",
                 DEMO_TENANT_NUMBER,
                 "fr-FR",
-                "Bonjour, restaurant Le Fouquet's Paris, que puis-je faire pour vous ?",
+                _DEMO_GREETING,
                 _DEMO_KNOWLEDGE_BASE,
             ),
         )

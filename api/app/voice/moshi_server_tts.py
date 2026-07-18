@@ -160,7 +160,11 @@ class MoshiServerTTSService(TTSService):
                 await queue.put(_DONE)
 
         producer = asyncio.create_task(_produce())
-        hold_after = float(os.getenv("MOSHI_HOLD_AFTER_SECONDS", "3"))
+        # Seuil élevé : le flux « standardiste » (voice/greeting.py) gère déjà la musique
+        # pendant le cold start. Ce filet dans run_tts ne doit se déclencher qu'en secours
+        # profond (serveur réellement froid en pleine conversation), jamais sur une réponse
+        # un peu lente (~2 s) — sinon micro-blip de musique au milieu d'une phrase.
+        hold_after = float(os.getenv("MOSHI_HOLD_AFTER_SECONDS", "8"))
         hold_frames = await self._hold_music_frames()
         hold_i = 0
         got_real = False
