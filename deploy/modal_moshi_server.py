@@ -40,6 +40,14 @@ PORT = 8080
 # L4 : fluide en Rust d'après Kyutai. Surchargeable via MODAL_GPU (A10G plus rapide).
 GPU = os.environ.get("MODAL_GPU", "L4")
 
+# Région Modal. Co-localiser le GPU avec l'app (et près des clients FR) supprime
+# l'aller-retour transatlantique ressenti pendant l'appel : chaque mot fait un
+# aller-retour app<->TTS, donc un serveur aux US depuis une app en Europe ajoute
+# ~150 ms par échange. Défaut « eu ». Vider MODAL_REGION (MODAL_REGION="") pour
+# laisser Modal choisir — utile si la sélection de région n'est pas offerte par le
+# plan. Passer une région précise (ex. « eu-west-1 ») est aussi accepté.
+MODAL_REGION = os.environ.get("MODAL_REGION", "eu").strip()
+
 # Compute capability CUDA par GPU. moshi-server (candle-kernels) compile ses kernels CUDA
 # AU BUILD de l'image, où AUCUN GPU n'est présent (`nvidia-smi` absent -> le build plante).
 # On fournit donc la valeur en dur via CUDA_COMPUTE_CAP, ce qui évite l'appel à nvidia-smi.
@@ -118,6 +126,9 @@ app = modal.App(APP_NAME)
 @app.function(
     image=image,
     gpu=GPU,
+    # Épingle le GPU dans la région choisie (EU par défaut) pour couper la latence
+    # réseau app<->TTS. None (MODAL_REGION vide) = pas de contrainte, Modal choisit.
+    region=MODAL_REGION or None,
     volumes={"/root/.cache/huggingface": hf_cache},
     # Token HF pour télécharger le modèle 1.6B (secret Modal OU .env local).
     secrets=[modal.Secret.from_dotenv()],
