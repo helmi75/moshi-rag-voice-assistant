@@ -174,12 +174,36 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         messages=messages,
         tools=build_function_schemas(),
     )
+    # Relance douce si le client reste muet après une réponse (comble le « blanc »).
+    idle_timeout = float(os.getenv("USER_IDLE_TIMEOUT", "8"))
     context_aggregator = LLMContextAggregatorPair(
         context,
         # VAD Silero pour le début de tour ; fin de tour via smart-turn v3 (défaut
         # Pipecat 1.5, modèle ONNX embarqué) -> barge-in et coupures naturelles.
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(),
+            # Émet on_user_turn_idle si le client est inactif ce délai APRÈS que le bot
+            # a fini de parler (donc jamais pendant la musique d'attente).
+            user_idle_timeout=idle_timeout,
+        ),
     )
+
+    # Relances progressives, plafonnées ; le compteur repart dès que le client parle.
+    _idle = {"n": 0}
+    _user_agg = context_aggregator.user()
+
+    @_user_agg.event_handler("on_user_turn_idle")
+    async def _on_user_idle(aggregator):
+        _idle["n"] += 1
+        if _idle["n"] == 1:
+            await task.queue_frames([TTSSpeakFrame("Je vous écoute, que puis-je faire pour vous ?")])
+        elif _idle["n"] == 2:
+            await task.queue_frames([TTSSpeakFrame("Êtes-vous toujours en ligne ?")])
+        # Au-delà : on n'insiste plus (on laisse le client raccrocher).
+
+    @_user_agg.event_handler("on_user_turn_stopped")
+    async def _reset_idle(aggregator, *args):
+        _idle["n"] = 0
 
     pipeline = Pipeline(
         [
