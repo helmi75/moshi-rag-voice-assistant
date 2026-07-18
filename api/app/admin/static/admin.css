@@ -1,0 +1,31 @@
+/* Ajustements légers au-dessus de Pico.css pour le dashboard admin. */
+
+/* Palette dataviz validée (skill dataviz) : slot 1 bleu (appels), slot 2 aqua
+   (réservations). Encre texte ≠ couleur de série. Thème sombre : mêmes teintes,
+   pas recalées pour la surface sombre. */
+.viz-root {
+  --viz-series-1: #2a78d6;
+  --viz-series-2: #1baf7a;
+  --viz-text: var(--pico-color, #333);
+  --viz-text-muted: var(--pico-muted-color, #777);
+  --viz-grid: var(--pico-muted-border-color, #ddd);
+  margin: 0 0 1rem 0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .viz-root { --viz-series-1: #3987e5; --viz-series-2: #199e70; }
+}
+:root[data-theme="dark"] .viz-root { --viz-series-1: #3987e5; --viz-series-2: #199e70; }
+nav.container { padding-top: 0.75rem; }
+nav form button { padding: 0.25rem 0.75rem; font-size: 0.85rem; }
+table td, table th { vertical-align: middle; }
+tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 1rem; }
+.stat-cards article { text-align: center; margin: 0; }
+.stat-cards h2 { margin-bottom: 0.1rem; }
+.stat-cards p { margin: 0; color: var(--pico-muted-color); font-size: 0.85rem; }
+.chart-block { overflow-x: auto; }
+.transcript { display: flex; flex-direction: column; gap: 0.5rem; }
+.transcript .bubble { padding: 0.5rem 0.9rem; border-radius: 0.9rem; max-width: 75%; }
+.transcript .user { align-self: flex-start; background: var(--pico-card-sectioning-background-color, #eee); }
+.transcript .assistant { align-self: flex-end; background: var(--pico-primary-background); color: var(--pico-primary-inverse); }
+.muted { color: var(--pico-muted-color); }

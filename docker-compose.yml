@@ -35,6 +35,12 @@ services:
       HF_HOME: "/app/data/hf"
       CARTESIA_API_KEY: "${CARTESIA_API_KEY:-}"
       CARTESIA_VOICE_ID: "${CARTESIA_VOICE_ID:-}"
+      # Plateforme admin : compte super-admin semé au 1er démarrage + secret de session.
+      # Sans ADMIN_PASSWORD, l'admin est inaccessible (l'app vocale n'est pas affectée).
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@local}"
+      SESSION_SECRET: "${SESSION_SECRET:-}"
+      SESSION_SECURE: "${SESSION_SECURE:-}"
     volumes:
       - api_data:/app/data
 

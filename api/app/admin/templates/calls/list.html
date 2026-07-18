@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Appels{% endblock %}
+{% block content %}
+<h1>Journal des appels</h1>
+
+{% if tenants %}
+<form method="get" action="/admin/calls" class="grid">
+  <label>Établissement
+    <select name="tenant_id" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for t in tenants %}
+      <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+{% endif %}
+
+<table>
+  <thead>
+    <tr><th>Début</th>{% if tenant_names %}<th>Établissement</th>{% endif %}
+        <th>Durée</th><th>Statut</th><th>Réservation</th><th>Coût est.</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for c in calls %}
+    <tr>
+      <td>{{ c.started_at.replace("T", " ")[:16] }}</td>
+      {% if tenant_names %}<td>{{ tenant_names.get(c.tenant_id, c.tenant_id) }}</td>{% endif %}
+      <td>{{ "%d:%02d" | format(c.duration_seconds // 60, c.duration_seconds % 60) if c.duration_seconds else "—" }}</td>
+      <td>
+        {% if c.status == "completed" %}✅{% elif c.status == "failed" %}❌{% else %}⏳{% endif %}
+        {{ c.status }}
+      </td>
+      <td>{{ "✅ #" ~ c.reservation_id if c.reservation_id else "—" }}</td>
+      <td>{{ "$%.3f" | format(c.estimated_cost) if c.estimated_cost else "—" }}</td>
+      <td><a href="/admin/calls/{{ c.id }}">Détail</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="muted">Aucun appel enregistré pour l'instant.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<nav>
+  <ul>
+    {% if page > 1 %}<li><a href="?page={{ page - 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}">← Précédent</a></li>{% endif %}
+    {% if has_next %}<li><a href="?page={{ page + 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}">Suivant →</a></li>{% endif %}
+  </ul>
+</nav>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Voix — {{ tenant.name }}{% endblock %}
+{% block content %}
+<h1>Configuration voix — {{ tenant.name }}</h1>
+{% if error %}<p role="alert" style="color: var(--pico-del-color)">{{ error }}</p>{% endif %}
+
+<article>
+  <h2>Message d'accueil</h2>
+  <p class="muted">Joué instantanément au décroché (pré-rendu en voix IA « Développeuse »).
+     Terminez par « un instant s'il vous plaît » : la musique d'attente enchaîne pendant
+     la mise en route, puis l'assistante reprend la parole.</p>
+  <form method="post" action="/admin/tenants/{{ tenant.id }}/voice">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <textarea name="greeting" rows="2" required>{{ tenant.greeting }}</textarea>
+    <button type="submit">Enregistrer et re-rendre la voix</button>
+  </form>
+  <div id="greeting-status">
+    {% include "voice/_greeting_status.html" %}
+  </div>
+</article>
+
+<article>
+  <h2>Musique d'attente</h2>
+  <p class="muted">
+    {% if has_custom_music %}🎵 Musique personnalisée en place.
+    {% else %}Musique par défaut (Vivaldi synthétisé). Uploadez un WAV pour la remplacer
+    — utilisez un enregistrement libre de droits.{% endif %}
+  </p>
+  <form method="post" action="/admin/tenants/{{ tenant.id }}/hold-music" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <input type="file" name="file" accept=".wav,audio/wav" required>
+    <button type="submit">Uploader (WAV 16 bits, 5 Mo max)</button>
+  </form>
+  {% if has_custom_music %}
+  <form method="post" action="/admin/tenants/{{ tenant.id }}/hold-music/delete">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <button type="submit" class="secondary outline">Revenir à la musique par défaut</button>
+  </form>
+  {% endif %}
+</article>
+{% endblock %}

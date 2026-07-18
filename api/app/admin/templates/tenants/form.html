@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ tenant.name if tenant else "Nouvel établissement" }}{% endblock %}
+{% block content %}
+<h1>{{ tenant.name if tenant else "Nouvel établissement" }}</h1>
+{% if error %}<p role="alert" style="color: var(--pico-del-color)">{{ error }}</p>{% endif %}
+<form method="post" action="{{ '/admin/tenants/' ~ tenant.id if tenant else '/admin/tenants' }}">
+  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+  <div class="grid">
+    <label>Nom
+      <input name="name" required value="{{ tenant.name if tenant else '' }}">
+    </label>
+    <label>Type
+      <select name="business_type">
+        {% for bt in ["restaurant", "medecin", "autre"] %}
+        <option value="{{ bt }}" {{ "selected" if tenant and tenant.business_type == bt }}>{{ bt }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <div class="grid">
+    {% if request.state.user.is_superadmin %}
+    <label>Numéro Twilio (routage des appels)
+      <input name="phone_number" required value="{{ tenant.phone_number if tenant else '' }}"
+             placeholder="+33612345678">
+    </label>
+    {% endif %}
+    <label>Langue
+      <input name="language" value="{{ tenant.language if tenant else 'fr-FR' }}">
+    </label>
+  </div>
+  <label>Message d'accueil <small class="muted">(lu par la voix IA au décroché ; re-rendu automatique)</small>
+    <input name="greeting" value="{{ tenant.greeting if tenant else '' }}"
+           placeholder="Bonjour, restaurant X. Un instant s'il vous plaît.">
+  </label>
+  <label>Base de connaissances <small class="muted">(horaires, menus, consignes — injectée au LLM)</small>
+    <textarea name="knowledge_base" rows="10">{{ tenant.knowledge_base if tenant else '' }}</textarea>
+  </label>
+  <button type="submit">Enregistrer</button>
+</form>
+{% endblock %}

@@ -16,14 +16,26 @@ from .. import llm
 from ..tenants import Tenant
 
 
-def make_tool_handler(tenant: Tenant):
-    """Handler Pipecat commun aux outils métier : délègue à llm.run_tool."""
+def make_tool_handler(tenant: Tenant, created_reservations: list[int] | None = None):
+    """Handler Pipecat commun aux outils métier : délègue à llm.run_tool.
+
+    `created_reservations` (journal des appels) : collecte les ids des réservations
+    créées pendant l'appel — le handler voit passer tous les résultats d'outils."""
 
     async def handle(params):  # params: pipecat FunctionCallParams
         try:
             result = await llm.run_tool(tenant, params.function_name, params.arguments or {})
         except Exception as exc:
             result = f"Erreur outil {params.function_name}: {exc}"
+        if created_reservations is not None and params.function_name == "create_reservation":
+            try:
+                import json
+
+                rid = json.loads(result).get("reservation_id")
+                if rid:
+                    created_reservations.append(int(rid))
+            except (ValueError, TypeError, AttributeError):
+                pass  # résultat d'erreur ou format inattendu : pas de lien de résa
         await params.result_callback(result)
 
     return handle
@@ -158,7 +170,9 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         model=llm.MODEL,
         default_headers=headers or None,
     )
-    tool_handler = make_tool_handler(tenant)
+    # Journal des appels : collecte les réservations créées pendant CET appel.
+    created_reservations: list[int] = []
+    tool_handler = make_tool_handler(tenant, created_reservations)
     for tool in llm.TOOLS:
         llm_service.register_function(tool["name"], tool_handler)
 
@@ -258,8 +272,46 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
 
     runner = PipelineRunner(handle_sigint=False)
+    status = "completed"
     try:
         await runner.run(task)
+    except Exception:
+        status = "failed"
+        raise
     finally:
         if intro_task is not None:
             intro_task.cancel()
+        # Journal des appels : clôture best-effort, hors chemin de latence (l'appel est
+        # déjà terminé) et en thread (écriture SQLite hors event loop).
+        if call_sid:
+            try:
+                from .. import calls as calls_mod
+
+                await asyncio.to_thread(
+                    calls_mod.finish_call,
+                    call_sid,
+                    status,
+                    _extract_transcript(context),
+                    created_reservations[0] if created_reservations else None,
+                )
+            except Exception as exc:
+                logger.warning(f"[calls] finish_call KO (sans conséquence): {exc}")
+
+
+def _extract_transcript(context) -> list[dict] | None:
+    """Extrait les tours user/assistant textuels du LLMContext Pipecat (sans le
+    prompt système ni les appels d'outils). Défensif : au pire None, jamais d'erreur."""
+    try:
+        get_messages = getattr(context, "get_messages", None)
+        messages = get_messages() if callable(get_messages) else getattr(context, "messages", [])
+        transcript = []
+        for message in messages:
+            role = message.get("role") if isinstance(message, dict) else getattr(message, "role", None)
+            content = (
+                message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+            )
+            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                transcript.append({"role": role, "content": content.strip()})
+        return transcript or None
+    except Exception:
+        return None

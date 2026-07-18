@@ -8,12 +8,41 @@ from xml.sax.saxutils import escape
 from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
-from . import db, llm, reservations, tenants
+from . import calls, db, llm, reservations, tenants, users
 
 app = FastAPI(title="Voice Assistant SaaS")
 
 db.init_db()
 tenants.seed_demo_tenant()
+users.seed_superadmin()
+
+# --- Plateforme admin (dashboard Jinja2 + htmx) -------------------------------
+# L'auth est portée par les DÉPENDANCES des routers admin (voir app/admin/) : les
+# webhooks Twilio et /ws/voice ne traversent aucune logique d'auth. Le
+# SessionMiddleware est global mais inerte hors admin (cookie posé seulement si la
+# session est modifiée).
+from pathlib import Path as _Path
+
+from starlette.middleware.sessions import SessionMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from . import admin as admin_pkg
+
+_session_secret = os.getenv("SESSION_SECRET", "")
+if not _session_secret:
+    import secrets as _secrets
+
+    _session_secret = _secrets.token_hex(32)
+    print("[admin] SESSION_SECRET absent : secret aléatoire (sessions perdues au redémarrage).")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_session_secret,
+    same_site="lax",
+    https_only=os.getenv("SESSION_SECURE", "").lower() in ("1", "true"),
+)
+app.mount("/admin/static", StaticFiles(directory=str(admin_pkg.STATIC_DIR)), name="admin_static")
+app.include_router(admin_pkg.public_router)
+app.include_router(admin_pkg.admin_router)
 
 
 @app.on_event("startup")
@@ -280,6 +309,12 @@ async def voice_stream(websocket: WebSocket):
         print(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
         await websocket.close(code=1008)  # policy violation
         return
+
+    # Journal des appels (admin) : best-effort, ne doit JAMAIS faire échouer un appel.
+    try:
+        calls.start_call(call_sid, tenant.id)
+    except Exception as exc:
+        print(f"[calls] start_call KO (sans conséquence): {exc}")
 
     run_bot = _get_bot_runner()
     try:

@@ -17,6 +17,7 @@ import os
 import time
 import wave
 from pathlib import Path
+from typing import Optional
 from urllib.parse import quote
 
 import numpy as np
@@ -183,9 +184,25 @@ async def warmup_moshi_server() -> None:
         logger.warning(f"warmup moshi-server échoué (sans conséquence): {exc}")
 
 
-def load_hold_music_chunks(chunk_ms: int = 20) -> tuple[int, list[bytes]]:
-    """Charge la musique d'attente en morceaux de 20 ms. (rate, [bytes]). ([]) si absente."""
-    path = os.getenv("MOSHI_HOLD_MUSIC_PATH", _DEFAULT_HOLD_MUSIC)
+def hold_music_dir() -> Path:
+    """Dossier des musiques d'attente PAR TENANT (uploads admin, volume persistant)."""
+    return Path(os.getenv("HOLD_MUSIC_DIR", "/app/data/hold_music"))
+
+
+def hold_music_path(tenant_id: Optional[int] = None) -> str:
+    """Musique d'attente à jouer : celle du tenant si uploadée, sinon la globale."""
+    if tenant_id is not None:
+        per_tenant = hold_music_dir() / f"tenant{tenant_id}.wav"
+        if per_tenant.exists() and per_tenant.stat().st_size > 44:
+            return str(per_tenant)
+    return os.getenv("MOSHI_HOLD_MUSIC_PATH", _DEFAULT_HOLD_MUSIC)
+
+
+def load_hold_music_chunks(
+    chunk_ms: int = 20, tenant_id: Optional[int] = None
+) -> tuple[int, list[bytes]]:
+    """Charge la musique d'attente en morceaux de chunk_ms. (rate, [bytes]). ([]) si absente."""
+    path = hold_music_path(tenant_id)
     try:
         with wave.open(path, "rb") as w:
             rate = w.getframerate()
@@ -232,7 +249,7 @@ async def run_switchboard_intro(task, output_transport, tenant: Tenant) -> None:
 
             # 3. Musique d'attente jusqu'au réveil, en morceaux de 1 s envoyés DIRECT à la
             #    sortie (pacé : le transport joue à débit réel, on garde un petit tampon).
-            rate, chunks = load_hold_music_chunks(chunk_ms=1000)
+            rate, chunks = load_hold_music_chunks(chunk_ms=1000, tenant_id=tenant.id)
             deadline = time.monotonic() + float(os.getenv("MOSHI_HOLD_MAX_SECONDS", "90"))
             i = 0
             if chunks:

@@ -77,6 +77,52 @@ def list_all() -> list[Tenant]:
     return [_row_to_tenant(row) for row in rows]
 
 
+def create_tenant(
+    name: str,
+    phone_number: str,
+    business_type: str = "restaurant",
+    language: str = "fr-FR",
+    greeting: Optional[str] = None,
+    knowledge_base: str = "",
+) -> Tenant:
+    """Crée un tenant. Lève sqlite3.IntegrityError si le numéro est déjà pris."""
+    with db.get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO tenants (name, business_type, phone_number, language, greeting, knowledge_base)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (name, business_type, phone_number, language, greeting, knowledge_base),
+        )
+        row = conn.execute("SELECT * FROM tenants WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _row_to_tenant(row)
+
+
+def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
+    """Met à jour les champs fournis (name, business_type, phone_number, language,
+    greeting, knowledge_base). Lève sqlite3.IntegrityError si numéro en conflit."""
+    allowed = {"name", "business_type", "phone_number", "language", "greeting", "knowledge_base"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return get_by_id(tenant_id)
+    assignments = ", ".join(f"{k} = ?" for k in updates)
+    with db.get_conn() as conn:
+        conn.execute(
+            f"UPDATE tenants SET {assignments} WHERE id = ?",
+            (*updates.values(), tenant_id),
+        )
+        row = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+    return _row_to_tenant(row) if row else None
+
+
+def delete_tenant(tenant_id: int) -> None:
+    """Supprime le tenant ET ses données (réservations, appels, comptes) en une
+    transaction — la FK reservations.tenant_id n'a pas de CASCADE (table historique)."""
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM reservations WHERE tenant_id = ?", (tenant_id,))
+        conn.execute("DELETE FROM calls WHERE tenant_id = ?", (tenant_id,))
+        conn.execute("DELETE FROM users WHERE tenant_id = ?", (tenant_id,))
+        conn.execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
+
+
 def seed_demo_tenant() -> None:
     """Crée le restaurant de démonstration si absent, et garde son numéro aligné
     sur TWILIO_NUMBER.

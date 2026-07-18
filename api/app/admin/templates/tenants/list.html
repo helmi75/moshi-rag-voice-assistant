@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Établissements{% endblock %}
+{% block content %}
+<h1>Établissements</h1>
+<p><a role="button" href="/admin/tenants/new">+ Nouvel établissement</a></p>
+<table>
+  <thead>
+    <tr><th>Nom</th><th>Type</th><th>Numéro</th><th>Langue</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for t in tenants %}
+    <tr>
+      <td><strong>{{ t.name }}</strong></td>
+      <td>{{ t.business_type }}</td>
+      <td>{{ t.phone_number }}</td>
+      <td>{{ t.language }}</td>
+      <td>
+        <a href="/admin/tenants/{{ t.id }}/edit">Fiche</a> ·
+        <a href="/admin/tenants/{{ t.id }}/voice">Voix</a> ·
+        <a href="/admin/tenants/{{ t.id }}/users">Comptes</a> ·
+        <a href="#" hx-post="/admin/tenants/{{ t.id }}/delete"
+           hx-confirm="Supprimer {{ t.name }} et TOUTES ses données (réservations, appels, comptes) ?"
+           hx-target="body">Supprimer</a>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">Aucun établissement.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

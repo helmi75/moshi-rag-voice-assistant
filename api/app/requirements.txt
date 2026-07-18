@@ -14,3 +14,7 @@ pocket-tts[audio]
 # Léger : l'app est simple cliente websocket (aucun modèle en local).
 websockets
 msgpack
+# Plateforme admin (dashboard server-rendered) : templates, sessions signées, mots de passe
+jinja2
+itsdangerous
+bcrypt

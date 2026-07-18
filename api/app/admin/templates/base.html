@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Admin{% endblock %} — Assistant Vocal</title>
+  <link rel="stylesheet" href="/admin/static/pico.min.css">
+  <link rel="stylesheet" href="/admin/static/admin.css">
+  <script src="/admin/static/htmx.min.js" defer></script>
+</head>
+<body hx-headers='{"X-CSRF-Token": "{{ request.session.get("csrf", "") }}"}'>
+<nav class="container">
+  <ul>
+    <li><strong>📞 Assistant Vocal</strong></li>
+  </ul>
+  {% if request.state.user is defined %}
+  <ul>
+    <li><a href="/admin/">Tableau de bord</a></li>
+    <li><a href="/admin/reservations">Réservations</a></li>
+    <li><a href="/admin/calls">Appels</a></li>
+    {% if request.state.user.is_superadmin %}
+    <li><a href="/admin/tenants">Établissements</a></li>
+    {% else %}
+    <li><a href="/admin/tenants/{{ request.state.user.tenant_id }}/edit">Mon établissement</a></li>
+    <li><a href="/admin/tenants/{{ request.state.user.tenant_id }}/voice">Ma voix</a></li>
+    {% endif %}
+    <li>
+      <form method="post" action="/admin/logout" style="margin:0">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+        <button class="secondary outline" type="submit">Déconnexion</button>
+      </form>
+    </li>
+  </ul>
+  {% endif %}
+</nav>
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>
