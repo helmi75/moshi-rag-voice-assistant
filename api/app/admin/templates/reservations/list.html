@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Réservations{% endblock %}
+{% block content %}
+<h1>Réservations</h1>
+
+<form method="get" action="/admin/reservations" class="grid">
+  {% if tenants %}
+  <label>Établissement
+    <select name="tenant_id" onchange="this.form.submit()">
+      <option value="">Tous</option>
+      {% for t in tenants %}
+      <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  <label>À partir du
+    <input type="date" name="date_from" value="{{ date_from }}" onchange="this.form.submit()">
+  </label>
+</form>
+
+<table>
+  <thead>
+    <tr><th>Client</th><th>Téléphone</th><th>Date</th><th>Heure</th><th>Pers.</th>
+        {% if tenant_names %}<th>Établissement</th>{% endif %}<th>Notes</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for r in reservations %}
+    {% include "reservations/_row.html" %}
+    {% else %}
+    <tr><td colspan="8" class="muted">Aucune réservation.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<nav>
+  <ul>
+    {% if page > 1 %}
+    <li><a href="?page={{ page - 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}">← Précédent</a></li>
+    {% endif %}
+    {% if has_next %}
+    <li><a href="?page={{ page + 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}">Suivant →</a></li>
+    {% endif %}
+  </ul>
+</nav>
+{% endblock %}

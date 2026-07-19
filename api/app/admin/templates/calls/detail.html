@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Appel du {{ call.started_at[:16] }}{% endblock %}
+{% block content %}
+<h1>Appel — {{ tenant.name if tenant else call.tenant_id }}</h1>
+<div class="stat-cards">
+  <article><h2>{{ call.started_at.replace("T", " ")[:16] }}</h2><p>Début</p></article>
+  <article><h2>{{ "%d:%02d" | format(call.duration_seconds // 60, call.duration_seconds % 60) if call.duration_seconds else "—" }}</h2><p>Durée</p></article>
+  <article><h2>{{ call.status }}</h2><p>Statut</p></article>
+  <article><h2>{{ "$%.3f" | format(call.estimated_cost) if call.estimated_cost else "—" }}</h2><p>Coût estimé</p></article>
+</div>
+
+{% if call.reservation_id %}
+<p>✅ Réservation <a href="/admin/reservations">#{{ call.reservation_id }}</a> créée pendant cet appel.</p>
+{% else %}
+<p class="muted">Aucune réservation créée pendant cet appel.</p>
+{% endif %}
+
+<h2>Transcription</h2>
+{% if transcript %}
+<div class="transcript">
+  {% for m in transcript %}
+  <div class="bubble {{ m.role }}">{{ m.content }}</div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Pas de transcription disponible pour cet appel.</p>
+{% endif %}
+
+<p style="margin-top: 1.5rem"><a href="/admin/calls">← Retour au journal</a></p>
+{% endblock %}

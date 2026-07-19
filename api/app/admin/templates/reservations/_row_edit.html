@@ -1,0 +1,19 @@
+<tr id="resa-{{ r.id }}">
+  <td colspan="8">
+    <form hx-post="/admin/reservations/{{ r.id }}" hx-target="closest tr" hx-swap="outerHTML"
+          class="grid" style="align-items: end; margin: 0">
+      <label>Client <input name="customer_name" required value="{{ r.customer_name }}"></label>
+      <label>Téléphone <input name="customer_phone" value="{{ r.customer_phone or '' }}"></label>
+      <label>Date <input type="date" name="date" required value="{{ r.date }}"></label>
+      <label>Heure <input type="time" name="time" required value="{{ r.time }}"></label>
+      <label>Pers. <input type="number" name="party_size" required min="1" value="{{ r.party_size }}"></label>
+      <label>Notes <input name="notes" value="{{ r.notes or '' }}"></label>
+      <div>
+        <button type="submit">OK</button>
+        <button type="button" class="secondary outline"
+                hx-get="/admin/reservations/{{ r.id }}/row"
+                hx-target="closest tr" hx-swap="outerHTML">Annuler</button>
+      </div>
+    </form>
+  </td>
+</tr>

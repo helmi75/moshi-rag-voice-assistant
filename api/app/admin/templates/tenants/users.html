@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Comptes — {{ tenant.name }}{% endblock %}
+{% block content %}
+<h1>Comptes restaurateur — {{ tenant.name }}</h1>
+{% if error %}<p role="alert" style="color: var(--pico-del-color)">{{ error }}</p>{% endif %}
+<table>
+  <thead><tr><th>Email</th><th>Créé le</th><th></th></tr></thead>
+  <tbody>
+    {% for a in accounts %}
+    <tr>
+      <td>{{ a.email }}</td>
+      <td>{{ a.created_at[:10] }}</td>
+      <td>
+        <a href="#" hx-post="/admin/users/{{ a.id }}/delete"
+           hx-confirm="Supprimer le compte {{ a.email }} ?" hx-target="body">Supprimer</a>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="muted">Aucun compte : ce restaurateur ne peut pas se connecter.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Ajouter un compte</h2>
+<form method="post" action="/admin/tenants/{{ tenant.id }}/users">
+  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+  <div class="grid">
+    <label>Email <input type="email" name="email" required></label>
+    <label>Mot de passe <input type="password" name="password" required minlength="8"></label>
+  </div>
+  <button type="submit">Créer le compte</button>
+</form>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% if greeting_ready %}
+<p>✅ Accueil rendu — écoutez l'aperçu :</p>
+<audio controls src="/admin/tenants/{{ tenant.id }}/greeting.wav"></audio>
+{% else %}
+<p class="muted" aria-busy="true"
+   hx-get="/admin/tenants/{{ tenant.id }}/greeting/status"
+   hx-target="#greeting-status" hx-trigger="every 3s" hx-swap="innerHTML">
+  Rendu de la voix en cours (jusqu'à 90 s si le GPU était endormi)…
+</p>
+{% endif %}

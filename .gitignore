@@ -90,3 +90,9 @@ caddy_config/
 Thumbs.db
 .DS_Store
 
+
+# Snapshot local de l'outil de coût
+.cost_snapshot.json
+
+# Données locales (musiques uploadées, DB locale)
+data/

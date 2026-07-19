@@ -1,0 +1,16 @@
+<tr id="resa-{{ r.id }}">
+  <td><strong>{{ r.customer_name }}</strong></td>
+  <td>{{ r.customer_phone or "—" }}</td>
+  <td>{{ r.date }}</td>
+  <td>{{ r.time }}</td>
+  <td>{{ r.party_size }}</td>
+  {% if tenant_names %}<td>{{ tenant_names.get(r.tenant_id, r.tenant_id) }}</td>{% endif %}
+  <td>{{ r.notes or "" }}</td>
+  <td style="white-space: nowrap">
+    <a href="#" hx-get="/admin/reservations/{{ r.id }}/edit"
+       hx-target="closest tr" hx-swap="outerHTML">Modifier</a> ·
+    <a href="#" hx-post="/admin/reservations/{{ r.id }}/delete"
+       hx-confirm="Annuler la réservation de {{ r.customer_name }} ?"
+       hx-target="closest tr" hx-swap="delete swap:0.2s">Annuler</a>
+  </td>
+</tr>

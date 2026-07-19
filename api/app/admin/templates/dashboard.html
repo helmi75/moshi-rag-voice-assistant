@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord{% endblock %}
+{% block content %}
+<h1>Tableau de bord <small class="muted">30 derniers jours</small></h1>
+
+<div class="stat-cards">
+  <article><h2>{{ totals.calls }}</h2><p>Appels</p></article>
+  <article><h2>{{ totals.reservations }}</h2><p>Réservations</p></article>
+  <article><h2>{{ totals.conversion }}%</h2><p>Appels → réservation</p></article>
+  <article><h2>${{ "%.2f" | format(totals.cost) }}</h2><p>Coût estimé</p></article>
+</div>
+
+<section hx-get="/admin/stats/charts{% if tenant_id %}?tenant_id={{ tenant_id }}{% endif %}"
+         hx-trigger="load" hx-swap="innerHTML">
+  <p class="muted" aria-busy="true">Chargement des graphiques…</p>
+</section>
+{% endblock %}

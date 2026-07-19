@@ -7,6 +7,10 @@ from . import db
 
 DEMO_TENANT_NUMBER = os.getenv("TWILIO_NUMBER", "+33100000000")
 
+# Accueil du tenant démo : finit par « un instant s'il vous plaît » pour enchaîner sur
+# la musique d'attente pendant le réveil du GPU (flux standardiste, voir voice/greeting.py).
+_DEMO_GREETING = "Bonjour, restaurant Le Fouquet's Paris. Un instant s'il vous plaît."
+
 _DEMO_KNOWLEDGE_BASE = """\
 ## Restaurant
 Le Fouquet's Paris, 99 avenue des Champs-Élysées, au sein de l'hôtel Barrière.
@@ -66,6 +70,59 @@ def get_by_id(tenant_id: int) -> Optional[Tenant]:
     return _row_to_tenant(row) if row else None
 
 
+def list_all() -> list[Tenant]:
+    """Tous les tenants (utilisé au démarrage pour pré-rendre les greetings)."""
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT * FROM tenants ORDER BY id").fetchall()
+    return [_row_to_tenant(row) for row in rows]
+
+
+def create_tenant(
+    name: str,
+    phone_number: str,
+    business_type: str = "restaurant",
+    language: str = "fr-FR",
+    greeting: Optional[str] = None,
+    knowledge_base: str = "",
+) -> Tenant:
+    """Crée un tenant. Lève sqlite3.IntegrityError si le numéro est déjà pris."""
+    with db.get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO tenants (name, business_type, phone_number, language, greeting, knowledge_base)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (name, business_type, phone_number, language, greeting, knowledge_base),
+        )
+        row = conn.execute("SELECT * FROM tenants WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _row_to_tenant(row)
+
+
+def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
+    """Met à jour les champs fournis (name, business_type, phone_number, language,
+    greeting, knowledge_base). Lève sqlite3.IntegrityError si numéro en conflit."""
+    allowed = {"name", "business_type", "phone_number", "language", "greeting", "knowledge_base"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return get_by_id(tenant_id)
+    assignments = ", ".join(f"{k} = ?" for k in updates)
+    with db.get_conn() as conn:
+        conn.execute(
+            f"UPDATE tenants SET {assignments} WHERE id = ?",
+            (*updates.values(), tenant_id),
+        )
+        row = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+    return _row_to_tenant(row) if row else None
+
+
+def delete_tenant(tenant_id: int) -> None:
+    """Supprime le tenant ET ses données (réservations, appels, comptes) en une
+    transaction — la FK reservations.tenant_id n'a pas de CASCADE (table historique)."""
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM reservations WHERE tenant_id = ?", (tenant_id,))
+        conn.execute("DELETE FROM calls WHERE tenant_id = ?", (tenant_id,))
+        conn.execute("DELETE FROM users WHERE tenant_id = ?", (tenant_id,))
+        conn.execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
+
+
 def seed_demo_tenant() -> None:
     """Crée le restaurant de démonstration si absent, et garde son numéro aligné
     sur TWILIO_NUMBER.
@@ -76,7 +133,7 @@ def seed_demo_tenant() -> None:
     vraie prod, on ne sème rien si d'autres tenants existent déjà."""
     with db.get_conn() as conn:
         demo = conn.execute(
-            "SELECT id, phone_number FROM tenants WHERE name = ? AND business_type = ?",
+            "SELECT id, phone_number, greeting FROM tenants WHERE name = ? AND business_type = ?",
             ("Le Fouquet's Paris", "restaurant"),
         ).fetchone()
         if demo is not None:
@@ -84,6 +141,13 @@ def seed_demo_tenant() -> None:
                 conn.execute(
                     "UPDATE tenants SET phone_number = ? WHERE id = ?",
                     (DEMO_TENANT_NUMBER, demo["id"]),
+                )
+            # Réaligne l'accueil sur le texte courant (sinon l'ancien reste figé dans le
+            # volume Docker et ne finit pas par « un instant s'il vous plaît »).
+            if demo["greeting"] != _DEMO_GREETING:
+                conn.execute(
+                    "UPDATE tenants SET greeting = ? WHERE id = ?",
+                    (_DEMO_GREETING, demo["id"]),
                 )
             return
         # Pas de tenant démo : ne semer que si la base est vide (jamais en prod).
@@ -98,7 +162,7 @@ def seed_demo_tenant() -> None:
                 "restaurant",
                 DEMO_TENANT_NUMBER,
                 "fr-FR",
-                "Bonjour, restaurant Le Fouquet's Paris, que puis-je faire pour vous ?",
+                _DEMO_GREETING,
                 _DEMO_KNOWLEDGE_BASE,
             ),
         )
