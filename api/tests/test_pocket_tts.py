@@ -340,6 +340,44 @@ class TestMoshiServerRunTTS:
         # La musique s'arrête au 1er audio réel : aucune frame d'attente après lui.
         assert audio.index(real[0]) == len(hold), "l'attente doit précéder le vrai audio"
 
+    def test_preconnect_is_used_by_run_tts(self, monkeypatch):
+        """Une pré-connexion (LLMFullResponseStartFrame) est consommée par run_tts
+        et une suivante est planifiée pour la phrase d'après."""
+        from pipecat.frames.frames import TTSAudioRawFrame
+
+        _install_fake_ws(monkeypatch, [{"type": "Audio", "pcm": [0.5]}])
+        svc = self._svc_with_hold(monkeypatch)
+
+        async def _run():
+            svc._ensure_preconnect()          # simule le départ du LLM
+            await asyncio.sleep(0)            # laisse la connexion s'ouvrir
+            assert svc._next_ws is not None
+            frames = [f async for f in svc.run_tts("bonjour", "ctx")]
+            # La pré-connexion a été consommée puis re-planifiée (chaînage).
+            assert svc._next_ws is not None
+            svc._discard_preconnect()
+            await asyncio.sleep(0)
+            return frames
+
+        frames = asyncio.run(_run())
+        assert any(isinstance(f, TTSAudioRawFrame) for f in frames)
+
+    def test_stale_preconnect_is_replaced(self, monkeypatch):
+        _install_fake_ws(monkeypatch, [])
+        svc = self._svc_with_hold(monkeypatch)
+
+        async def _run():
+            svc._ensure_preconnect()
+            first = svc._next_ws
+            await asyncio.sleep(0)
+            svc._next_ws_time -= svc._PRECONNECT_TTL + 1  # vieillit artificiellement
+            svc._ensure_preconnect()
+            assert svc._next_ws is not first, "une pré-connexion périmée doit être remplacée"
+            svc._discard_preconnect()
+            await asyncio.sleep(0)
+
+        asyncio.run(_run())
+
     def test_no_hold_music_when_response_is_fast(self, monkeypatch):
         """Réponse immédiate (GPU chaud) -> jamais de musique d'attente."""
         from pipecat.frames.frames import TTSAudioRawFrame

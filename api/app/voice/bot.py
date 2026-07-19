@@ -148,12 +148,27 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         ),
     )
 
+    # Boost de vocabulaire Deepgram : le nom de l'établissement + le lexique de la
+    # réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz
+    # (mots inventés à la place de « réservation », noms propres écorchés...).
+    keywords = [f"{w}:5" for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
+    keywords += [
+        "réservation:3", "réserver:3", "couverts:2", "personnes:2", "table:2",
+        "midi:1", "soir:1", "demain:1", "allergie:2", "terrasse:2", "annuler:2",
+    ]
+    extra_kw = os.getenv("DEEPGRAM_KEYWORDS", "")  # "mot:5,autre:2" pour compléter
+    keywords += [k.strip() for k in extra_kw.split(",") if k.strip()]
+
     stt = DeepgramSTTService(
         api_key=os.getenv("DEEPGRAM_API_KEY", ""),
         live_options=LiveOptions(
             # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL
             model=os.getenv("DEEPGRAM_MODEL", "nova-2"),
             language=language,
+            # smart_format : dates/nombres proprement formatés (« 20 h » plutôt que
+            # « vingt heures ») -> le LLM extrait mieux date/heure/couverts.
+            smart_format=True,
+            keywords=keywords,
         ),
     )
 
@@ -175,6 +190,30 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
     tool_handler = make_tool_handler(tenant, created_reservations)
     for tool in llm.TOOLS:
         llm_service.register_function(tool["name"], tool_handler)
+
+    # Warmup LLM (audit latence : 1er tour mesuré à 4,5 s contre 0,5 s ensuite —
+    # connexion HTTPS froide + préchauffage du prompt côté fournisseur). On envoie
+    # 1 token AVEC le même client HTTP et le même prompt système, pendant l'accueil :
+    # le 1er vrai tour retombe au régime nominal. Best-effort, coût ~0,02 ct.
+    async def _warm_llm():
+        import time as _time
+
+        try:
+            t0 = _time.monotonic()
+            client = getattr(llm_service, "_client", None) or llm.get_client()
+            await client.chat.completions.create(
+                model=llm.MODEL,
+                messages=[
+                    {"role": "system", "content": llm.build_system_prompt(tenant)},
+                    {"role": "user", "content": "Bonjour"},
+                ],
+                max_tokens=1,
+            )
+            logger.info(f"warmup LLM : OK en {_time.monotonic() - t0:.2f}s")
+        except Exception as exc:
+            logger.warning(f"warmup LLM échoué (sans conséquence): {exc}")
+
+    asyncio.create_task(_warm_llm())
 
     messages = [{"role": "system", "content": llm.build_system_prompt(tenant)}]
     if os.getenv("TTS_PROVIDER", "").strip().lower() == "moshi_server":
@@ -261,8 +300,16 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
 
     intro_task = None
     if greeting_mod.is_moshi_server():
+        # Le transport de sortie jette l'audio reçu avant le StartFrame : l'intro
+        # attend ce signal avant d'émettre l'accueil (sinon il part dans le vide).
+        pipeline_ready = asyncio.Event()
+
+        @task.event_handler("on_pipeline_started")
+        async def _on_pipeline_started(task, frame):
+            pipeline_ready.set()
+
         intro_task = asyncio.create_task(
-            greeting_mod.run_switchboard_intro(task, output_transport, tenant)
+            greeting_mod.run_switchboard_intro(task, output_transport, tenant, pipeline_ready)
         )
         # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
         # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).

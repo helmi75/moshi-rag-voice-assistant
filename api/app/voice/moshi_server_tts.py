@@ -69,9 +69,95 @@ class MoshiServerTTSService(TTSService):
         # Frames de musique d'attente (chargées à la 1re utilisation) : None = pas
         # encore tenté, [] = tenté mais indisponible (silence pendant l'attente).
         self._hold_frames: list[bytes] | None = None
+        # Pré-connexion websocket (audit latence : l'ouverture TCP+TLS+session vers
+        # Modal coûte ~300 ms par phrase). On l'ouvre PENDANT que le LLM génère
+        # (LLMFullResponseStartFrame), puis on enchaîne phrase → phrase.
+        self._next_ws: "asyncio.Task | None" = None
+        self._next_ws_time = 0.0
+
+    # Une connexion pré-ouverte inutilisée occupe potentiellement un slot de batch
+    # côté moshi-server : au-delà de ce TTL, on la jette et on rouvrira à la demande.
+    _PRECONNECT_TTL = 15.0
 
     def can_generate_metrics(self) -> bool:
         return True
+
+    def _ws_uri_and_headers(self) -> tuple[str, dict]:
+        uri = (
+            f"{_ws_base()}/api/tts_streaming"
+            f"?voice={quote(self._voice)}&format=PcmMessagePack"
+        )
+        return uri, {"kyutai-api-key": self._api_key}
+
+    async def _open_ws(self):
+        """Ouvre une connexion au serveur TTS. Retourne (conn, ws) — `conn` est le
+        context manager à refermer via __aexit__ (compatible avec les mocks de test)."""
+        import websockets
+
+        uri, headers = self._ws_uri_and_headers()
+        conn = websockets.connect(
+            uri,
+            additional_headers=headers,
+            max_size=None,
+            open_timeout=float(os.getenv("MOSHI_TTS_OPEN_TIMEOUT", "90")),
+        )
+        ws = await conn.__aenter__()
+        return conn, ws
+
+    def _ensure_preconnect(self) -> None:
+        """Garantit une connexion pré-ouverte (ou en cours d'ouverture) et fraîche."""
+        now = time.monotonic()
+        if self._next_ws is not None:
+            fresh = (now - self._next_ws_time) < self._PRECONNECT_TTL
+            if not self._next_ws.done() or fresh:
+                return
+            self._discard_preconnect()  # périmée : on repart proprement
+        self._next_ws_time = now
+        self._next_ws = asyncio.create_task(self._open_ws())
+
+    def _discard_preconnect(self) -> None:
+        task, self._next_ws = self._next_ws, None
+        if task is None:
+            return
+
+        async def _close():
+            try:
+                conn, _ws = await task
+                await conn.__aexit__(None, None, None)
+            except Exception:
+                pass
+
+        asyncio.create_task(_close())
+
+    async def _take_ws(self):
+        """Consomme la pré-connexion si disponible, sinon ouvre à la demande.
+        Retourne (conn, ws, pré-connexion utilisée ?)."""
+        task, self._next_ws = self._next_ws, None
+        if task is not None:
+            try:
+                conn, ws = await task
+                return conn, ws, True
+            except Exception:
+                pass  # pré-connexion ratée : repli sur une ouverture directe
+        conn, ws = await self._open_ws()
+        return conn, ws, False
+
+    async def process_frame(self, frame, direction):
+        # Le LLM démarre → on ouvre le websocket TTS EN PARALLÈLE de la génération :
+        # à l'arrivée de la 1re phrase, la connexion est déjà établie (~-300 ms).
+        from pipecat.frames.frames import LLMFullResponseStartFrame
+
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self._ensure_preconnect()
+        await super().process_frame(frame, direction)
+
+    async def stop(self, frame):
+        await super().stop(frame)
+        self._discard_preconnect()  # fin d'appel : ne pas laisser traîner de session
+
+    async def cancel(self, frame):
+        await super().cancel(frame)
+        self._discard_preconnect()
 
     async def _hold_music_frames(self) -> list[bytes] | None:
         """Charge (une fois) la musique d'attente en frames de 20 ms au débit du
@@ -107,11 +193,6 @@ class MoshiServerTTSService(TTSService):
         import msgpack
         import websockets
 
-        uri = (
-            f"{_ws_base()}/api/tts_streaming"
-            f"?voice={quote(self._voice)}&format=PcmMessagePack"
-        )
-        headers = {"kyutai-api-key": self._api_key}
         started = time.monotonic()
         first = True
         n_samples = 0
@@ -126,37 +207,42 @@ class MoshiServerTTSService(TTSService):
         _DONE = object()
 
         async def _produce():
+            conn = None
             try:
-                async with websockets.connect(
-                    uri,
-                    additional_headers=headers,
-                    max_size=None,
-                    open_timeout=float(os.getenv("MOSHI_TTS_OPEN_TIMEOUT", "90")),
-                ) as ws:
+                conn, ws, used_preconnect = await self._take_ws()
+                if used_preconnect:
+                    # Enchaîne : pré-ouvre la connexion de la phrase SUIVANTE pendant
+                    # que celle-ci génère (chaque phrase profite d'une connexion chaude).
+                    self._ensure_preconnect()
 
-                    async def _send():
-                        # Un message par mot, puis Eos (comme le client de référence).
-                        for word in text.split():
-                            await ws.send(msgpack.packb({"type": "Text", "text": word}))
-                        await ws.send(msgpack.packb({"type": "Eos"}))
+                async def _send():
+                    # Un message par mot, puis Eos (comme le client de référence).
+                    for word in text.split():
+                        await ws.send(msgpack.packb({"type": "Text", "text": word}))
+                    await ws.send(msgpack.packb({"type": "Eos"}))
 
-                    send_task = asyncio.create_task(_send())
-                    try:
-                        async for message_bytes in ws:
-                            msg = msgpack.unpackb(message_bytes)
-                            if msg.get("type") != "Audio":
-                                continue
-                            pcm = np.clip(
-                                np.array(msg["pcm"], dtype=np.float32), -1.0, 1.0
-                            )
-                            if pcm.size:
-                                await queue.put(pcm)
-                    finally:
-                        # Barge-in / fin : on n'attend pas l'envoi restant, on coupe.
-                        send_task.cancel()
+                send_task = asyncio.create_task(_send())
+                try:
+                    async for message_bytes in ws:
+                        msg = msgpack.unpackb(message_bytes)
+                        if msg.get("type") != "Audio":
+                            continue
+                        pcm = np.clip(
+                            np.array(msg["pcm"], dtype=np.float32), -1.0, 1.0
+                        )
+                        if pcm.size:
+                            await queue.put(pcm)
+                finally:
+                    # Barge-in / fin : on n'attend pas l'envoi restant, on coupe.
+                    send_task.cancel()
             except Exception as exc:  # remontée au consommateur pour l'ErrorFrame
                 await queue.put(exc)
             finally:
+                if conn is not None:
+                    try:
+                        await conn.__aexit__(None, None, None)
+                    except Exception:
+                        pass
                 await queue.put(_DONE)
 
         producer = asyncio.create_task(_produce())

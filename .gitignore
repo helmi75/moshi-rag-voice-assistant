@@ -93,3 +93,6 @@ Thumbs.db
 
 # Snapshot local de l'outil de coût
 .cost_snapshot.json
+
+# Données locales (musiques uploadées, DB locale)
+data/

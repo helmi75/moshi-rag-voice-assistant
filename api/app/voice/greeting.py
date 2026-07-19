@@ -214,9 +214,16 @@ def load_hold_music_chunks(
     return rate, [raw[i : i + step] for i in range(0, len(raw), step) if raw[i : i + step]]
 
 
-async def run_switchboard_intro(task, output_transport, tenant: Tenant) -> None:
+async def run_switchboard_intro(
+    task, output_transport, tenant: Tenant, pipeline_ready: Optional[asyncio.Event] = None
+) -> None:
     """Flux « standardiste » (Phase 3) : accueil pré-rendu → musique d'attente pendant
     le réveil du GPU → reprise proactive. Lancé en tâche de fond parallèle au pipeline.
+
+    ⚠️ `pipeline_ready` : le transport de sortie JETTE l'audio reçu avant le StartFrame.
+    Sans cette attente, l'accueil (4 s envoyées d'un bloc à t=0) part dans le vide et
+    le client n'entend que la musique (bug constaté en appel réel : accueil envoyé à
+    t+0,71 s, pipeline prêt à t+0,99 s).
 
     L'accueil et la musique sont injectés via output_transport.send_audio() : ils vont
     DIRECTEMENT à Twilio sans traverser STT/VAD. Sinon (injectés en tête de pipeline),
@@ -233,6 +240,13 @@ async def run_switchboard_intro(task, output_transport, tenant: Tenant) -> None:
     # (il est « en ligne d'attente ») ; on écoute à la reprise. La musique, elle, ne
     # passe plus par le STT (send_audio) : le mute ne concerne donc que l'entrée réelle.
     await task.queue_frames([STTMuteFrame(mute=True)])
+
+    # Attend le démarrage effectif du pipeline avant d'émettre le moindre audio.
+    if pipeline_ready is not None:
+        try:
+            await asyncio.wait_for(pipeline_ready.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Pipeline pas signalé prêt après 5 s : accueil envoyé quand même.")
     try:
         # 1. Accueil pré-rendu → envoyé DIRECT vers la sortie (bypass STT/VAD).
         greeting_path = cached_greeting_path(tenant)
