@@ -18,15 +18,29 @@ Priorité : la **voix** doit être **fluide** et la latence faible. Voix retenue
 
 ```
 Twilio ──webhook + media stream──► APP FastAPI + Pipecat (EN LOCAL, Docker sur le WSL)
-                                    • STT Deepgram + LLM OpenRouter (google/gemini-2.5-flash)
+                                    • STT Deepgram OU Kyutai + LLM OpenRouter (gemini-2.5-flash)
                                     • BDD SQLite (réservations)
-                                         │ websocket TTS (client)
+                                         │ websocket TTS + STT (client)
                                          ▼
                                     MODAL GPU serverless (scale-to-zero)
-                                    • moshi-server (Rust) : voix Moshi 1.6B, TTS fluide
+                                    • moshi-server (Rust) : TTS Moshi 1.6B + STT stt-1b-en_fr
 ```
 
 ngrok expose l'app locale à Twilio.
+
+**STT interchangeable (`STT_PROVIDER`)** : `deepgram` (défaut, nova-2) ou `kyutai` (module
+ASR stt-1b-en_fr sur le MÊME serveur moshi-server Modal — français natif, VAD sémantique, un
+fournisseur externe de moins, -1,5 ¢/appel). Le serveur Rust sert les deux modules dans un
+seul process (`/api/tts_streaming` + `/api/asr-streaming`). **Bascule = 1 variable d'env**,
+repli instantané. Validé hors ligne (smoke test TTS→STT, `scripts/test_moshi_stt.py`) :
+transcription FR parfaite (ponctuation, nombres, noms propres), flush fin de tour ~300-430 ms,
+session survivant à 90 s d'accueil muet. **Reste à confirmer à l'oreille sur un vrai appel**
+(qualité du µ-law 8 kHz réel) avant d'en faire le défaut ; rollback = `STT_PROVIDER=deepgram`.
+
+Activer en prod : ajouter `STT_PROVIDER=kyutai` au `.env` (TTS_PROVIDER=moshi_server déjà
+en place → `MOSHI_STT_URL` reprend `MOSHI_TTS_URL` automatiquement) puis redémarrer le
+conteneur. Redéployer d'abord le serveur avec le module ASR : `modal deploy
+deploy/modal_moshi_server.py` (fait le 19/07/2026).
 
 **Cible (plan) :**
 - App → migrer sur un serveur **CPU 24/7 en EU (Hostinger)**. Pas sur Modal.
