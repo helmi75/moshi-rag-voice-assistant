@@ -139,15 +139,16 @@ def _stream_ws_url(request: Request) -> str:
     return f"wss://{request.url.netloc}/ws/voice"
 
 
-def _stream_twiml(request: Request, to: str, call_sid: str) -> Response:
+def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "") -> Response:
     ws_url = _stream_ws_url(request)
     # Log explicite : si Twilio ne joint pas cette URL (mauvais tunnel ngrok, http
     # au lieu de wss...), le flux média ne se connecte jamais et l'appel raccroche.
-    print(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, CallSid={call_sid})")
+    print(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, From={from_number}, CallSid={call_sid})")
     return _twiml(
         "    <Connect>\n"
         f'        <Stream url="{escape(ws_url)}">\n'
         f'            <Parameter name="To" value="{escape(to)}"/>\n'
+        f'            <Parameter name="From" value="{escape(from_number)}"/>\n'
         f'            <Parameter name="CallSid" value="{escape(call_sid)}"/>\n'
         "        </Stream>\n"
         "    </Connect>"
@@ -190,6 +191,7 @@ async def voice_webhook(
     request: Request,
     CallSid: Optional[str] = Form(None),
     To: Optional[str] = Form(None),
+    From: Optional[str] = Form(None),
     SpeechResult: Optional[str] = Form(None),
 ):
     """Webhook vocal Twilio : boucle Gather/Say pilotée par le LLM du tenant."""
@@ -200,7 +202,7 @@ async def voice_webhook(
 
     # Mode streaming : on branche l'appel sur le pipeline Pipecat via Media Streams
     if _voice_mode() == "stream":
-        return _stream_twiml(request, To or "", CallSid or "")
+        return _stream_twiml(request, To or "", CallSid or "", From or "")
 
     # Premier tour : accueil sans appel LLM (latence nulle)
     if not SpeechResult:
@@ -250,6 +252,7 @@ async def twilio_webhook(request: Request):
             request,
             CallSid=form_data.get("CallSid"),
             To=form_data.get("To"),
+            From=form_data.get("From"),
             SpeechResult=form_data.get("SpeechResult"),
         )
     if "Body" in form_data:
@@ -302,7 +305,9 @@ async def voice_stream(websocket: WebSocket):
     start = start_data.get("start") or {}
     stream_sid = start_data.get("streamSid") or start.get("streamSid")
     call_sid = start.get("callSid")
-    to_number = (start.get("customParameters") or {}).get("To")
+    custom = start.get("customParameters") or {}
+    to_number = custom.get("To")
+    from_number = custom.get("From")
 
     tenant = tenants.get_by_phone(to_number)
     if tenant is None or not stream_sid:
@@ -318,7 +323,7 @@ async def voice_stream(websocket: WebSocket):
 
     run_bot = _get_bot_runner()
     try:
-        await run_bot(websocket, stream_sid, call_sid, tenant)
+        await run_bot(websocket, stream_sid, call_sid, tenant, caller_number=from_number)
     except Exception as exc:
         print(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
         try:
