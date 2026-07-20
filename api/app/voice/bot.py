@@ -86,6 +86,59 @@ def build_tts():
     )
 
 
+def build_stt(tenant: Tenant, language: str):
+    """Construit le service STT selon STT_PROVIDER (défaut : deepgram).
+
+    `kyutai` = module ASR de moshi-server (Kyutai stt-1b-en_fr) : français natif, VAD
+    sémantique, servi par le même serveur Modal que le TTS -> un fournisseur externe de
+    moins et -1,5 ¢/appel. `deepgram` (nova-2) reste le défaut/repli (bascule instantanée
+    par STT_PROVIDER, sans redéploiement)."""
+    provider = os.getenv("STT_PROVIDER", "deepgram").strip().lower()
+    logger.info(f"STT provider sélectionné : {provider}")
+
+    if provider == "kyutai":
+        from pipecat.transcriptions.language import Language
+
+        from .kyutai_stt import KyutaiSTTService
+
+        try:
+            lang = Language(language)
+        except ValueError:
+            lang = Language.FR
+        return KyutaiSTTService(language=lang)
+
+    if provider == "deepgram":
+        from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
+
+        # Boost de vocabulaire Deepgram : le nom de l'établissement + le lexique de la
+        # réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz
+        # (mots inventés à la place de « réservation », noms propres écorchés...).
+        keywords = [f"{w}:5" for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
+        keywords += [
+            "réservation:3", "réserver:3", "couverts:2", "personnes:2", "table:2",
+            "midi:1", "soir:1", "demain:1", "allergie:2", "terrasse:2", "annuler:2",
+        ]
+        extra_kw = os.getenv("DEEPGRAM_KEYWORDS", "")  # "mot:5,autre:2" pour compléter
+        keywords += [k.strip() for k in extra_kw.split(",") if k.strip()]
+
+        return DeepgramSTTService(
+            api_key=os.getenv("DEEPGRAM_API_KEY", ""),
+            live_options=LiveOptions(
+                # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL
+                model=os.getenv("DEEPGRAM_MODEL", "nova-2"),
+                language=language,
+                # smart_format : dates/nombres proprement formatés (« 20 h » plutôt que
+                # « vingt heures ») -> le LLM extrait mieux date/heure/couverts.
+                smart_format=True,
+                keywords=keywords,
+            ),
+        )
+
+    raise ValueError(
+        f"STT_PROVIDER inconnu : {provider!r} (valeurs acceptées : deepgram, kyutai)"
+    )
+
+
 def build_function_schemas():
     """Convertit llm.TOOLS (schéma neutre) en FunctionSchema Pipecat."""
     from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -114,7 +167,6 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         LLMUserAggregatorParams,
     )
     from pipecat.serializers.twilio import TwilioFrameSerializer
-    from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
     from pipecat.services.openai.llm import OpenAILLMService
     from pipecat.transports.websocket.fastapi import (
         FastAPIWebsocketParams,
@@ -148,29 +200,8 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
         ),
     )
 
-    # Boost de vocabulaire Deepgram : le nom de l'établissement + le lexique de la
-    # réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz
-    # (mots inventés à la place de « réservation », noms propres écorchés...).
-    keywords = [f"{w}:5" for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
-    keywords += [
-        "réservation:3", "réserver:3", "couverts:2", "personnes:2", "table:2",
-        "midi:1", "soir:1", "demain:1", "allergie:2", "terrasse:2", "annuler:2",
-    ]
-    extra_kw = os.getenv("DEEPGRAM_KEYWORDS", "")  # "mot:5,autre:2" pour compléter
-    keywords += [k.strip() for k in extra_kw.split(",") if k.strip()]
-
-    stt = DeepgramSTTService(
-        api_key=os.getenv("DEEPGRAM_API_KEY", ""),
-        live_options=LiveOptions(
-            # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL
-            model=os.getenv("DEEPGRAM_MODEL", "nova-2"),
-            language=language,
-            # smart_format : dates/nombres proprement formatés (« 20 h » plutôt que
-            # « vingt heures ») -> le LLM extrait mieux date/heure/couverts.
-            smart_format=True,
-            keywords=keywords,
-        ),
-    )
+    # STT interchangeable (deepgram par défaut, kyutai = module ASR de moshi-server).
+    stt = build_stt(tenant, language)
 
     tts = build_tts()
 

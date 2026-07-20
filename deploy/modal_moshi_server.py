@@ -1,8 +1,18 @@
-"""Déploiement serverless GPU du serveur Rust `moshi-server` (voix Moshi 1.6B) sur Modal.
+"""Déploiement serverless GPU du serveur Rust `moshi-server` (voix Moshi 1.6B + STT) sur Modal.
 
 C'est LE serveur de production de Kyutai (celui d'unmute.sh) : voix Moshi 1.6B servie en
 temps réel (CUDA graphs + batching), fluide là où le chemin PyTorch sacade. L'application
-(sur le serveur 24/7) s'y connecte en simple cliente websocket via `MOSHI_TTS_URL`.
+(sur le serveur 24/7) s'y connecte en simple cliente websocket via `MOSHI_TTS_URL` (TTS)
+et `MOSHI_STT_URL` (STT, défaut = même serveur).
+
+Le même process moshi-server sert DEUX modules sur deux routes (le serveur Rust accepte
+une `HashMap` de modules dans un seul config.toml — commentaire officiel de config-tts.toml :
+« the server can run STT at the same time ») :
+  - TTS : [modules.tts_py] type="Py"      -> /api/tts_streaming   (voix Moshi 1.6B)
+  - STT : [modules.asr]   type="BatchedAsr" -> /api/asr-streaming (kyutai/stt-1b-en_fr)
+Les deux modèles coexistent en VRAM sur la L4 (24 Go) ; le batch ASR est ramené 64->8
+pour tenir avec le TTS (batch 8). Si un cold start manque de VRAM (logs Modal), baisser
+encore le batch ASR ou passer audio_codebooks 32->20 (réglage prod d'unmute).
 
 Une commande :
 
@@ -10,9 +20,10 @@ Une commande :
 
 Recette calquée sur la Dockerfile publique d'unmute (services/moshi-server) :
   - base CUDA devel + Rust + `cargo install --features cuda moshi-server@0.6.4` (au build) ;
-  - config TTS publique (configs/config-tts.toml de delayed-streams-modeling), token
-    `public_token`, endpoint /api/tts_streaming, batch_size=8 ;
-  - le modèle 1.6B est téléchargé au 1er démarrage dans un volume persistant (HF cache) ;
+  - config TTS publique (configs/config-tts.toml de delayed-streams-modeling) + blocs ASR
+    de config-stt-en_fr-hf.toml concaténés au build, token `public_token` ;
+  - les modèles (TTS 1.6B, STT 1B) sont téléchargés au 1er démarrage dans un volume
+    persistant (HF cache) ;
   - le serveur écoute sur 8080, exposé en HTTPS/WSS par Modal (@modal.web_server).
 
 Prérequis : accepter la licence sur huggingface.co/kyutai/tts-1.6b-en_fr et fournir un
@@ -66,6 +77,13 @@ CONFIG_URL = (
     "https://raw.githubusercontent.com/kyutai-labs/delayed-streams-modeling/"
     "main/configs/config-tts.toml"
 )
+# Config STT publique (kyutai/stt-1b-en_fr, français natif + VAD sémantique). On n'en
+# garde que les blocs [modules.asr]* (les clés top-level static_dir/authorized_ids/... sont
+# déjà dans config-tts.toml) qu'on concatène au config TTS au build.
+CONFIG_STT_URL = (
+    "https://raw.githubusercontent.com/kyutai-labs/delayed-streams-modeling/"
+    "main/configs/config-stt-en_fr-hf.toml"
+)
 
 # Cache persistant des poids Hugging Face (évite un re-téléchargement à chaque cold start).
 hf_cache = modal.Volume.from_name("moshi-server-hf-cache", create_if_missing=True)
@@ -117,6 +135,17 @@ image = (
         # Élargir ce glob si on veut d'autres voix du dépôt.
         r"sed -i 's#tts-voices/\*\*/#tts-voices/unmute-prod-website/#' "
         "/root/configs/config-tts.toml",
+        # Ajoute le module STT (ASR) au MÊME config : on télécharge config-stt-en_fr-hf.toml
+        # et on n'en garde que les tables [modules.asr]* (à partir de la 1re), que l'on
+        # concatène. Les clés top-level (static_dir, authorized_ids...) sont identiques et
+        # déjà présentes -> ne pas les redupliquer.
+        f"wget -qO /root/configs/config-stt.toml {CONFIG_STT_URL}",
+        "printf '\\n' >> /root/configs/config-tts.toml",
+        r"sed -n '/^\[modules\.asr\]/,$p' /root/configs/config-stt.toml "
+        ">> /root/configs/config-tts.toml",
+        # VRAM L4 partagée avec le TTS (batch 8) : on ramène le batch ASR 64 -> 8. Le TTS
+        # a déjà batch_size = 8, donc ce remplacement ne touche QUE la ligne ASR (64).
+        "sed -i 's/^batch_size = 64$/batch_size = 8/' /root/configs/config-tts.toml",
     )
 )
 
