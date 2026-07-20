@@ -78,7 +78,9 @@ async def _synthesize(base: str, api_key: str, voice: str, text: str) -> np.ndar
     return np.concatenate(chunks)
 
 
-async def _transcribe(base: str, api_key: str, pcm: np.ndarray, idle: float) -> tuple[str, float]:
+async def _transcribe(
+    base: str, api_key: str, pcm: np.ndarray, idle: float, burst: bool = False
+) -> tuple[str, float]:
     """Envoie `pcm` (24 kHz f32) au module ASR, retourne (transcript, latence_flush_s)."""
     import msgpack
     import websockets
@@ -114,19 +116,25 @@ async def _transcribe(base: str, api_key: str, pcm: np.ndarray, idle: float) -> 
                 use_single_float=True, use_bin_type=True,
             ))
 
-        # Test optionnel de session idle : silence prolongé AVANT la parole (reproduit le
-        # mute de l'accueil/musique, jusqu'à 90 s) pour vérifier que la session ASR survit.
+        # Test optionnel de session idle : reproduit FIDÈLEMENT le keepalive du client
+        # pendant l'accueil muet (une trame de silence toutes les 5 s, avec de vrais gaps),
+        # pour vérifier que le serveur ne coupe pas une session ASR longue et peu alimentée.
         if idle > 0:
-            print(f"  (session idle : {idle:.0f}s de silence avant la parole…)")
-            for _ in range(int(idle / 0.08)):
+            print(f"  (session idle : {idle:.0f}s de keepalive silence, 1 trame/5s…)")
+            for _ in range(int(idle / 5)):
+                await asyncio.sleep(5)
                 await _send_audio(np.zeros(_FRAME, dtype=np.float32))
 
-        # Streame l'audio réel en chunks de 80 ms, au fil du temps réel.
+        # Streame l'audio réel en chunks de 80 ms. En temps réel (défaut) pour refléter
+        # un vrai appel : le serveur traite au fil de l'eau, il ne reste que le délai
+        # modèle à drainer au flush. --burst envoie tout d'un coup (mesure pessimiste).
         for i in range(0, len(pcm), _FRAME):
             frame = pcm[i:i + _FRAME]
             if len(frame) < _FRAME:
                 frame = np.pad(frame, (0, _FRAME - len(frame)))
             await _send_audio(frame)
+            if not burst:
+                await asyncio.sleep(0.08)  # cadence temps réel (80 ms/trame)
 
         # Flush de fin de tour : Marker puis ~0,8 s de zéros pour drainer le delay (0,5 s).
         flush_start = time.monotonic()
@@ -158,7 +166,7 @@ async def _run(args: argparse.Namespace) -> int:
 
     print("  [2/2] transcription ASR…")
     try:
-        transcript, flush_s = await _transcribe(base, args.api_key, pcm, args.idle)
+        transcript, flush_s = await _transcribe(base, args.api_key, pcm, args.idle, args.burst)
     except Exception as e:  # noqa: BLE001
         print(f"❌ ASR : {type(e).__name__}: {e}")
         return 1
@@ -180,6 +188,8 @@ def main() -> None:
     p.add_argument("--text", default=_DEFAULT_TEXT, help="Phrase de référence à transcrire.")
     p.add_argument("--idle", type=float, default=0.0,
                    help="Secondes de silence avant la parole (test de session idle, ex. 120).")
+    p.add_argument("--burst", action="store_true",
+                   help="Envoie tout l'audio d'un coup (mesure pessimiste) au lieu du temps réel.")
     args = p.parse_args()
     raise SystemExit(asyncio.run(_run(args)))
 
