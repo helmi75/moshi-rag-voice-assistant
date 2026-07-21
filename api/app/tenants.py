@@ -99,7 +99,8 @@ def create_tenant(
 def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     """Met à jour les champs fournis (name, business_type, phone_number, language,
     greeting, knowledge_base). Lève sqlite3.IntegrityError si numéro en conflit."""
-    allowed = {"name", "business_type", "phone_number", "language", "greeting", "knowledge_base"}
+    allowed = {"name", "business_type", "phone_number", "language", "greeting",
+               "knowledge_base", "greeting_customized"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_by_id(tenant_id)
@@ -133,7 +134,8 @@ def seed_demo_tenant() -> None:
     vraie prod, on ne sème rien si d'autres tenants existent déjà."""
     with db.get_conn() as conn:
         demo = conn.execute(
-            "SELECT id, phone_number, greeting FROM tenants WHERE name = ? AND business_type = ?",
+            "SELECT id, phone_number, greeting, greeting_customized "
+            "FROM tenants WHERE name = ? AND business_type = ?",
             ("Le Fouquet's Paris", "restaurant"),
         ).fetchone()
         if demo is not None:
@@ -142,9 +144,11 @@ def seed_demo_tenant() -> None:
                     "UPDATE tenants SET phone_number = ? WHERE id = ?",
                     (DEMO_TENANT_NUMBER, demo["id"]),
                 )
-            # Réaligne l'accueil sur le texte courant (sinon l'ancien reste figé dans le
-            # volume Docker et ne finit pas par « un instant s'il vous plaît »).
-            if demo["greeting"] != _DEMO_GREETING:
+            # Réaligne l'accueil sur le texte par défaut courant (sinon un vieux défaut
+            # reste figé dans le volume Docker et ne finit pas par « un instant s'il vous
+            # plaît »). MAIS on ne touche JAMAIS un accueil personnalisé par le client :
+            # sans ce garde-fou, chaque redémarrage écraserait l'accueil qu'il a réglé.
+            if not demo["greeting_customized"] and demo["greeting"] != _DEMO_GREETING:
                 conn.execute(
                     "UPDATE tenants SET greeting = ? WHERE id = ?",
                     (_DEMO_GREETING, demo["id"]),

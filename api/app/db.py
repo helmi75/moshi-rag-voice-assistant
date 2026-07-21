@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS calls (
 CREATE INDEX IF NOT EXISTS idx_calls_tenant_started ON calls(tenant_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_reservations_tenant ON reservations(tenant_id);
 """,
+    # v2 — greeting_customized : marque un accueil personnalisé par le restaurateur.
+    # seed_demo_tenant réaligne l'accueil du tenant démo sur le défaut à chaque démarrage ;
+    # sans ce flag, cela ÉCRASE l'accueil qu'un client a personnalisé dans l'admin.
+    """
+ALTER TABLE tenants ADD COLUMN greeting_customized INTEGER NOT NULL DEFAULT 0;
+""",
 ]
 
 

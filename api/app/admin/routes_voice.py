@@ -43,7 +43,11 @@ async def voice_update(
     greeting: str = Form(...),
 ):
     tenant = deps.resolve_tenant(tenant_id, user)
-    tenants.update_tenant(tenant.id, greeting=greeting.strip() or None)
+    g = greeting.strip() or None
+    # Un accueil non vide saisi par le restaurateur est marqué « personnalisé » : ainsi
+    # seed_demo_tenant ne le réécrasera jamais au redémarrage (cf. tenants.py). Le vider
+    # rend la main au défaut géré (greeting_customized=0).
+    tenants.update_tenant(tenant.id, greeting=g, greeting_customized=1 if g else 0)
     refreshed = tenants.get_by_id(tenant.id)
     if refreshed is not None and greeting_mod.is_moshi_server():
         # Re-rendu en tâche de fond (60-90 s si GPU froid) : jamais bloquant ici,

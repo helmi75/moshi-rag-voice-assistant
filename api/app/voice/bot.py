@@ -16,15 +16,27 @@ from .. import llm
 from ..tenants import Tenant
 
 
-def make_tool_handler(tenant: Tenant, created_reservations: list[int] | None = None):
+def make_tool_handler(
+    tenant: Tenant,
+    created_reservations: list[int] | None = None,
+    caller_number: str | None = None,
+):
     """Handler Pipecat commun aux outils métier : délègue à llm.run_tool.
 
     `created_reservations` (journal des appels) : collecte les ids des réservations
-    créées pendant l'appel — le handler voit passer tous les résultats d'outils."""
+    créées pendant l'appel — le handler voit passer tous les résultats d'outils.
+    `caller_number` : numéro Twilio de l'appelant, injecté d'office comme customer_phone
+    de la réservation (identifiant fiable, quelle que soit la qualité de transcription du
+    nom). Le client n'a jamais à le dicter."""
 
     async def handle(params):  # params: pipecat FunctionCallParams
+        args = dict(params.arguments or {})
+        # Le numéro de l'appelant est la source de vérité : on l'impose comme téléphone
+        # de la réservation (le nom, lui, peut être écorché par la STT sur le 8 kHz).
+        if params.function_name == "create_reservation" and caller_number:
+            args["customer_phone"] = caller_number
         try:
-            result = await llm.run_tool(tenant, params.function_name, params.arguments or {})
+            result = await llm.run_tool(tenant, params.function_name, args)
         except Exception as exc:
             result = f"Erreur outil {params.function_name}: {exc}"
         if created_reservations is not None and params.function_name == "create_reservation":
@@ -154,8 +166,17 @@ def build_function_schemas():
     ]
 
 
-async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tenant) -> None:
-    """Construit et exécute le pipeline Pipecat pour un appel Twilio Media Streams."""
+async def run_bot(
+    websocket,
+    stream_sid: str,
+    call_sid: str | None,
+    tenant: Tenant,
+    caller_number: str | None = None,
+) -> None:
+    """Construit et exécute le pipeline Pipecat pour un appel Twilio Media Streams.
+
+    `caller_number` : numéro de l'appelant (Twilio From), rattaché d'office à toute
+    réservation créée pendant l'appel."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.frames.frames import TTSSpeakFrame
     from pipecat.pipeline.pipeline import Pipeline
@@ -218,7 +239,7 @@ async def run_bot(websocket, stream_sid: str, call_sid: str | None, tenant: Tena
     )
     # Journal des appels : collecte les réservations créées pendant CET appel.
     created_reservations: list[int] = []
-    tool_handler = make_tool_handler(tenant, created_reservations)
+    tool_handler = make_tool_handler(tenant, created_reservations, caller_number)
     for tool in llm.TOOLS:
         llm_service.register_function(tool["name"], tool_handler)
 
