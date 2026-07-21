@@ -178,6 +178,7 @@ async def run_bot(
     `caller_number` : numéro de l'appelant (Twilio From), rattaché d'office à toute
     réservation créée pendant l'appel."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
+    from pipecat.audio.vad.vad_analyzer import VADParams
     from pipecat.frames.frames import TTSSpeakFrame
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.runner import PipelineRunner
@@ -281,15 +282,30 @@ async def run_bot(
     )
     # Relance douce si le client reste muet après une réponse (comble le « blanc »).
     idle_timeout = float(os.getenv("USER_IDLE_TIMEOUT", "8"))
+    # Naturalité de la conversation (tout surchargeable par env, sans redéploiement) :
+    # - VAD Silero : start_secs bas = barge-in rapide ; stop_secs un peu relevé = tolère
+    #   les pauses courtes en milieu de phrase (moins de re-segmentation) ; confidence
+    #   relevée = moins de faux départs sur le bruit de fond (téléphone bruyant).
+    # - user_turn_stop_timeout : filet quand smart-turn v3 hésite sur la fin de tour.
+    #   Défaut Pipecat = 5 s -> ressenti « lent à reprendre ». Ramené à 1 s.
+    # Défauts validés à l'oreille sur appels réels (reprise vive sans couper le client).
+    vad_params = VADParams(
+        confidence=float(os.getenv("VAD_CONFIDENCE", "0.85")),
+        start_secs=float(os.getenv("VAD_START_SECS", "0.2")),
+        stop_secs=float(os.getenv("VAD_STOP_SECS", "0.4")),
+    )
+    turn_stop_timeout = float(os.getenv("USER_TURN_STOP_TIMEOUT", "1.0"))
     context_aggregator = LLMContextAggregatorPair(
         context,
         # VAD Silero pour le début de tour ; fin de tour via smart-turn v3 (défaut
         # Pipecat 1.5, modèle ONNX embarqué) -> barge-in et coupures naturelles.
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(),
+            vad_analyzer=SileroVADAnalyzer(params=vad_params),
             # Émet on_user_turn_idle si le client est inactif ce délai APRÈS que le bot
             # a fini de parler (donc jamais pendant la musique d'attente).
             user_idle_timeout=idle_timeout,
+            # Filet de fin de tour quand smart-turn v3 n'est pas sûr (2 s au lieu de 5).
+            user_turn_stop_timeout=turn_stop_timeout,
         ),
     )
 
