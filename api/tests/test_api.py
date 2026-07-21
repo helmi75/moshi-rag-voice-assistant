@@ -64,6 +64,25 @@ class TestTenantRouting:
         assert tenants.get_by_phone(DEMO_NUMBER) is not None
         assert tenants.get_by_phone(new_number) is None
 
+    def test_seed_preserves_customized_greeting(self):
+        """Un accueil personnalisé (greeting_customized=1) ne doit JAMAIS être écrasé au
+        redémarrage : sinon le restaurateur reperd son accueil à chaque restart du conteneur."""
+        demo = tenants.get_by_phone(DEMO_NUMBER)
+        custom = "Bonjour et bienvenue au Fouquet's, un instant s'il vous plaît."
+        tenants.update_tenant(demo.id, greeting=custom, greeting_customized=1)
+        tenants.seed_demo_tenant()  # simule un redémarrage
+        assert tenants.get_by_id(demo.id).greeting == custom
+        # Restaure l'état par défaut pour l'isolation des autres tests.
+        tenants.update_tenant(demo.id, greeting=tenants._DEMO_GREETING, greeting_customized=0)
+
+    def test_seed_realigns_non_customized_greeting(self):
+        """Un accueil NON personnalisé (vieux défaut figé dans le volume) est bien réaligné
+        sur le défaut courant au redémarrage."""
+        demo = tenants.get_by_phone(DEMO_NUMBER)
+        tenants.update_tenant(demo.id, greeting="Vieux défaut périmé.", greeting_customized=0)
+        tenants.seed_demo_tenant()
+        assert tenants.get_by_id(demo.id).greeting == tenants._DEMO_GREETING
+
     def test_unknown_number_hangs_up(self):
         response = client.post(
             "/twilio/voice", data={"CallSid": "CA1", "To": "+19999999999"}
