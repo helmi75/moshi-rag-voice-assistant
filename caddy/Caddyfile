@@ -1,11 +1,8 @@
-# Configuration simplifiée pour Vast.ai
-# Redirige toutes les requêtes HTTP vers l'API
-:80 {
+# Reverse-proxy vers l'app FastAPI. L'adresse d'écoute vient de la variable SITE_ADDRESS :
+#   - non définie / ":80" (dev local)       -> HTTP simple, comportement d'avant.
+#   - un domaine (production, ex. assistant.mondomaine.fr) -> Caddy obtient ET renouvelle
+#     automatiquement un certificat Let's Encrypt (HTTPS, redirection 80->443).
+# reverse_proxy gère nativement l'upgrade WebSocket (WSS, requis par Twilio Media Streams).
+{$SITE_ADDRESS::80} {
     reverse_proxy api:8000
 }
-
-# Pour HTTPS avec Let's Encrypt (si vous avez un domaine)
-# Décommentez et remplacez votre-domaine.com par votre vrai domaine
-# votre-domaine.com {
-#     reverse_proxy api:8000
-# }

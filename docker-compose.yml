@@ -1,6 +1,12 @@
 services:
   api:
-    build: ./api
+    build:
+      context: ./api
+      # Prod (VPS CPU) : API_REQUIREMENTS=requirements-prod.txt (image légère, sans torch).
+      args:
+        REQUIREMENTS: "${API_REQUIREMENTS:-requirements.txt}"
+    # Remonte seule après un reboot du serveur (indispensable pour un service 24/7).
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -59,6 +65,11 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      # ":80" en local (HTTP simple) ; un domaine en prod (ex. assistant.mondomaine.fr)
+      # -> Caddy fait le HTTPS Let's Encrypt tout seul. Cf. caddy/Caddyfile et docs/DEPLOY.md.
+      SITE_ADDRESS: "${SITE_ADDRESS:-:80}"
     ports:
       - "80:80"
       - "443:443"
