@@ -1,0 +1,22 @@
+# Dépendances de PRODUCTION (VPS CPU) — identiques à requirements.txt SANS `pocket-tts`.
+# En prod, le TTS passe par moshi_server (serveur Rust sur Modal GPU) et le STT par
+# Deepgram : aucun modèle local n'est requis, donc on évite pocket-tts qui tire torch
+# (~lourd, build lent sur un petit VPS). `bot.py::build_tts` importe pocket_tts en lazy,
+# donc son absence n'affecte que TTS_PROVIDER=pocket (non utilisé en prod).
+# Sélection au build : --build-arg REQUIREMENTS=requirements-prod.txt (cf. docs/DEPLOY.md).
+fastapi
+uvicorn[standard]
+openai
+httpx
+python-dotenv
+pydantic
+python-multipart
+# Pipeline vocal streaming (VAD Silero / smart-turn via onnxruntime inclus)
+pipecat-ai[openai,cartesia,deepgram,silero]~=1.5.0
+# Client du serveur Rust moshi-server (voix Moshi 1.6B) — simple cliente websocket
+websockets
+msgpack
+# Plateforme admin (dashboard server-rendered)
+jinja2
+itsdangerous
+bcrypt

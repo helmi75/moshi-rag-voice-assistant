@@ -1,31 +1,251 @@
-/* Ajustements légers au-dessus de Pico.css pour le dashboard admin. */
+/* ============================================================================
+   Admin — design system inspiré d'Apple, bâti au-dessus de Pico.css.
+   Clair + sombre AUTO (prefers-color-scheme). Police = pile système :
+   SF Pro sur Apple, Segoe/Roboto ailleurs — aucun téléchargement (règle no-CDN).
+   Un seul jeu de tokens --app-* bascule tout le thème.
+   ============================================================================ */
 
-/* Palette dataviz validée (skill dataviz) : slot 1 bleu (appels), slot 2 aqua
-   (réservations). Encre texte ≠ couleur de série. Thème sombre : mêmes teintes,
-   pas recalées pour la surface sombre. */
+:root {
+  --app-bg:          #f5f5f7;
+  --app-surface:     #ffffff;
+  --app-surface-2:   #f0f0f2;
+  --app-text:        #1d1d1f;
+  --app-muted:       #6e6e73;
+  --app-faint:       #86868b;
+  --app-border:      rgba(0,0,0,.11);
+  --app-hairline:    rgba(0,0,0,.07);
+  --app-accent:      #0071e3;
+  --app-accent-hover:#0077ed;
+  --app-accent-ink:  #ffffff;
+  --app-accent-soft: rgba(0,113,227,.10);
+  --app-good:        #1ba672;
+  --app-warn:        #b26a00;
+  --app-bad:         #e5484d;
+  --app-shadow:      0 1px 2px rgba(0,0,0,.05), 0 10px 30px rgba(0,0,0,.07);
+  --app-shadow-sm:   0 1px 2px rgba(0,0,0,.05), 0 4px 14px rgba(0,0,0,.06);
+  --app-radius:      18px;
+  --app-radius-sm:   12px;
+  --app-radius-xs:   9px;
+  --app-header-bg:   rgba(255,255,255,.72);
+
+  /* Pont vers Pico : les composants Pico héritent de la palette Apple. */
+  --pico-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                      "Segoe UI", Roboto, Helvetica, Arial, sans-serif,
+                      "Apple Color Emoji", "Segoe UI Emoji";
+  --pico-primary: var(--app-accent);
+  --pico-primary-hover: var(--app-accent-hover);
+  --pico-primary-background: var(--app-accent);
+  --pico-primary-hover-background: var(--app-accent-hover);
+  --pico-primary-inverse: var(--app-accent-ink);
+  --pico-border-radius: var(--app-radius-sm);
+  --pico-spacing: 1.1rem;
+  --pico-typography-spacing-vertical: 1rem;
+  --pico-color: var(--app-text);
+  --pico-muted-color: var(--app-muted);
+  --pico-h1-color: var(--app-text);
+  --pico-h2-color: var(--app-text);
+  --pico-h3-color: var(--app-text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --app-bg:          #000000;
+    --app-surface:     #1c1c1e;
+    --app-surface-2:   #2c2c2e;
+    --app-text:        #f5f5f7;
+    --app-muted:       #a1a1a6;
+    --app-faint:       #8e8e93;
+    --app-border:      rgba(255,255,255,.15);
+    --app-hairline:    rgba(255,255,255,.09);
+    --app-accent:      #2997ff;
+    --app-accent-hover:#47a6ff;
+    --app-accent-soft: rgba(41,151,255,.15);
+    --app-good:        #30d18a;
+    --app-warn:        #ffd426;
+    --app-bad:         #ff6961;
+    --app-shadow:      0 1px 2px rgba(0,0,0,.4), 0 14px 40px rgba(0,0,0,.55);
+    --app-shadow-sm:   0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.45);
+    --app-header-bg:   rgba(22,22,24,.66);
+  }
+}
+
+/* ---- Base --------------------------------------------------------------- */
+body {
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: var(--pico-font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+::selection { background: var(--app-accent-soft); }
+main.container { padding-top: 2.25rem; padding-bottom: 4rem; max-width: 1080px; }
+
+h1, h2, h3, h4 { color: var(--app-text); font-weight: 640; letter-spacing: -0.022em; line-height: 1.1; }
+h1 { font-size: clamp(1.7rem, 1.2rem + 1.6vw, 2.15rem); margin-bottom: 1.4rem; }
+h1 small, .muted { color: var(--app-muted); font-weight: 400; letter-spacing: -0.01em; }
+h1 small { font-size: 0.95rem; }
+a { color: var(--app-accent); text-underline-offset: 2px; }
+
+/* ---- Header / navigation (barre translucide façon macOS) ---------------- */
+.site-header {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--app-header-bg);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--app-hairline);
+}
+.site-header nav.container {
+  display: flex; align-items: center; gap: 1.5rem;
+  min-height: 56px; padding-top: 0; padding-bottom: 0;
+}
+.brand {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-weight: 600; font-size: 1.02rem; letter-spacing: -0.02em;
+  color: var(--app-text); text-decoration: none; margin-right: auto;
+}
+.brand-mark { font-size: 1.15rem; }
+.nav-links {
+  display: flex; align-items: center; gap: .25rem; margin: 0; padding: 0;
+  list-style: none; flex-wrap: wrap;
+}
+.nav-links li { margin: 0; padding: 0; }
+.nav-links a {
+  display: inline-block; padding: .42rem .7rem; border-radius: var(--app-radius-xs);
+  color: var(--app-muted); font-size: .92rem; font-weight: 500;
+  text-decoration: none; transition: background .15s ease, color .15s ease;
+}
+.nav-links a:hover { color: var(--app-text); background: var(--app-surface-2); }
+.nav-links a[aria-current="page"] { color: var(--app-accent); background: var(--app-accent-soft); }
+.nav-links form { margin: 0; }
+.logout {
+  padding: .42rem .85rem; font-size: .9rem; font-weight: 500;
+  color: var(--app-text); background: var(--app-surface-2);
+  border: 1px solid var(--app-border); border-radius: 980px; box-shadow: none;
+}
+.logout:hover { background: var(--app-border); color: var(--app-text); }
+
+/* ---- Cartes ------------------------------------------------------------- */
+article {
+  background: var(--app-surface);
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow-sm);
+  padding: 1.5rem 1.6rem;
+}
+article > header, article > footer {
+  background: transparent; border-color: var(--app-hairline);
+  margin-inline: -1.6rem; padding-inline: 1.6rem;
+}
+
+/* ---- Boutons (pilule Apple) --------------------------------------------- */
+button, [type="submit"], [type="button"], [role="button"], a[role="button"] {
+  border-radius: 980px; font-weight: 500; letter-spacing: -0.01em;
+  padding: .62rem 1.3rem; border: 1px solid transparent;
+  transition: transform .12s ease, background .15s ease, box-shadow .15s ease, filter .15s ease;
+}
+button:not(.secondary):not(.contrast):not(.outline):not(.logout),
+[type="submit"]:not(.secondary):not(.contrast):not(.outline) {
+  background: var(--app-accent); color: var(--app-accent-ink); box-shadow: var(--app-shadow-sm);
+}
+button:hover, [type="submit"]:hover { filter: brightness(1.03); transform: translateY(-1px); }
+button:active, [type="submit"]:active { transform: translateY(0); filter: brightness(.97); }
+.secondary, .outline {
+  background: var(--app-surface-2); color: var(--app-text);
+  border-color: var(--app-border); box-shadow: none;
+}
+.outline { background: transparent; }
+.secondary:hover, .outline:hover { background: var(--app-border); }
+button.contrast { background: var(--app-text); color: var(--app-bg); }
+
+/* ---- Formulaires -------------------------------------------------------- */
+label { font-weight: 500; color: var(--app-text); }
+input, select, textarea {
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  border: 1px solid var(--app-border) !important;
+  border-radius: var(--app-radius-sm) !important;
+  box-shadow: none !important;
+  padding: .7rem .9rem;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--app-accent) !important;
+  box-shadow: 0 0 0 4px var(--app-accent-soft) !important;
+  outline: none;
+}
+input::placeholder, textarea::placeholder { color: var(--app-faint); }
+
+/* ---- Tables ------------------------------------------------------------- */
+table { border-collapse: separate; border-spacing: 0; }
+thead th {
+  font-size: .74rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--app-faint);
+  border-bottom: 1px solid var(--app-border); padding: .55rem .8rem;
+}
+tbody td { padding: .8rem; border-bottom: 1px solid var(--app-hairline); vertical-align: middle; }
+tbody tr { transition: background .12s ease; }
+tbody tr:hover { background: var(--app-surface-2); }
+tbody tr:last-child td { border-bottom: none; }
+tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
+
+/* ---- Cartes de statistiques (dashboard) --------------------------------- */
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 1rem; margin-bottom: 1.6rem; }
+.stat-cards article {
+  text-align: left; margin: 0; padding: 1.3rem 1.4rem;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.stat-cards article:hover { transform: translateY(-2px); box-shadow: var(--app-shadow); }
+.stat-cards h2 {
+  margin: 0 0 .15rem; font-size: 2.1rem; font-weight: 640; letter-spacing: -0.03em;
+}
+.stat-cards p {
+  margin: 0; color: var(--app-muted); font-size: .78rem;
+  text-transform: uppercase; letter-spacing: .03em; font-weight: 500;
+}
+
+/* ---- Transcript (bulles style iMessage) --------------------------------- */
+.transcript { display: flex; flex-direction: column; gap: .4rem; }
+.transcript .bubble {
+  padding: .55rem .95rem; border-radius: 20px; max-width: 76%;
+  line-height: 1.35; font-size: .95rem; box-shadow: var(--app-shadow-sm);
+}
+.transcript .user {
+  align-self: flex-start; background: var(--app-surface-2); color: var(--app-text);
+  border-bottom-left-radius: 6px;
+}
+.transcript .assistant {
+  align-self: flex-end; background: var(--app-accent); color: #fff;
+  border-bottom-right-radius: 6px;
+}
+
+/* ---- Divers ------------------------------------------------------------- */
+[role="alert"] {
+  background: color-mix(in srgb, var(--app-bad) 12%, transparent);
+  color: var(--app-bad); border: 1px solid color-mix(in srgb, var(--app-bad) 30%, transparent);
+  border-radius: var(--app-radius-sm); padding: .7rem 1rem;
+}
+.chart-block { overflow-x: auto; }
+mark { background: var(--app-accent-soft); color: var(--app-text); border-radius: 4px; }
+
+/* ---- Dataviz (skill dataviz) : bleu = appels, aqua = réservations ------- */
 .viz-root {
-  --viz-series-1: #2a78d6;
+  --viz-series-1: #0071e3;
   --viz-series-2: #1baf7a;
-  --viz-text: var(--pico-color, #333);
-  --viz-text-muted: var(--pico-muted-color, #777);
-  --viz-grid: var(--pico-muted-border-color, #ddd);
+  --viz-text: var(--app-text);
+  --viz-text-muted: var(--app-muted);
+  --viz-grid: var(--app-hairline);
   margin: 0 0 1rem 0;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .viz-root { --viz-series-1: #3987e5; --viz-series-2: #199e70; }
+  :root:not([data-theme="light"]) .viz-root { --viz-series-1: #2997ff; --viz-series-2: #30d18a; }
 }
-:root[data-theme="dark"] .viz-root { --viz-series-1: #3987e5; --viz-series-2: #199e70; }
-nav.container { padding-top: 0.75rem; }
-nav form button { padding: 0.25rem 0.75rem; font-size: 0.85rem; }
-table td, table th { vertical-align: middle; }
-tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
-.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 1rem; }
-.stat-cards article { text-align: center; margin: 0; }
-.stat-cards h2 { margin-bottom: 0.1rem; }
-.stat-cards p { margin: 0; color: var(--pico-muted-color); font-size: 0.85rem; }
-.chart-block { overflow-x: auto; }
-.transcript { display: flex; flex-direction: column; gap: 0.5rem; }
-.transcript .bubble { padding: 0.5rem 0.9rem; border-radius: 0.9rem; max-width: 75%; }
-.transcript .user { align-self: flex-start; background: var(--pico-card-sectioning-background-color, #eee); }
-.transcript .assistant { align-self: flex-end; background: var(--pico-primary-background); color: var(--pico-primary-inverse); }
-.muted { color: var(--pico-muted-color); }
+
+/* ---- Responsive --------------------------------------------------------- */
+@media (max-width: 720px) {
+  .site-header nav.container { flex-wrap: wrap; gap: .5rem; padding-top: .5rem; padding-bottom: .5rem; }
+  .brand { margin-right: 0; }
+  .nav-links { width: 100%; }
+  .nav-links a { font-size: .88rem; padding: .38rem .55rem; }
+  main.container { padding-top: 1.5rem; }
+}
