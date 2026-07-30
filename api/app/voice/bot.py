@@ -167,6 +167,23 @@ def build_stt(tenant: Tenant, language: str):
     )
 
 
+def llm_extra_body() -> dict:
+    """Paramètres bruts ajoutés au corps de la requête LLM (champ OpenRouter `extra`).
+
+    Sert à couper le « raisonnement » de Gemini 2.5, activé par défaut chez le
+    fournisseur. Au téléphone cette réflexion est du SILENCE PUR : mesuré le
+    30/07/2026 sur le prompt réel, produire un appel d'outil prend 2,61 s de médiane
+    (pointes à 4,52 s) avec, 0,58 s sans — 4,5× plus rapide, MÊME modèle, donc aucune
+    perte sur l'extraction date/heure/nom. L'appelant, lui, croyait la ligne coupée et
+    disait « allô ».
+
+    `LLM_REASONING=on` rend la main au modèle si un cas complexe le justifie un jour.
+    """
+    if os.getenv("LLM_REASONING", "off").strip().lower() == "on":
+        return {}
+    return {"reasoning": {"max_tokens": 0}}
+
+
 def build_function_schemas():
     """Convertit llm.TOOLS (schéma neutre) en FunctionSchema Pipecat."""
     from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -248,11 +265,22 @@ async def run_bot(
         headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL")
     if os.getenv("OPENROUTER_APP_NAME"):
         headers["X-Title"] = os.getenv("OPENROUTER_APP_NAME")
+    # Gemini 2.5 « réfléchit » avant de répondre. Au téléphone, cette réflexion est du
+    # SILENCE PUR : mesuré le 30/07/2026 sur le prompt réel, produire un appel d'outil
+    # prend 2,61 s de médiane (pointes à 4,52 s) avec le raisonnement, 0,58 s sans —
+    # 4,5× plus rapide, MÊME modèle, donc aucune perte sur l'extraction date/heure/nom.
+    # L'appelant, lui, croyait la ligne coupée et disait « allô ».
+    # LLM_REASONING=on rend la main au modèle (si un jour un cas complexe le justifie).
+    llm_kwargs = {}
+    extra = llm_extra_body()
+    if extra:
+        llm_kwargs["params"] = OpenAILLMService.InputParams(extra=extra)
     llm_service = OpenAILLMService(
         api_key=os.getenv("OPENROUTER_API_KEY", ""),
         base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         model=llm.MODEL,
         default_headers=headers or None,
+        **llm_kwargs,
     )
     # Journal des appels : collecte les réservations créées pendant CET appel.
     created_reservations: list[int] = []

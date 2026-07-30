@@ -246,3 +246,35 @@ class TestPipecatToolBridge:
             schema = by_name[tool["name"]]
             assert schema.properties == tool["input_schema"]["properties"]
             assert schema.required == tool["input_schema"]["required"]
+
+
+
+class TestLLMReasoning:
+    """Gemini 2.5 « réfléchit » avant de répondre, et au téléphone cette réflexion est
+    du silence pur : 2,61 s de médiane pour produire un appel d'outil contre 0,58 s
+    sans (mesuré le 30/07/2026 sur le prompt réel). Le défaut doit rester « coupé »."""
+
+    def test_disabled_by_default(self, monkeypatch):
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.delenv("LLM_REASONING", raising=False)
+        assert llm_extra_body() == {"reasoning": {"max_tokens": 0}}
+
+    def test_can_be_re_enabled(self, monkeypatch):
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.setenv("LLM_REASONING", "on")
+        assert llm_extra_body() == {}
+
+    def test_value_is_case_and_space_tolerant(self, monkeypatch):
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.setenv("LLM_REASONING", "  ON  ")
+        assert llm_extra_body() == {}
+
+    def test_any_other_value_keeps_it_off(self, monkeypatch):
+        """Une faute de frappe ne doit pas réintroduire silencieusement les 4 s."""
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.setenv("LLM_REASONING", "true")
+        assert llm_extra_body() == {"reasoning": {"max_tokens": 0}}
