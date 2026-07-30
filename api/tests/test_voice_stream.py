@@ -397,10 +397,23 @@ class TestInterruption:
     VAD qui tranche la phrase de l'assistante sur un souffle : mesuré sur un appel réel
     le 30/07/2026, 2 coupures en pleine phrase et 2 « allô » aux mêmes instants."""
 
-    def test_defaut_laisse_pipecat_decider(self, monkeypatch):
+    def test_defaut_nourrit_le_mode_mots(self, monkeypatch):
+        """Défaut du projet depuis le 30/07/2026, validé sur appel réel : les coupures
+        correspondent alors à de vraies prises de parole, plus à des souffles."""
+        from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+            TranscriptionUserTurnStartStrategy,
+        )
+
         from app.voice.bot import interruption_strategies
 
         monkeypatch.delenv("INTERRUPTION", raising=False)
+        s = interruption_strategies()
+        assert [type(x) for x in s.start] == [TranscriptionUserTurnStartStrategy]
+
+    def test_mode_voix_rend_la_main_a_pipecat(self, monkeypatch):
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.setenv("INTERRUPTION", "voix")
         assert interruption_strategies() is None
 
     def test_mode_mots_ne_garde_que_la_transcription(self, monkeypatch):
@@ -422,8 +435,10 @@ class TestInterruption:
         monkeypatch.setenv("INTERRUPTION", "mots")
         assert interruption_strategies().stop, "la stratégie de fin de tour a disparu"
 
-    def test_valeur_inconnue_reste_sur_le_defaut(self, monkeypatch):
+    def test_valeur_inconnue_ne_desactive_pas_le_mode_mots(self, monkeypatch):
+        """Seul « voix » rend la main à Pipecat : une faute de frappe ne doit pas
+        ramener silencieusement les coupures sur bruit."""
         from app.voice.bot import interruption_strategies
 
         monkeypatch.setenv("INTERRUPTION", "n'importe quoi")
-        assert interruption_strategies() is None
+        assert interruption_strategies() is not None

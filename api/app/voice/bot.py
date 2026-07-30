@@ -103,7 +103,7 @@ def build_stt(tenant: Tenant, language: str):
 
     `kyutai` = module ASR de moshi-server (Kyutai stt-1b-en_fr) : français natif, VAD
     sémantique, servi par le même serveur Modal que le TTS -> un fournisseur externe de
-    moins et -1,5 ¢/appel. `deepgram` (nova-2) reste le défaut/repli (bascule instantanée
+    moins et -1,5 ¢/appel. `deepgram` (nova-3) reste le défaut/repli (bascule instantanée
     par STT_PROVIDER, sans redéploiement)."""
     provider = os.getenv("STT_PROVIDER", "deepgram").strip().lower()
     logger.info(f"STT provider sélectionné : {provider}")
@@ -133,8 +133,9 @@ def build_stt(tenant: Tenant, language: str):
         ]
         extra = [k.strip() for k in os.getenv("DEEPGRAM_KEYWORDS", "").split(",") if k.strip()]
 
-        # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL.
-        model = os.getenv("DEEPGRAM_MODEL", "nova-2").strip()
+        # nova-3 : nettement meilleur sur les noms propres au téléphone (validé à
+        # l'oreille le 30/07/2026, là où nova-2 écrivait « fouguez » pour Fouquet's).
+        model = os.getenv("DEEPGRAM_MODEL", "nova-3").strip()
         if model.startswith("nova-3"):
             # nova-3 a REMPLACÉ `keywords` par `keyterm` (termes nus, sans pondération).
             # Lui envoyer `keywords` renvoie un HTTP 400 « Keywords are not supported
@@ -209,11 +210,14 @@ def interruption_strategies():
     si le client a réellement DIT quelque chose. Contrepartie : la coupure attend le
     premier résultat de Deepgram (résultats intermédiaires, donc rapide) au lieu de
     partir au premier son. Sur une ligne trop bruitée pour être transcrite, il vaut
-    mieux revenir à `INTERRUPTION=voix`.
+    mieux revenir à `INTERRUPTION=voix`, qui rend la main aux défauts Pipecat.
 
-    Renvoie None pour laisser les défauts Pipecat (VAD + transcription).
+    Défaut du projet : `mots` (validé à l'oreille le 30/07/2026). Renvoie None quand
+    on repasse en `voix`, pour laisser Pipecat décider (VAD + transcription).
     """
-    if os.getenv("INTERRUPTION", "voix").strip().lower() != "mots":
+    # Seul « voix » rend la main à Pipecat : une faute de frappe ne doit pas ramener
+    # silencieusement les coupures sur bruit (même garde-fou que LLM_REASONING).
+    if os.getenv("INTERRUPTION", "mots").strip().lower() == "voix":
         return None
     from pipecat.processors.aggregators.llm_response_universal import UserTurnStrategies
     from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
@@ -402,7 +406,7 @@ async def run_bot(
     vad_params = VADParams(
         confidence=float(os.getenv("VAD_CONFIDENCE", "0.85")),
         start_secs=float(os.getenv("VAD_START_SECS", "0.2")),
-        stop_secs=float(os.getenv("VAD_STOP_SECS", "0.4")),
+        stop_secs=float(os.getenv("VAD_STOP_SECS", "0.5")),
     )
     turn_stop_timeout = float(os.getenv("USER_TURN_STOP_TIMEOUT", "1.0"))
     context_aggregator = LLMContextAggregatorPair(

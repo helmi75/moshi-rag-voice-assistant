@@ -238,10 +238,14 @@ class TestDeepgramVocabulary:
         assert all(":" not in t for t in keyterm)
         assert not self._get(s, "keywords")
 
-    def test_default_model_stays_nova2(self, monkeypatch):
+    def test_default_model_is_nova3(self, monkeypatch):
+        """nova-3 est le défaut depuis le 30/07/2026 : nettement meilleur sur les noms
+        propres au téléphone, validé à l'oreille sur des appels réels."""
         monkeypatch.delenv("DEEPGRAM_MODEL", raising=False)
         s = self._options(monkeypatch)
-        assert str(self._get(s, "model")).startswith("nova-2")
+        assert str(self._get(s, "model")).startswith("nova-3")
+        # Et donc keyterm, jamais keywords — sinon l'API renvoie 400 et le STT est muet.
+        assert self._get(s, "keyterm") and not self._get(s, "keywords")
 
     def test_extra_keywords_lose_their_weight_on_nova3(self, monkeypatch):
         s = self._options(monkeypatch, DEEPGRAM_MODEL="nova-3",

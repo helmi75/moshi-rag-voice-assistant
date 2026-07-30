@@ -32,19 +32,20 @@ services:
       USER_TURN_STOP_TIMEOUT: "${USER_TURN_STOP_TIMEOUT:-1.0}"
       VAD_CONFIDENCE: "${VAD_CONFIDENCE:-0.85}"
       VAD_START_SECS: "${VAD_START_SECS:-0.2}"
-      VAD_STOP_SECS: "${VAD_STOP_SECS:-0.4}"
-      # Ce qui coupe la parole à l'assistante. « voix » (défaut Pipecat) = tout son,
-      # y compris un souffle ou un bruit de ligne : la phrase est tranchée et rien ne
-      # repart, le client dit « allô ». « mots » = uniquement une vraie transcription.
-      INTERRUPTION: "${INTERRUPTION:-voix}"
-      # STT du mode stream : "deepgram" (défaut, API nova-2) ou "kyutai" (module ASR de
+      VAD_STOP_SECS: "${VAD_STOP_SECS:-0.5}"
+      # Ce qui coupe la parole à l'assistante. « mots » (défaut projet) = uniquement
+      # une vraie transcription. « voix » (défaut Pipecat) = tout son, y compris un
+      # souffle : la phrase est tranchée et rien ne repart, le client dit « allô ».
+      INTERRUPTION: "${INTERRUPTION:-mots}"
+      # STT du mode stream : "deepgram" (défaut, API nova-3) ou "kyutai" (module ASR de
       # moshi-server, même serveur Modal que le TTS — un fournisseur de moins).
       STT_PROVIDER: "${STT_PROVIDER:-deepgram}"
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
-      # Modèle Deepgram. nova-2 = défaut éprouvé en français téléphone. nova-3 utilise
-      # `keyterm` au lieu de `keywords` (bot.py bascule tout seul), mais en language=fr
-      # il ne ponctue pas : essayer DEEPGRAM_LANGUAGE=multi pour retrouver la ponctuation.
-      DEEPGRAM_MODEL: "${DEEPGRAM_MODEL:-nova-2}"
+      # Modèle Deepgram. nova-3 = défaut (bien meilleur sur les noms propres au
+      # téléphone). Il utilise `keyterm` au lieu de `keywords` — bot.py bascule tout
+      # seul. En language=fr il ne ponctue pas ; DEEPGRAM_LANGUAGE=multi rétablit la
+      # ponctuation et permet à l'assistante de suivre la langue de l'appelant.
+      DEEPGRAM_MODEL: "${DEEPGRAM_MODEL:-nova-3}"
       DEEPGRAM_LANGUAGE: "${DEEPGRAM_LANGUAGE:-}"
       DEEPGRAM_KEYWORDS: "${DEEPGRAM_KEYWORDS:-}"
       # STT Kyutai (si STT_PROVIDER=kyutai) : URL du module ASR, défaut = MOSHI_TTS_URL.
