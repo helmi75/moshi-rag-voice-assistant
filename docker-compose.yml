@@ -33,6 +33,12 @@ services:
       # moshi-server, même serveur Modal que le TTS — un fournisseur de moins).
       STT_PROVIDER: "${STT_PROVIDER:-deepgram}"
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
+      # Modèle Deepgram. nova-2 = défaut éprouvé en français téléphone. nova-3 utilise
+      # `keyterm` au lieu de `keywords` (bot.py bascule tout seul), mais en language=fr
+      # il ne ponctue pas : essayer DEEPGRAM_LANGUAGE=multi pour retrouver la ponctuation.
+      DEEPGRAM_MODEL: "${DEEPGRAM_MODEL:-nova-2}"
+      DEEPGRAM_LANGUAGE: "${DEEPGRAM_LANGUAGE:-}"
+      DEEPGRAM_KEYWORDS: "${DEEPGRAM_KEYWORDS:-}"
       # STT Kyutai (si STT_PROVIDER=kyutai) : URL du module ASR, défaut = MOSHI_TTS_URL.
       MOSHI_STT_URL: "${MOSHI_STT_URL:-}"
       MOSHI_STT_API_KEY: "${MOSHI_STT_API_KEY:-}"

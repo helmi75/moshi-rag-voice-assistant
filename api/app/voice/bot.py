@@ -125,24 +125,40 @@ def build_stt(tenant: Tenant, language: str):
         # Boost de vocabulaire Deepgram : le nom de l'établissement + le lexique de la
         # réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz
         # (mots inventés à la place de « réservation », noms propres écorchés...).
-        keywords = [f"{w}:5" for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
-        keywords += [
-            "réservation:3", "réserver:3", "couverts:2", "personnes:2", "table:2",
-            "midi:1", "soir:1", "demain:1", "allergie:2", "terrasse:2", "annuler:2",
+        name_words = [w for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
+        lexicon = [
+            ("réservation", 3), ("réserver", 3), ("couverts", 2), ("personnes", 2),
+            ("table", 2), ("midi", 1), ("soir", 1), ("demain", 1),
+            ("allergie", 2), ("terrasse", 2), ("annuler", 2),
         ]
-        extra_kw = os.getenv("DEEPGRAM_KEYWORDS", "")  # "mot:5,autre:2" pour compléter
-        keywords += [k.strip() for k in extra_kw.split(",") if k.strip()]
+        extra = [k.strip() for k in os.getenv("DEEPGRAM_KEYWORDS", "").split(",") if k.strip()]
 
+        # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL.
+        model = os.getenv("DEEPGRAM_MODEL", "nova-2").strip()
+        if model.startswith("nova-3"):
+            # nova-3 a REMPLACÉ `keywords` par `keyterm` (termes nus, sans pondération).
+            # Lui envoyer `keywords` renvoie un HTTP 400 « Keywords are not supported
+            # for Nova-3 » : le STT ne démarre pas et TOUS les appels sont muets.
+            # Contrat vérifié contre l'API Deepgram le 30/07/2026.
+            boost = {"keyterm": name_words + [w for w, _ in lexicon]
+                     + [k.split(":")[0] for k in extra]}
+        else:
+            boost = {"keywords": [f"{w}:5" for w in name_words]
+                     + [f"{w}:{n}" for w, n in lexicon] + extra}
+
+        # DEEPGRAM_LANGUAGE permet d'essayer « multi » : mesuré le 30/07/2026, nova-3 en
+        # `language=fr` ne ponctue ni ne capitalise (smart_format ET punctuate restent
+        # sans effet), alors que « multi » le fait. La ponctuation n'est pas cosmétique :
+        # c'est elle qui donne « 20 h » plutôt que « vingt heures » au LLM.
         return DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY", ""),
             live_options=LiveOptions(
-                # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL
-                model=os.getenv("DEEPGRAM_MODEL", "nova-2"),
-                language=language,
+                model=model,
+                language=os.getenv("DEEPGRAM_LANGUAGE", "").strip() or language,
                 # smart_format : dates/nombres proprement formatés (« 20 h » plutôt que
                 # « vingt heures ») -> le LLM extrait mieux date/heure/couverts.
                 smart_format=True,
-                keywords=keywords,
+                **boost,
             ),
         )
 
