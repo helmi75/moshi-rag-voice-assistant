@@ -290,3 +290,52 @@ class TestLLMReasoning:
 
         monkeypatch.setenv("LLM_REASONING", "true")
         assert llm_extra_body() == {"extra_body": {"reasoning": {"max_tokens": 0}}}
+
+
+class TestPriseDeConge:
+    """Après un « au revoir », le silence du client est la fin normale de l'appel.
+
+    La relance d'inactivité s'y déclenchait quand même — l'assistante disait au revoir
+    puis relançait « Je vous écoute » huit secondes plus tard. Constaté en production
+    le 30/07/2026 sur un appel réel.
+    """
+
+    def test_reconnait_les_formules_de_conge(self):
+        from app.voice.bot import has_taken_leave
+
+        for formule in ("Au revoir.", "Merci à vous, et bonne journée.",
+                        "Nous vous attendons, à bientôt !", "Bonne soirée."):
+            assert has_taken_leave([{"role": "assistant", "content": formule}]), formule
+
+    def test_ne_confond_pas_avec_une_conversation_en_cours(self):
+        from app.voice.bot import has_taken_leave
+
+        assert not has_taken_leave(
+            [{"role": "assistant", "content": "Pour combien de personnes ?"}]
+        )
+
+    def test_seul_le_dernier_tour_compte(self):
+        """Un « bonne journée » au milieu ne doit pas raccrocher au nez du client."""
+        from app.voice.bot import has_taken_leave
+
+        assert not has_taken_leave([
+            {"role": "assistant", "content": "Très bien, bonne journée à vous aussi."},
+            {"role": "user", "content": "Ah, j'oubliais, on sera six en fait."},
+            {"role": "assistant", "content": "D'accord, je corrige : six personnes."},
+        ])
+
+    def test_ignore_les_tours_du_client(self):
+        """C'est le congé de l'ASSISTANTE qui clôt, pas celui du client — lui peut
+        dire « au revoir » puis se raviser."""
+        from app.voice.bot import has_taken_leave
+
+        assert not has_taken_leave([
+            {"role": "assistant", "content": "C'est noté, la table est réservée."},
+            {"role": "user", "content": "Au revoir."},
+        ])
+
+    def test_transcript_vide_ou_absent(self):
+        from app.voice.bot import has_taken_leave
+
+        assert not has_taken_leave(None)
+        assert not has_taken_leave([])

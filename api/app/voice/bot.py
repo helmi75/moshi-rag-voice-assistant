@@ -167,6 +167,34 @@ def build_stt(tenant: Tenant, language: str):
     )
 
 
+# Formules par lesquelles l'assistante prend congé (registre imposé par le prompt
+# système). Servent à reconnaître une fin de conversation, jamais à en produire une.
+_FORMULES_DE_CONGE = (
+    "au revoir", "bonne journée", "bonne soirée", "à bientôt", "au plaisir",
+    "excellente journée", "excellente soirée", "bonne fin de journée",
+    "bonne fin de soirée", "à très bientôt",
+)
+
+
+def has_taken_leave(transcript: list[dict] | None) -> bool:
+    """Le DERNIER tour de l'assistante est-il une prise de congé ?
+
+    Après un « au revoir », le silence du client est normal : il a terminé. Relancer
+    « Je vous écoute, que puis-je faire pour vous ? » à ce moment-là est le pire
+    moment possible pour parler — c'est ce que faisait la relance d'inactivité.
+    On raccroche à la place.
+
+    Ne regarde que le dernier tour de l'assistante : un « bonne journée » prononcé en
+    milieu de conversation appartient au passé et ne doit pas clore l'appel.
+    """
+    for message in reversed(transcript or []):
+        if message.get("role") != "assistant":
+            continue
+        texte = (message.get("content") or "").lower()
+        return any(formule in texte for formule in _FORMULES_DE_CONGE)
+    return False
+
+
 def llm_extra_body() -> dict:
     """Paramètres bruts ajoutés au corps de la requête LLM (champ OpenRouter `extra`).
 
@@ -218,7 +246,7 @@ async def run_bot(
     réservation créée pendant l'appel."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.audio.vad.vad_analyzer import VADParams
-    from pipecat.frames.frames import TTSSpeakFrame
+    from pipecat.frames.frames import EndFrame, TTSSpeakFrame
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.runner import PipelineRunner
     from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -365,12 +393,24 @@ async def run_bot(
 
     @_user_agg.event_handler("on_user_turn_idle")
     async def _on_user_idle(aggregator):
+        # L'assistante a déjà pris congé : ce silence est la fin normale de l'appel.
+        # On raccroche (EndFrame -> auto_hang_up du sérialiseur Twilio) au lieu de
+        # relancer « Je vous écoute » juste après un « au revoir ».
+        if has_taken_leave(_extract_transcript(context)):
+            await task.queue_frames([EndFrame()])
+            return
         _idle["n"] += 1
         if _idle["n"] == 1:
             await task.queue_frames([TTSSpeakFrame("Je vous écoute, que puis-je faire pour vous ?")])
         elif _idle["n"] == 2:
             await task.queue_frames([TTSSpeakFrame("Êtes-vous toujours en ligne ?")])
-        # Au-delà : on n'insiste plus (on laisse le client raccrocher).
+        else:
+            # Deux relances sans réponse : la ligne est abandonnée. On prend congé et
+            # on libère, plutôt que de facturer des minutes Twilio pour du silence.
+            await task.queue_frames(
+                [TTSSpeakFrame("Je n'ai plus personne en ligne, je vous souhaite une bonne "
+                               "journée. Au revoir."), EndFrame()]
+            )
 
     @_user_agg.event_handler("on_user_turn_stopped")
     async def _reset_idle(aggregator, *args):
