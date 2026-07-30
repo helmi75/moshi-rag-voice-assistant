@@ -59,6 +59,9 @@ services:
       # clé (défaut public_token) et voix française par défaut (« Développeuse »).
       MOSHI_TTS_URL: "${MOSHI_TTS_URL:-}"
       MOSHI_TTS_API_KEY: "${MOSHI_TTS_API_KEY:-public_token}"
+      # Voix par défaut du parc. Chaque établissement peut choisir la sienne dans
+      # l'admin (colonne tenants.voice) ; ce réglage ne sert qu'à ceux qui n'ont rien
+      # choisi. Une valeur hors catalogue (api/app/voice/voices.py) est ignorée.
       MOSHI_TTS_VOICE: "${MOSHI_TTS_VOICE:-unmute-prod-website/developpeuse-3.wav}"
       POCKET_TTS_VOICE: "${POCKET_TTS_VOICE:-estelle}"
       POCKET_TTS_LANGUAGE: "${POCKET_TTS_LANGUAGE:-french_24l}"

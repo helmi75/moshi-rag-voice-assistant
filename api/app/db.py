@@ -83,6 +83,13 @@ ALTER TABLE calls ADD COLUMN caller_number TEXT;
     """
 ALTER TABLE calls ADD COLUMN turn_latencies TEXT;
 """,
+    # v5 — voice : la voix de l'assistante, par établissement. Elle n'existait que comme
+    # variable d'environnement globale, donc tout le parc parlait de la même voix. NULL
+    # = « la voix par défaut du parc », ce qui laisse MOSHI_TTS_VOICE piloter les
+    # établissements qui n'ont rien choisi (cf. voice/voices.py:resolve).
+    """
+ALTER TABLE tenants ADD COLUMN voice TEXT;
+""",
 ]
 
 

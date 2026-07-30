@@ -9,6 +9,7 @@ utilisable en mode `gather` même si les extras audio ne sont pas installés.
 """
 import asyncio
 import os
+from typing import Optional
 
 from loguru import logger
 
@@ -53,9 +54,12 @@ def make_tool_handler(
     return handle
 
 
-def build_tts():
+def build_tts(tenant: Optional[Tenant] = None):
     """Construit le service TTS selon TTS_PROVIDER (défaut : pocket = voix Kyutai,
-    CPU, sans clé). `cartesia` en alternative (API, nécessite CARTESIA_API_KEY)."""
+    CPU, sans clé). `cartesia` en alternative (API, nécessite CARTESIA_API_KEY).
+
+    `tenant` sert à choisir la voix : seul moshi_server la gère par établissement
+    (les autres moteurs restent pilotés par leurs variables d'environnement)."""
     provider = os.getenv("TTS_PROVIDER", "pocket").strip().lower()
     logger.info(f"TTS provider sélectionné : {provider}")
     if provider == "pocket":
@@ -66,9 +70,12 @@ def build_tts():
         # Voix Moshi 1.6B via le serveur Rust moshi-server (production, fluide).
         # L'app est simple cliente websocket (aucun modèle en local) ; le serveur
         # tourne sur Modal GPU (voir deploy/modal_moshi_server.py).
+        from . import voices
         from .moshi_server_tts import MoshiServerTTSService
 
-        return MoshiServerTTSService()
+        voice = voices.resolve(tenant)
+        logger.info(f"Voix moshi-server : {voice}")
+        return MoshiServerTTSService(voice=voice)
     if provider == "kyutai":
         # Kyutai TTS 1.6B en PyTorch DANS l'app (GPU requis). Reste sous le temps réel
         # (sacade) sur L4/T4 — préférer moshi_server. Conservé pour référence/repli.
@@ -328,7 +335,9 @@ async def run_bot(
     # STT interchangeable (deepgram par défaut, kyutai = module ASR de moshi-server).
     stt = build_stt(tenant, language)
 
-    tts = build_tts()
+    # TTS dans la voix choisie pour cet établissement (même décision que l'accueil
+    # pré-rendu : voices.resolve, sinon un appel mélangerait deux voix).
+    tts = build_tts(tenant)
 
     headers = {}
     if os.getenv("OPENROUTER_SITE_URL"):

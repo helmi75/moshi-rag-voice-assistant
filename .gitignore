@@ -38,6 +38,12 @@ venv/
 ENV/
 env/
 .venv
+.modal-venv/
+
+# Clone local du dépôt de voix Kyutai (kyutai/tts-voices) : sert à écouter les
+# extraits avant de les proposer dans l'admin. Les voix servies, elles, sont
+# embarquées dans l'image Modal (deploy/modal_moshi_server.py:VOICE_FOLDERS).
+tts-voices/
 
 # IDE
 .vscode/

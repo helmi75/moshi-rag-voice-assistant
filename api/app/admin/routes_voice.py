@@ -2,6 +2,7 @@
 import asyncio
 import io
 import wave
+from typing import Optional
 
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from .. import tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
+from ..voice import voices
 from . import deps, presenters
 
 router = APIRouter()
@@ -27,7 +29,9 @@ async def voice_settings(request: Request, tenant_id: int,
         request, "voice/settings.html",
         {
             "tenant": tenant,
-            "voice_name": presenters.voice_label(),
+            "voice_name": presenters.voice_label(tenant),
+            "voice_catalogue": voices.catalogue(),
+            "voice_id": voices.resolve(tenant),
             "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None,
             "has_custom_music": greeting_mod.hold_music_path(tenant.id)
             != greeting_mod.hold_music_path(None),
@@ -41,14 +45,28 @@ async def voice_update(
     request: Request,
     tenant_id: int,
     user: User = Depends(deps.current_user),
-    greeting: str = Form(...),
+    greeting: Optional[str] = Form(None),
+    voice: Optional[str] = Form(None),
 ):
+    """Enregistre l'accueil et/ou la voix. Les deux cartes de l'écran postent ici,
+    chacune avec son seul champ : un champ absent n'écrase pas le réglage en place."""
     tenant = deps.resolve_tenant(tenant_id, user)
-    g = greeting.strip() or None
-    # Un accueil non vide saisi par le restaurateur est marqué « personnalisé » : ainsi
-    # seed_demo_tenant ne le réécrasera jamais au redémarrage (cf. tenants.py). Le vider
-    # rend la main au défaut géré (greeting_customized=0).
-    tenants.update_tenant(tenant.id, greeting=g, greeting_customized=1 if g else 0)
+    fields: dict = {}
+    if greeting is not None:
+        # Un accueil non vide saisi par le restaurateur est marqué « personnalisé » :
+        # ainsi seed_demo_tenant ne le réécrasera jamais au redémarrage (cf. tenants.py).
+        # Le vider rend la main au défaut géré (greeting_customized=0).
+        g = greeting.strip() or None
+        fields.update(greeting=g, greeting_customized=1 if g else 0)
+    # Voix : on n'enregistre QUE ce qui est au catalogue. Une valeur forgée (formulaire
+    # bricolé, catalogue réduit depuis) serait acceptée telle quelle par moshi-server,
+    # qui la remplacerait en silence par sa voix de repli — l'appelant serait le seul
+    # à s'en apercevoir. Hors catalogue -> on ne touche pas au réglage existant.
+    chosen = voices.get((voice or "").strip())
+    if chosen is not None:
+        fields["voice"] = chosen.id
+    if fields:
+        tenants.update_tenant(tenant.id, **fields)
     refreshed = tenants.get_by_id(tenant.id)
     if refreshed is not None and greeting_mod.is_moshi_server():
         # Re-rendu en tâche de fond (60-90 s si GPU froid) : jamais bloquant ici,

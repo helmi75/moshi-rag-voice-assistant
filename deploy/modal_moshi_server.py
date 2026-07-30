@@ -41,6 +41,7 @@ puis de démarrage.
   - Points restants à ajuster si besoin : l'adresse/port de bind (on suppose 0.0.0.0:8080)
     et le chemin/nom exact du fichier de config.
 """
+import json
 import os
 
 import modal
@@ -88,6 +89,32 @@ CONFIG_STT_URL = (
 # Cache persistant des poids Hugging Face (évite un re-téléchargement à chaque cold start).
 hf_cache = modal.Volume.from_name("moshi-server-hf-cache", create_if_missing=True)
 
+# Catalogue de voix embarqué dans l'image (dépôt public kyutai/tts-voices).
+#  - unmute-prod-website : voix du site Unmute, dont « Développeuse » (défaut de l'app)
+#    et default_voice.wav, la voix de repli du serveur.
+#  - cml-tts/fr : 35 voix françaises du dataset CML-TTS (OpenSLR 146), CC BY 4.0 —
+#    licence compatible avec un usage commercial, contrairement à expresso/ears (BY-NC).
+# ⚠️ Ne PAS élargir à tout le dépôt : ses ~901 fichiers saturent l'API HF (429) au
+# téléchargement. On ne prend que les embeddings (.safetensors) des dossiers listés,
+# ~256 Ko pièce. Ajouter un dossier ici suffit à rendre ses voix servables.
+# ⚠️ Miroir côté app : api/app/voice/voices.py:EMBEDDED_FOLDERS (un test échoue si le
+# catalogue propose une voix venant d'un dossier absent d'ici).
+VOICE_FOLDERS = ("unmute-prod-website", "cml-tts/fr")
+VOICES_DIR = "/root/voices"
+
+_ALLOW_PATTERNS = json.dumps([f"{folder}/*.safetensors" for folder in VOICE_FOLDERS])
+_DOWNLOAD_VOICES = (
+    "python -c 'from huggingface_hub import snapshot_download; "
+    f'snapshot_download("kyutai/tts-voices", local_dir="{VOICES_DIR}", '
+    f"allow_patterns={_ALLOW_PATTERNS})'"
+)
+# ⚠️ Le téléchargement laisse des méta-données dans le cache HF par défaut. Or le volume
+# persistant se monte EXACTEMENT sur /root/.cache/huggingface, et Modal REFUSE de monter
+# un volume sur un chemin non vide : la box part alors en crash-loop
+# (« cannot mount volume on non-empty path ») et plus aucun appel n'a de voix.
+# On vide donc ce chemin à la fin du build — les voix, elles, vivent dans VOICES_DIR.
+_CLEAN_HF_CACHE = "rm -rf /root/.cache/huggingface"
+
 image = (
     modal.Image.from_registry(
         "nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12"
@@ -128,13 +155,19 @@ image = (
     .run_commands(
         "mkdir -p /root/configs /root/static",
         f"wget -qO /root/configs/config-tts.toml {CONFIG_URL}",
-        # La config amont télécharge TOUTES les voix (kyutai/tts-voices, ~901 fichiers)
-        # -> on sature la limite d'API HF (429 Too Many Requests) au démarrage et chaque
-        # cold start est lent. On restreint le glob au seul dossier de voix utilisé
-        # (unmute-prod-website : contient default_voice + ex04_narration_longform_00001).
-        # Élargir ce glob si on veut d'autres voix du dépôt.
-        r"sed -i 's#tts-voices/\*\*/#tts-voices/unmute-prod-website/#' "
+        # La config amont pointe voice_folder sur tout le dépôt HF (~901 fichiers) : le
+        # téléchargement au démarrage sature l'API HF (429) et rallonge le cold start.
+        # On embarque donc un catalogue curaté DANS l'image (cf. VOICE_FOLDERS) et on
+        # fait lire ce dossier local au serveur — plus rien à télécharger au démarrage.
+        _DOWNLOAD_VOICES,
+        _CLEAN_HF_CACHE,
+        f"sed -i 's#^voice_folder = .*#voice_folder = \"{VOICES_DIR}\"#' "
         "/root/configs/config-tts.toml",
+        # Garde-fou : une voix absente du dossier ne provoque AUCUNE erreur côté serveur,
+        # elle retombe silencieusement sur default_voice (que Kyutai a choisie volontairement
+        # étrange). Si ce fichier manquait, tous les appels sonneraient faux sans un log.
+        # (glob sur le suffixe : son hash change à chaque version d'embedding amont)
+        f"ls {VOICES_DIR}/unmute-prod-website/default_voice.wav.*.safetensors > /dev/null",
         # Ajoute le module STT (ASR) au MÊME config : on télécharge config-stt-en_fr-hf.toml
         # et on n'en garde que les tables [modules.asr]* (à partir de la 1re), que l'on
         # concatène. Les clés top-level (static_dir, authorized_ids...) sont identiques et

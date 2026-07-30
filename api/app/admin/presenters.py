@@ -8,6 +8,8 @@ import json
 import os
 from typing import Optional
 
+from ..voice import voices
+
 # Issues d'un appel, telles qu'elles existent réellement en base :
 # `status` ∈ {in_progress, completed, failed} et `reservation_id` renseigné ou non.
 OUTCOMES = {
@@ -18,17 +20,17 @@ OUTCOMES = {
 }
 
 
-def voice_label() -> str:
-    """Nom lisible de la voix RÉELLEMENT configurée (variable d'environnement globale).
+def voice_label(tenant=None) -> str:
+    """Nom lisible de la voix RÉELLEMENT servie à cet établissement.
 
-    Affichée en lecture seule partout : tant que la voix n'est pas un champ du tenant,
-    un sélecteur laisserait croire à un réglage par établissement qui n'existe pas."""
+    Sans tenant (écran parc), c'est la voix par défaut du parc. Le nom vient du
+    catalogue, jamais du chemin du fichier : afficher « 10087 11650 000028 0002 »
+    ne dirait rien à un restaurateur. Seul moshi_server gère la voix par
+    établissement ; pour les autres moteurs on nomme le moteur, sans inventer."""
     provider = os.getenv("TTS_PROVIDER", "moshi_server")
     if provider != "moshi_server":
         return f"Moteur « {provider} »"
-    raw = os.getenv("MOSHI_TTS_VOICE", "")
-    stem = raw.rsplit("/", 1)[-1].rsplit(".", 1)[0].replace("-", " ").strip()
-    return stem.capitalize() if stem else "Voix par défaut du serveur"
+    return voices.label_for(tenant)
 
 
 def outcome_key(call: dict) -> str:
