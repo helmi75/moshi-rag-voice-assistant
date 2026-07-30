@@ -172,16 +172,22 @@ def llm_extra_body() -> dict:
 
     Sert à couper le « raisonnement » de Gemini 2.5, activé par défaut chez le
     fournisseur. Au téléphone cette réflexion est du SILENCE PUR : mesuré le
-    30/07/2026 sur le prompt réel, produire un appel d'outil prend 2,61 s de médiane
-    (pointes à 4,52 s) avec, 0,58 s sans — 4,5× plus rapide, MÊME modèle, donc aucune
-    perte sur l'extraction date/heure/nom. L'appelant, lui, croyait la ligne coupée et
-    disait « allô ».
+    30/07/2026 sur le tour de confirmation de réservation (8 tirages), la réponse
+    passe de 6,16 s de médiane (p90 9,07 s, pointe 11,27 s) à 0,59 s (p90 0,68 s).
+    Même modèle, donc aucune perte sur l'extraction date/heure/nom. L'appelant, lui,
+    croyait la ligne coupée et disait « allô ».
+
+    Le paramètre DOIT être emballé dans `extra_body` : pipecat déballe ce dict en
+    arguments de `AsyncCompletions.create()`, et le SDK OpenAI refuse tout mot-clé
+    inconnu — un `reasoning` nu lève TypeError et TOUS les appels deviennent muets.
+    Vécu en production le 30/07/2026. `extra_body` est l'échappatoire prévue par le
+    SDK pour les champs propres à un fournisseur ; elle traverse jusqu'au corps HTTP.
 
     `LLM_REASONING=on` rend la main au modèle si un cas complexe le justifie un jour.
     """
     if os.getenv("LLM_REASONING", "off").strip().lower() == "on":
         return {}
-    return {"reasoning": {"max_tokens": 0}}
+    return {"extra_body": {"reasoning": {"max_tokens": 0}}}
 
 
 def build_function_schemas():

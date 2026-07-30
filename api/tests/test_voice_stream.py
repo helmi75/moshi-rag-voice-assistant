@@ -251,14 +251,26 @@ class TestPipecatToolBridge:
 
 class TestLLMReasoning:
     """Gemini 2.5 « réfléchit » avant de répondre, et au téléphone cette réflexion est
-    du silence pur : 2,61 s de médiane pour produire un appel d'outil contre 0,58 s
-    sans (mesuré le 30/07/2026 sur le prompt réel). Le défaut doit rester « coupé »."""
+    du silence pur : sur le tour de confirmation de réservation, 6,16 s de médiane
+    (p90 9,07 s) contre 0,59 s sans (8 tirages, 30/07/2026). Le défaut reste « coupé ».
+    """
 
     def test_disabled_by_default(self, monkeypatch):
         from app.voice.bot import llm_extra_body
 
         monkeypatch.delenv("LLM_REASONING", raising=False)
-        assert llm_extra_body() == {"reasoning": {"max_tokens": 0}}
+        assert llm_extra_body() == {"extra_body": {"reasoning": {"max_tokens": 0}}}
+
+    def test_must_be_wrapped_in_extra_body(self, monkeypatch):
+        """RÉGRESSION VÉCUE EN PRODUCTION (30/07/2026) : pipecat déballe ce dict en
+        arguments de AsyncCompletions.create(), et le SDK OpenAI lève TypeError sur
+        tout mot-clé inconnu. Un `reasoning` nu rendait TOUS les appels muets."""
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.delenv("LLM_REASONING", raising=False)
+        extra = llm_extra_body()
+        assert "reasoning" not in extra, "un `reasoning` nu casse le SDK OpenAI"
+        assert set(extra) <= {"extra_body"}
 
     def test_can_be_re_enabled(self, monkeypatch):
         from app.voice.bot import llm_extra_body
@@ -273,8 +285,8 @@ class TestLLMReasoning:
         assert llm_extra_body() == {}
 
     def test_any_other_value_keeps_it_off(self, monkeypatch):
-        """Une faute de frappe ne doit pas réintroduire silencieusement les 4 s."""
+        """Une faute de frappe ne doit pas réintroduire silencieusement les 6 s."""
         from app.voice.bot import llm_extra_body
 
         monkeypatch.setenv("LLM_REASONING", "true")
-        assert llm_extra_body() == {"reasoning": {"max_tokens": 0}}
+        assert llm_extra_body() == {"extra_body": {"reasoning": {"max_tokens": 0}}}
