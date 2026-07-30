@@ -316,3 +316,45 @@ class TestReservationRowScoping:
             assert tenant.name not in row.text
         finally:
             tenants.delete_tenant(other.id)
+
+
+class TestLatencyMeasurement:
+    """La latence est la seule métrique de la maquette v3 que j'avais refusé
+    d'afficher faute de mesure. Elle existe désormais (migration v4) — et doit rester
+    absente tant qu'aucun appel n'a été instrumenté, jamais remplacée par une valeur
+    plausible."""
+
+    def test_stored_and_aggregated(self, two_tenants):
+        a, _ = two_tenants
+        calls.start_call("CA-lat-1", a.id)
+        calls.finish_call("CA-lat-1", "completed", turn_latencies=[900, 1100, 1300])
+        calls.start_call("CA-lat-2", a.id)
+        calls.finish_call("CA-lat-2", "completed", turn_latencies=[2000])
+
+        stats = calls.latency_stats(a.id, days=30)
+        assert stats["n_turns"] == 4
+        assert stats["median_ms"] == 1200  # (1100 + 1300) / 2
+        assert stats["p90_ms"] == 2000
+
+    def test_none_when_nothing_measured(self, two_tenants):
+        a, _ = two_tenants
+        calls.start_call("CA-lat-vide", a.id)
+        calls.finish_call("CA-lat-vide", "completed")
+        assert calls.latency_stats(a.id, days=30) is None
+
+    def test_corrupt_payload_is_ignored(self, two_tenants):
+        """Une ligne abîmée ne doit pas faire tomber l'écran Santé."""
+        a, _ = two_tenants
+        calls.start_call("CA-lat-ko", a.id)
+        calls.finish_call("CA-lat-ko", "completed", turn_latencies=[1000])
+        with db.get_conn() as conn:
+            conn.execute("UPDATE calls SET turn_latencies = 'pas du json' WHERE call_sid = ?",
+                         ("CA-lat-ko",))
+        assert calls.latency_stats(a.id, days=30) is None
+
+    def test_scoped_by_tenant(self, two_tenants):
+        a, b = two_tenants
+        calls.start_call("CA-lat-a", a.id)
+        calls.finish_call("CA-lat-a", "completed", turn_latencies=[500])
+        assert calls.latency_stats(b.id, days=30) is None
+        assert calls.latency_stats(a.id, days=30)["median_ms"] == 500

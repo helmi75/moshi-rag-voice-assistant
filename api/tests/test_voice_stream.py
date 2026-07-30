@@ -339,3 +339,52 @@ class TestPriseDeConge:
 
         assert not has_taken_leave(None)
         assert not has_taken_leave([])
+
+
+class TestObservateurDeLatence:
+    """Mesure le blanc tel que l'oreille le vit : de l'arrêt de la parole du client à
+    la reprise de la voix. En nanosecondes côté horloge Pipecat, en ms en sortie."""
+
+    def _pousse(self, obs, frame, t_ns):
+        import asyncio
+
+        from pipecat.observers.base_observer import FramePushed
+
+        asyncio.run(
+            obs.on_push_frame(FramePushed(source=None, destination=None, frame=frame,
+                                          direction=None, timestamp=t_ns))
+        )
+
+    def test_mesure_le_blanc_en_millisecondes(self):
+        from pipecat.frames.frames import BotStartedSpeakingFrame, UserStoppedSpeakingFrame
+
+        from app.voice.latency import TurnLatencyObserver
+
+        obs = TurnLatencyObserver()
+        self._pousse(obs, UserStoppedSpeakingFrame(), 1_000_000_000)
+        self._pousse(obs, BotStartedSpeakingFrame(), 2_500_000_000)
+        assert obs.samples == [1500]
+        assert obs.median_ms() == 1500
+
+    def test_ignore_une_reprise_sans_parole_prealable(self):
+        """L'accueil et les relances partent sans que le client ait parlé : les
+        compter gonflerait la médiane d'un blanc qui n'a jamais existé."""
+        from pipecat.frames.frames import BotStartedSpeakingFrame
+
+        from app.voice.latency import TurnLatencyObserver
+
+        obs = TurnLatencyObserver()
+        self._pousse(obs, BotStartedSpeakingFrame(), 5_000_000_000)
+        assert obs.samples == []
+        assert obs.median_ms() is None
+
+    def test_ecarte_les_blancs_aberrants(self):
+        """Au-delà du plafond, ce n'est plus une latence mais un incident."""
+        from pipecat.frames.frames import BotStartedSpeakingFrame, UserStoppedSpeakingFrame
+
+        from app.voice.latency import TurnLatencyObserver
+
+        obs = TurnLatencyObserver()
+        self._pousse(obs, UserStoppedSpeakingFrame(), 0)
+        self._pousse(obs, BotStartedSpeakingFrame(), 60_000_000_000)  # 60 s
+        assert obs.samples == []

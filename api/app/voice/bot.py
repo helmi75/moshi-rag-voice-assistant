@@ -247,6 +247,8 @@ async def run_bot(
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.audio.vad.vad_analyzer import VADParams
     from pipecat.frames.frames import EndFrame, TTSSpeakFrame
+
+    from .latency import TurnLatencyObserver
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.runner import PipelineRunner
     from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -431,8 +433,12 @@ async def run_bot(
         ]
     )
 
+    # Mesure passive des blancs ressentis (cf. voice/latency.py). En OBSERVATEUR :
+    # rien n'est inséré sur le chemin de l'audio, le turn-taking n'est pas touché.
+    latence = TurnLatencyObserver()
     task = PipelineTask(
         pipeline,
+        observers=[latence],
         params=PipelineParams(
             # Twilio Media Streams est en 8 kHz : caler tout le pipeline dessus
             # évite des rééchantillonnages inutiles.
@@ -498,6 +504,7 @@ async def run_bot(
                     status,
                     _extract_transcript(context),
                     created_reservations[0] if created_reservations else None,
+                    latence.samples,
                 )
             except Exception as exc:
                 logger.warning(f"[calls] finish_call KO (sans conséquence): {exc}")

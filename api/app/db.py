@@ -75,6 +75,14 @@ ALTER TABLE tenants ADD COLUMN greeting_customized INTEGER NOT NULL DEFAULT 0;
     """
 ALTER TABLE calls ADD COLUMN caller_number TEXT;
 """,
+    # v4 — turn_latencies : les blancs ressentis par l'appelant (JSON, en ms), mesurés
+    # tour par tour. Sans ça, diagnostiquer une lenteur imposait de lire les journaux
+    # du conteneur — qui repartent de zéro à CHAQUE déploiement, donc l'appel qu'on
+    # veut analyser a déjà disparu. C'est aussi la seule source honnête pour afficher
+    # une latence dans l'admin.
+    """
+ALTER TABLE calls ADD COLUMN turn_latencies TEXT;
+""",
 ]
 
 

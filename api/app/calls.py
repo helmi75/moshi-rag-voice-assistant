@@ -44,8 +44,12 @@ def finish_call(
     status: str = "completed",
     transcript: Optional[list[dict]] = None,
     reservation_id: Optional[int] = None,
+    turn_latencies: Optional[list[int]] = None,
 ) -> None:
-    """Clôt l'appel : durée depuis started_at, statut, transcript JSON, coût estimé."""
+    """Clôt l'appel : durée depuis started_at, statut, transcript JSON, coût estimé.
+
+    `turn_latencies` = les blancs ressentis tour par tour, en millisecondes (cf.
+    voice/latency.py). Stockés tels quels : c'est la matière première du diagnostic."""
     with db.get_conn() as conn:
         row = conn.execute(
             "SELECT id, started_at FROM calls WHERE call_sid = ?", (call_sid,)
@@ -59,7 +63,7 @@ def finish_call(
         conn.execute(
             """UPDATE calls SET ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                    duration_seconds = ?, status = ?, transcript = ?,
-                   reservation_id = ?, estimated_cost = ?
+                   reservation_id = ?, estimated_cost = ?, turn_latencies = ?
                WHERE id = ?""",
             (
                 duration,
@@ -67,6 +71,7 @@ def finish_call(
                 json.dumps(transcript, ensure_ascii=False) if transcript else None,
                 reservation_id,
                 estimate_call_cost(duration),
+                json.dumps(turn_latencies) if turn_latencies else None,
                 row["id"],
             ),
         )
@@ -263,6 +268,39 @@ def stats_by_tenant(days: int = 30) -> dict[int, dict]:
     for row in resa_rows:
         _entry(row["tenant_id"])["n_reservations"] = row["n_reservations"]
     return stats
+
+
+def latency_stats(tenant_id: Optional[int] = None, days: int = 30) -> Optional[dict]:
+    """Blancs ressentis par les appelants sur la période : médiane et p90, en ms.
+
+    Renvoie None tant qu'aucun appel n'a été mesuré — les appels antérieurs à la
+    migration v4 n'ont rien enregistré, et une latence inventée serait pire que pas
+    de latence du tout."""
+    clause, params = _window(days, 0)
+    where = clause.format(col="started_at") + " AND turn_latencies IS NOT NULL"
+    if tenant_id is not None:
+        where += " AND tenant_id = ?"
+        params = [*params, tenant_id]
+    with db.get_conn() as conn:
+        rows = conn.execute(f"SELECT turn_latencies FROM calls WHERE {where}", params).fetchall()
+    mesures: list[int] = []
+    for row in rows:
+        try:
+            valeurs = json.loads(row["turn_latencies"])
+        except (TypeError, ValueError):
+            continue
+        mesures += [int(v) for v in valeurs if isinstance(v, (int, float))]
+    if not mesures:
+        return None
+    mesures.sort()
+    milieu = len(mesures) // 2
+    mediane = (mesures[milieu] if len(mesures) % 2
+               else (mesures[milieu - 1] + mesures[milieu]) // 2)
+    return {
+        "median_ms": mediane,
+        "p90_ms": mesures[min(len(mesures) - 1, int(0.9 * len(mesures)))],
+        "n_turns": len(mesures),
+    }
 
 
 def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:

@@ -7,12 +7,22 @@
   <div>
     <h1>Santé &amp; coûts</h1>
     <p class="lede">La pile vocale vue depuis le standard, sur {{ days }} jours.
-       Seuls des faits mesurés sont affichés : la latence n'est instrumentée nulle part,
-       elle n'apparaît donc pas ici.</p>
+       Seuls des faits mesurés sont affichés.</p>
   </div>
 </div>
 
 <div class="kpi-grid">
+  {% if latency %}
+  {{ kpi("Blanc ressenti (médiane)",
+         "%.1f s" | format(latency.median_ms / 1000),
+         sub="Entre la fin de la phrase du client et la reprise de la voix. "
+             ~ "p90 : " ~ "%.1f" | format(latency.p90_ms / 1000) ~ " s, sur "
+             ~ latency.n_turns ~ " tours mesurés.") }}
+  {% else %}
+  {{ kpi("Blanc ressenti", "—",
+         sub="Aucun appel mesuré sur la période. La mesure démarre avec les appels "
+             "postérieurs à sa mise en place.", tone="dot") }}
+  {% endif %}
   {{ kpi("Appels échoués",
          totals.n_failed ~ " / " ~ totals.n_calls,
          sub="Le pipeline vocal a levé une erreur pendant l'appel.",

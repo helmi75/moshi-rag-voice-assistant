@@ -225,6 +225,10 @@ async def health(request: Request):
         {
             "totals": now,
             "days": _WINDOW_DAYS,
+            # Enfin mesurée (migration v4) : le blanc entre la fin de la phrase du
+            # client et la reprise de la voix. None tant qu'aucun appel n'a été
+            # instrumenté — on n'affiche alors rien plutôt qu'un chiffre inventé.
+            "latency": calls.latency_stats(None, days=_WINDOW_DAYS),
             "breakdown": calls.cost_breakdown(None, days=_WINDOW_DAYS),
             "venues": sorted(rows, key=lambda r: -r["stats"]["total_cost"]),
             "max_cost": max_cost,
