@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Santé &amp; coûts{% endblock %}
+{% block content %}
+{% from "_macros.html" import kpi, money %}
+
+<div class="page-head">
+  <div>
+    <h1>Santé &amp; coûts</h1>
+    <p class="lede">La pile vocale vue depuis le standard, sur {{ days }} jours.
+       Seuls des faits mesurés sont affichés : la latence n'est instrumentée nulle part,
+       elle n'apparaît donc pas ici.</p>
+  </div>
+</div>
+
+<div class="kpi-grid">
+  {{ kpi("Appels échoués",
+         totals.n_failed ~ " / " ~ totals.n_calls,
+         sub="Le pipeline vocal a levé une erreur pendant l'appel.",
+         tone="dot-bad") }}
+  {{ kpi("Appels jamais clôturés", totals.n_unfinished,
+         sub="Le worker s'est arrêté avant la fin : ni durée, ni transcription.",
+         tone="dot-warn") }}
+  {{ kpi("Coût moyen par appel", money(totals.avg_cost),
+         sub="Estimation aux tarifs de calls.py, cohérente avec le total du parc.") }}
+  {{ kpi("Voix d'accueil prêtes", greeting_ready ~ " / " ~ greeting_total,
+         sub="WAV d'accueil présent en cache = décroché immédiat.",
+         tone="dot-good") }}
+</div>
+
+<div class="split split-even">
+  <section class="card">
+    <h2>Coût par établissement · {{ days }} j</h2>
+    <div style="margin-top: 1rem">
+      {% for v in venues %}
+      <div class="meter-row">
+        <div class="meter-head">
+          <b>{{ v.tenant.name }}</b>
+          <span>{{ money(v.stats.total_cost) }} · {{ v.stats.n_calls }} appels</span>
+        </div>
+        <div class="meter">
+          <i style="width: {{ (100 * v.stats.total_cost / max_cost) | round | int }}%"></i>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted">Aucun établissement.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="stack">
+    <section class="card">
+      <h2>Répartition du coût · {{ days }} j</h2>
+      <p class="card-sub">Décomposition du total ({{ money(totals.total_cost) }}) avec les
+         tarifs qui servent déjà à l'estimation par appel.</p>
+      <div style="margin-top: 1rem">
+        {% for b in breakdown %}
+        <div class="meter-row">
+          <div class="meter-head">
+            <b>{{ b.label }}</b>
+            <span>{{ money(b.amount) }} · {{ b.share }} %</span>
+          </div>
+          <div class="meter"><i style="width: {{ b.share }}%"></i></div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card card-flush">
+      <div class="card-head">
+        <div>
+          <h2>Pile vocale</h2>
+          <p class="card-sub">Configuration réellement chargée par le conteneur.</p>
+        </div>
+      </div>
+      <div class="card-list">
+        {% for r in stack %}
+        <div class="card-row">
+          <span class="row-main">
+            <span class="row-title">{{ r.name }}</span>
+            <span class="row-sub">{{ r.detail }}</span>
+          </span>
+          <span class="chip">{{ r.metric }}</span>
+        </div>
+        {% endfor %}
+        <div class="card-row">
+          <span class="row-main">
+            <span class="row-title">Voix de synthèse</span>
+            <span class="row-sub">Réglage global — pas encore paramétrable par établissement.</span>
+          </span>
+          <span class="chip">{{ voice }}</span>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

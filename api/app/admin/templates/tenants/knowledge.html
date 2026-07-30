@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Ce que l'IA sait — {{ tenant.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Ce que l'IA sait</h1>
+    <p class="lede">Découpé en fiches sur les titres <code>##</code> de votre base de
+       connaissances. Plus c'est précis, moins l'IA improvise — une fiche vide, et
+       elle fera rappeler.</p>
+  </div>
+  <a role="button" href="/admin/tenants/{{ tenant.id }}/edit">Modifier</a>
+</div>
+
+<div class="kb-grid">
+  {% for s in sections %}
+  <article class="card">
+    <div class="card-head" style="padding: 0 0 .2rem">
+      <h2>{{ s.title }}</h2>
+      {% if s.filled %}<span class="chip chip-good">Renseignée</span>
+      {% else %}<span class="chip chip-warn">À compléter</span>{% endif %}
+    </div>
+    <p class="kb-body">{{ s.body or "Rien de renseigné pour l'instant." }}</p>
+  </article>
+  {% else %}
+  <article class="card">
+    <h2>Base de connaissances vide</h2>
+    <p class="kb-body">L'IA n'a ni horaires, ni carte, ni consignes à citer.
+       <a href="/admin/tenants/{{ tenant.id }}/edit">Ajoutez des sections</a> en commençant
+       chaque bloc par <code>## Titre</code> (ex. <code>## Horaires</code>).</p>
+  </article>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -40,6 +40,10 @@ def current_user(request: Request) -> User:
             raise HTTPException(status_code=401, headers={"HX-Redirect": "/admin/login"})
         raise HTTPException(status_code=303, headers={"Location": "/admin/login"})
     request.state.user = user  # accessible dans les templates via request.state
+    # La barre latérale affiche en permanence le contexte d'établissement : on le
+    # résout ici une fois pour toutes plutôt que dans chaque route (SELECT par id sur
+    # une table minuscule, en WAL — coût négligeable devant le rendu du template).
+    request.state.tenant = tenants.get_by_id(user.tenant_id) if user.tenant_id else None
     return user
 
 

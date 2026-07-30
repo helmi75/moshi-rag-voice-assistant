@@ -69,6 +69,12 @@ CREATE INDEX IF NOT EXISTS idx_reservations_tenant ON reservations(tenant_id);
     """
 ALTER TABLE tenants ADD COLUMN greeting_customized INTEGER NOT NULL DEFAULT 0;
 """,
+    # v3 — caller_number : le numéro de l'appelant, connu dès l'ouverture du stream
+    # (customParameters.From) mais jusqu'ici jeté. L'admin ne pouvait donc pas dire QUI
+    # avait appelé, sauf si l'appel avait débouché sur une réservation.
+    """
+ALTER TABLE calls ADD COLUMN caller_number TEXT;
+""",
 ]
 
 

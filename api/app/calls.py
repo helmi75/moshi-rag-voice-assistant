@@ -27,14 +27,15 @@ def estimate_call_cost(duration_seconds: float) -> float:
     return round(minutes * per_min + _COST_LLM_PER_CALL, 6)
 
 
-def start_call(call_sid: Optional[str], tenant_id: int) -> None:
+def start_call(call_sid: Optional[str], tenant_id: int,
+               caller_number: Optional[str] = None) -> None:
     """Enregistre le début d'appel. ON CONFLICT DO NOTHING : un doublon de webhook
     ne doit jamais faire échouer l'appel."""
     with db.get_conn() as conn:
         conn.execute(
-            """INSERT INTO calls (call_sid, tenant_id) VALUES (?, ?)
+            """INSERT INTO calls (call_sid, tenant_id, caller_number) VALUES (?, ?, ?)
                ON CONFLICT(call_sid) DO NOTHING""",
-            (call_sid, tenant_id),
+            (call_sid, tenant_id, caller_number),
         )
 
 
@@ -71,12 +72,27 @@ def finish_call(
         )
 
 
-def list_calls(tenant_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> list[dict]:
+# Issues filtrables depuis l'admin. Elles décrivent l'état RÉEL des colonnes ; il n'y
+# a pas de catégorie « à rappeler », rien ne la matérialise en base.
+OUTCOME_FILTERS = {
+    "reservation": "reservation_id IS NOT NULL",
+    "failed": "status = 'failed'",
+    "info": "reservation_id IS NULL AND status = 'completed'",
+}
+
+
+def list_calls(tenant_id: Optional[int] = None, limit: int = 50, offset: int = 0,
+               outcome: Optional[str] = None) -> list[dict]:
     query = "SELECT * FROM calls"
+    clauses: list[str] = []
     params: list = []
     if tenant_id is not None:
-        query += " WHERE tenant_id = ?"
+        clauses.append("tenant_id = ?")
         params.append(tenant_id)
+    if outcome in OUTCOME_FILTERS:
+        clauses.append(OUTCOME_FILTERS[outcome])
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?"
     params += [limit, offset]
     with db.get_conn() as conn:
@@ -142,3 +158,135 @@ def stats_daily(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
         )
         entry["n_reservations"] = row["n_reservations"]
     return sorted(merged.values(), key=lambda e: e["day"])
+
+
+def _window(days: int, offset_days: int) -> tuple[str, list]:
+    """Fragment SQL d'une fenêtre glissante de `days` jours, décalée de `offset_days`
+    vers le passé. Sans décalage il n'y a PAS de borne haute : sinon la journée en
+    cours (date('now') = minuit) tomberait hors de la fenêtre."""
+    clause = "{col} >= date('now', ?)"
+    params: list = [f"-{int(days) + int(offset_days)} days"]
+    if offset_days > 0:
+        clause += " AND {col} < date('now', ?)"
+        params.append(f"-{int(offset_days)} days")
+    return clause, params
+
+
+def totals(tenant_id: Optional[int] = None, days: int = 30,
+           offset_days: int = 0) -> dict:
+    """Totaux d'une fenêtre glissante : appels, captation, échecs, durée, coût, résas.
+
+    `offset_days` recule la fenêtre : appelée deux fois (0 puis `days`), elle donne
+    la période courante ET la précédente, donc une évolution MESURÉE — jamais un
+    pourcentage décoratif.
+    """
+    clause, params = _window(days, offset_days)
+    calls_where = clause.format(col="started_at")
+    resas_where = clause.format(col="created_at")
+    calls_params = list(params)
+    resas_params = list(params)
+    if tenant_id is not None:
+        calls_where += " AND tenant_id = ?"
+        resas_where += " AND tenant_id = ?"
+        calls_params.append(tenant_id)
+        resas_params.append(tenant_id)
+    with db.get_conn() as conn:
+        c = conn.execute(
+            f"""SELECT COUNT(*) AS n_calls,
+                       COALESCE(SUM(CASE WHEN reservation_id IS NOT NULL THEN 1 ELSE 0 END), 0)
+                           AS n_with_reservation,
+                       COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS n_failed,
+                       COALESCE(SUM(CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END), 0) AS n_unfinished,
+                       COALESCE(SUM(duration_seconds), 0) AS total_duration,
+                       COALESCE(SUM(estimated_cost), 0) AS total_cost
+                FROM calls WHERE {calls_where}""",
+            calls_params,
+        ).fetchone()
+        r = conn.execute(
+            f"""SELECT COUNT(*) AS n_reservations,
+                       COALESCE(SUM(party_size), 0) AS n_covers
+                FROM reservations WHERE {resas_where}""",
+            resas_params,
+        ).fetchone()
+    n_calls = c["n_calls"]
+    return {
+        "n_calls": n_calls,
+        "n_with_reservation": c["n_with_reservation"],
+        "n_failed": c["n_failed"],
+        "n_unfinished": c["n_unfinished"],
+        "total_duration": c["total_duration"],
+        "total_cost": c["total_cost"],
+        "n_reservations": r["n_reservations"],
+        "n_covers": r["n_covers"],
+        "capture_rate": round(100 * c["n_with_reservation"] / n_calls) if n_calls else 0,
+        "avg_cost": (c["total_cost"] / n_calls) if n_calls else 0.0,
+        "avg_duration": (c["total_duration"] / n_calls) if n_calls else 0.0,
+    }
+
+
+def stats_by_tenant(days: int = 30) -> dict[int, dict]:
+    """Agrégats par établissement sur `days` jours, indexés par tenant_id.
+
+    Un seul GROUP BY pour les appels + un pour les réservations : la vue du parc
+    affiche N établissements sans faire N requêtes."""
+    clause, params = _window(days, 0)
+    with db.get_conn() as conn:
+        call_rows = conn.execute(
+            f"""SELECT tenant_id, COUNT(*) AS n_calls,
+                       COALESCE(SUM(CASE WHEN reservation_id IS NOT NULL THEN 1 ELSE 0 END), 0)
+                           AS n_with_reservation,
+                       COALESCE(SUM(estimated_cost), 0) AS total_cost
+                FROM calls WHERE {clause.format(col='started_at')} GROUP BY tenant_id""",
+            params,
+        ).fetchall()
+        resa_rows = conn.execute(
+            f"""SELECT tenant_id, COUNT(*) AS n_reservations
+                FROM reservations WHERE {clause.format(col='created_at')} GROUP BY tenant_id""",
+            params,
+        ).fetchall()
+    stats: dict[int, dict] = {}
+
+    def _entry(tenant_id: int) -> dict:
+        return stats.setdefault(tenant_id, {
+            "n_calls": 0, "n_with_reservation": 0, "total_cost": 0.0,
+            "n_reservations": 0, "capture_rate": 0,
+        })
+
+    for row in call_rows:
+        entry = _entry(row["tenant_id"])
+        entry["n_calls"] = row["n_calls"]
+        entry["n_with_reservation"] = row["n_with_reservation"]
+        entry["total_cost"] = row["total_cost"]
+        entry["capture_rate"] = (
+            round(100 * row["n_with_reservation"] / row["n_calls"]) if row["n_calls"] else 0
+        )
+    for row in resa_rows:
+        _entry(row["tenant_id"])["n_reservations"] = row["n_reservations"]
+    return stats
+
+
+def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
+    """Ventilation du coût estimé par composant, avec les MÊMES tarifs que
+    estimate_call_cost : c'est la décomposition de la somme affichée ailleurs, pas
+    une seconde estimation."""
+    t = totals(tenant_id, days=days)
+    minutes = t["total_duration"] / 60.0
+    rows = [
+        ("Twilio (téléphonie)", minutes * _COST_TWILIO_PER_MIN),
+        ("Deepgram (transcription)", minutes * _COST_DEEPGRAM_PER_MIN),
+        ("Modal GPU (voix Moshi)", minutes * _COST_MODAL_PER_MIN),
+        ("LLM (compréhension)", t["n_calls"] * _COST_LLM_PER_CALL),
+    ]
+    raw_total = sum(amount for _, amount in rows)
+    if not raw_total:
+        return [{"label": label, "amount": 0.0, "share": 0} for label, _ in rows]
+    # `estimated_cost` est arrondi au millionième À CHAQUE appel : recalculer les
+    # composants depuis la durée totale laisse un résidu d'arrondi. On le redistribue
+    # au prorata pour que la ventilation somme EXACTEMENT au total affiché ailleurs —
+    # c'est bien une décomposition, pas une seconde estimation.
+    scale = t["total_cost"] / raw_total
+    return [
+        {"label": label, "amount": amount * scale,
+         "share": round(100 * amount / raw_total)}
+        for label, amount in rows
+    ]

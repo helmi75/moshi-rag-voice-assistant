@@ -104,6 +104,22 @@ async def tenant_update(
     return RedirectResponse(back, status_code=303)
 
 
+@router.get("/admin/tenants/{tenant_id}/knowledge")
+async def tenant_knowledge(request: Request, tenant_id: int,
+                           user: User = Depends(deps.current_user)):
+    """« Ce que l'IA sait » : la base de connaissances en fiches (lecture).
+
+    Aucun stockage nouveau — le texte est déjà sectionné par des titres `##`, et
+    c'est ce même texte qui part dans le prompt système."""
+    tenant = deps.resolve_tenant(tenant_id, user)
+    deps.ensure_csrf(request)
+    return deps.templates.TemplateResponse(
+        request, "tenants/knowledge.html",
+        {"tenant": tenant,
+         "sections": tenants.parse_knowledge_sections(tenant.knowledge_base)},
+    )
+
+
 @router.post("/admin/tenants/{tenant_id}/delete", dependencies=[Depends(deps.verify_csrf)])
 async def tenant_delete(tenant_id: int, user: User = Depends(deps.require_superadmin)):
     if tenants.get_by_id(tenant_id) is None:

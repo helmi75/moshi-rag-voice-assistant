@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from .. import tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
-from . import deps
+from . import deps, presenters
 
 router = APIRouter()
 
@@ -27,6 +27,7 @@ async def voice_settings(request: Request, tenant_id: int,
         request, "voice/settings.html",
         {
             "tenant": tenant,
+            "voice_name": presenters.voice_label(),
             "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None,
             "has_custom_music": greeting_mod.hold_music_path(tenant.id)
             != greeting_mod.hold_music_path(None),

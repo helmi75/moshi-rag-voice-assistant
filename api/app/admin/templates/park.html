@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Vue du parc{% endblock %}
+{% block content %}
+{% from "_macros.html" import kpi, money %}
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">{{ days }} derniers jours</p>
+    <h1>Vue du parc</h1>
+  </div>
+  <a role="button" href="/admin/tenants/new">Nouvel établissement</a>
+</div>
+
+<div class="kpi-grid">
+  {{ kpi("Appels pris", totals.n_calls, deltas.calls) }}
+  {{ kpi("Taux de captation", totals.capture_rate ~ " %", deltas.capture, tone="dot-good") }}
+  {{ kpi("Réservations créées", totals.n_reservations, deltas.reservations) }}
+  {{ kpi("Coût estimé", money(totals.total_cost), deltas.cost, tone="dot-warn") }}
+</div>
+
+<div class="split">
+  <section class="card card-flush">
+    <div class="card-head">
+      <h2>Établissements</h2>
+      <a class="card-link" href="/admin/tenants">Tout gérer</a>
+    </div>
+    <div class="card-list">
+      {% for v in venues %}
+      <a class="card-row" href="/admin/?tenant_id={{ v.tenant.id }}">
+        <span class="avatar" aria-hidden="true">{{ v.initials }}</span>
+        <span class="row-main">
+          <span class="row-title">{{ v.tenant.name }}
+            {% if v.greeting_ready %}<span class="chip chip-good">Voix prête</span>
+            {% else %}<span class="chip chip-warn">Voix à rendre</span>{% endif %}
+          </span>
+          <span class="row-sub">{{ v.tenant.business_type }} · {{ v.tenant.phone_number }}</span>
+        </span>
+        <span class="row-metric"><b>{{ v.stats.n_calls }}</b><span>appels {{ days }} j</span></span>
+        <span class="row-metric"><b>{{ v.stats.capture_rate }} %</b><span>captation</span></span>
+        <span class="row-metric"><b>{{ money(v.stats.total_cost) }}</b><span>coût {{ days }} j</span></span>
+      </a>
+      {% else %}
+      <p class="empty">Aucun établissement. <a href="/admin/tenants/new">Créez le premier</a>.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="stack">
+    <section class="card card-flush">
+      <div class="card-head">
+        <div>
+          <h2>À traiter</h2>
+          <p class="card-sub">Ce qui dégrade concrètement la qualité des réponses.</p>
+        </div>
+      </div>
+      <div class="card-list">
+        {% for a in alerts %}
+        <div class="card-row">
+          <span class="dot {{ 'dot-warn' if a.level == 'warn' else 'dot' }}" aria-hidden="true"></span>
+          <span class="row-main">
+            <span class="row-title">{{ a.title }}</span>
+            <span class="row-sub" style="white-space: normal">{{ a.detail }}</span>
+          </span>
+        </div>
+        {% else %}
+        <p class="empty">Rien à signaler : voix rendues, bases de connaissances remplies,
+           appels reçus partout.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="invert">
+      {{ chart }}
+    </section>
+  </div>
+</div>
+{% endblock %}

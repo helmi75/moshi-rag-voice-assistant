@@ -13,6 +13,15 @@ router = APIRouter()
 PAGE_SIZE = 25
 
 
+def _tenant_names(user: User) -> dict[int, str]:
+    """La colonne « Établissement » n'existe que pour le super-admin.
+
+    La renvoyer à un restaurateur décalait sa ligne d'une cellule après une édition
+    inline ET lui montrait le nom d'un autre établissement : la liste et les fragments
+    doivent donc décider pareil."""
+    return {t.id: t.name for t in tenants.list_all()} if user.is_superadmin else {}
+
+
 def _load_scoped(reservation_id: int, user: User) -> dict:
     resa = reservations.get_reservation(reservation_id)
     if resa is None:
@@ -38,7 +47,7 @@ async def reservations_list(
         limit=PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE,
     )
     has_next = len(rows) > PAGE_SIZE
-    tenant_names = {t.id: t.name for t in tenants.list_all()} if user.is_superadmin else {}
+    tenant_names = _tenant_names(user)
     return deps.templates.TemplateResponse(
         request, "reservations/list.html",
         {
@@ -66,7 +75,7 @@ async def reservation_row(request: Request, reservation_id: int,
     resa = _load_scoped(reservation_id, user)
     return deps.templates.TemplateResponse(
         request, "reservations/_row.html",
-        {"r": resa, "tenant_names": {t.id: t.name for t in tenants.list_all()}},
+        {"r": resa, "tenant_names": _tenant_names(user)},
     )
 
 
@@ -92,7 +101,7 @@ async def reservation_update(
     )
     return deps.templates.TemplateResponse(
         request, "reservations/_row.html",
-        {"r": resa, "tenant_names": {t.id: t.name for t in tenants.list_all()}},
+        {"r": resa, "tenant_names": _tenant_names(user)},
     )
 
 

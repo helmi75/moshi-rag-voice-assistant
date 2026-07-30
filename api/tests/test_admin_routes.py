@@ -49,7 +49,9 @@ class TestAuth:
         _login(client)
         resp = client.get("/admin/")
         assert resp.status_code == 200
-        assert "Tableau de bord" in resp.text
+        # L'accueil du super-admin est la vue du parc (le restaurateur, lui, atterrit
+        # sur sa salle de contrôle).
+        assert "Vue du parc" in resp.text
 
     def test_login_bad_password(self, client):
         resp = client.post("/admin/login", data={"email": "admin@test.local", "password": "wrong"})
@@ -232,7 +234,8 @@ class TestCallsViews:
                           [{"role": "user", "content": "Bonjour je veux réserver"}])
         _login(client)
         page = client.get(f"/admin/calls?tenant_id={tenant.id}")
-        assert page.status_code == 200 and "completed" in page.text
+        # L'issue est affichée en clair (« Renseignement »), plus le statut technique.
+        assert page.status_code == 200 and "Renseignement" in page.text
         call = calls.list_calls(tenant.id)[0]
         detail = client.get(f"/admin/calls/{call['id']}")
         assert detail.status_code == 200
