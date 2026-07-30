@@ -195,6 +195,36 @@ def has_taken_leave(transcript: list[dict] | None) -> bool:
     return False
 
 
+def interruption_strategies():
+    """Ce qui autorise le client à couper la parole à l'assistante.
+
+    Par défaut, Pipecat ouvre un tour sur DEUX signaux : le VAD (du SON) ou une
+    transcription (des MOTS). C'est la branche VAD qui coupe l'assistante sur un
+    souffle, un « mm » ou un bruit de ligne — et comme ce son ne produit aucun mot,
+    rien ne repart derrière : le client n'entend pas la fin de la question et croit la
+    ligne coupée. Mesuré le 30/07/2026 sur un appel réel : 2 coupures en pleine phrase,
+    2 « allô », exactement aux mêmes instants.
+
+    `INTERRUPTION=mots` ne garde que la transcription : l'assistante ne s'arrête que
+    si le client a réellement DIT quelque chose. Contrepartie : la coupure attend le
+    premier résultat de Deepgram (résultats intermédiaires, donc rapide) au lieu de
+    partir au premier son. Sur une ligne trop bruitée pour être transcrite, il vaut
+    mieux revenir à `INTERRUPTION=voix`.
+
+    Renvoie None pour laisser les défauts Pipecat (VAD + transcription).
+    """
+    if os.getenv("INTERRUPTION", "voix").strip().lower() != "mots":
+        return None
+    from pipecat.processors.aggregators.llm_response_universal import UserTurnStrategies
+    from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+        TranscriptionUserTurnStartStrategy,
+    )
+
+    # `stop` laissé à None : Pipecat garde son analyseur de fin de tour (smart-turn v3),
+    # celui qui a été réglé à l'oreille. On ne touche QUE l'ouverture du tour.
+    return UserTurnStrategies(start=[TranscriptionUserTurnStartStrategy()])
+
+
 def llm_extra_body() -> dict:
     """Paramètres bruts ajoutés au corps de la requête LLM (champ OpenRouter `extra`).
 
@@ -386,6 +416,8 @@ async def run_bot(
             user_idle_timeout=idle_timeout,
             # Filet de fin de tour quand smart-turn v3 n'est pas sûr (2 s au lieu de 5).
             user_turn_stop_timeout=turn_stop_timeout,
+            # Ce qui autorise le client à couper la parole (cf. interruption_strategies).
+            user_turn_strategies=interruption_strategies(),
         ),
     )
 

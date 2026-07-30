@@ -388,3 +388,42 @@ class TestObservateurDeLatence:
         self._pousse(obs, UserStoppedSpeakingFrame(), 0)
         self._pousse(obs, BotStartedSpeakingFrame(), 60_000_000_000)  # 60 s
         assert obs.samples == []
+
+
+class TestInterruption:
+    """Ce qui autorise le client à couper la parole.
+
+    Le défaut Pipecat ouvre un tour sur le VAD OU une transcription. C'est la branche
+    VAD qui tranche la phrase de l'assistante sur un souffle : mesuré sur un appel réel
+    le 30/07/2026, 2 coupures en pleine phrase et 2 « allô » aux mêmes instants."""
+
+    def test_defaut_laisse_pipecat_decider(self, monkeypatch):
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.delenv("INTERRUPTION", raising=False)
+        assert interruption_strategies() is None
+
+    def test_mode_mots_ne_garde_que_la_transcription(self, monkeypatch):
+        from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+            TranscriptionUserTurnStartStrategy,
+        )
+
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.setenv("INTERRUPTION", "mots")
+        strategies = interruption_strategies()
+        assert [type(s) for s in strategies.start] == [TranscriptionUserTurnStartStrategy]
+
+    def test_mode_mots_conserve_la_fin_de_tour_par_defaut(self, monkeypatch):
+        """On ne touche QUE l'ouverture du tour : smart-turn v3, réglé à l'oreille,
+        doit rester en place pour décider de la fin."""
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.setenv("INTERRUPTION", "mots")
+        assert interruption_strategies().stop, "la stratégie de fin de tour a disparu"
+
+    def test_valeur_inconnue_reste_sur_le_defaut(self, monkeypatch):
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.setenv("INTERRUPTION", "n'importe quoi")
+        assert interruption_strategies() is None
