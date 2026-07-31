@@ -1,0 +1,15 @@
+{# Briques partagées. À importer DANS le bloc content (une import au niveau du
+   template ne serait pas visible depuis l'intérieur d'un {% block %}). #}
+
+{% macro kpi(label, value, delta=none, sub=none, tone='dot-accent', hero=false) %}
+<div class="card kpi{{ ' kpi-hero' if hero }}">
+  <p class="kpi-label"><span class="dot {{ tone }}" aria-hidden="true"></span>{{ label }}</p>
+  <div class="kpi-row">
+    <span class="kpi-value">{{ value }}</span>
+    {% if delta %}<span class="kpi-delta {{ delta.dir }}">{{ delta.label }}</span>{% endif %}
+  </div>
+  {% if sub %}<p class="kpi-sub">{{ sub }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro money(amount) %}{{ "%.2f $" | format(amount or 0) }}{% endmacro %}

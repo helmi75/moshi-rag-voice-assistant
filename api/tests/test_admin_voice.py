@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app import tenants, users
 from app.main import app
 from app.voice import greeting as greeting_mod
+from app.voice import voices
 
 
 @pytest.fixture()
@@ -84,6 +85,70 @@ class TestVoiceSettings:
         resp = client.get(f"/admin/tenants/{resto.id}/greeting/status")
         assert resp.status_code == 200
         assert "Rendu de la voix en cours" in resp.text
+
+
+class TestChoixDeVoix:
+    """Le sélecteur de voix : ce qu'il propose, ce qu'il accepte d'enregistrer, et
+    surtout ce qu'il refuse — une voix hors catalogue serait servie sans erreur par
+    moshi-server, avec sa voix de repli, sans que rien ne le signale."""
+
+    def _autre_voix(self):
+        return next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
+
+    def _poster(self, client, tenant_id, **champs):
+        return client.post(
+            f"/admin/tenants/{tenant_id}/voice",
+            data=champs,
+            headers={"X-CSRF-Token": _csrf(client)},
+            follow_redirects=False,
+        )
+
+    def test_le_selecteur_liste_le_catalogue(self, client, resto):
+        _login(client)
+        page = client.get(f"/admin/tenants/{resto.id}/voice")
+        for voice in voices.catalogue():
+            assert voice.label in page.text
+        # Un restaurateur doit lire un nom, jamais un chemin de fichier.
+        assert voices.DEFAULT_VOICE not in page.text.replace(
+            f'value="{voices.DEFAULT_VOICE}"', ""
+        )
+
+    def test_enregistre_une_voix_du_catalogue(self, client, resto):
+        _login(client)
+        autre = self._autre_voix()
+        assert self._poster(client, resto.id, voice=autre.id).status_code == 303
+        assert tenants.get_by_id(resto.id).voice == autre.id
+
+    def test_refuse_une_voix_hors_catalogue(self, client, resto):
+        _login(client)
+        autre = self._autre_voix()
+        self._poster(client, resto.id, voice=autre.id)
+        self._poster(client, resto.id, voice="dossier-bidon/inconnue.wav")
+        assert tenants.get_by_id(resto.id).voice == autre.id, (
+            "une valeur forgée ne doit pas remplacer un réglage valide"
+        )
+
+    def test_changer_la_voix_ne_touche_pas_a_l_accueil(self, client, resto):
+        _login(client)
+        self._poster(client, resto.id, greeting="Bonjour, ici Le Test.")
+        self._poster(client, resto.id, voice=self._autre_voix().id)
+        assert tenants.get_by_id(resto.id).greeting == "Bonjour, ici Le Test."
+
+    def test_changer_l_accueil_ne_reinitialise_pas_la_voix(self, client, resto):
+        _login(client)
+        autre = self._autre_voix()
+        self._poster(client, resto.id, voice=autre.id)
+        self._poster(client, resto.id, greeting="Nouvel accueil.")
+        assert tenants.get_by_id(resto.id).voice == autre.id
+
+    def test_la_voix_choisie_invalide_l_accueil_deja_rendu(self, client, resto):
+        """Sans ça, l'établissement entendrait l'ancienne voix au décroché et la
+        nouvelle dès la première réponse."""
+        _login(client)
+        avant = greeting_mod._cache_path(resto)
+        self._poster(client, resto.id, voice=self._autre_voix().id)
+        apres = greeting_mod._cache_path(tenants.get_by_id(resto.id))
+        assert avant != apres
 
 
 class TestHoldMusicUpload:

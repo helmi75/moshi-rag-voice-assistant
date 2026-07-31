@@ -69,6 +69,27 @@ CREATE INDEX IF NOT EXISTS idx_reservations_tenant ON reservations(tenant_id);
     """
 ALTER TABLE tenants ADD COLUMN greeting_customized INTEGER NOT NULL DEFAULT 0;
 """,
+    # v3 — caller_number : le numéro de l'appelant, connu dès l'ouverture du stream
+    # (customParameters.From) mais jusqu'ici jeté. L'admin ne pouvait donc pas dire QUI
+    # avait appelé, sauf si l'appel avait débouché sur une réservation.
+    """
+ALTER TABLE calls ADD COLUMN caller_number TEXT;
+""",
+    # v4 — turn_latencies : les blancs ressentis par l'appelant (JSON, en ms), mesurés
+    # tour par tour. Sans ça, diagnostiquer une lenteur imposait de lire les journaux
+    # du conteneur — qui repartent de zéro à CHAQUE déploiement, donc l'appel qu'on
+    # veut analyser a déjà disparu. C'est aussi la seule source honnête pour afficher
+    # une latence dans l'admin.
+    """
+ALTER TABLE calls ADD COLUMN turn_latencies TEXT;
+""",
+    # v5 — voice : la voix de l'assistante, par établissement. Elle n'existait que comme
+    # variable d'environnement globale, donc tout le parc parlait de la même voix. NULL
+    # = « la voix par défaut du parc », ce qui laisse MOSHI_TTS_VOICE piloter les
+    # établissements qui n'ont rien choisi (cf. voice/voices.py:resolve).
+    """
+ALTER TABLE tenants ADD COLUMN voice TEXT;
+""",
 ]
 
 

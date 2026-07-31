@@ -317,7 +317,7 @@ async def voice_stream(websocket: WebSocket):
 
     # Journal des appels (admin) : best-effort, ne doit JAMAIS faire échouer un appel.
     try:
-        calls.start_call(call_sid, tenant.id)
+        calls.start_call(call_sid, tenant.id, from_number)
     except Exception as exc:
         print(f"[calls] start_call KO (sans conséquence): {exc}")
 

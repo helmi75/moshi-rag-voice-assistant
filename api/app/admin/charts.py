@@ -29,12 +29,20 @@ def _top_rounded_bar(x: float, y: float, w: float, h: float, r: float = 4) -> st
 
 
 def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
-              width: int = _W, height: int = _H) -> Markup:
-    """Bar chart une série. points = [(label, valeur)]. series = slot catégoriel (1|2)."""
+              width: int = _W, height: int = _H, tone: str = "light",
+              empty_label: str = "Aucune donnée sur la période.") -> Markup:
+    """Bar chart une série. points = [(label, valeur)]. series = slot catégoriel (1|2).
+
+    `tone="dark"` = le graphique est posé sur une surface sombre volontaire (la carte
+    « appels du parc »), qui ne suit pas le thème : il bascule alors sur les variables
+    `--viz-*-on-dark`, des pas choisis pour CE fond — jamais une inversion automatique.
+    """
+    suffix = "-on-dark" if tone == "dark" else ""
     if not points:
         return Markup(
-            f'<figure class="viz-root"><figcaption>{escape(title)}</figcaption>'
-            f'<p class="muted">Aucune donnée sur la période.</p></figure>'
+            f'<figure class="viz-root viz-{escape(tone)}">'
+            f'<figcaption>{escape(title)}</figcaption>'
+            f'<p class="muted">{escape(empty_label)}</p></figure>'
         )
     n = len(points)
     vmax = max(v for _, v in points) or 1
@@ -55,8 +63,8 @@ def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
         f'style="width:100%;height:auto;font-family:inherit">',
         # Baseline discrète (grille en retrait).
         f'<line x1="{_MARGIN_L}" y1="{baseline_y}" x2="{width - _MARGIN_L}" '
-        f'y2="{baseline_y}" stroke="var(--viz-grid)" stroke-width="1"/>',
-        f'<text x="{_MARGIN_L}" y="16" fill="var(--viz-text)" font-size="13" '
+        f'y2="{baseline_y}" stroke="var(--viz-grid{suffix})" stroke-width="1"/>',
+        f'<text x="{_MARGIN_L}" y="16" fill="var(--viz-text{suffix})" font-size="13" '
         f'font-weight="600">{escape(title)}</text>',
     ]
     for i, (label, value) in enumerate(points):
@@ -66,20 +74,20 @@ def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
         path = _top_rounded_bar(x, y, bar_w, h)
         if path:
             parts.append(
-                f'<path d="{path}" fill="var(--viz-series-{series})">'
+                f'<path d="{path}" fill="var(--viz-series-{series}{suffix})">'
                 f'<title>{escape(label)} : {value:g}</title></path>'
             )
         if value and (show_value or i == max_i or i == n - 1):
             parts.append(
                 f'<text x="{x + bar_w / 2:.1f}" y="{y - 4:.1f}" text-anchor="middle" '
-                f'fill="var(--viz-text-muted)" font-size="10">{value:g}</text>'
+                f'fill="var(--viz-text-muted{suffix})" font-size="10">{value:g}</text>'
             )
         if i % step == 0 or i == n - 1:
             parts.append(
                 f'<text x="{x + bar_w / 2:.1f}" y="{baseline_y + 14}" text-anchor="middle" '
-                f'fill="var(--viz-text-muted)" font-size="10">{escape(label)}</text>'
+                f'fill="var(--viz-text-muted{suffix})" font-size="10">{escape(label)}</text>'
             )
     parts.append("</svg>")
     return Markup(
-        f'<figure class="viz-root chart-block">{"".join(parts)}</figure>'
+        f'<figure class="viz-root chart-block viz-{escape(tone)}">{"".join(parts)}</figure>'
     )

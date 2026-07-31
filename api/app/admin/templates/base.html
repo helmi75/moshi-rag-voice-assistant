@@ -4,42 +4,129 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>{% block title %}Admin{% endblock %} — Assistant Vocal</title>
+  <title>{% block title %}Admin{% endblock %} — Helmane</title>
   <link rel="stylesheet" href="/admin/static/pico.min.css">
   <link rel="stylesheet" href="/admin/static/admin.css">
   <script src="/admin/static/htmx.min.js" defer></script>
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{ request.session.get("csrf", "") }}"}'>
-{% set p = request.url.path %}
-<header class="site-header">
-  <nav class="container">
+{% set shell_user = request.state.user if request.state.user is defined else none %}
+{% set shell_tenant = request.state.tenant if request.state.tenant is defined else none %}
+{% set shell_path = request.url.path %}
+{# Contexte d'établissement du super-admin : porté par ?tenant_id= ou par l'URL
+   /admin/tenants/<id>/… — il ne change JAMAIS les droits (deps.resolve_tenant reste
+   l'autorité), il ne fait que garder la barre latérale sur le bon établissement. #}
+{% set shell_ctx_id = request.query_params.get('tenant_id') or (shell_path.split('/')[3] if shell_path.startswith('/admin/tenants/') and shell_path.split('/')|length > 3 and shell_path.split('/')[3].isdigit() else none) %}
+
+<div class="shell">
+  {% if shell_user %}
+  <a class="skip-link" href="#contenu">Aller au contenu</a>
+
+  <aside class="sidebar">
     <a class="brand" href="/admin/">
-      <span class="brand-mark" aria-hidden="true">📞</span>
-      <span class="brand-name">Assistant&nbsp;Vocal</span>
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 10.8c1.2 2.4 3.2 4.4 5.6 5.6l1.9-1.9c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.5.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.3 21 3 13.7 3 4.6c0-.6.4-1 1-1h3.3c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.5.1.4 0 .8-.2 1L6.6 10.8Z"/></svg>
+      </span>
+      <span class="brand-name">Helmane</span>
     </a>
-    {% if request.state.user is defined %}
-    <ul class="nav-links">
-      <li><a href="/admin/" {% if p == '/admin/' %}aria-current="page"{% endif %}>Tableau de bord</a></li>
-      <li><a href="/admin/reservations" {% if '/reservations' in p %}aria-current="page"{% endif %}>Réservations</a></li>
-      <li><a href="/admin/calls" {% if '/calls' in p %}aria-current="page"{% endif %}>Appels</a></li>
-      {% if request.state.user.is_superadmin %}
-      <li><a href="/admin/tenants" {% if p.startswith('/admin/tenants') %}aria-current="page"{% endif %}>Établissements</a></li>
+
+    {% if shell_user.is_superadmin %}
+    <div class="ctx-card ctx-super">
+      <span class="ctx-role">Super-admin</span>
+      <span class="ctx-name">Tous les établissements</span>
+    </div>
+    {% elif shell_tenant %}
+    <div class="ctx-card">
+      <span class="ctx-mark" aria-hidden="true">{{ shell_tenant.name[:2] | upper }}</span>
+      <span class="ctx-body">
+        <span class="ctx-name">{{ shell_tenant.name }}</span>
+        <span class="ctx-kind">{{ shell_tenant.business_type }}</span>
+      </span>
+    </div>
+    {% endif %}
+
+    <nav class="nav" aria-label="Navigation principale">
+      {% if shell_user.is_superadmin %}
+      <a class="nav-item" href="/admin/" {% if shell_path == '/admin/' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M5 20V9l7-5 7 5v11M10 20v-6h4v6"/></svg>
+        <span>Vue du parc</span>
+      </a>
+      <a class="nav-item" href="/admin/tenants" {% if shell_path == '/admin/tenants' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5 5 4h14l1 5.5M4 9.5a2.5 2.5 0 0 0 5 0M9 9.5a2.5 2.5 0 0 0 5 0M14 9.5a2.5 2.5 0 0 0 5 0M5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9"/></svg>
+        <span>Enseignes</span>
+      </a>
       {% else %}
-      <li><a href="/admin/tenants/{{ request.state.user.tenant_id }}/edit" {% if p.endswith('/edit') %}aria-current="page"{% endif %}>Mon établissement</a></li>
-      <li><a href="/admin/tenants/{{ request.state.user.tenant_id }}/voice" {% if p.endswith('/voice') %}aria-current="page"{% endif %}>Ma voix</a></li>
+      <a class="nav-item" href="/admin/" {% if shell_path == '/admin/' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 4l8 7.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1V11.5Z"/></svg>
+        <span>Salle de contrôle</span>
+      </a>
       {% endif %}
-      <li>
+
+      <a class="nav-item" href="/admin/calls" {% if shell_path.startswith('/admin/calls') %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 10.8c1.2 2.4 3.2 4.4 5.6 5.6l1.9-1.9c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.5.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.3 21 3 13.7 3 4.6c0-.6.4-1 1-1h3.3c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.5.1.4 0 .8-.2 1L6.6 10.8Z"/></svg>
+        <span>Appels</span>
+      </a>
+      <a class="nav-item" href="/admin/reservations" {% if shell_path.startswith('/admin/reservations') %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v3M17 2v3M3.5 9h17M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>
+        <span>Réservations</span>
+      </a>
+
+      {% if shell_user.is_superadmin %}
+      <a class="nav-item" href="/admin/health" {% if shell_path == '/admin/health' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 4 12L16 12h5"/></svg>
+        <span>Santé &amp; coûts</span>
+      </a>
+      {% endif %}
+
+      {% set shell_nav_id = shell_user.tenant_id if not shell_user.is_superadmin else shell_ctx_id %}
+      {% if shell_nav_id %}
+      {% if shell_user.is_superadmin %}<div class="nav-sep">Établissement sélectionné</div>{% endif %}
+      <a class="nav-item" href="/admin/tenants/{{ shell_nav_id }}/voice" {% if shell_path.endswith('/voice') %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3ZM6 11a6 6 0 0 0 12 0M12 19v2"/></svg>
+        <span>Voix &amp; accueil</span>
+      </a>
+      <a class="nav-item" href="/admin/tenants/{{ shell_nav_id }}/knowledge" {% if shell_path.endswith('/knowledge') %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5v-13ZM11 4h7.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H11"/></svg>
+        <span>Ce que l'IA sait</span>
+      </a>
+      <a class="nav-item" href="/admin/tenants/{{ shell_nav_id }}/edit" {% if shell_path.endswith('/edit') %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z"/></svg>
+        <span>{{ "Fiche établissement" if shell_user.is_superadmin else "Mon établissement" }}</span>
+      </a>
+      {% if shell_user.is_superadmin %}
+      <a class="nav-item nav-back" href="/admin/">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l-7 7 7 7M3 12h18"/></svg>
+        <span>Revenir au parc</span>
+      </a>
+      {% endif %}
+      {% endif %}
+    </nav>
+
+    <div class="sidebar-foot">
+      {% if shell_tenant %}
+      <div class="line-card">
+        <span class="line-label">Ligne de l'établissement</span>
+        <span class="line-number">{{ shell_tenant.phone_number }}</span>
+      </div>
+      {% endif %}
+      <div class="account">
+        <span class="account-mark" aria-hidden="true">{{ shell_user.email[:2] | upper }}</span>
+        <span class="account-mail" title="{{ shell_user.email }}">{{ shell_user.email }}</span>
         <form method="post" action="/admin/logout">
           <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
-          <button class="logout" type="submit">Déconnexion</button>
+          <button class="logout" type="submit" title="Déconnexion">Quitter</button>
         </form>
-      </li>
-    </ul>
-    {% endif %}
-  </nav>
-</header>
-<main class="container">
-  {% block content %}{% endblock %}
-</main>
+      </div>
+    </div>
+  </aside>
+  {% endif %}
+
+  {# Un SEUL bloc `content` : Jinja refuse qu'un même bloc soit défini deux fois,
+     donc la coquille se replie sur elle-même plutôt que de se dupliquer. #}
+  <main class="main{{ '' if shell_user else ' main-centered' }}" id="contenu">
+    {% block content %}{% endblock %}
+  </main>
+</div>
 </body>
 </html>

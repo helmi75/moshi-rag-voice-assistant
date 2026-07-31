@@ -9,6 +9,7 @@ utilisable en mode `gather` même si les extras audio ne sont pas installés.
 """
 import asyncio
 import os
+from typing import Optional
 
 from loguru import logger
 
@@ -53,9 +54,12 @@ def make_tool_handler(
     return handle
 
 
-def build_tts():
+def build_tts(tenant: Optional[Tenant] = None):
     """Construit le service TTS selon TTS_PROVIDER (défaut : pocket = voix Kyutai,
-    CPU, sans clé). `cartesia` en alternative (API, nécessite CARTESIA_API_KEY)."""
+    CPU, sans clé). `cartesia` en alternative (API, nécessite CARTESIA_API_KEY).
+
+    `tenant` sert à choisir la voix : seul moshi_server la gère par établissement
+    (les autres moteurs restent pilotés par leurs variables d'environnement)."""
     provider = os.getenv("TTS_PROVIDER", "pocket").strip().lower()
     logger.info(f"TTS provider sélectionné : {provider}")
     if provider == "pocket":
@@ -66,9 +70,12 @@ def build_tts():
         # Voix Moshi 1.6B via le serveur Rust moshi-server (production, fluide).
         # L'app est simple cliente websocket (aucun modèle en local) ; le serveur
         # tourne sur Modal GPU (voir deploy/modal_moshi_server.py).
+        from . import voices
         from .moshi_server_tts import MoshiServerTTSService
 
-        return MoshiServerTTSService()
+        voice = voices.resolve(tenant)
+        logger.info(f"Voix moshi-server : {voice}")
+        return MoshiServerTTSService(voice=voice)
     if provider == "kyutai":
         # Kyutai TTS 1.6B en PyTorch DANS l'app (GPU requis). Reste sous le temps réel
         # (sacade) sur L4/T4 — préférer moshi_server. Conservé pour référence/repli.
@@ -103,7 +110,7 @@ def build_stt(tenant: Tenant, language: str):
 
     `kyutai` = module ASR de moshi-server (Kyutai stt-1b-en_fr) : français natif, VAD
     sémantique, servi par le même serveur Modal que le TTS -> un fournisseur externe de
-    moins et -1,5 ¢/appel. `deepgram` (nova-2) reste le défaut/repli (bascule instantanée
+    moins et -1,5 ¢/appel. `deepgram` (nova-3) reste le défaut/repli (bascule instantanée
     par STT_PROVIDER, sans redéploiement)."""
     provider = os.getenv("STT_PROVIDER", "deepgram").strip().lower()
     logger.info(f"STT provider sélectionné : {provider}")
@@ -125,30 +132,131 @@ def build_stt(tenant: Tenant, language: str):
         # Boost de vocabulaire Deepgram : le nom de l'établissement + le lexique de la
         # réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz
         # (mots inventés à la place de « réservation », noms propres écorchés...).
-        keywords = [f"{w}:5" for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
-        keywords += [
-            "réservation:3", "réserver:3", "couverts:2", "personnes:2", "table:2",
-            "midi:1", "soir:1", "demain:1", "allergie:2", "terrasse:2", "annuler:2",
+        name_words = [w for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
+        lexicon = [
+            ("réservation", 3), ("réserver", 3), ("couverts", 2), ("personnes", 2),
+            ("table", 2), ("midi", 1), ("soir", 1), ("demain", 1),
+            ("allergie", 2), ("terrasse", 2), ("annuler", 2),
         ]
-        extra_kw = os.getenv("DEEPGRAM_KEYWORDS", "")  # "mot:5,autre:2" pour compléter
-        keywords += [k.strip() for k in extra_kw.split(",") if k.strip()]
+        extra = [k.strip() for k in os.getenv("DEEPGRAM_KEYWORDS", "").split(",") if k.strip()]
 
+        # nova-3 : nettement meilleur sur les noms propres au téléphone (validé à
+        # l'oreille le 30/07/2026, là où nova-2 écrivait « fouguez » pour Fouquet's).
+        model = os.getenv("DEEPGRAM_MODEL", "nova-3").strip()
+        if model.startswith("nova-3"):
+            # nova-3 a REMPLACÉ `keywords` par `keyterm` (termes nus, sans pondération).
+            # Lui envoyer `keywords` renvoie un HTTP 400 « Keywords are not supported
+            # for Nova-3 » : le STT ne démarre pas et TOUS les appels sont muets.
+            # Contrat vérifié contre l'API Deepgram le 30/07/2026.
+            boost = {"keyterm": name_words + [w for w, _ in lexicon]
+                     + [k.split(":")[0] for k in extra]}
+        else:
+            boost = {"keywords": [f"{w}:5" for w in name_words]
+                     + [f"{w}:{n}" for w, n in lexicon] + extra}
+
+        # DEEPGRAM_LANGUAGE permet d'essayer « multi » : mesuré le 30/07/2026, nova-3 en
+        # `language=fr` ne ponctue ni ne capitalise (smart_format ET punctuate restent
+        # sans effet), alors que « multi » le fait. La ponctuation n'est pas cosmétique :
+        # c'est elle qui donne « 20 h » plutôt que « vingt heures » au LLM.
         return DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY", ""),
             live_options=LiveOptions(
-                # nova-2 a un support français robuste ; surchargeable via DEEPGRAM_MODEL
-                model=os.getenv("DEEPGRAM_MODEL", "nova-2"),
-                language=language,
+                model=model,
+                language=os.getenv("DEEPGRAM_LANGUAGE", "").strip() or language,
                 # smart_format : dates/nombres proprement formatés (« 20 h » plutôt que
                 # « vingt heures ») -> le LLM extrait mieux date/heure/couverts.
                 smart_format=True,
-                keywords=keywords,
+                **boost,
             ),
         )
 
     raise ValueError(
         f"STT_PROVIDER inconnu : {provider!r} (valeurs acceptées : deepgram, kyutai)"
     )
+
+
+# Formules par lesquelles l'assistante prend congé (registre imposé par le prompt
+# système). Servent à reconnaître une fin de conversation, jamais à en produire une.
+_FORMULES_DE_CONGE = (
+    "au revoir", "bonne journée", "bonne soirée", "à bientôt", "au plaisir",
+    "excellente journée", "excellente soirée", "bonne fin de journée",
+    "bonne fin de soirée", "à très bientôt",
+)
+
+
+def has_taken_leave(transcript: list[dict] | None) -> bool:
+    """Le DERNIER tour de l'assistante est-il une prise de congé ?
+
+    Après un « au revoir », le silence du client est normal : il a terminé. Relancer
+    « Je vous écoute, que puis-je faire pour vous ? » à ce moment-là est le pire
+    moment possible pour parler — c'est ce que faisait la relance d'inactivité.
+    On raccroche à la place.
+
+    Ne regarde que le dernier tour de l'assistante : un « bonne journée » prononcé en
+    milieu de conversation appartient au passé et ne doit pas clore l'appel.
+    """
+    for message in reversed(transcript or []):
+        if message.get("role") != "assistant":
+            continue
+        texte = (message.get("content") or "").lower()
+        return any(formule in texte for formule in _FORMULES_DE_CONGE)
+    return False
+
+
+def interruption_strategies():
+    """Ce qui autorise le client à couper la parole à l'assistante.
+
+    Par défaut, Pipecat ouvre un tour sur DEUX signaux : le VAD (du SON) ou une
+    transcription (des MOTS). C'est la branche VAD qui coupe l'assistante sur un
+    souffle, un « mm » ou un bruit de ligne — et comme ce son ne produit aucun mot,
+    rien ne repart derrière : le client n'entend pas la fin de la question et croit la
+    ligne coupée. Mesuré le 30/07/2026 sur un appel réel : 2 coupures en pleine phrase,
+    2 « allô », exactement aux mêmes instants.
+
+    `INTERRUPTION=mots` ne garde que la transcription : l'assistante ne s'arrête que
+    si le client a réellement DIT quelque chose. Contrepartie : la coupure attend le
+    premier résultat de Deepgram (résultats intermédiaires, donc rapide) au lieu de
+    partir au premier son. Sur une ligne trop bruitée pour être transcrite, il vaut
+    mieux revenir à `INTERRUPTION=voix`, qui rend la main aux défauts Pipecat.
+
+    Défaut du projet : `mots` (validé à l'oreille le 30/07/2026). Renvoie None quand
+    on repasse en `voix`, pour laisser Pipecat décider (VAD + transcription).
+    """
+    # Seul « voix » rend la main à Pipecat : une faute de frappe ne doit pas ramener
+    # silencieusement les coupures sur bruit (même garde-fou que LLM_REASONING).
+    if os.getenv("INTERRUPTION", "mots").strip().lower() == "voix":
+        return None
+    from pipecat.processors.aggregators.llm_response_universal import UserTurnStrategies
+    from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+        TranscriptionUserTurnStartStrategy,
+    )
+
+    # `stop` laissé à None : Pipecat garde son analyseur de fin de tour (smart-turn v3),
+    # celui qui a été réglé à l'oreille. On ne touche QUE l'ouverture du tour.
+    return UserTurnStrategies(start=[TranscriptionUserTurnStartStrategy()])
+
+
+def llm_extra_body() -> dict:
+    """Paramètres bruts ajoutés au corps de la requête LLM (champ OpenRouter `extra`).
+
+    Sert à couper le « raisonnement » de Gemini 2.5, activé par défaut chez le
+    fournisseur. Au téléphone cette réflexion est du SILENCE PUR : mesuré le
+    30/07/2026 sur le tour de confirmation de réservation (8 tirages), la réponse
+    passe de 6,16 s de médiane (p90 9,07 s, pointe 11,27 s) à 0,59 s (p90 0,68 s).
+    Même modèle, donc aucune perte sur l'extraction date/heure/nom. L'appelant, lui,
+    croyait la ligne coupée et disait « allô ».
+
+    Le paramètre DOIT être emballé dans `extra_body` : pipecat déballe ce dict en
+    arguments de `AsyncCompletions.create()`, et le SDK OpenAI refuse tout mot-clé
+    inconnu — un `reasoning` nu lève TypeError et TOUS les appels deviennent muets.
+    Vécu en production le 30/07/2026. `extra_body` est l'échappatoire prévue par le
+    SDK pour les champs propres à un fournisseur ; elle traverse jusqu'au corps HTTP.
+
+    `LLM_REASONING=on` rend la main au modèle si un cas complexe le justifie un jour.
+    """
+    if os.getenv("LLM_REASONING", "off").strip().lower() == "on":
+        return {}
+    return {"extra_body": {"reasoning": {"max_tokens": 0}}}
 
 
 def build_function_schemas():
@@ -179,7 +287,9 @@ async def run_bot(
     réservation créée pendant l'appel."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.audio.vad.vad_analyzer import VADParams
-    from pipecat.frames.frames import TTSSpeakFrame
+    from pipecat.frames.frames import EndFrame, TTSSpeakFrame
+
+    from .latency import TurnLatencyObserver
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.runner import PipelineRunner
     from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -225,18 +335,31 @@ async def run_bot(
     # STT interchangeable (deepgram par défaut, kyutai = module ASR de moshi-server).
     stt = build_stt(tenant, language)
 
-    tts = build_tts()
+    # TTS dans la voix choisie pour cet établissement (même décision que l'accueil
+    # pré-rendu : voices.resolve, sinon un appel mélangerait deux voix).
+    tts = build_tts(tenant)
 
     headers = {}
     if os.getenv("OPENROUTER_SITE_URL"):
         headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL")
     if os.getenv("OPENROUTER_APP_NAME"):
         headers["X-Title"] = os.getenv("OPENROUTER_APP_NAME")
+    # Gemini 2.5 « réfléchit » avant de répondre. Au téléphone, cette réflexion est du
+    # SILENCE PUR : mesuré le 30/07/2026 sur le prompt réel, produire un appel d'outil
+    # prend 2,61 s de médiane (pointes à 4,52 s) avec le raisonnement, 0,58 s sans —
+    # 4,5× plus rapide, MÊME modèle, donc aucune perte sur l'extraction date/heure/nom.
+    # L'appelant, lui, croyait la ligne coupée et disait « allô ».
+    # LLM_REASONING=on rend la main au modèle (si un jour un cas complexe le justifie).
+    llm_kwargs = {}
+    extra = llm_extra_body()
+    if extra:
+        llm_kwargs["params"] = OpenAILLMService.InputParams(extra=extra)
     llm_service = OpenAILLMService(
         api_key=os.getenv("OPENROUTER_API_KEY", ""),
         base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         model=llm.MODEL,
         default_headers=headers or None,
+        **llm_kwargs,
     )
     # Journal des appels : collecte les réservations créées pendant CET appel.
     created_reservations: list[int] = []
@@ -292,7 +415,7 @@ async def run_bot(
     vad_params = VADParams(
         confidence=float(os.getenv("VAD_CONFIDENCE", "0.85")),
         start_secs=float(os.getenv("VAD_START_SECS", "0.2")),
-        stop_secs=float(os.getenv("VAD_STOP_SECS", "0.4")),
+        stop_secs=float(os.getenv("VAD_STOP_SECS", "0.5")),
     )
     turn_stop_timeout = float(os.getenv("USER_TURN_STOP_TIMEOUT", "1.0"))
     context_aggregator = LLMContextAggregatorPair(
@@ -306,6 +429,8 @@ async def run_bot(
             user_idle_timeout=idle_timeout,
             # Filet de fin de tour quand smart-turn v3 n'est pas sûr (2 s au lieu de 5).
             user_turn_stop_timeout=turn_stop_timeout,
+            # Ce qui autorise le client à couper la parole (cf. interruption_strategies).
+            user_turn_strategies=interruption_strategies(),
         ),
     )
 
@@ -315,12 +440,24 @@ async def run_bot(
 
     @_user_agg.event_handler("on_user_turn_idle")
     async def _on_user_idle(aggregator):
+        # L'assistante a déjà pris congé : ce silence est la fin normale de l'appel.
+        # On raccroche (EndFrame -> auto_hang_up du sérialiseur Twilio) au lieu de
+        # relancer « Je vous écoute » juste après un « au revoir ».
+        if has_taken_leave(_extract_transcript(context)):
+            await task.queue_frames([EndFrame()])
+            return
         _idle["n"] += 1
         if _idle["n"] == 1:
             await task.queue_frames([TTSSpeakFrame("Je vous écoute, que puis-je faire pour vous ?")])
         elif _idle["n"] == 2:
             await task.queue_frames([TTSSpeakFrame("Êtes-vous toujours en ligne ?")])
-        # Au-delà : on n'insiste plus (on laisse le client raccrocher).
+        else:
+            # Deux relances sans réponse : la ligne est abandonnée. On prend congé et
+            # on libère, plutôt que de facturer des minutes Twilio pour du silence.
+            await task.queue_frames(
+                [TTSSpeakFrame("Je n'ai plus personne en ligne, je vous souhaite une bonne "
+                               "journée. Au revoir."), EndFrame()]
+            )
 
     @_user_agg.event_handler("on_user_turn_stopped")
     async def _reset_idle(aggregator, *args):
@@ -341,8 +478,12 @@ async def run_bot(
         ]
     )
 
+    # Mesure passive des blancs ressentis (cf. voice/latency.py). En OBSERVATEUR :
+    # rien n'est inséré sur le chemin de l'audio, le turn-taking n'est pas touché.
+    latence = TurnLatencyObserver()
     task = PipelineTask(
         pipeline,
+        observers=[latence],
         params=PipelineParams(
             # Twilio Media Streams est en 8 kHz : caler tout le pipeline dessus
             # évite des rééchantillonnages inutiles.
@@ -408,6 +549,7 @@ async def run_bot(
                     status,
                     _extract_transcript(context),
                     created_reservations[0] if created_reservations else None,
+                    latence.samples,
                 )
             except Exception as exc:
                 logger.warning(f"[calls] finish_call KO (sans conséquence): {exc}")

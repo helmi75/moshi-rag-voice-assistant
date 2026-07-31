@@ -1,17 +1,80 @@
 {% extends "base.html" %}
-{% block title %}Tableau de bord{% endblock %}
+{% block title %}Salle de contrôle{% endblock %}
 {% block content %}
-<h1>Tableau de bord <small class="muted">30 derniers jours</small></h1>
+{% from "_macros.html" import kpi, money %}
+{% set q = "?tenant_id=" ~ tenant_id if request.state.user.is_superadmin and tenant_id else "" %}
 
-<div class="stat-cards">
-  <article><h2>{{ totals.calls }}</h2><p>Appels</p></article>
-  <article><h2>{{ totals.reservations }}</h2><p>Réservations</p></article>
-  <article><h2>{{ totals.conversion }}%</h2><p>Appels → réservation</p></article>
-  <article><h2>${{ "%.2f" | format(totals.cost) }}</h2><p>Coût estimé</p></article>
+<div class="page-head">
+  <div>
+    <p class="eyebrow">{{ days }} derniers jours</p>
+    <h1>Salle de contrôle</h1>
+  </div>
+  <a role="button" class="secondary" href="/admin/calls{{ q }}">Voir tous les appels</a>
 </div>
 
-<section hx-get="/admin/stats/charts{% if tenant_id %}?tenant_id={{ tenant_id }}{% endif %}"
-         hx-trigger="load" hx-swap="innerHTML">
+<div class="kpi-grid">
+  {{ kpi("Appels pris par l'IA", totals.n_calls, deltas.calls) }}
+  {{ kpi("Taux de captation", totals.capture_rate ~ " %", deltas.capture, tone="dot-good",
+         sub="Part des appels ayant abouti à une réservation.") }}
+  {{ kpi("Couverts réservés", totals.n_covers, deltas.covers, tone="dot-good") }}
+  {{ kpi("Coût estimé", money(totals.total_cost), deltas.cost, tone="dot-warn") }}
+</div>
+
+<section class="card" style="margin-bottom: .9rem">
+  {{ slots_chart }}
+</section>
+
+<div class="split">
+  <section class="card card-flush">
+    <div class="card-head">
+      <h2>Derniers appels</h2>
+      <a class="card-link" href="/admin/calls{{ q }}">Tout voir</a>
+    </div>
+    <div class="card-list">
+      {% for c in recent_calls %}
+      <a class="card-row" href="/admin/calls/{{ c.id }}">
+        <span class="dot {{ c.dot_class }}" aria-hidden="true"></span>
+        <span class="row-main">
+          <span class="row-title">{{ c.caller }}
+            <span class="row-when">{{ c.date_label }} {{ c.time_label }} · {{ c.duration_label }}</span>
+          </span>
+          <span class="row-sub">{{ c.snippet or "Pas de transcription enregistrée." }}</span>
+        </span>
+        <span class="chip {{ c.chip_class }}">{{ c.outcome_label }}</span>
+      </a>
+      {% else %}
+      <p class="empty">Aucun appel enregistré pour l'instant.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card card-flush">
+    <div class="card-head">
+      <div>
+        <h2>Prochaines réservations</h2>
+        <p class="card-sub">À partir d'aujourd'hui.</p>
+      </div>
+      <a class="card-link" href="/admin/reservations{{ q }}">Tout voir</a>
+    </div>
+    <div class="card-list">
+      {% for r in upcoming %}
+      <div class="card-row">
+        <span class="row-time">{{ r.time }}</span>
+        <span class="row-main">
+          <span class="row-title">{{ r.customer_name }}</span>
+          <span class="row-sub">{{ r.date }} · {{ r.party_size }} couvert(s)</span>
+        </span>
+        {% if r.notes %}<span class="chip chip-warn">{{ r.notes }}</span>{% endif %}
+      </div>
+      {% else %}
+      <p class="empty">Aucune réservation à venir.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<section class="card" style="margin-top: .9rem"
+         hx-get="/admin/stats/charts{{ q }}" hx-trigger="load" hx-swap="innerHTML">
   <p class="muted" aria-busy="true">Chargement des graphiques…</p>
 </section>
 {% endblock %}

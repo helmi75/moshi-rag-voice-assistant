@@ -13,6 +13,10 @@ services:
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
       OPENROUTER_BASE_URL: "${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
       LLM_MODEL: "${LLM_MODEL:-openrouter/free}"
+      # Raisonnement du LLM. « off » (défaut) : Gemini 2.5 répond sans réfléchir en
+      # amont — au téléphone cette réflexion est du silence (2,6 s contre 0,6 s mesurés
+      # sur un appel d'outil). « on » le réactive si un cas complexe le justifie.
+      LLM_REASONING: "${LLM_REASONING:-off}"
       TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
       TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
       TWILIO_NUMBER: "${TWILIO_NUMBER}"
@@ -28,11 +32,22 @@ services:
       USER_TURN_STOP_TIMEOUT: "${USER_TURN_STOP_TIMEOUT:-1.0}"
       VAD_CONFIDENCE: "${VAD_CONFIDENCE:-0.85}"
       VAD_START_SECS: "${VAD_START_SECS:-0.2}"
-      VAD_STOP_SECS: "${VAD_STOP_SECS:-0.4}"
-      # STT du mode stream : "deepgram" (défaut, API nova-2) ou "kyutai" (module ASR de
+      VAD_STOP_SECS: "${VAD_STOP_SECS:-0.5}"
+      # Ce qui coupe la parole à l'assistante. « mots » (défaut projet) = uniquement
+      # une vraie transcription. « voix » (défaut Pipecat) = tout son, y compris un
+      # souffle : la phrase est tranchée et rien ne repart, le client dit « allô ».
+      INTERRUPTION: "${INTERRUPTION:-mots}"
+      # STT du mode stream : "deepgram" (défaut, API nova-3) ou "kyutai" (module ASR de
       # moshi-server, même serveur Modal que le TTS — un fournisseur de moins).
       STT_PROVIDER: "${STT_PROVIDER:-deepgram}"
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
+      # Modèle Deepgram. nova-3 = défaut (bien meilleur sur les noms propres au
+      # téléphone). Il utilise `keyterm` au lieu de `keywords` — bot.py bascule tout
+      # seul. En language=fr il ne ponctue pas ; DEEPGRAM_LANGUAGE=multi rétablit la
+      # ponctuation et permet à l'assistante de suivre la langue de l'appelant.
+      DEEPGRAM_MODEL: "${DEEPGRAM_MODEL:-nova-3}"
+      DEEPGRAM_LANGUAGE: "${DEEPGRAM_LANGUAGE:-}"
+      DEEPGRAM_KEYWORDS: "${DEEPGRAM_KEYWORDS:-}"
       # STT Kyutai (si STT_PROVIDER=kyutai) : URL du module ASR, défaut = MOSHI_TTS_URL.
       MOSHI_STT_URL: "${MOSHI_STT_URL:-}"
       MOSHI_STT_API_KEY: "${MOSHI_STT_API_KEY:-}"
@@ -44,6 +59,9 @@ services:
       # clé (défaut public_token) et voix française par défaut (« Développeuse »).
       MOSHI_TTS_URL: "${MOSHI_TTS_URL:-}"
       MOSHI_TTS_API_KEY: "${MOSHI_TTS_API_KEY:-public_token}"
+      # Voix par défaut du parc. Chaque établissement peut choisir la sienne dans
+      # l'admin (colonne tenants.voice) ; ce réglage ne sert qu'à ceux qui n'ont rien
+      # choisi. Une valeur hors catalogue (api/app/voice/voices.py) est ignorée.
       MOSHI_TTS_VOICE: "${MOSHI_TTS_VOICE:-unmute-prod-website/developpeuse-3.wav}"
       POCKET_TTS_VOICE: "${POCKET_TTS_VOICE:-estelle}"
       POCKET_TTS_LANGUAGE: "${POCKET_TTS_LANGUAGE:-french_24l}"
@@ -67,9 +85,15 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     environment:
-      # ":80" en local (HTTP simple) ; un domaine en prod (ex. assistant.mondomaine.fr)
-      # -> Caddy fait le HTTPS Let's Encrypt tout seul. Cf. caddy/Caddyfile et docs/DEPLOY.md.
+      # ":80" en local (HTTP simple) ; un ou plusieurs domaines en prod (séparés par des
+      # virgules) -> Caddy fait le HTTPS Let's Encrypt tout seul. Plusieurs noms servent
+      # à basculer de domaine sans coupure. Cf. caddy/Caddyfile et docs/DEPLOY.md.
       SITE_ADDRESS: "${SITE_ADDRESS:-:80}"
+      # Noms qui redirigent (301) vers SITE_CANONICAL — domaine racine, www, autres
+      # extensions. Chacun doit pointer sur ce serveur, sinon Caddy ne peut pas obtenir
+      # son certificat. Défaut ":81" = port non publié, donc bloc inoffensif en dev.
+      SITE_REDIRECTS: "${SITE_REDIRECTS:-:81}"
+      SITE_CANONICAL: "${SITE_CANONICAL:-http://localhost}"
     ports:
       - "80:80"
       - "443:443"

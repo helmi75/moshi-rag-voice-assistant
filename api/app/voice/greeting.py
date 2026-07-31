@@ -24,7 +24,8 @@ import numpy as np
 from loguru import logger
 
 from ..tenants import Tenant
-from .moshi_server_tts import _DEFAULT_HOLD_MUSIC, _DEFAULT_VOICE, _NATIVE_RATE, _ws_base
+from . import voices
+from .moshi_server_tts import _DEFAULT_HOLD_MUSIC, _NATIVE_RATE, _ws_base
 
 # Phrase de reprise après l'attente (vrai standard téléphonique). Surchargeable.
 _RESUME_TEXT = "Merci d'avoir patienté, je vous écoute."
@@ -38,8 +39,9 @@ def is_moshi_server() -> bool:
     return os.getenv("TTS_PROVIDER", "").strip().lower() == "moshi_server"
 
 
-def _voice() -> str:
-    return os.getenv("MOSHI_TTS_VOICE", _DEFAULT_VOICE)
+def _voice(tenant: Optional[Tenant] = None) -> str:
+    """Voix de cet établissement (voix par défaut du parc si rien n'est choisi)."""
+    return voices.resolve(tenant)
 
 
 def _api_key() -> str:
@@ -51,8 +53,11 @@ def _cache_dir() -> Path:
 
 
 def _cache_path(tenant: Tenant) -> Path:
-    """Chemin de cache déterministe, invalidé si la voix ou le texte change."""
-    key = f"{_voice()}|{tenant.greeting}".encode("utf-8")
+    """Chemin de cache déterministe, invalidé si la voix ou le texte change.
+
+    C'est ce qui rend le changement de voix sûr : le WAV rendu dans l'ancienne voix
+    n'est plus jamais retrouvé, donc jamais rejoué par-dessus la nouvelle."""
+    key = f"{_voice(tenant)}|{tenant.greeting}".encode("utf-8")
     digest = hashlib.sha1(key).hexdigest()[:12]
     return _cache_dir() / f"tenant{tenant.id}_{digest}.wav"
 
@@ -67,14 +72,14 @@ def cached_greeting_path(tenant: Tenant) -> Path | None:
     return None
 
 
-async def _render_pcm(text: str) -> np.ndarray | None:
+async def _render_pcm(text: str, voice: Optional[str] = None) -> np.ndarray | None:
     """Rend `text` via moshi-server → float32 mono @24 kHz (None si rendu vide)."""
     import msgpack
     import websockets
 
     uri = (
         f"{_ws_base()}/api/tts_streaming"
-        f"?voice={quote(_voice())}&format=PcmMessagePack"
+        f"?voice={quote(voice or _voice())}&format=PcmMessagePack"
     )
     headers = {"kyutai-api-key": _api_key()}
     chunks: list[np.ndarray] = []
@@ -137,13 +142,13 @@ async def ensure_greeting_wav(tenant: Tenant) -> Path | None:
         return existing
     try:
         t0 = time.monotonic()
-        pcm = await _render_pcm(tenant.greeting)
+        pcm = await _render_pcm(tenant.greeting, _voice(tenant))
         if pcm is None:
             logger.warning(f"greeting: rendu vide (tenant {tenant.id})")
             return None
         _write_wav(_cache_path(tenant), await _to_twilio_int16(pcm))
         logger.info(
-            f"greeting: pré-rendu tenant {tenant.id} "
+            f"greeting: pré-rendu tenant {tenant.id} en voix « {_voice(tenant)} » "
             f"({pcm.shape[0] / _NATIVE_RATE:.1f}s d'audio) en {time.monotonic() - t0:.1f}s "
             f"→ {_cache_path(tenant).name}"
         )

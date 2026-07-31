@@ -1,6 +1,54 @@
 # Changelog
 
-## En cours (branche `claude/moshi-gpu-980ti-0w8lsv`) — Pocket TTS sur GPU
+> **Sur la numérotation.** Les tags `v0.1.0` à `v0.6.0` ont été posés pendant la phase
+> d'expérimentation, par deux personnes suivant deux logiques différentes : `v0.1.0`
+> (19/07) est ainsi postérieur à `v0.5.0` (17/07), et la release GitHub `v0.2.0` décrit
+> un contenu qui n'est pas celui de son tag. Ces tags sont publics, donc **ils ne sont
+> pas réécrits** : les déplacer casserait toute référence existante pour un gain
+> cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
+
+## v1.0.0 — 2026-07-31 — Première version en production
+
+### Pourquoi cette version
+Premier jalon où le service tourne **en production, sur son propre domaine, validé par
+des appels réels** : `https://app.helmane.fr`, sur un VPS parisien qui survit au reboot,
+avec la marque Helmane. Les versions précédentes étaient des étapes techniques.
+
+### Ajouté
+- **Plateforme admin v3** : coquille à barre latérale, vue du parc et écran « Santé &
+  coûts » pour le super-admin, salle de contrôle par établissement. Tout ce qui est
+  affiché est mesuré — aucune métrique inventée.
+- **Voix par établissement** (migration v5) : catalogue fermé de 7 voix françaises
+  choisies à l'écoute, servies par le serveur Modal. La liste est fermée parce qu'une
+  voix inconnue n'est PAS refusée par moshi-server : elle est remplacée en silence.
+- **Mesure du blanc ressenti** tour par tour (migration v4), stockée en base — les
+  journaux de conteneur, eux, repartent de zéro à chaque déploiement.
+- **Numéro de l'appelant** enregistré (migration v3).
+- **Domaine et HTTPS** : Caddy accepte plusieurs noms d'hôte, ce qui permet de basculer
+  de domaine sans fenêtre de coupure sur le webhook Twilio.
+
+### Corrigé
+- **Panne de production** : un `reasoning` passé en mot-clé nu levait un `TypeError`
+  dans le SDK OpenAI et rendait TOUS les appels muets. Le bon passage est `extra_body`.
+- **Blanc de 6 s** avant chaque appel d'outil : le raisonnement de Gemini 2.5, actif par
+  défaut. Coupé (`LLM_REASONING=off`) — 6,16 s → 0,59 s mesurés.
+- **Coupures sur bruit** : Pipecat ouvrait un tour sur VAD *ou* transcription ; un souffle
+  tranchait la phrase et rien ne repartait, d'où les « allô » du client
+  (`INTERRUPTION=mots`).
+- **Fuite entre établissements** : le nom des autres enseignes apparaissait dans les
+  lignes de réservation d'un restaurateur après une édition.
+- Relance incongrue après un « au revoir » : l'assistante raccroche désormais.
+
+### Réglages figés après validation à l'oreille
+`DEEPGRAM_MODEL=nova-3` (noms propres), `VAD_STOP_SECS=0.5`, `INTERRUPTION=mots`,
+`LLM_REASONING=off`. Blanc médian mesuré : **1,16 s** (p90 1,58 s).
+
+### Mesuré
+Coût par appel : **11,4 ¢** en conditions réelles. 209 tests, aucun appel réseau.
+
+---
+
+## Archive — branche `claude/moshi-gpu-980ti-0w8lsv` (abandonnée) — Pocket TTS sur GPU
 
 ### Pourquoi
 Sur CPU, `french_24l` met 5-10 s à produire son premier morceau → voix saccadée. Un

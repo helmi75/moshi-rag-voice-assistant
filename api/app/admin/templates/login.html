@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Connexion{% endblock %}
 {% block content %}
-<article style="max-width: 26rem; margin: 4rem auto;">
+<article class="card">
   <h1>Connexion</h1>
-  {% if error %}<p role="alert" style="color: var(--pico-del-color)">{{ error }}</p>{% endif %}
-  <form method="post" action="/admin/login">
+  <p class="lede">Espace d'administration du standard vocal.</p>
+  {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/admin/login" style="margin-top: 1.2rem">
     <label>Email
       <input type="email" name="email" autocomplete="username" required autofocus>
     </label>

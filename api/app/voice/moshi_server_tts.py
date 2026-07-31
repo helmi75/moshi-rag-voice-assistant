@@ -55,8 +55,11 @@ def _ws_base() -> str:
 class MoshiServerTTSService(TTSService):
     """TTS Pipecat client du serveur Rust moshi-server (voix Moshi 1.6B, en/fr)."""
 
-    def __init__(self, **kwargs):
-        self._voice = os.getenv("MOSHI_TTS_VOICE", _DEFAULT_VOICE)
+    def __init__(self, voice: str | None = None, **kwargs):
+        # `voice` = la voix de l'établissement (voices.resolve). Sans elle, on retombe
+        # sur le réglage global — le service reste utilisable hors contexte tenant
+        # (préchauffage, scripts).
+        self._voice = voice or os.getenv("MOSHI_TTS_VOICE", _DEFAULT_VOICE)
         self._api_key = os.getenv("MOSHI_TTS_API_KEY", "public_token")
         settings = TTSSettings(model=None, voice=self._voice, language=None)
         super().__init__(

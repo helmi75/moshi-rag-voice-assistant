@@ -92,6 +92,21 @@ def list_filtered(
     return [dict(r) for r in rows]
 
 
+def covers_by_slot(tenant_id: int, date: str) -> list[dict]:
+    """Couverts réservés par créneau horaire pour une date donnée (salle de contrôle).
+
+    La capacité d'une salle n'existe pas en base : on renvoie les couverts réellement
+    réservés, sans jauge de remplissage inventée."""
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """SELECT time, COALESCE(SUM(party_size), 0) AS covers, COUNT(*) AS n
+               FROM reservations WHERE tenant_id = ? AND date = ?
+               GROUP BY time ORDER BY time""",
+            (tenant_id, date),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def count_for_slot(tenant_id: int, date: str, time: str) -> int:
     with db.get_conn() as conn:
         row = conn.execute(

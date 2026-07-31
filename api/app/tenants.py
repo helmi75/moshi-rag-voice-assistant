@@ -39,6 +39,9 @@ class Tenant:
     language: str
     greeting: str
     knowledge_base: str
+    # Identifiant de voix choisi dans l'admin. None = la voix par défaut du parc ;
+    # c'est voice/voices.py qui tranche (et ignore une valeur hors catalogue).
+    voice: Optional[str] = None
 
 
 def _row_to_tenant(row) -> Tenant:
@@ -50,7 +53,38 @@ def _row_to_tenant(row) -> Tenant:
         language=row["language"],
         greeting=row["greeting"] or f"Bonjour, {row['name']}, que puis-je faire pour vous ?",
         knowledge_base=row["knowledge_base"],
+        voice=row["voice"],
     )
+
+
+def parse_knowledge_sections(knowledge_base: str) -> list[dict]:
+    """Découpe la base de connaissances en fiches sur les titres Markdown `##`.
+
+    Le format est déjà celui-là (cf. _DEMO_KNOWLEDGE_BASE) : l'admin l'affiche en
+    fiches sans rien changer au stockage ni au prompt. Le texte écrit AVANT le premier
+    `##` n'est pas perdu : il devient une fiche « Général ».
+
+    `filled` = la fiche a un contenu exploitable (≥ 15 caractères) ; c'est un fait
+    vérifiable, pas un score de qualité.
+    """
+    sections: list[dict] = []
+    title, body, is_preamble = "Général", [], True
+
+    def flush() -> None:
+        text = "\n".join(body).strip()
+        # Le préambule ne devient une fiche que s'il contient vraiment quelque chose ;
+        # une base qui commence directement par « ## » ne gagne pas de fiche vide.
+        if text or not is_preamble:
+            sections.append({"title": title, "body": text, "filled": len(text) >= 15})
+
+    for line in (knowledge_base or "").splitlines():
+        if line.startswith("## "):
+            flush()
+            title, body, is_preamble = line[3:].strip() or "Sans titre", [], False
+        else:
+            body.append(line)
+    flush()
+    return sections
 
 
 def get_by_phone(phone_number: Optional[str]) -> Optional[Tenant]:
@@ -98,9 +132,9 @@ def create_tenant(
 
 def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     """Met à jour les champs fournis (name, business_type, phone_number, language,
-    greeting, knowledge_base). Lève sqlite3.IntegrityError si numéro en conflit."""
+    greeting, knowledge_base, voice). Lève sqlite3.IntegrityError si numéro en conflit."""
     allowed = {"name", "business_type", "phone_number", "language", "greeting",
-               "knowledge_base", "greeting_customized"}
+               "knowledge_base", "greeting_customized", "voice"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_by_id(tenant_id)

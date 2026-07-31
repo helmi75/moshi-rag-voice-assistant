@@ -1,0 +1,43 @@
+{# Détail d'un appel. Inclus tel quel par la liste (colonne de droite) et par la page
+   pleine /admin/calls/{id} — une seule source pour les deux. #}
+<div class="pane-head">
+  <div>
+    <div class="pane-title">{{ call.caller }}</div>
+    <div class="pane-meta">
+      {{ call.date_label }} {{ call.time_label }} · {{ call.duration_label }}
+      {% if call.estimated_cost %} · {{ "%.3f $" | format(call.estimated_cost) }}{% endif %}
+      {% if request.state.user.is_superadmin and tenant %} · {{ tenant.name }}{% endif %}
+    </div>
+  </div>
+  <span class="chip {{ call.chip_class }}">{{ call.outcome_label }}</span>
+</div>
+
+{% if reservation %}
+<div class="callout">
+  <b>Créé pendant cet appel</b>
+  {{ reservation.customer_name }} · {{ reservation.party_size }} couvert(s) ·
+  {{ reservation.date }} à {{ reservation.time }}{% if reservation.notes %} · {{ reservation.notes }}{% endif %}
+  <a href="/admin/reservations?date_from={{ reservation.date }}">Voir la réservation</a>
+</div>
+{% elif call.outcome == 'failed' %}
+<div class="callout" style="background: var(--app-bad-soft)">
+  <b>Appel en échec</b>
+  Le pipeline vocal a levé une erreur : la transcription ci-dessous peut être incomplète.
+</div>
+{% elif call.outcome == 'unfinished' %}
+<div class="callout" style="background: var(--app-warn-soft)">
+  <b>Appel jamais clôturé</b>
+  Le worker s'est arrêté avant la fin de l'appel : ni durée, ni transcription enregistrées.
+</div>
+{% endif %}
+
+<p class="section-label">Transcription</p>
+{% if call.transcript %}
+<div class="transcript">
+  {% for m in call.transcript %}
+  <div class="bubble {{ m.role }}">{{ m.content }}</div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">Pas de transcription disponible pour cet appel.</p>
+{% endif %}

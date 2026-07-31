@@ -1,50 +1,80 @@
 {% extends "base.html" %}
 {% block title %}Appels{% endblock %}
 {% block content %}
-<h1>Journal des appels</h1>
+{% set base_q = "tenant_id=" ~ tenant_id ~ "&" if tenant_id else "" %}
 
-{% if tenants %}
-<form method="get" action="/admin/calls" class="grid">
-  <label>Établissement
-    <select name="tenant_id" onchange="this.form.submit()">
-      <option value="">Tous</option>
-      {% for t in tenants %}
-      <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
-      {% endfor %}
-    </select>
-  </label>
-</form>
-{% endif %}
+<div class="page-head">
+  <div>
+    <h1>Appels</h1>
+    <p class="lede">Chaque appel, avec ce que l'IA a compris et ce qu'elle en a fait.</p>
+  </div>
+</div>
 
-<table>
-  <thead>
-    <tr><th>Début</th>{% if tenant_names %}<th>Établissement</th>{% endif %}
-        <th>Durée</th><th>Statut</th><th>Réservation</th><th>Coût est.</th><th></th></tr>
-  </thead>
-  <tbody>
-    {% for c in calls %}
-    <tr>
-      <td>{{ c.started_at.replace("T", " ")[:16] }}</td>
-      {% if tenant_names %}<td>{{ tenant_names.get(c.tenant_id, c.tenant_id) }}</td>{% endif %}
-      <td>{{ "%d:%02d" | format(c.duration_seconds // 60, c.duration_seconds % 60) if c.duration_seconds else "—" }}</td>
-      <td>
-        {% if c.status == "completed" %}✅{% elif c.status == "failed" %}❌{% else %}⏳{% endif %}
-        {{ c.status }}
-      </td>
-      <td>{{ "✅ #" ~ c.reservation_id if c.reservation_id else "—" }}</td>
-      <td>{{ "$%.3f" | format(c.estimated_cost) if c.estimated_cost else "—" }}</td>
-      <td><a href="/admin/calls/{{ c.id }}">Détail</a></td>
-    </tr>
-    {% else %}
-    <tr><td colspan="7" class="muted">Aucun appel enregistré pour l'instant.</td></tr>
+<div class="filters">
+  <div class="segmented">
+    {% for value, label in filters %}
+    <a href="/admin/calls?{{ base_q }}outcome={{ value }}"
+       {% if outcome == value %}aria-current="true"{% endif %}>{{ label }}</a>
     {% endfor %}
-  </tbody>
-</table>
+  </div>
+  {% if tenants %}
+  <form method="get" action="/admin/calls">
+    <input type="hidden" name="outcome" value="{{ outcome }}">
+    <label>Établissement
+      <select name="tenant_id" onchange="this.form.submit()">
+        <option value="">Tous</option>
+        {% for t in tenants %}
+        <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  {% endif %}
+</div>
 
-<nav>
-  <ul>
-    {% if page > 1 %}<li><a href="?page={{ page - 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}">← Précédent</a></li>{% endif %}
-    {% if has_next %}<li><a href="?page={{ page + 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}">Suivant →</a></li>{% endif %}
-  </ul>
-</nav>
+<div class="split" id="calls-view">
+  <section class="card card-flush">
+    <div class="card-list">
+      {% for c in calls %}
+      {% set row_url = "/admin/calls?" ~ base_q ~ "outcome=" ~ outcome ~ "&page=" ~ page ~ "&open=" ~ c.id %}
+      <a class="card-row" href="{{ row_url }}"
+         hx-get="{{ row_url }}" hx-target="#calls-view" hx-select="#calls-view"
+         hx-swap="outerHTML" hx-push-url="true"
+         {% if opened and opened.call.id == c.id %}aria-current="true"{% endif %}>
+        <span class="dot {{ c.dot_class }}" aria-hidden="true"></span>
+        <span class="row-main">
+          <span class="row-title">{{ c.caller }}
+            <span class="row-when">{{ c.date_label }} {{ c.time_label }} · {{ c.duration_label }}</span>
+          </span>
+          <span class="row-sub">
+            {%- if tenant_names %}{{ tenant_names.get(c.tenant_id, c.tenant_id) }} · {% endif -%}
+            {{ c.snippet or "Pas de transcription enregistrée." }}
+          </span>
+        </span>
+        <span class="chip {{ c.chip_class }}">{{ c.outcome_label }}</span>
+      </a>
+      {% else %}
+      <p class="empty">Aucun appel pour ce filtre.</p>
+      {% endfor %}
+    </div>
+    <nav class="pager" style="padding: 0 1.3rem 1rem">
+      {% if page > 1 %}
+      <a href="/admin/calls?{{ base_q }}outcome={{ outcome }}&page={{ page - 1 }}">← Précédent</a>
+      {% endif %}
+      {% if has_next %}
+      <a href="/admin/calls?{{ base_q }}outcome={{ outcome }}&page={{ page + 1 }}">Suivant →</a>
+      {% endif %}
+    </nav>
+  </section>
+
+  <section class="card pane" id="call-pane">
+    {% if opened %}
+      {% with call = opened.call, reservation = opened.reservation, tenant = opened.tenant %}
+        {% include "calls/_pane.html" %}
+      {% endwith %}
+    {% else %}
+      <p class="muted">Sélectionnez un appel pour voir sa transcription.</p>
+    {% endif %}
+  </section>
+</div>
 {% endblock %}

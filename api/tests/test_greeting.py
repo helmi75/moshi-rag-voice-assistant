@@ -11,7 +11,7 @@ from app.tenants import Tenant
 from app.voice import greeting as g
 
 
-def _tenant(greeting="Bonjour, restaurant, que puis-je pour vous ?"):
+def _tenant(greeting="Bonjour, restaurant, que puis-je pour vous ?", voice=None):
     return Tenant(
         id=1,
         name="Resto",
@@ -20,6 +20,7 @@ def _tenant(greeting="Bonjour, restaurant, que puis-je pour vous ?"):
         language="fr-FR",
         greeting=greeting,
         knowledge_base="",
+        voice=voice,
     )
 
 
@@ -40,14 +41,27 @@ def _cache_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_cache_path_changes_with_text_and_voice(monkeypatch):
+def test_cache_path_changes_with_text_and_voice():
+    """C'est ce qui rend le changement de voix sûr : l'accueil rendu dans l'ancienne
+    voix n'est plus jamais retrouvé, donc jamais rejoué par-dessus la nouvelle."""
+    from app.voice import voices
+
     p1 = g._cache_path(_tenant("Bonjour A"))
     p2 = g._cache_path(_tenant("Bonjour B"))
     assert p1 != p2, "un texte différent doit donner un fichier de cache différent"
 
-    monkeypatch.setenv("MOSHI_TTS_VOICE", "autre-voix.wav")
-    p3 = g._cache_path(_tenant("Bonjour A"))
+    autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
+    p3 = g._cache_path(_tenant("Bonjour A", voice=autre.id))
     assert p3 != p1, "une voix différente doit invalider le cache"
+
+
+def test_cache_path_ignores_a_voice_outside_catalogue():
+    """Une voix inconnue ne DOIT PAS changer le cache : le serveur la remplacerait en
+    silence par sa voix de repli, et on servirait un accueil qui n'est plus celui de
+    l'appel. On reste sur la voix par défaut, donc sur l'accueil déjà rendu."""
+    p1 = g._cache_path(_tenant("Bonjour A"))
+    p2 = g._cache_path(_tenant("Bonjour A", voice="dossier-bidon/inconnue.wav"))
+    assert p1 == p2
 
 
 def test_cached_greeting_path_absent_returns_none():

@@ -246,3 +246,199 @@ class TestPipecatToolBridge:
             schema = by_name[tool["name"]]
             assert schema.properties == tool["input_schema"]["properties"]
             assert schema.required == tool["input_schema"]["required"]
+
+
+
+class TestLLMReasoning:
+    """Gemini 2.5 « réfléchit » avant de répondre, et au téléphone cette réflexion est
+    du silence pur : sur le tour de confirmation de réservation, 6,16 s de médiane
+    (p90 9,07 s) contre 0,59 s sans (8 tirages, 30/07/2026). Le défaut reste « coupé ».
+    """
+
+    def test_disabled_by_default(self, monkeypatch):
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.delenv("LLM_REASONING", raising=False)
+        assert llm_extra_body() == {"extra_body": {"reasoning": {"max_tokens": 0}}}
+
+    def test_must_be_wrapped_in_extra_body(self, monkeypatch):
+        """RÉGRESSION VÉCUE EN PRODUCTION (30/07/2026) : pipecat déballe ce dict en
+        arguments de AsyncCompletions.create(), et le SDK OpenAI lève TypeError sur
+        tout mot-clé inconnu. Un `reasoning` nu rendait TOUS les appels muets."""
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.delenv("LLM_REASONING", raising=False)
+        extra = llm_extra_body()
+        assert "reasoning" not in extra, "un `reasoning` nu casse le SDK OpenAI"
+        assert set(extra) <= {"extra_body"}
+
+    def test_can_be_re_enabled(self, monkeypatch):
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.setenv("LLM_REASONING", "on")
+        assert llm_extra_body() == {}
+
+    def test_value_is_case_and_space_tolerant(self, monkeypatch):
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.setenv("LLM_REASONING", "  ON  ")
+        assert llm_extra_body() == {}
+
+    def test_any_other_value_keeps_it_off(self, monkeypatch):
+        """Une faute de frappe ne doit pas réintroduire silencieusement les 6 s."""
+        from app.voice.bot import llm_extra_body
+
+        monkeypatch.setenv("LLM_REASONING", "true")
+        assert llm_extra_body() == {"extra_body": {"reasoning": {"max_tokens": 0}}}
+
+
+class TestPriseDeConge:
+    """Après un « au revoir », le silence du client est la fin normale de l'appel.
+
+    La relance d'inactivité s'y déclenchait quand même — l'assistante disait au revoir
+    puis relançait « Je vous écoute » huit secondes plus tard. Constaté en production
+    le 30/07/2026 sur un appel réel.
+    """
+
+    def test_reconnait_les_formules_de_conge(self):
+        from app.voice.bot import has_taken_leave
+
+        for formule in ("Au revoir.", "Merci à vous, et bonne journée.",
+                        "Nous vous attendons, à bientôt !", "Bonne soirée."):
+            assert has_taken_leave([{"role": "assistant", "content": formule}]), formule
+
+    def test_ne_confond_pas_avec_une_conversation_en_cours(self):
+        from app.voice.bot import has_taken_leave
+
+        assert not has_taken_leave(
+            [{"role": "assistant", "content": "Pour combien de personnes ?"}]
+        )
+
+    def test_seul_le_dernier_tour_compte(self):
+        """Un « bonne journée » au milieu ne doit pas raccrocher au nez du client."""
+        from app.voice.bot import has_taken_leave
+
+        assert not has_taken_leave([
+            {"role": "assistant", "content": "Très bien, bonne journée à vous aussi."},
+            {"role": "user", "content": "Ah, j'oubliais, on sera six en fait."},
+            {"role": "assistant", "content": "D'accord, je corrige : six personnes."},
+        ])
+
+    def test_ignore_les_tours_du_client(self):
+        """C'est le congé de l'ASSISTANTE qui clôt, pas celui du client — lui peut
+        dire « au revoir » puis se raviser."""
+        from app.voice.bot import has_taken_leave
+
+        assert not has_taken_leave([
+            {"role": "assistant", "content": "C'est noté, la table est réservée."},
+            {"role": "user", "content": "Au revoir."},
+        ])
+
+    def test_transcript_vide_ou_absent(self):
+        from app.voice.bot import has_taken_leave
+
+        assert not has_taken_leave(None)
+        assert not has_taken_leave([])
+
+
+class TestObservateurDeLatence:
+    """Mesure le blanc tel que l'oreille le vit : de l'arrêt de la parole du client à
+    la reprise de la voix. En nanosecondes côté horloge Pipecat, en ms en sortie."""
+
+    def _pousse(self, obs, frame, t_ns):
+        import asyncio
+
+        from pipecat.observers.base_observer import FramePushed
+
+        asyncio.run(
+            obs.on_push_frame(FramePushed(source=None, destination=None, frame=frame,
+                                          direction=None, timestamp=t_ns))
+        )
+
+    def test_mesure_le_blanc_en_millisecondes(self):
+        from pipecat.frames.frames import BotStartedSpeakingFrame, UserStoppedSpeakingFrame
+
+        from app.voice.latency import TurnLatencyObserver
+
+        obs = TurnLatencyObserver()
+        self._pousse(obs, UserStoppedSpeakingFrame(), 1_000_000_000)
+        self._pousse(obs, BotStartedSpeakingFrame(), 2_500_000_000)
+        assert obs.samples == [1500]
+        assert obs.median_ms() == 1500
+
+    def test_ignore_une_reprise_sans_parole_prealable(self):
+        """L'accueil et les relances partent sans que le client ait parlé : les
+        compter gonflerait la médiane d'un blanc qui n'a jamais existé."""
+        from pipecat.frames.frames import BotStartedSpeakingFrame
+
+        from app.voice.latency import TurnLatencyObserver
+
+        obs = TurnLatencyObserver()
+        self._pousse(obs, BotStartedSpeakingFrame(), 5_000_000_000)
+        assert obs.samples == []
+        assert obs.median_ms() is None
+
+    def test_ecarte_les_blancs_aberrants(self):
+        """Au-delà du plafond, ce n'est plus une latence mais un incident."""
+        from pipecat.frames.frames import BotStartedSpeakingFrame, UserStoppedSpeakingFrame
+
+        from app.voice.latency import TurnLatencyObserver
+
+        obs = TurnLatencyObserver()
+        self._pousse(obs, UserStoppedSpeakingFrame(), 0)
+        self._pousse(obs, BotStartedSpeakingFrame(), 60_000_000_000)  # 60 s
+        assert obs.samples == []
+
+
+class TestInterruption:
+    """Ce qui autorise le client à couper la parole.
+
+    Le défaut Pipecat ouvre un tour sur le VAD OU une transcription. C'est la branche
+    VAD qui tranche la phrase de l'assistante sur un souffle : mesuré sur un appel réel
+    le 30/07/2026, 2 coupures en pleine phrase et 2 « allô » aux mêmes instants."""
+
+    def test_defaut_nourrit_le_mode_mots(self, monkeypatch):
+        """Défaut du projet depuis le 30/07/2026, validé sur appel réel : les coupures
+        correspondent alors à de vraies prises de parole, plus à des souffles."""
+        from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+            TranscriptionUserTurnStartStrategy,
+        )
+
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.delenv("INTERRUPTION", raising=False)
+        s = interruption_strategies()
+        assert [type(x) for x in s.start] == [TranscriptionUserTurnStartStrategy]
+
+    def test_mode_voix_rend_la_main_a_pipecat(self, monkeypatch):
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.setenv("INTERRUPTION", "voix")
+        assert interruption_strategies() is None
+
+    def test_mode_mots_ne_garde_que_la_transcription(self, monkeypatch):
+        from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+            TranscriptionUserTurnStartStrategy,
+        )
+
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.setenv("INTERRUPTION", "mots")
+        strategies = interruption_strategies()
+        assert [type(s) for s in strategies.start] == [TranscriptionUserTurnStartStrategy]
+
+    def test_mode_mots_conserve_la_fin_de_tour_par_defaut(self, monkeypatch):
+        """On ne touche QUE l'ouverture du tour : smart-turn v3, réglé à l'oreille,
+        doit rester en place pour décider de la fin."""
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.setenv("INTERRUPTION", "mots")
+        assert interruption_strategies().stop, "la stratégie de fin de tour a disparu"
+
+    def test_valeur_inconnue_ne_desactive_pas_le_mode_mots(self, monkeypatch):
+        """Seul « voix » rend la main à Pipecat : une faute de frappe ne doit pas
+        ramener silencieusement les coupures sur bruit."""
+        from app.voice.bot import interruption_strategies
+
+        monkeypatch.setenv("INTERRUPTION", "n'importe quoi")
+        assert interruption_strategies() is not None
