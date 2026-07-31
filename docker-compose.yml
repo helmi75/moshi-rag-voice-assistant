@@ -85,9 +85,15 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     environment:
-      # ":80" en local (HTTP simple) ; un domaine en prod (ex. assistant.mondomaine.fr)
-      # -> Caddy fait le HTTPS Let's Encrypt tout seul. Cf. caddy/Caddyfile et docs/DEPLOY.md.
+      # ":80" en local (HTTP simple) ; un ou plusieurs domaines en prod (séparés par des
+      # virgules) -> Caddy fait le HTTPS Let's Encrypt tout seul. Plusieurs noms servent
+      # à basculer de domaine sans coupure. Cf. caddy/Caddyfile et docs/DEPLOY.md.
       SITE_ADDRESS: "${SITE_ADDRESS:-:80}"
+      # Noms qui redirigent (301) vers SITE_CANONICAL — domaine racine, www, autres
+      # extensions. Chacun doit pointer sur ce serveur, sinon Caddy ne peut pas obtenir
+      # son certificat. Défaut ":81" = port non publié, donc bloc inoffensif en dev.
+      SITE_REDIRECTS: "${SITE_REDIRECTS:-:81}"
+      SITE_CANONICAL: "${SITE_CANONICAL:-http://localhost}"
     ports:
       - "80:80"
       - "443:443"

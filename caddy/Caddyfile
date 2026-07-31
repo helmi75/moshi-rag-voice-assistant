@@ -1,8 +1,22 @@
-# Reverse-proxy vers l'app FastAPI. L'adresse d'écoute vient de la variable SITE_ADDRESS :
-#   - non définie / ":80" (dev local)       -> HTTP simple, comportement d'avant.
-#   - un domaine (production, ex. assistant.mondomaine.fr) -> Caddy obtient ET renouvelle
-#     automatiquement un certificat Let's Encrypt (HTTPS, redirection 80->443).
+# Reverse-proxy vers l'app FastAPI. Les noms d'hôte viennent de deux variables :
+#
+#   SITE_ADDRESS   -> le ou les noms servant l'application (séparés par des virgules).
+#                     Non défini / ":80" (dev local) -> HTTP simple, comportement d'avant.
+#                     Un domaine -> Caddy obtient ET renouvelle son certificat Let's Encrypt.
+#                     Plusieurs noms sont acceptés : c'est ce qui permet une bascule de
+#                     domaine SANS coupure (l'ancien et le nouveau répondent en parallèle
+#                     le temps de rebrancher le webhook Twilio).
+#
+#   SITE_REDIRECTS -> les noms qui redirigent vers SITE_CANONICAL (301). Par défaut ":81",
+#                     un port non publié par docker-compose : le bloc existe mais n'est
+#                     joignable par personne, donc inoffensif en dev. Caddy n'a pas de
+#                     conditionnelle, d'où cette valeur morte plutôt qu'un bloc absent.
+#
 # reverse_proxy gère nativement l'upgrade WebSocket (WSS, requis par Twilio Media Streams).
 {$SITE_ADDRESS::80} {
     reverse_proxy api:8000
+}
+
+{$SITE_REDIRECTS::81} {
+    redir {$SITE_CANONICAL:http://localhost}{uri} permanent
 }
