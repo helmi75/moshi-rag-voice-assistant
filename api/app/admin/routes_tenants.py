@@ -151,6 +151,14 @@ async def tenant_user_create(
     password: str = Form(...),
 ):
     tenant = deps.resolve_tenant(tenant_id, user)
+    if users.trop_court(password):
+        return deps.templates.TemplateResponse(
+            request, "tenants/users.html",
+            {"tenant": tenant, "accounts": users.list_users(tenant.id),
+             "error": f"Mot de passe trop court : {users.MIN_MOT_DE_PASSE} "
+                      f"caractères minimum."},
+            status_code=400,
+        )
     try:
         # bcrypt en thread : ne pas geler l'event loop (appels vocaux en parallèle).
         await asyncio.to_thread(
@@ -190,6 +198,11 @@ async def user_password(
     # Un restaurateur ne change que SON mot de passe ; le super-admin, tous.
     if not user.is_superadmin and target.id != user.id:
         raise HTTPException(status_code=403)
+    if users.trop_court(password):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Mot de passe trop court : {users.MIN_MOT_DE_PASSE} caractères minimum.",
+        )
     await asyncio.to_thread(users.update_password, user_id, password)
     back = (
         f"/admin/tenants/{target.tenant_id}/users"

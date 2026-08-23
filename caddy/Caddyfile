@@ -13,10 +13,44 @@
 #                     conditionnelle, d'où cette valeur morte plutôt qu'un bloc absent.
 #
 # reverse_proxy gère nativement l'upgrade WebSocket (WSS, requis par Twilio Media Streams).
+
+# En-têtes de sécurité, appliqués à tous les noms servis.
+(securite) {
+	header {
+		# HTTPS imposé pour les visites suivantes. Volontairement SANS includeSubDomains
+		# ni preload : ces deux options engagent tous les sous-domaines, présents ET
+		# futurs, et se retirent très mal — un an de blocage pour un sous-domaine qu'on
+		# aurait servi en clair par erreur. Sur un produit jeune, c'est disproportionné.
+		Strict-Transport-Security "max-age=31536000"
+
+		# Interdit au navigateur de deviner un type MIME : un WAV d'accueil ou une note
+		# de réservation ne doit jamais pouvoir être réinterprété comme du script.
+		X-Content-Type-Options "nosniff"
+
+		# `frame-ancestors` de la CSP fait autorité ; X-Frame-Options reste pour les
+		# navigateurs qui ne la lisent pas. Les deux disent la même chose.
+		X-Frame-Options "DENY"
+
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), camera=(), microphone=(), payment=(), usb=()"
+
+		# `style-src 'unsafe-inline'` est la seule concession : 24 attributs style= dans
+		# les gabarits. Une injection de STYLE est sans commune mesure avec une injection
+		# de SCRIPT — et `script-src 'self'` reste strict, ce qui a demandé de sortir les
+		# trois `onchange=` en attribut (cf. admin/static/admin.js).
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
+
+		# Ne pas annoncer la pile servie.
+		-Server
+	}
+}
+
 {$SITE_ADDRESS::80} {
-    reverse_proxy api:8000
+	import securite
+	reverse_proxy api:8000
 }
 
 {$SITE_REDIRECTS::81} {
-    redir {$SITE_CANONICAL:http://localhost}{uri} permanent
+	import securite
+	redir {$SITE_CANONICAL:http://localhost}{uri} permanent
 }

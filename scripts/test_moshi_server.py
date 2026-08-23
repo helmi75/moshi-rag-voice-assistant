@@ -102,7 +102,13 @@ async def _run(args: argparse.Namespace) -> int:
 
     audio = np.concatenate(chunks)
     audio_sec = audio.shape[0] / _NATIVE_RATE
-    rtf = audio_sec / wall if wall else 0.0
+    # Deux mesures, et la distinction n'est pas cosmétique : `wall` inclut le réveil de
+    # la box GPU (~78 s à froid), ce qui écrasait le facteur à x0,12 et faisait conclure
+    # « SOUS le temps réel » sur un serveur qui tourne en réalité à x1,8. Le débit de
+    # GÉNÉRATION se mesure à partir du 1er chunk — c'est lui qui dit si la voix sacade.
+    rtf_brut = audio_sec / wall if wall else 0.0
+    generation = wall - first_at if first_at else wall
+    rtf = audio_sec / generation if generation > 0 else 0.0
 
     with wave.open(args.out, "wb") as w:
         w.setnchannels(1)
@@ -111,10 +117,12 @@ async def _run(args: argparse.Namespace) -> int:
         w.writeframes((audio * 32767).astype("<i2").tobytes())
 
     print(
-        f"\n✅ {audio_sec:.2f}s d'audio en {wall:.2f}s "
+        f"\n✅ {audio_sec:.2f}s d'audio, générés en {generation:.2f}s "
         f"→ x{rtf:.2f} temps réel "
         f"({'FLUIDE ✔' if rtf >= 1.0 else 'SOUS le temps réel ✗ (sacade)'})"
     )
+    print(f"   (total {wall:.2f}s dont {first_at:.2f}s avant le 1er son, soit "
+          f"x{rtf_brut:.2f} bout en bout — cette latence initiale n'est pas un débit)")
     print(f"   WAV écrit : {args.out}")
     return 0
 

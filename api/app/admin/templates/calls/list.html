@@ -21,7 +21,7 @@
   <form method="get" action="/admin/calls">
     <input type="hidden" name="outcome" value="{{ outcome }}">
     <label>Établissement
-      <select name="tenant_id" onchange="this.form.submit()">
+      <select name="tenant_id" data-autosubmit>
         <option value="">Tous</option>
         {% for t in tenants %}
         <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
