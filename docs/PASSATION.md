@@ -1,173 +1,182 @@
-# Passation — Assistant vocal téléphonique (SaaS accueil resto, voix Moshi)
+# Passation — Helmane, assistant téléphonique IA (SaaS restaurants)
 
-> Document de contexte pour reprendre le projet dans une nouvelle session (Claude Code
-> connecté au WSL, avec Docker / ngrok / modal CLI). Objectif : autonomie — lancer et
-> vérifier les commandes directement, sans copier-coller les sorties à chaque fois.
-> Repo cloné dans `~/moshi-rag-voice-assistant`, branche de travail `claude/moshi-server-0w8lsv`.
+> Document de reprise pour une session Claude Code **connectée au WSL**, avec accès
+> Docker, `gh`, `modal` et SSH vers le VPS. Objectif : autonomie — lancer et vérifier
+> soi-même au lieu de faire copier-coller les sorties.
+> Dépôt local : `~/moshi-rag-voice-assistant`. Branche de travail :
+> `claude/moshi-rag-voice-assistant-0w8lsv`.
+>
+> Dernière mise à jour : 23/08/2026.
 
-## 1. But du projet
+## 1. Le produit
 
-SaaS quasi-zéro-budget : un assistant téléphonique IA qui répond 24/7 aux appels
-(restaurants d'abord, médecins ensuite), en **français**, et prend les réservations.
-Priorité : la **voix** doit être **fluide** et la latence faible. Voix retenue :
-**Moshi 1.6B de Kyutai** (la vraie voix d'unmute.sh), timbre « Développeuse ».
+SaaS quasi-zéro-budget : un assistant téléphonique qui répond 24/7 **en français** à la
+place des restaurants débordés, renseigne et prend les réservations. Marque **Helmane**.
+Voix retenue : **Moshi 1.6B de Kyutai** (la vraie voix d'unmute.sh), timbre « Développeuse ».
+Médecins envisagés ensuite.
 
-## 2. Architecture
-
-**Actuelle (validée, fonctionne de bout en bout) :**
+## 2. Architecture en production
 
 ```
-Twilio ──webhook + media stream──► APP FastAPI + Pipecat (EN LOCAL, Docker sur le WSL)
-                                    • STT Deepgram OU Kyutai + LLM OpenRouter (gemini-2.5-flash)
-                                    • BDD SQLite (réservations)
-                                         │ websocket TTS + STT (client)
+Twilio ──webhook + media stream──► APP FastAPI + Pipecat
+                                    VPS Hostinger, Paris, app.helmane.fr
+                                    • STT Deepgram (ou Kyutai) + LLM OpenRouter
+                                      (google/gemini-2.5-flash)
+                                    • SQLite (réservations) + admin Jinja2/htmx
+                                         │ websocket TTS
                                          ▼
-                                    MODAL GPU serverless (scale-to-zero)
-                                    • moshi-server (Rust) : TTS Moshi 1.6B + STT stt-1b-en_fr
+                                    MODAL GPU serverless, région EU, scale-to-zero
+                                    • moshi-server (Rust) : TTS Moshi 1.6B + ASR stt-1b-en_fr
 ```
 
-ngrok expose l'app locale à Twilio.
+Plus de ngrok, plus de PC allumé : l'app tourne 24/7 sur le VPS derrière Caddy (HTTPS auto).
 
-**STT interchangeable (`STT_PROVIDER`)** : `deepgram` (défaut, nova-2) ou `kyutai` (module
-ASR stt-1b-en_fr sur le MÊME serveur moshi-server Modal — français natif, VAD sémantique, un
-fournisseur externe de moins, -1,5 ¢/appel). Le serveur Rust sert les deux modules dans un
-seul process (`/api/tts_streaming` + `/api/asr-streaming`). **Bascule = 1 variable d'env**,
-repli instantané. Validé hors ligne (smoke test TTS→STT, `scripts/test_moshi_stt.py`) :
-transcription FR parfaite (ponctuation, nombres, noms propres), flush fin de tour ~300-430 ms,
-session survivant à 90 s d'accueil muet. **Reste à confirmer à l'oreille sur un vrai appel**
-(qualité du µ-law 8 kHz réel) avant d'en faire le défaut ; rollback = `STT_PROVIDER=deepgram`.
+## 3. Accès
 
-Activer en prod : ajouter `STT_PROVIDER=kyutai` au `.env` (TTS_PROVIDER=moshi_server déjà
-en place → `MOSHI_STT_URL` reprend `MOSHI_TTS_URL` automatiquement) puis redémarrer le
-conteneur. Redéployer d'abord le serveur avec le module ASR : `modal deploy
-deploy/modal_moshi_server.py` (fait le 19/07/2026).
+| Quoi | Où |
+|---|---|
+| VPS | `ssh root@187.77.172.87` (alias conseillé : `ssh helmane`) |
+| Projet sur le VPS | `/opt/moshi-rag-voice-assistant` (suit la branche `main`) |
+| Base de production | `/var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db` |
+| Sauvegardes | `/opt/backups/db/app-*.db.gz`, cron `0 4 * * *` |
+| Admin | https://app.helmane.fr/admin |
+| TTS Modal | `wss://helmi75--moshi-server-tts-server.modal.run` |
+| Dépôt | https://github.com/helmi75/moshi-rag-voice-assistant |
 
-**Cible (plan) :**
-- App → migrer sur un serveur **CPU 24/7 en EU (Hostinger)**. Pas sur Modal.
-- Modal = **uniquement** le TTS GPU.
-- Tout en région **EU** pour couper la latence réseau.
+## 4. ⚠️ À FAIRE EN PREMIER — régression de sécurité ouverte
 
-## 3. État actuel — ce qui marche
-
-- ✅ **moshi-server déployé sur Modal** (app Modal = `moshi-server`).
-  - URL : `https://helmi75--moshi-server-tts-server.modal.run` (WSS pour le TTS).
-  - Déploiement : `deploy/modal_moshi_server.py`. GPU L4, scale-to-zero (scaledown 120 s),
-    token serveur `public_token`, voix par défaut `unmute-prod-website/developpeuse-3.wav`,
-    batch_size 8.
-- ✅ **Voix validée FLUIDE** : à chaud, génère ~7 s d'audio en ~2-5 s (x1,4-1,7 temps réel).
-- ✅ **Appel Twilio réel réussi** : voix Développeuse, conversation, et **réservation
-  enregistrée en base** (client « Robert », 5 pers, 20:00). Le produit tourne.
-- ✅ **Client TTS Pipecat** : `api/app/voice/moshi_server_tts.py` (client websocket ;
-  protocole msgpack : envoie `{"type":"Text","text":mot}` par mot puis `{"type":"Eos"}`,
-  reçoit `{"type":"Audio","pcm":[float32]}` à 24000 Hz).
-- ✅ **Script de test direct** (sans Twilio) : `scripts/test_moshi_server.py`.
-
-## 4. Config `.env` (déjà en place sur le WSL)
-
-> Les secrets vont dans `.env` (gitignored), **jamais** dans `env.example`.
+Constaté le 23/08 sur la prod :
 
 ```
-VOICE_MODE=stream
-TTS_PROVIDER=moshi_server
-MOSHI_TTS_URL=wss://helmi75--moshi-server-tts-server.modal.run
-MOSHI_TTS_API_KEY=public_token
-MOSHI_TTS_VOICE=unmute-prod-website/developpeuse-3.wav
-PUBLIC_WS_URL=wss://<URL-NGROK>/ws/voice      # ⚠️ change à CHAQUE redémarrage de ngrok
-LLM_MODEL=google/gemini-2.5-flash
-TWILIO_NUMBER=<numéro Twilio>
-# + clés présentes : OPENROUTER_API_KEY, DEEPGRAM_API_KEY, TWILIO_ACCOUNT_SID,
-#   TWILIO_AUTH_TOKEN, HF_TOKEN
+api    Up 4 days    0.0.0.0:8000->8000/tcp     ← API publique en HTTP nu
+ufw    Status: inactive                        ← aucun pare-feu
 ```
 
-Le tenant de démo est (re)créé automatiquement au démarrage avec `TWILIO_NUMBER`
-(seed dans `api/app/tenants.py` ; `get_by_phone(To)` route l'appel vers le bon tenant).
+L'API répond directement sur `http://187.77.172.87:8000`, **hors Caddy et hors TLS**
+(`server: uvicorn` dans les en-têtes). `/admin` y est joignable : un mot de passe saisi
+par cette porte part en clair. Les journaux montrent des sondes automatisées.
 
-## 5. Commandes pour lancer / vérifier
+Ce correctif avait déjà été appliqué le 14/08 **en `sed` local non commité** ; un
+`git pull` l'a écrasé. **Ne pas refaire cette erreur** : le correctif propre existe dans
+`docker-compose.yml` sur la branche de travail (commit `9a6801e`).
 
 ```bash
-# App locale (garder le terminal ouvert)
-cd ~/moshi-rag-voice-assistant && docker compose up --build api
-curl -s http://localhost:8000/health          # attendu : "voice_mode":"stream"
+cd /opt/moshi-rag-voice-assistant
+sed -i 's|^      - "8000:8000"|      - "127.0.0.1:8000:8000"|' docker-compose.yml
+docker compose up -d api
+docker ps --format "{{.Names}}\t{{.Ports}}"      # attendu : 127.0.0.1:8000->8000/tcp
+ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp
+ufw --force enable && ufw status verbose         # attendu : Status: active
+```
 
-# Tunnel public (2e terminal — URL éphémère)
-ngrok http 8000
-# → mettre PUBLIC_WS_URL=wss://<ngrok>/ws/voice dans .env, PUIS recréer le conteneur :
-docker compose up --force-recreate api
+Preuve depuis le WSL (hors serveur) :
 
-# Pointer Twilio sur l'app
-set -a; source .env; set +a
-python3 scripts/twilio_setup_number.py --webhook https://<ngrok>/twilio/webhook
+```bash
+curl -sI --max-time 5 http://187.77.172.87:8000/admin   # ne doit RIEN renvoyer
+curl -sI https://app.helmane.fr/admin | head -1          # doit renvoyer HTTP/2 307
+```
 
-# Déployer / réveiller le TTS Modal
+**⚠️ `ufw` ne protège PAS les ports publiés par Docker** (chaîne `DOCKER-USER`, évaluée
+avant ufw). Ce qui ferme le port 8000, c'est l'écoute sur `127.0.0.1`, pas le pare-feu.
+Ne jamais compter sur ufw pour masquer un conteneur.
+
+## 5. Écart entre la branche et la production
+
+**La prod tourne sur `main` (v1.0.0, `1fcd6be`).** La branche de travail contient 5 commits
+qui ne sont PAS déployés :
+
+| Commit | Contenu |
+|---|---|
+| `00d0aed` | Prompt système v2 (prononciation, dates relatives, garde-fous) + `@modal.concurrent` + `max_containers` |
+| `576217b` | Backlog complet (`docs/backlog-jira.csv`) |
+| `1e646d0` | `scripts/link_subissues.sh` |
+| `5ca094e` | `scripts/backup-db.sh` + procédure de restauration dans `DEPLOY.md` |
+| `9a6801e` | API sur `127.0.0.1` uniquement |
+
+**Tant que ce n'est pas fusionné dans `main`, chaque `git pull` sur le VPS rouvrira le
+port 8000.** Fusionner est donc la vraie correction. ⚠️ Ne pas ouvrir de pull request
+sans demande explicite de l'utilisateur.
+
+## 6. Ce qui marche (vérifié)
+
+- ✅ Appel Twilio réel de bout en bout : voix Développeuse, conversation, réservation en base.
+- ✅ Blanc médian mesuré **1,16 s** (p90 1,58 s). Coût mesuré **11,4 ¢/appel**.
+- ✅ 220 tests, aucun appel réseau. CI GitHub Actions verte.
+- ✅ Conteneurs remontés seuls après reboot (critère de résilience de `DEPLOY.md`).
+- ✅ Sauvegarde quotidienne **avec test de restauration réussi** (`ok / 17 réservations / 1 établissement`).
+- ✅ Admin v3, voix par établissement (catalogue fermé de 7 voix), latence instrumentée en base.
+
+## 7. Suivi du travail — GitHub Issues
+
+69 tickets (#10 à #78), 10 epics. Les 20 tickets ouverts portent un **label de phase** qui
+encode la séquence logique :
+
+| Phase | Label | Tickets |
+|---|---|---|
+| ① Fiabiliser | `phase-1-fiabiliser` | #21 #23 #24 #25 #39 |
+| ② Tenir la charge | `phase-2-charge` | #26 #27 #28 #40 |
+| ③ Vendre | `phase-3-vendre` | #22 #29 #30 #31 #32 |
+| ④ Industrialiser | `phase-4-industrialiser` | #33 → #38 |
+
+Priorités : `P0` … `P3`. Un Project board existe côté GitHub (créé par l'utilisateur).
+
+`scripts/link_subissues.sh` rattache les 59 tickets à leurs epics en vraies sous-issues
+(barres de progression). **Pas encore exécuté** — à lancer avec `gh` authentifié.
+
+## 8. Prochaines étapes
+
+1. **Refermer la régression du §4**, puis fusionner la branche pour qu'elle ne revienne pas.
+2. **#25 + #39** — `modal deploy deploy/modal_moshi_server.py`, puis **deux appels
+   simultanés depuis deux téléphones**. Critère : **un seul conteneur** dans le tableau de
+   bord Modal (avant le correctif, il y en avait deux). Le code est écrit, la preuve manque.
+3. **#29 grille tarifaire** — proposition : Essentiel 89 € (150 appels), Service 149 €
+   (400), Maison 249 € (5 établissements). Marché FR : Yumcall 99 €, Nerolia 149 €,
+   Accueil IA 39-149 €. Coût de revient 11,4 ¢/appel → marge > 80 % à 89 €. Débloque la
+   page de vente, les plafonds et Stripe.
+4. **#23 reste ouvert** : les sauvegardes sont sur la même machine que la base. Un incident
+   disque emporte tout. Les sortir du serveur reste à faire.
+5. **#30 numéro de démo** — bloqué côté Twilio, voir §9.
+
+## 9. Twilio — dossier réglementaire en attente
+
+Numéro visé : **+33 1 59 48 01 08** (géographique Paris). La France impose un dossier ARCEP.
+
+- Bundle **`Helmane - FR Local Individual`**, SID `BUfa38e4d74f230af745adc8d5e9cf96c8`
+- Type : Direct Customer · Local · **Individual**
+- Statut : **awaiting review** (soumis le 23/08). Réponse par e-mail sous quelques jours ouvrés.
+- Une fois approuvé : sur le numéro → *Assign approved Bundle* → chercher « Helmane ».
+
+Le numéro Twilio actuel continue de fonctionner : rien n'est bloqué en attendant.
+
+**Conséquence produit** : chaque numéro français exige un dossier conforme, ce qui percute
+la promesse d'onboarding « moins de 15 minutes » (#37). À trancher : stock de numéros portés
+par Helmane, ou justificatifs fournis par chaque restaurant.
+
+## 10. Commandes utiles
+
+```bash
+# Sur le VPS
+docker compose -f /opt/moshi-rag-voice-assistant/docker-compose.yml ps
+docker compose -f /opt/moshi-rag-voice-assistant/docker-compose.yml logs -f --tail=50 api
+curl -s localhost:8000/health
+/opt/backups/backup-db.sh                      # sauvegarde à la demande
+
+# En local
+cd api && python -m pytest tests/ -q            # 220 tests, aucun réseau
 modal deploy deploy/modal_moshi_server.py
 python scripts/test_moshi_server.py --url https://helmi75--moshi-server-tts-server.modal.run
 
-# Voir les réservations
-curl -s http://localhost:8000/tenants/1/reservations | python3 -m json.tool
-
-# Tests unitaires (aucun réseau, tout mocké)
-cd api && python -m pytest tests/ -v
+# Garde-fou après chaque déploiement
+docker ps --format "{{.Names}}\t{{.Ports}}" | grep -q '0.0.0.0:8000' \
+  && echo "ALERTE : port 8000 public" || echo "OK"
 ```
 
-**Endpoints utiles** : `GET /health`, `POST /twilio/webhook` (voix + SMS),
-`GET /tenants/{id}/reservations`, WS `/ws/voice` (mode stream).
+## 11. Contraintes et règles
 
-## 6. Problème principal restant = latence (2 causes, pas la vitesse du modèle)
-
-- **a) Cold start** : serveur endormi → 1er mot en 14-56 s (rechargement du modèle). Le
-  `x0.11` du script de test vient de là (les ~50 s de reload sont comptées dans le total).
-  ⚠️ Toujours **réveiller le TTS** (lancer `test_moshi_server.py`) **avant** un appel.
-- **b) Réseau** : app en France ↔ GPU aux US = aller-retour transatlantique par mot.
-  → **Fix en cours** : région EU (voir §7).
-
-Une fois **à chaud**, moshi-server EST temps réel (logs serveur : ~7 s d'audio en 2-5 s).
-
-## 7. Tâche immédiate à faire (codée, pas encore redéployée)
-
-Le commit `6d1cab8` épingle le GPU Modal en **région EU** (variable `MODAL_REGION`,
-défaut `eu`) dans `deploy/modal_moshi_server.py`. À faire :
-
-1. `git pull` (déjà poussé sur `origin/claude/moshi-server-0w8lsv`).
-2. `modal deploy deploy/modal_moshi_server.py`
-   - ⚠️ Le 1er cold start EU peut re-télécharger le modèle (une seule fois).
-   - Si erreur « region … not available / plan » → relancer :
-     `MODAL_REGION="" modal deploy deploy/modal_moshi_server.py` et le signaler.
-3. Réveiller (test script ×2), puis **rappeler le numéro Twilio** et mesurer si le délai
-   de réponse a baissé. Chercher dans les logs de l'app :
-   `moshi-server : N.NNs d'audio en M.MMs (xF.FF temps réel)`.
-
-## 8. Backlog priorisé
-
-- **Phase 3 — greeting pré-enregistré + warmup** (le plus gros gain UX) : au décroché,
-  jouer un WAV « Bonjour, restaurant X, un instant » **déjà enregistré** en voix
-  Développeuse (latence 0) et lancer en parallèle un **ping de warmup** vers moshi-server,
-  pour que le client n'entende jamais le blanc du cold start. Injecter les frames du WAV
-  dans `api/app/voice/bot.py::run_bot` au lieu de `TTSSpeakFrame(greeting)`. Prévoir
-  `assets/hold_music.wav` en secours si la 1re réponse live tarde.
-- **Phase 2 — migration Hostinger** : app sur CPU 24/7 EU, image légère (sans torch/moshi),
-  BDD sur volume persistant, Twilio pointe sur le domaine Hostinger. Modal reste TTS-only.
-- **Scaling** : moshi-server fait du batching (batch_size 8) → un seul L4 EU chaud peut
-  servir ~8-16 appels simultanés de restos différents. Début = scale-to-zero + warmup ;
-  croissance = 1 GPU EU chaud partagé (~250-290 €/mois amorti sur tous les restos, 0 cold start).
-
-## 9. Coûts constatés (rentable)
-
-Par appel ~2-3 min : LLM ~0,5 c (négligeable), STT ~1 c, Twilio ~2-3 c, GPU Modal ~2-4 c à
-chaud (~10 c si le cold start est compté). **Total ~5-8 c à chaud.** À 40 €/mois/resto pour
-~150 appels → marge > 70 %. Seul vrai levier de coût = le GPU (cold start + idle), traité par
-le warmup et la région EU.
-
-## 10. Autre app Modal à ne pas confondre
-
-Il existe une 2e app Modal `moshi-voice-assistant` (`deploy/modal_app.py`) = **ancien
-monolithe** qui hébergeait toute l'app sur GPU. **Legacy, à abandonner** (Phase 2). On peut
-la stopper pour ne pas gaspiller du GPU : `modal app stop moshi-voice-assistant`.
-
-## 11. Contraintes / règles
-
-- ⚠️ **Sécurité** : des clés (Twilio auth token, Cartesia, Deepgram, Anthropic, OpenRouter)
-  ont été exposées en clair et sont **compromises** → à **faire tourner (rotation)** côté
-  fournisseurs. Secrets dans `.env` (gitignored), jamais dans `env.example`. Ne jamais
-  afficher les **valeurs** des clés (seulement leur présence).
-- Développer et pousser **uniquement** sur la branche `claude/moshi-server-0w8lsv`.
-- **Ne pas créer de Pull Request** sans demande explicite.
+- **Secrets** : uniquement dans `.env` (non versionné), **jamais** dans `env.example`.
+  Ne jamais afficher les **valeurs** des clés, seulement leur présence. Les clés
+  historiquement exposées ont été révoquées (#20 fermé).
+- Développer et pousser **uniquement** sur `claude/moshi-rag-voice-assistant-0w8lsv`.
+- **Ne pas créer de pull request** sans demande explicite.
+- Ne jamais inscrire d'identifiant de modèle dans un commit, une PR ou un commentaire de code.
+- Les SID Twilio (`AC…`, `BU…`) sont des identifiants publics ; le **Auth Token** est le secret.
