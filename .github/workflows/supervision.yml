@@ -1,0 +1,121 @@
+# Surveillance de la production, exécutée CHEZ GITHUB et non sur le serveur.
+#
+# C'est tout l'intérêt : une supervision hébergée sur la machine qu'elle surveille ne
+# signale jamais la panne qui compte le plus — celle où la machine ne répond plus.
+# Ici, `curl` qui échoue EST l'alerte.
+#
+# Comment l'alerte arrive : ce job ÉCHOUE quand la production est en panne, et GitHub
+# envoie un e-mail sur l'échec d'un workflow planifié à la personne qui a modifié le
+# fichier de planification en dernier. Aucun fournisseur d'alerte à créer, aucun
+# abonnement, aucun secret de plus que le jeton de la sonde.
+#
+# ⚠️ Deux limites à connaître, plutôt que de les découvrir un jour de panne :
+#   1. le `cron` de GitHub est au mieux approximatif (retards de plusieurs minutes
+#      aux heures chargées) — c'est une supervision, pas une astreinte ;
+#   2. GitHub DÉSACTIVE les workflows planifiés après 60 jours sans activité sur le
+#      dépôt. Un dépôt qui dort perd sa surveillance, en silence.
+#
+# Ne tourne que depuis la branche par défaut : tant que ce fichier n'est pas dans
+# `main`, rien ne surveille quoi que ce soit.
+
+name: Supervision de la production
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:  # bouton « Run workflow » : pour éprouver l'alerte sans attendre
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervision
+  cancel-in-progress: false
+
+jobs:
+  sonde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      URL: ${{ vars.SUPERVISION_URL || 'https://app.helmane.fr/supervision' }}
+    steps:
+      - name: Le jeton est-il configuré ?
+        env:
+          JETON: ${{ secrets.SUPERVISION_TOKEN }}
+        run: |
+          if [ -z "$JETON" ]; then
+            echo "::error::Le secret SUPERVISION_TOKEN est absent : RIEN n'est surveillé."
+            echo "À créer dans Settings → Secrets and variables → Actions, avec la même"
+            echo "valeur que SUPERVISION_TOKEN dans le .env du serveur."
+            exit 1
+          fi
+
+      - name: Interroger la sonde
+        id: sonde
+        env:
+          JETON: ${{ secrets.SUPERVISION_TOKEN }}
+        run: |
+          # --max-time borne l'attente : une production qui met 25 s à répondre est
+          # déjà en panne du point de vue d'un appelant.
+          CODE=$(curl -sS --max-time 25 -o reponse.json -w '%{http_code}' \
+                   -H "X-Supervision-Token: $JETON" "$URL") || CODE="000"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Code HTTP : $CODE"
+
+      - name: Lire le verdict
+        env:
+          CODE: ${{ steps.sonde.outputs.code }}
+        run: |
+          set -u
+          # `niveau` absent (réponse illisible, page d'erreur du proxy) vaut « inconnu » :
+          # on ne suppose jamais que tout va bien faute d'avoir compris la réponse.
+          NIVEAU=$(jq -r '.niveau // "inconnu"' reponse.json 2>/dev/null || echo inconnu)
+
+          {
+            echo "## Supervision — \`$NIVEAU\` (HTTP $CODE)"
+            echo
+            echo "| Contrôle | Niveau | Constat |"
+            echo "|---|---|---|"
+            jq -r '.controles[]? | "| \(.titre) | \(.niveau) | \(.resume) |"' \
+              reponse.json 2>/dev/null || echo "| — | — | réponse illisible |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$CODE" in
+            000)
+              echo "::error::La production ne répond pas du tout ($URL). Serveur, Caddy ou DNS."
+              exit 1 ;;
+            200)
+              if [ "$NIVEAU" = "attention" ]; then
+                # Dégradé mais les appels passent : visible dans le résumé, sans réveiller
+                # personne. Une alerte qui sonne pour tout finit par ne plus être lue.
+                echo "::warning::Pile dégradée — $(jq -r '[.controles[]|select(.niveau!="ok")|.titre]|join(", ")' reponse.json)"
+              fi
+              echo "Verdict : $NIVEAU" ;;
+            503)
+              echo "::error::PANNE — $(jq -r '[.controles[]|select(.niveau=="panne")|.titre+" : "+.resume]|join(" / ")' reponse.json)"
+              exit 1 ;;
+            401|404)
+              echo "::error::Sonde inaccessible (HTTP $CODE) : jeton faux, ou SUPERVISION_TOKEN absent du .env du serveur."
+              exit 1 ;;
+            *)
+              echo "::error::Réponse inattendue (HTTP $CODE) : la production ne sert pas la sonde."
+              exit 1 ;;
+          esac
+
+      # Canal optionnel, pour ne pas dépendre uniquement de l'e-mail GitHub. Le corps
+      # porte à la fois `text` et `content` : Slack lit le premier, Discord le second,
+      # et un webhook maison n'a qu'à choisir. Sans le secret, l'étape ne fait rien.
+      #
+      # Le test du secret est DANS le script : GitHub n'expose pas le contexte
+      # `secrets` aux conditions `if:` d'une étape (le workflow serait refusé).
+      - name: Prévenir le webhook (si configuré)
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.SUPERVISION_WEBHOOK }}
+        run: |
+          [ -n "$WEBHOOK" ] || { echo "Aucun webhook configuré : e-mail GitHub seulement."; exit 0; }
+          RESUME=$(jq -r '[.controles[]?|select(.niveau!="ok")|.titre+" : "+.resume]|join(" / ")' \
+                     reponse.json 2>/dev/null || echo "production injoignable")
+          MSG="🚨 Helmane — supervision : $RESUME"
+          jq -n --arg m "$MSG" '{text:$m, content:$m}' \
+            | curl -sS --max-time 15 -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK"

@@ -139,4 +139,21 @@ if curl -sI --max-time 8 "http://${hote_nu}:8000/" >/dev/null 2>&1; then
 fi
 etape "Port 8000 fermé."
 
+# État réel de la pile après déploiement. INFORMATIF, jamais bloquant : une sauvegarde
+# en retard ou un accueil non pré-rendu n'ont pas à empêcher de livrer un correctif —
+# et un contrôle qui bloque pour des motifs sans rapport finit par être contourné.
+# Le jeton est lu sur le VPS et n'est jamais affiché ici.
+etape "Verdict de la supervision…"
+jeton="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" \
+  "grep -m1 '^SUPERVISION_TOKEN=' '$CHEMIN/.env' 2>/dev/null | cut -d= -f2-" || true)"
+if [ -z "${jeton:-}" ]; then
+  echo "  ⚠ SUPERVISION_TOKEN absent du .env du serveur : la sonde répond 404 et RIEN"
+  echo "    n'est surveillé (cf. docs/SUPERVISION.md)."
+else
+  sonde="${SANTE%/health}/supervision"
+  verdict="$(curl -s --max-time 20 -H "X-Supervision-Token: $jeton" "$sonde" \
+    | python3 -c 'import json,sys; e=json.load(sys.stdin); print(e["niveau"], "|", ", ".join(c["titre"]+" : "+c["resume"] for c in e["controles"] if c["niveau"]!="ok") or "tous les contrôles au vert")' 2>/dev/null || echo "illisible | la sonde n'a pas répondu")"
+  echo "  $verdict"
+fi
+
 echo "✓ ${local_sha:0:8} déployé et vérifié — $SANTE répond 200."

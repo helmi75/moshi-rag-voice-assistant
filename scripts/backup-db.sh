@@ -24,6 +24,12 @@ set -euo pipefail
 DB="${DB:-/var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db}"
 DEST="${DEST:-/opt/backups/db}"
 RETENTION_JOURS="${RETENTION_JOURS:-14}"
+# Jeton lu par la supervision (api/app/supervision.py). Il vit dans le VOLUME de
+# données, seul endroit que l'application voie : le cron tourne sur l'hôte, et
+# `/opt/backups` n'existe pas pour le conteneur. Écrit APRÈS le contrôle d'intégrité,
+# donc un jeton frais atteste d'une sauvegarde restaurable — pas d'un cron qui a
+# simplement démarré.
+JETON="${JETON:-$(dirname "$DB")/derniere-sauvegarde}"
 
 horodate() { date -Is; }
 
@@ -56,4 +62,9 @@ trap - EXIT
 find "$DEST" -name 'app-*.db.gz' -mtime "+$RETENTION_JOURS" -delete
 
 TAILLE="$(du -h "$DEST/app-$STAMP.db.gz" | cut -f1)"
+
+# Le jeton porte la date en UTC : la supervision compare des heures, pas des fuseaux.
+date -u +%Y-%m-%dT%H:%M:%SZ > "$JETON" || \
+  echo "$(horodate) AVERTISSEMENT : jeton de supervision non écrit ($JETON)" >&2
+
 echo "$(horodate) ok — $TAILLE, $RESAS réservations, $TENANTS établissements"

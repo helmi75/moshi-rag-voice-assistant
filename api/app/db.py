@@ -90,6 +90,18 @@ ALTER TABLE calls ADD COLUMN turn_latencies TEXT;
     """
 ALTER TABLE tenants ADD COLUMN voice TEXT;
 """,
+    # v6 — supervision : ardoise clé/valeur du module de supervision. Elle porte les
+    # constats qui ne peuvent pas être calculés dans la sonde elle-même (la relève des
+    # alertes Twilio, qui exige un appel réseau) et sert accessoirement de test
+    # d'écriture réel : lire prouve que la base répond, pas qu'elle accepte encore une
+    # réservation — un disque plein laisse passer les SELECT.
+    """
+CREATE TABLE IF NOT EXISTS supervision (
+    cle TEXT PRIMARY KEY,
+    valeur TEXT NOT NULL,
+    maj_le TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+""",
 ]
 
 

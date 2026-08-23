@@ -119,6 +119,8 @@ modal deploy deploy/modal_moshi_server.py
 
 - **Logs** : `docker compose logs -f api` (appels, transcripts, coûts).
 - **Sauvegarde** de la base : voir la section dédiée ci-dessous. Ne pas copier le fichier à chaud.
+- **Supervision** : `docs/SUPERVISION.md`. La sonde `/supervision` exige `SUPERVISION_TOKEN`
+  dans le `.env` du serveur ET le même secret côté GitHub — sans les deux, rien n'est surveillé.
 - **Mise à jour** : depuis ton poste, `scripts/deploy.sh` — **jamais** un `git pull` à la
   main sur le VPS. Le script refuse de déployer si tu n'es pas sur `main`, si l'arbre est
   sale, si ton HEAD diffère de `origin/main`, ou si la CI n'est pas verte **pour ce commit
