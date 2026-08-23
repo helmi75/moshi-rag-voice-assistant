@@ -8,7 +8,12 @@ services:
     # Remonte seule après un reboot du serveur (indispensable pour un service 24/7).
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      # N'écouter QUE sur la boucle locale. Caddy joint l'API par le réseau Docker
+      # (`reverse_proxy api:8000`, cf. caddy/Caddyfile) : publier 8000 sur 0.0.0.0
+      # n'apportait rien et ouvrait une seconde porte d'entrée en HTTP nu, hors TLS
+      # et hors Caddy — /admin y était joignable en clair. On garde le port sur
+      # 127.0.0.1 pour le diagnostic local (`curl localhost:8000/health`).
+      - "127.0.0.1:8000:8000"
     environment:
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
       OPENROUTER_BASE_URL: "${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"

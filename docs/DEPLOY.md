@@ -118,11 +118,7 @@ modal deploy deploy/modal_moshi_server.py
 ## Exploitation
 
 - **Logs** : `docker compose logs -f api` (appels, transcripts, coûts).
-- **Sauvegarde** de la base (réservations, comptes) — le volume `api_data` contient le SQLite :
-  ```bash
-  docker compose cp api:/app/data/app.db ./backup-$(date +%F).db
-  ```
-  (à planifier en cron pour un vrai client.)
+- **Sauvegarde** de la base : voir la section dédiée ci-dessous. Ne pas copier le fichier à chaud.
 - **Mise à jour** : depuis ton poste, `scripts/deploy.sh` — **jamais** un `git pull` à la
   main sur le VPS. Le script refuse de déployer si tu n'es pas sur `main`, si l'arbre est
   sale, si ton HEAD diffère de `origin/main`, ou si la CI n'est pas verte **pour ce commit
@@ -133,6 +129,56 @@ modal deploy deploy/modal_moshi_server.py
   La règle « la production, c'est `main` après CI verte » ne tenait que par la discipline :
   c'est ainsi qu'on s'est retrouvé avec une production tournant sur une branche jamais
   fusionnée. Le script la rend mécanique.
+
+## Sauvegardes
+
+La base vit dans le volume `api_data`, sur la machine, en un seul exemplaire. Une
+réservation perdue est un client perdu : c'est le seul incident du projet qui ne se
+rattrape pas.
+
+**Ne jamais copier le fichier à chaud** (`cp`, `docker compose cp`). La base est
+vivante ; copier pendant qu'une réservation s'écrit produit un fichier corrompu, et
+on ne s'en aperçoit que le jour où on essaie de le restaurer. `scripts/backup-db.sh`
+utilise `.backup`, l'API de sauvegarde en ligne de SQLite, qui gère le verrouillage.
+
+Installation sur le VPS, en root :
+
+```bash
+apt-get install -y sqlite3
+install -D -m 755 scripts/backup-db.sh /opt/backups/backup-db.sh
+( crontab -l 2>/dev/null; \
+  echo "0 4 * * * /opt/backups/backup-db.sh >> /var/log/helmane-backup.log 2>&1" ) | crontab -
+```
+
+Le script vérifie l'intégrité de la copie **avant** de la nommer définitivement : un
+fichier `app-*.db.gz` présent est donc restaurable par construction. Rétention 14
+jours (`RETENTION_JOURS`), chemin de base surchargeable par `DB`.
+
+**Test de restauration — à faire au moins une fois.** Une sauvegarde jamais restaurée
+n'est pas une sauvegarde :
+
+```bash
+LAST=$(ls -1t /opt/backups/db/app-*.db.gz | head -1)
+zcat "$LAST" > /tmp/restore-test.db
+sqlite3 /tmp/restore-test.db "PRAGMA integrity_check; \
+  SELECT count(*) FROM reservations; SELECT count(*) FROM tenants;"
+rm -f /tmp/restore-test.db
+```
+
+Restauration réelle (arrêter l'app d'abord, sinon l'écriture en cours écrase la copie) :
+
+```bash
+cd /opt/moshi-rag-voice-assistant
+docker compose stop api
+zcat /opt/backups/db/app-AAAAMMJJ-HHMM.db.gz \
+  > /var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db
+docker compose start api
+```
+
+**Limite connue** : les copies restent sur la même machine. Un incident disque emporte
+l'original *et* les sauvegardes. Sortir les archives du serveur (rsync vers une autre
+machine, stockage objet, ou snapshots Hostinger) reste à faire — c'est le vrai objectif
+de résilience.
 
 ## Rollback
 

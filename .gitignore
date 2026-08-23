@@ -102,3 +102,10 @@ Thumbs.db
 
 # Données locales (musiques uploadées, DB locale)
 data/
+
+# Fichiers de travail personnels, jamais versionnés. Le dépôt est PUBLIC : un
+# `git add -A` distrait suffirait à publier des identifiants collés dans un
+# bloc-notes. Ranger ce genre de fichier dans local/ plutôt qu'à la racine.
+local/
+/twillo.txt
+/outils.sh

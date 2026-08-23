@@ -197,11 +197,20 @@ app = modal.App(APP_NAME)
     # scale-to-zero par défaut (on ne paie le GPU que pendant les appels). Passer
     # MODAL_MIN_CONTAINERS=1 pour garder une box chaude aux heures d'ouverture.
     min_containers=int(os.environ.get("MODAL_MIN_CONTAINERS", "0")),
+    # Plafond de GPU simultanés : garde-fou de facture. Sans plafond, un pic d'appels
+    # (ou une boucle de reconnexion) peut allumer des dizaines de L4 à la fois.
+    max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", "4")),
     scaledown_window=120,
     timeout=3600,
 )
-# Le batching (jusqu'à batch_size=8 connexions simultanées) est géré EN INTERNE par
-# moshi-server ; Modal proxifie simplement le port. Pas besoin de @modal.concurrent ici.
+# Concurrence : sur Modal, UNE connexion websocket = UN input de la fonction. Sans
+# @modal.concurrent, Modal n'envoie qu'un input par conteneur — le 2e appel simultané
+# allumerait donc un 2e GPU (et son cold start) alors que le batching interne de
+# moshi-server (batch_size = 8) attend justement plusieurs flux sur le MÊME process.
+# On aligne donc max_inputs sur batch_size. target_inputs plus bas laisse l'autoscaler
+# préparer un conteneur avant la saturation, tout en autorisant le dépassement
+# jusqu'à 8 le temps qu'il démarre.
+@modal.concurrent(max_inputs=8, target_inputs=6)
 @modal.web_server(PORT, startup_timeout=900)
 def tts_server():
     """Démarre moshi-server (non bloquant) ; Modal proxifie le port en HTTPS/WSS."""
