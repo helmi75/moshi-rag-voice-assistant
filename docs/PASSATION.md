@@ -43,42 +43,58 @@ Plus de ngrok, plus de PC allumé : l'app tourne 24/7 sur le VPS derrière Caddy
 | TTS Modal | `wss://helmi75--moshi-server-tts-server.modal.run` |
 | Dépôt | https://github.com/helmi75/moshi-rag-voice-assistant |
 
-## 4. ⚠️ À FAIRE EN PREMIER — régression de sécurité ouverte
+## 4. ✅ Régression de sécurité — refermée le 23/08, mais pas encore durablement
 
-Constaté le 23/08 sur la prod :
+**Ce qui était ouvert.** `http://187.77.172.87:8000/admin` répondait `HTTP 307`
+(`server: uvicorn`) sur IPv4 **et** IPv6 : l'API était joignable en clair, hors Caddy et
+hors TLS. `ufw` était inactif. Le conteneur tournait ainsi depuis au moins 4 jours.
 
-```
-api    Up 4 days    0.0.0.0:8000->8000/tcp     ← API publique en HTTP nu
-ufw    Status: inactive                        ← aucun pare-feu
-```
+**Ce qui a été fait.**
 
-L'API répond directement sur `http://187.77.172.87:8000`, **hors Caddy et hors TLS**
-(`server: uvicorn` dans les en-têtes). `/admin` y est joignable : un mot de passe saisi
-par cette porte part en clair. Les journaux montrent des sondes automatisées.
+1. Port ramené sur la boucle locale — vérifié depuis l'extérieur : `curl` sur 8000
+   n'aboutit plus, ni en IPv4 ni en IPv6, tandis que `https://app.helmane.fr/health`
+   répond 200 et que le webhook Twilio reste joignable.
+2. `ufw` activé (22/80/443) et persistant au reboot. **Il ne protège rien de plus
+   aujourd'hui** : hors Docker, seul `sshd` écoute. Sa valeur est future — empêcher
+   qu'un service lancé plus tard sur l'hôte soit exposé par distraction.
+3. **`docker-compose.override.yml` posé sur le VPS** (non versionné, donc insensible à
+   `git pull`) :
 
-Ce correctif avait déjà été appliqué le 14/08 **en `sed` local non commité** ; un
-`git pull` l'a écrasé. **Ne pas refaire cette erreur** : le correctif propre existe dans
-`docker-compose.yml` sur la branche de travail (commit `9a6801e`).
+   ```yaml
+   services:
+     api:
+       ports: !override
+         - "127.0.0.1:8000:8000"
+   ```
 
-```bash
-cd /opt/moshi-rag-voice-assistant
-sed -i 's|^      - "8000:8000"|      - "127.0.0.1:8000:8000"|' docker-compose.yml
-docker compose up -d api
-docker ps --format "{{.Names}}\t{{.Ports}}"      # attendu : 127.0.0.1:8000->8000/tcp
-ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp
-ufw --force enable && ufw status verbose         # attendu : Status: active
-```
+   `!override` **remplace** la liste au lieu de s'y ajouter : Compose fusionne les
+   séquences par concaténation, donc sans ce marqueur `0.0.0.0:8000` resterait publié.
+   Vérifié en conditions réelles : l'arbre git du VPS est **propre**, son
+   `docker-compose.yml` suivi publie toujours `8000:8000`, et le port reste malgré tout
+   fermé de l'extérieur.
 
-Preuve depuis le WSL (hors serveur) :
+**Pourquoi ce n'est pas encore réglé.** La protection vit dans un fichier propre à cette
+machine. Le correctif de fond est le commit `9a6801e` de la branche de travail : **tant
+qu'il n'est pas dans `main`, le dépôt continue de décrire une configuration non sûre**, et
+tout nouveau serveur déployé depuis `main` naîtrait avec le port ouvert.
 
-```bash
-curl -sI --max-time 5 http://187.77.172.87:8000/admin   # ne doit RIEN renvoyer
-curl -sI https://app.helmane.fr/admin | head -1          # doit renvoyer HTTP/2 307
-```
+➡️ **À faire : fusionner la branche dans `main`, puis supprimer
+`docker-compose.override.yml` du VPS** — sinon il masquera silencieusement toute évolution
+légitime des ports.
 
-**⚠️ `ufw` ne protège PAS les ports publiés par Docker** (chaîne `DOCKER-USER`, évaluée
-avant ufw). Ce qui ferme le port 8000, c'est l'écoute sur `127.0.0.1`, pas le pare-feu.
-Ne jamais compter sur ufw pour masquer un conteneur.
+**Recherche d'intrusion (23/08).** Aucun signe : 2 comptes, tous deux créés le 30/07
+(`superadmin` + le restaurateur de démo), aucun ajouté ; 1 établissement, 17 réservations,
+24 appels — l'état attendu ; aucune écriture depuis le 31/07. Sauvegardes quotidiennes
+présentes pour comparaison.
+
+⚠️ **Limite de cette recherche** : les journaux du conteneur couvrant la période
+d'exposition ont été perdus en le recréant pour appliquer le correctif. L'application ne
+tient par ailleurs aucun journal des tentatives de connexion. L'absence de preuve n'est
+donc pas une preuve d'absence.
+
+⚠️ **`ufw` ne protège PAS les ports publiés par Docker** (chaîne `DOCKER-USER`, évaluée
+avant ufw — elle est vide sur ce serveur). Ce qui ferme le port 8000, c'est l'écoute sur
+`127.0.0.1`, jamais le pare-feu.
 
 ## 5. Écart entre la branche et la production
 
@@ -166,9 +182,10 @@ cd api && python -m pytest tests/ -q            # 220 tests, aucun réseau
 modal deploy deploy/modal_moshi_server.py
 python scripts/test_moshi_server.py --url https://helmi75--moshi-server-tts-server.modal.run
 
-# Garde-fou après chaque déploiement
-docker ps --format "{{.Names}}\t{{.Ports}}" | grep -q '0.0.0.0:8000' \
-  && echo "ALERTE : port 8000 public" || echo "OK"
+# Garde-fou après chaque déploiement — à lancer depuis le WSL, pas depuis le VPS :
+# ce qui compte est ce qu'un tiers voit, pas ce que la machine croit exposer.
+curl -sI --max-time 8 http://187.77.172.87:8000/ >/dev/null 2>&1 \
+  && echo "ALERTE : port 8000 joignable publiquement" || echo "OK : 8000 fermé"
 ```
 
 ## 11. Contraintes et règles
