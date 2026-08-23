@@ -97,13 +97,24 @@ fi
 # reset --hard sur le SHA EXACT, jamais `git pull` : pull suivrait une branche, et c'est
 # précisément ce qui laisse une machine dériver de ce qu'on croit avoir déployé.
 etape "Déploiement de ${local_sha:0:8} sur $HOTE…"
+# Le rechargement de Caddy est conditionnel et VALIDÉ d'abord : `docker compose up -d`
+# ne recrée pas le conteneur quand seul le contenu du Caddyfile change, donc un
+# changement de configuration du proxy serait déployé sur le disque sans jamais être
+# appliqué — et le script annoncerait « déployé et vérifié ».
 ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
   set -e
   cd '$CHEMIN'
+  avant=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
   git fetch -q origin '$BRANCHE_PROD'
   git checkout -q '$BRANCHE_PROD'
   git reset -q --hard '$local_sha'
+  apres=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
   docker compose up -d --build 2>&1 | tail -3
+  if [ \"\$avant\" != \"\$apres\" ]; then
+    echo '   Caddyfile modifié : validation puis rechargement'
+    docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+    docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
+  fi
 "
 
 # ── 5. Vérification ─────────────────────────────────────────────────────────────
@@ -117,5 +128,15 @@ done
 
 deploye="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "git -C '$CHEMIN' rev-parse HEAD")"
 [ "$deploye" = "$local_sha" ] || refus "le VPS est sur ${deploye:0:8}, pas ${local_sha:0:8}."
+
+# L'API ne doit JAMAIS être joignable hors Caddy. Vérifié depuis ici, pas depuis le
+# serveur : ce qui compte est ce qu'un tiers voit. Un `git pull` a déjà rouvert ce port
+# deux fois, découvert chaque fois par hasard.
+etape "Contrôle du port 8000 depuis l'extérieur…"
+hote_nu="${HOTE#*@}"
+if curl -sI --max-time 8 "http://${hote_nu}:8000/" >/dev/null 2>&1; then
+  refus "l'API répond en HTTP nu sur ${hote_nu}:8000 — hors TLS et hors Caddy."
+fi
+etape "Port 8000 fermé."
 
 echo "✓ ${local_sha:0:8} déployé et vérifié — $SANTE répond 200."
