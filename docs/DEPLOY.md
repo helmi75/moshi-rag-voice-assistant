@@ -119,7 +119,16 @@ modal deploy deploy/modal_moshi_server.py
 
 - **Logs** : `docker compose logs -f api` (appels, transcripts, coûts).
 - **Sauvegarde** de la base : voir la section dédiée ci-dessous. Ne pas copier le fichier à chaud.
-- **Mise à jour** : `git pull && docker compose up -d --build`.
+- **Mise à jour** : depuis ton poste, `scripts/deploy.sh` — **jamais** un `git pull` à la
+  main sur le VPS. Le script refuse de déployer si tu n'es pas sur `main`, si l'arbre est
+  sale, si ton HEAD diffère de `origin/main`, ou si la CI n'est pas verte **pour ce commit
+  exact** (et non « la dernière CI de la branche »). Il déploie ensuite par
+  `reset --hard` sur le SHA, puis vérifie `/health` et le commit réellement en place.
+  `scripts/deploy.sh --check` contrôle les conditions sans rien changer.
+
+  La règle « la production, c'est `main` après CI verte » ne tenait que par la discipline :
+  c'est ainsi qu'on s'est retrouvé avec une production tournant sur une branche jamais
+  fusionnée. Le script la rend mécanique.
 
 ## Sauvegardes
 

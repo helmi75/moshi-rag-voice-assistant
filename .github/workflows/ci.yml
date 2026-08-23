@@ -33,3 +33,10 @@ jobs:
       - name: Tests (aucun réseau, tout mocké)
         working-directory: api
         run: python -m pytest tests -q
+
+      # Un test vert ne prouve rien s'il resterait vert une fois la protection retirée.
+      # Ce contrôle retire chaque garde-fou critique et exige que les tests rougissent.
+      - name: Les garde-fous mordent-ils vraiment ?
+        env:
+          CI: "true"
+        run: python3 scripts/mutation_check.py --runner native
