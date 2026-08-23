@@ -85,6 +85,12 @@ jobs:
               echo "::error::La production ne répond pas du tout ($URL). Serveur, Caddy ou DNS."
               exit 1 ;;
             200)
+              # Un 200 dont on ne sait pas lire le verdict n'est PAS une bonne nouvelle :
+              # c'est peut-être la page d'erreur d'un proxy. On le traite comme une panne.
+              if [ "$NIVEAU" = "inconnu" ]; then
+                echo "::error::HTTP 200 mais réponse illisible : ce n'est pas la sonde qui a répondu."
+                exit 1
+              fi
               if [ "$NIVEAU" = "attention" ]; then
                 # Dégradé mais les appels passent : visible dans le résumé, sans réveiller
                 # personne. Une alerte qui sonne pour tout finit par ne plus être lue.

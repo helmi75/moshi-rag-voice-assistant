@@ -13,5 +13,11 @@ os.environ["TWILIO_NUMBER"] = "+33100000000"
 os.environ["ADMIN_PASSWORD"] = "test-admin-pass"
 os.environ["ADMIN_EMAIL"] = "admin@test.local"
 os.environ["SESSION_SECRET"] = "test-session-secret"
+# La suite ne doit JAMAIS toucher au réseau : c'est ce qui la rend exécutable partout et
+# reproductible. La relève des alertes Twilio est le seul point du code qui appelle un
+# tiers en tâche de fond — on la coupe ici. Les identifiants Twilio arrivent du `.env`
+# via docker-compose quand les tests tournent en conteneur, donc l'appel PARTIRAIT
+# vraiment sans cette ligne. `rafraichir_twilio` reste testée, avec httpx bouchonné.
+os.environ["SUPERVISION_TWILIO_SECONDES"] = "0"
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

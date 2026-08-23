@@ -92,6 +92,14 @@ async def _prerender_greetings():
     asyncio.create_task(greeting_mod.keep_warm_loop())
 
 
+# Tâche de fond de la supervision. Gardée en référence pour pouvoir l'ARRÊTER :
+# une boucle infinie qu'on abandonne empêche la boucle d'événements de se fermer, et
+# le processus (ou un TestClient) attend indéfiniment. Vécu le 23/08 — le contrôle de
+# mutation s'est figé une demi-heure sur un test qui sortait en erreur d'un
+# `with TestClient(...)`, précisément à cause de cette tâche orpheline.
+_supervision_tache = None
+
+
 @app.on_event("startup")
 async def _supervision_twilio():
     """Relève périodique des alertes Twilio (webhook injoignable, TwiML invalide).
@@ -101,7 +109,25 @@ async def _supervision_twilio():
     """
     import asyncio
 
-    asyncio.create_task(supervision.boucle_twilio())
+    global _supervision_tache
+    _supervision_tache = asyncio.create_task(supervision.boucle_twilio())
+
+
+@app.on_event("shutdown")
+async def _arreter_supervision():
+    """Arrête proprement la relève. Sans ça, l'arrêt du service traîne — et un service
+    qui ne sait pas s'arrêter est un service qu'on finit par tuer au signal 9, en
+    pleine écriture SQLite."""
+    import asyncio
+    import contextlib
+
+    global _supervision_tache
+    tache, _supervision_tache = _supervision_tache, None
+    if tache is None or tache.done():
+        return
+    tache.cancel()
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        await tache
 
 
 # Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;

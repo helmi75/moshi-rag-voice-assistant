@@ -383,6 +383,43 @@ class TestTwilio:
         valeur, _ = supervision.relire("twilio")
         assert valeur == {"erreurs": 3, "codes": {"11200": 2, "12100": 1}}
 
+    def test_la_releve_est_desactivable(self, monkeypatch):
+        """`SUPERVISION_TWILIO_SECONDES=0` doit rendre la boucle inerte — c'est ce qui
+        garantit que la suite de tests ne touche jamais au réseau (cf. conftest)."""
+        import asyncio
+
+        monkeypatch.setenv("SUPERVISION_TWILIO_SECONDES", "0")
+        with patch.object(supervision, "rafraichir_twilio") as releve:
+            asyncio.run(supervision.boucle_twilio())
+        releve.assert_not_called()
+
+    def test_la_releve_est_arretee_a_l_extinction(self, base, monkeypatch):
+        """Une tâche de fond abandonnée empêche la boucle d'événements de se fermer :
+        le processus — ou un `TestClient` qui sort en erreur — attend indéfiniment.
+
+        Vécu le 23/08 : le contrôle de mutation s'est figé une demi-heure exactement
+        là-dessus. Le scénario est joué à la main plutôt qu'avec `TestClient`, pour
+        qu'une régression échoue au lieu de bloquer la suite."""
+        import asyncio
+
+        from app import main as main_mod
+
+        monkeypatch.setenv("SUPERVISION_TWILIO_SECONDES", "900")
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "")
+
+        async def scenario():
+            await main_mod._supervision_twilio()
+            tache = main_mod._supervision_tache
+            assert tache is not None and not tache.done()
+            await asyncio.sleep(0)
+            await main_mod._arreter_supervision()
+            return tache
+
+        tache = asyncio.run(scenario())
+        assert tache.done()
+        assert main_mod._supervision_tache is None
+
     def test_sans_identifiants_la_releve_se_declare_impossible(self, base, monkeypatch):
         import asyncio
 

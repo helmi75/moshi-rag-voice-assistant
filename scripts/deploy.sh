@@ -139,6 +139,25 @@ if curl -sI --max-time 8 "http://${hote_nu}:8000/" >/dev/null 2>&1; then
 fi
 etape "Port 8000 fermé."
 
+# Le script de sauvegarde vit HORS du dépôt sur le serveur : cron l'appelle depuis
+# /opt/backups, et `install` en avait fait une copie figée. Rien ne la met donc à jour —
+# même piège que le Caddyfile le 23/08 : un fichier déposé n'est pas un fichier appliqué.
+# Constaté : la copie installée avait déjà divergé de celle du dépôt.
+etape "Synchronisation du script de sauvegarde…"
+ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
+  set -e
+  depot='$CHEMIN/scripts/backup-db.sh'
+  installe=/opt/backups/backup-db.sh
+  if [ ! -f \"\$depot\" ]; then
+    echo '  ⚠ scripts/backup-db.sh absent du dépôt déployé.'
+  elif cmp -s \"\$depot\" \"\$installe\"; then
+    echo '  déjà à jour.'
+  else
+    install -m 755 \"\$depot\" \"\$installe\"
+    echo '  mis à jour depuis le dépôt (le cron utilisera la nouvelle version).'
+  fi
+"
+
 # État réel de la pile après déploiement. INFORMATIF, jamais bloquant : une sauvegarde
 # en retard ou un accueil non pré-rendu n'ont pas à empêcher de livrer un correctif —
 # et un contrôle qui bloque pour des motifs sans rapport finit par être contourné.

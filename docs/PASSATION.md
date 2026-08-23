@@ -102,7 +102,8 @@ Reste sur la branche de travail, non fusionné :
 
 - ✅ Appel Twilio réel de bout en bout : voix Développeuse, conversation, réservation en base.
 - ✅ Blanc médian mesuré **1,16 s** (p90 1,58 s). Coût mesuré **11,4 ¢/appel**.
-- ✅ 281 tests, aucun appel réseau. CI GitHub Actions verte, contrôle de mutation 12/12.
+- ✅ 284 tests, aucun appel réseau (vérifié : la relève Twilio est coupée par conftest).
+  CI GitHub Actions verte, contrôle de mutation 12/12.
 - ✅ Conteneurs remontés seuls après reboot (critère de résilience de `DEPLOY.md`).
 - ✅ Sauvegarde quotidienne **avec test de restauration réussi** (`ok / 17 réservations / 1 établissement`).
 - ✅ Admin v3, voix par établissement (catalogue fermé de 7 voix), latence instrumentée en base.
@@ -167,7 +168,8 @@ curl -s localhost:8000/health
 /opt/backups/backup-db.sh                      # sauvegarde à la demande
 
 # En local
-cd api && python -m pytest tests/ -q            # 281 tests, aucun réseau
+cd api && python -m pytest tests/ -q            # 284 tests, aucun réseau
+python3 scripts/mutation_check.py               # 12 garde-fous : chacun doit MORDRE
 modal deploy deploy/modal_moshi_server.py
 python scripts/test_moshi_server.py --url https://helmi75--moshi-server-tts-server.modal.run
 
