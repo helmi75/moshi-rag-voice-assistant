@@ -13,7 +13,7 @@
 <form method="get" action="/admin/reservations" class="filters">
   {% if tenants %}
   <label>Établissement
-    <select name="tenant_id" onchange="this.form.submit()">
+    <select name="tenant_id" data-autosubmit>
       <option value="">Tous</option>
       {% for t in tenants %}
       <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
@@ -22,7 +22,7 @@
   </label>
   {% endif %}
   <label>À partir du
-    <input type="date" name="date_from" value="{{ date_from }}" onchange="this.form.submit()">
+    <input type="date" name="date_from" value="{{ date_from }}" data-autosubmit>
   </label>
 </form>
 

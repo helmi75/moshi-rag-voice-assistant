@@ -33,6 +33,18 @@ class User:
         return self.role == ROLE_SUPERADMIN
 
 
+# Longueur minimale exigée des mots de passe SAISIS DANS L'ADMIN. Volontairement
+# absente de create_user/update_password : le super-admin est semé au démarrage depuis
+# ADMIN_PASSWORD, et refuser là ferait échouer le boot en production plutôt que
+# d'afficher un message. La règle est donc appliquée par les routes, au moment où l'on
+# peut expliquer le refus à un humain.
+MIN_MOT_DE_PASSE = 10
+
+
+def trop_court(plain: str) -> bool:
+    return len(plain or "") < MIN_MOT_DE_PASSE
+
+
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
 
