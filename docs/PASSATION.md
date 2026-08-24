@@ -83,18 +83,32 @@ donc pas une preuve d'absence.
 avant ufw — elle est vide sur ce serveur). Ce qui ferme le port 8000, c'est l'écoute sur
 `127.0.0.1`, jamais le pare-feu.
 
+## 4 bis. ⚠️ Jeton Twilio refusé en production (trouvé par la supervision)
+
+`TWILIO_AUTH_TOKEN` du `.env` de production est **rejeté par Twilio (HTTP 401)**, sur
+l'API standard comme sur Monitor. Vraisemblablement révoqué après l'incident #20 et jamais
+reporté. Vérifié le 24/08 : le conteneur reçoit bien un SID de 34 caractères et un jeton
+de 32 — ce n'est pas un problème de câblage, c'est le jeton lui-même.
+
+**Ce que ça ne casse pas** : les appels entrants. C'est Twilio qui nous appelle ; il n'a
+besoin d'aucun jeton pour ça. D'où le silence complet jusqu'ici.
+
+**Ce que ça casse** : toute action sortante vers l'API Twilio — dont la relève des alertes
+de webhook, seul contrôle capable de voir les appels qui meurent AVANT d'atteindre
+l'application. Ce contrôle reste donc en « attention » tant que le jeton n'est pas renouvelé.
+
+➡️ **À faire (nécessite la console Twilio)** : copier le *Auth Token* courant, le poser
+dans `/opt/moshi-rag-voice-assistant/.env`, puis `docker compose up -d api`. La sonde
+repassera au vert toute seule à la relève suivante (15 min).
+
 ## 5. Écart entre la branche et la production
 
 **La prod tourne sur `main` (`ea6cca2`)**, déployée par `scripts/deploy.sh`, qui refuse de
 partir si la branche n'est pas `main`, si l'arbre est sale, si `HEAD ≠ origin/main` ou si
 la CI n'est pas verte **pour ce commit exact**.
 
-Reste sur la branche de travail, non fusionné :
-
-| Commit | Contenu |
-|---|---|
-| `6faa290` | Le Caddyfile monté en DOSSIER + rechargement validé dans `deploy.sh` + contrôle du port 8000 |
-| _(#24)_ | Supervision : sonde `/supervision`, workflow GitHub, écran admin |
+Tout est fusionné et déployé au 24/08 (PR #82, #83, #84). La branche de travail ne
+contient rien de non livré.
 
 ⚠️ Ne pas ouvrir de pull request sans demande explicite de l'utilisateur.
 
@@ -109,6 +123,10 @@ Reste sur la branche de travail, non fusionné :
 - ✅ Admin v3, voix par établissement (catalogue fermé de 7 voix), latence instrumentée en base.
 - ✅ Supervision (#24) : sonde `/supervision` (9 contrôles, aucun appel réseau), surveillée
   **depuis GitHub Actions** — donc de l'extérieur du serveur. Voir `docs/SUPERVISION.md`.
+- ✅ **Chaîne d'alerte éprouvée dans les deux sens** le 24/08, pas supposée : jeton correct
+  → run réussi avec simple avertissement ; jeton volontairement faux → run **en échec**,
+  donc e-mail ; jeton rétabli → run réussi. Trois passages réels (`32772320693`,
+  `32772387371`, `32772457217`).
 
 ## 7. Suivi du travail — GitHub Issues
 
@@ -129,9 +147,8 @@ Priorités : `P0` … `P3`. Un Project board existe côté GitHub (créé par l'
 
 ## 8. Prochaines étapes
 
-1. **Fusionner et déployer la branche** (`6faa290` + supervision), puis poser
-   `SUPERVISION_TOKEN` dans le `.env` du VPS **et** en secret GitHub — sans les deux,
-   le workflow de supervision échoue à chaque passage et rien n'est surveillé.
+1. **Renouveler le jeton Twilio** (§4 bis) — 2 minutes dans la console, et le dernier
+   contrôle en « attention » repasse au vert.
 2. **#23 reste ouvert** : les sauvegardes sont sur la même machine que la base. Un incident
    disque emporte tout. Les sortir du serveur reste à faire. La supervision surveille
    désormais leur *fraîcheur*, pas leur *survie* à une panne disque.
