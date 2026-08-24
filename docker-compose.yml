@@ -83,6 +83,21 @@ services:
       ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@local}"
       SESSION_SECRET: "${SESSION_SECRET:-}"
       SESSION_SECURE: "${SESSION_SECURE:-}"
+      # Supervision (#24). ⚠️ Une variable posée dans `.env` n'atteint PAS le conteneur :
+      # Compose s'en sert pour la substitution, pas pour peupler l'environnement du
+      # service. Elle doit donc figurer ICI aussi. Vécu le 24/08 : le jeton était dans le
+      # `.env` du VPS, la sonde répondait 404, et rien n'était surveillé.
+      # Sans SUPERVISION_TOKEN, /supervision répond 404 — délibérément.
+      SUPERVISION_TOKEN: "${SUPERVISION_TOKEN:-}"
+      SUPERVISION_FENETRE_JOURS: "${SUPERVISION_FENETRE_JOURS:-7}"
+      SUPERVISION_MUET_SECONDES: "${SUPERVISION_MUET_SECONDES:-15}"
+      SUPERVISION_INACHEVE_MINUTES: "${SUPERVISION_INACHEVE_MINUTES:-30}"
+      SUPERVISION_LATENCE_ATTENTION_MS: "${SUPERVISION_LATENCE_ATTENTION_MS:-2500}"
+      SUPERVISION_LATENCE_PANNE_MS: "${SUPERVISION_LATENCE_PANNE_MS:-4000}"
+      SUPERVISION_SAUVEGARDE_ATTENTION_H: "${SUPERVISION_SAUVEGARDE_ATTENTION_H:-36}"
+      SUPERVISION_SAUVEGARDE_PANNE_H: "${SUPERVISION_SAUVEGARDE_PANNE_H:-72}"
+      SUPERVISION_TWILIO_SECONDES: "${SUPERVISION_TWILIO_SECONDES:-900}"
+      SUPERVISION_BACKUP_STAMP: "${SUPERVISION_BACKUP_STAMP:-/app/data/derniere-sauvegarde}"
     volumes:
       - api_data:/app/data
 

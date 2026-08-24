@@ -529,3 +529,59 @@ class TestEcranAdmin:
             assert client.get("/admin/health").status_code == 403
         finally:
             tenants.delete_tenant(tenant.id)
+
+
+class TestCablage:
+    """Une variable lue par le code doit être TRANSMISE au conteneur.
+
+    Compose lit `.env` pour la substitution, pas pour peupler l'environnement d'un
+    service : une variable absente du bloc `environment:` n'atteint jamais l'application.
+    Le 24/08, le jeton était bien dans le `.env` du VPS, la sonde répondait 404, et le
+    déploiement s'était déclaré « vérifié ». Ce test rend l'oubli impossible à répéter.
+    """
+
+    @staticmethod
+    def _compose() -> str:
+        import pathlib
+
+        chemin = pathlib.Path(__file__).resolve().parents[2] / "docker-compose.yml"
+        if not chemin.exists():
+            pytest.skip("docker-compose.yml hors de portée (tests montés seuls dans le "
+                        "conteneur) — ce contrôle mord en CI, où le dépôt est complet.")
+        return chemin.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _variables_lues() -> set[str]:
+        import pathlib
+        import re
+
+        app = pathlib.Path(__file__).resolve().parents[1] / "app"
+        lues: set[str] = set()
+        for source in (app / "supervision.py", app / "main.py"):
+            lues |= set(re.findall(r'["\'](SUPERVISION_[A-Z_]+)["\']',
+                                   source.read_text(encoding="utf-8")))
+        return lues
+
+    def test_toutes_les_variables_lues_sont_transmises(self):
+        compose = self._compose()
+        lues = self._variables_lues()
+        assert lues, "aucune variable SUPERVISION_* trouvée : le test ne vérifie rien"
+        oubliees = sorted(v for v in lues if f"{v}:" not in compose)
+        assert not oubliees, (
+            "ces variables sont lues par l'application mais absentes de "
+            f"docker-compose.yml, donc invisibles dans le conteneur : {oubliees}")
+
+    def test_le_jeton_est_documente_sans_valeur(self):
+        """`env.example` doit expliquer le jeton sans jamais porter de valeur : le dépôt
+        est public, et un gabarit qui ressemble à un secret finit par en devenir un."""
+        import pathlib
+        import re
+
+        chemin = pathlib.Path(__file__).resolve().parents[2] / "env.example"
+        if not chemin.exists():
+            pytest.skip("env.example hors de portée du conteneur — mord en CI.")
+        texte = chemin.read_text(encoding="utf-8")
+        assert "SUPERVISION_TOKEN" in texte
+        assert not re.search(r"^\s*#?\s*SUPERVISION_TOKEN=\S", texte, re.M), (
+            "env.example contient SUPERVISION_TOKEN=<valeur> : gabarit ou secret, "
+            "les deux sont à proscrire dans un dépôt public")
