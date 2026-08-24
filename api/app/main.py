@@ -8,7 +8,7 @@ from xml.sax.saxutils import escape
 from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
-from . import calls, db, llm, reservations, tenants, users
+from . import calls, db, llm, reservations, supervision, tenants, users
 
 app = FastAPI(title="Voice Assistant SaaS")
 
@@ -90,6 +90,45 @@ async def _prerender_greetings():
 
     asyncio.create_task(_prerender())
     asyncio.create_task(greeting_mod.keep_warm_loop())
+
+
+# Tâche de fond de la supervision. Gardée en référence pour pouvoir l'ARRÊTER :
+# une boucle infinie qu'on abandonne empêche la boucle d'événements de se fermer, et
+# le processus (ou un TestClient) attend indéfiniment. Vécu le 23/08 — le contrôle de
+# mutation s'est figé une demi-heure sur un test qui sortait en erreur d'un
+# `with TestClient(...)`, précisément à cause de cette tâche orpheline.
+_supervision_tache = None
+
+
+@app.on_event("startup")
+async def _supervision_twilio():
+    """Relève périodique des alertes Twilio (webhook injoignable, TwiML invalide).
+
+    Hors de la sonde à dessein : c'est le SEUL contrôle qui exige un appel réseau, et
+    la sonde doit rester gratuite et instantanée pour être interrogeable en boucle.
+    """
+    import asyncio
+
+    global _supervision_tache
+    _supervision_tache = asyncio.create_task(supervision.boucle_twilio())
+
+
+@app.on_event("shutdown")
+async def _arreter_supervision():
+    """Arrête proprement la relève. Sans ça, l'arrêt du service traîne — et un service
+    qui ne sait pas s'arrêter est un service qu'on finit par tuer au signal 9, en
+    pleine écriture SQLite."""
+    import asyncio
+    import contextlib
+
+    global _supervision_tache
+    tache, _supervision_tache = _supervision_tache, None
+    if tache is None or tache.done():
+        return
+    tache.cancel()
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        await tache
+
 
 # Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;
 # à remplacer par Redis quand l'API sera répliquée (phase 3 de la roadmap).
@@ -183,7 +222,55 @@ def _say_and_gather(text: str, language: str) -> Response:
 
 @app.get("/health")
 async def health_check():
+    """Sonde de VIE, volontairement bête et sans authentification.
+
+    Elle répond « le processus tourne et sert du HTTP », rien de plus — c'est ce
+    qu'attendent `scripts/deploy.sh` et un moniteur de disponibilité. L'état réel de
+    la pile est une autre question, et elle a sa propre sonde : `/supervision`. Les
+    mélanger coupleraient le déploiement à des verdicts sans rapport (une sauvegarde
+    en retard n'a pas à empêcher de déployer un correctif).
+    """
     return {"status": "ok", "model": llm.MODEL, "voice_mode": _voice_mode()}
+
+
+@app.get("/supervision")
+async def supervision_probe(request: Request):
+    """Sonde d'ÉTAT, pour un surveillant extérieur à la machine.
+
+    Pourquoi extérieur : une supervision hébergée sur le serveur qu'elle surveille ne
+    signale jamais la panne qui compte le plus — celle où le serveur ne répond plus.
+    Ici, l'application se contente de dire la vérité ; c'est
+    `.github/workflows/supervision.yml`, qui tourne chez GitHub, qui décide d'alerter.
+
+    Authentifiée : la réponse décrit l'infrastructure et le trafic. Comparaison à temps
+    constant, comme partout ailleurs dans ce projet.
+
+    Codes : **200** si tout va bien ou si la pile est dégradée mais sert les appels,
+    **503** si un appelant qui téléphone maintenant n'est pas correctement servi. C'est
+    ce code, et lui seul, qui déclenche une alerte.
+    """
+    import asyncio
+    import hmac
+
+    attendu = os.getenv("SUPERVISION_TOKEN", "").strip()
+    if not attendu:
+        # Pas de jeton configuré = pas de sonde ici. Répondre autre chose laisserait
+        # croire qu'une supervision existe alors que rien ne la protège.
+        raise HTTPException(status_code=404, detail="Not Found")
+    fourni = (request.headers.get("x-supervision-token")
+              or request.query_params.get("token") or "")
+    if not hmac.compare_digest(attendu, fourni):
+        raise HTTPException(status_code=401, detail="Jeton de supervision invalide")
+
+    # Lectures SQLite synchrones : hors event loop, comme partout ailleurs, pour
+    # qu'une sonde interrogée pendant un appel ne fasse pas bégayer la voix.
+    etat = await asyncio.to_thread(supervision.etat)
+    code = 503 if etat["niveau"] == supervision.PANNE else 200
+    return Response(
+        content=json.dumps(etat, ensure_ascii=False, indent=1),
+        media_type="application/json",
+        status_code=code,
+    )
 
 
 @app.post("/twilio/voice")

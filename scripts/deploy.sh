@@ -97,13 +97,24 @@ fi
 # reset --hard sur le SHA EXACT, jamais `git pull` : pull suivrait une branche, et c'est
 # précisément ce qui laisse une machine dériver de ce qu'on croit avoir déployé.
 etape "Déploiement de ${local_sha:0:8} sur $HOTE…"
+# Le rechargement de Caddy est conditionnel et VALIDÉ d'abord : `docker compose up -d`
+# ne recrée pas le conteneur quand seul le contenu du Caddyfile change, donc un
+# changement de configuration du proxy serait déployé sur le disque sans jamais être
+# appliqué — et le script annoncerait « déployé et vérifié ».
 ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
   set -e
   cd '$CHEMIN'
+  avant=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
   git fetch -q origin '$BRANCHE_PROD'
   git checkout -q '$BRANCHE_PROD'
   git reset -q --hard '$local_sha'
+  apres=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
   docker compose up -d --build 2>&1 | tail -3
+  if [ \"\$avant\" != \"\$apres\" ]; then
+    echo '   Caddyfile modifié : validation puis rechargement'
+    docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+    docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
+  fi
 "
 
 # ── 5. Vérification ─────────────────────────────────────────────────────────────
@@ -117,5 +128,51 @@ done
 
 deploye="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "git -C '$CHEMIN' rev-parse HEAD")"
 [ "$deploye" = "$local_sha" ] || refus "le VPS est sur ${deploye:0:8}, pas ${local_sha:0:8}."
+
+# L'API ne doit JAMAIS être joignable hors Caddy. Vérifié depuis ici, pas depuis le
+# serveur : ce qui compte est ce qu'un tiers voit. Un `git pull` a déjà rouvert ce port
+# deux fois, découvert chaque fois par hasard.
+etape "Contrôle du port 8000 depuis l'extérieur…"
+hote_nu="${HOTE#*@}"
+if curl -sI --max-time 8 "http://${hote_nu}:8000/" >/dev/null 2>&1; then
+  refus "l'API répond en HTTP nu sur ${hote_nu}:8000 — hors TLS et hors Caddy."
+fi
+etape "Port 8000 fermé."
+
+# Le script de sauvegarde vit HORS du dépôt sur le serveur : cron l'appelle depuis
+# /opt/backups, et `install` en avait fait une copie figée. Rien ne la met donc à jour —
+# même piège que le Caddyfile le 23/08 : un fichier déposé n'est pas un fichier appliqué.
+# Constaté : la copie installée avait déjà divergé de celle du dépôt.
+etape "Synchronisation du script de sauvegarde…"
+ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
+  set -e
+  depot='$CHEMIN/scripts/backup-db.sh'
+  installe=/opt/backups/backup-db.sh
+  if [ ! -f \"\$depot\" ]; then
+    echo '  ⚠ scripts/backup-db.sh absent du dépôt déployé.'
+  elif cmp -s \"\$depot\" \"\$installe\"; then
+    echo '  déjà à jour.'
+  else
+    install -m 755 \"\$depot\" \"\$installe\"
+    echo '  mis à jour depuis le dépôt (le cron utilisera la nouvelle version).'
+  fi
+"
+
+# État réel de la pile après déploiement. INFORMATIF, jamais bloquant : une sauvegarde
+# en retard ou un accueil non pré-rendu n'ont pas à empêcher de livrer un correctif —
+# et un contrôle qui bloque pour des motifs sans rapport finit par être contourné.
+# Le jeton est lu sur le VPS et n'est jamais affiché ici.
+etape "Verdict de la supervision…"
+jeton="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" \
+  "grep -m1 '^SUPERVISION_TOKEN=' '$CHEMIN/.env' 2>/dev/null | cut -d= -f2-" || true)"
+if [ -z "${jeton:-}" ]; then
+  echo "  ⚠ SUPERVISION_TOKEN absent du .env du serveur : la sonde répond 404 et RIEN"
+  echo "    n'est surveillé (cf. docs/SUPERVISION.md)."
+else
+  sonde="${SANTE%/health}/supervision"
+  verdict="$(curl -s --max-time 20 -H "X-Supervision-Token: $jeton" "$sonde" \
+    | python3 -c 'import json,sys; e=json.load(sys.stdin); print(e["niveau"], "|", ", ".join(c["titre"]+" : "+c["resume"] for c in e["controles"] if c["niveau"]!="ok") or "tous les contrôles au vert")' 2>/dev/null || echo "illisible | la sonde n'a pas répondu")"
+  echo "  $verdict"
+fi
 
 echo "✓ ${local_sha:0:8} déployé et vérifié — $SANTE répond 200."

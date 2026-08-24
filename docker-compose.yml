@@ -103,7 +103,12 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Le DOSSIER, pas le fichier. Un montage de fichier unique fige l'inode : quand
+      # `git reset --hard` remplace le Caddyfile, le conteneur continue de lire
+      # l'ancien contenu, et un `caddy reload` recharge… l'ancienne configuration.
+      # Vécu le 23/08 : les en-têtes de sécurité ont été « déployés » sans effet, et
+      # le déploiement s'est déclaré réussi.
+      - ./caddy:/etc/caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

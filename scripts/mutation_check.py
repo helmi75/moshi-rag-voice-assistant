@@ -121,6 +121,37 @@ GARDE_FOUS = [
         k="leak or scoping",
         panne="un restaurateur verrait le nom des autres établissements",
     ),
+    # --- Supervision (#24) ----------------------------------------------------
+    # Une supervision est le garde-fou le plus facile à rendre décoratif : elle a
+    # l'air de fonctionner tant qu'on ne provoque pas la panne. Les trois mutations
+    # suivantes coupent le fil de l'alarme à trois endroits différents.
+    GardeFou(
+        nom="La sonde renvoie 503 en panne (sinon l'alerte ne part jamais)",
+        fichier="api/app/main.py",
+        avant='    code = 503 if etat["niveau"] == supervision.PANNE else 200',
+        apres="    code = 200  # mutation",
+        tests=["test_supervision.py"],
+        k="503 or sonde",
+        panne="la sonde répondrait 200 en pleine panne : surveillance parfaitement muette",
+    ),
+    GardeFou(
+        nom="Le verdict global est le PIRE des contrôles",
+        fichier="api/app/supervision.py",
+        avant='    return max(niveaux, key=lambda n: _RANG.get(n, 0)) if niveaux else OK',
+        apres="    return OK  # mutation",
+        tests=["test_supervision.py"],
+        k="pire or verdict or sonde or ecran",
+        panne="un contrôle rouge noyé dans huit verts : tout resterait au vert",
+    ),
+    GardeFou(
+        nom="Détection des appels muets",
+        fichier="api/app/supervision.py",
+        avant='    return any(isinstance(t, dict) and t.get("role") == "assistant" for t in tours)',
+        apres="    return True  # mutation",
+        tests=["test_supervision.py"],
+        k="muet",
+        panne="la panne du 30/07 (appels sans un mot, tout en HTTP 200) redeviendrait invisible",
+    ),
 ]
 
 

@@ -3,6 +3,16 @@
 {% block content %}
 {% from "_macros.html" import kpi, money %}
 
+{# Le niveau n'est JAMAIS porté par la seule couleur : chaque ligne affiche aussi
+   son étiquette en toutes lettres. Un daltonien, une capture en noir et blanc ou un
+   écran mal réglé doivent lire le même verdict. #}
+{% set niveaux = {'ok':        {'dot': 'dot-good', 'chip': 'chip-good', 'mot': 'Vert'},
+                  'attention': {'dot': 'dot-warn', 'chip': 'chip-warn', 'mot': 'Attention'},
+                  'panne':     {'dot': 'dot-bad',  'chip': 'chip-bad',  'mot': 'Panne'}} %}
+{% set verdict = niveaux[supervision.niveau] %}
+{% set entete = {'ok': 'Tout est vert', 'attention': 'Pile dégradée',
+                 'panne': 'Panne en cours'}[supervision.niveau] %}
+
 <div class="page-head">
   <div>
     <h1>Santé &amp; coûts</h1>
@@ -10,6 +20,34 @@
        Seuls des faits mesurés sont affichés.</p>
   </div>
 </div>
+
+<section class="card card-flush">
+  <div class="card-head">
+    <div>
+      <h2><span class="dot {{ verdict.dot }}" aria-hidden="true"></span>
+          État de la pile · {{ entete }}</h2>
+      {# Le même verdict est servi à `/supervision`, interrogée depuis GitHub toutes les
+         15 minutes. Le dire ici évite de croire que cette page EST la surveillance :
+         elle n'est qu'une fenêtre dessus, et personne ne la regarde à 3 h du matin. #}
+      <p class="card-sub">Contrôles sur {{ supervision.fenetre_jours }} jours, relevés à
+         {{ supervision.mesure_le[11:16] }} UTC. La même mesure alimente l'alerte
+         extérieure : seul le niveau « panne » réveille quelqu'un.</p>
+    </div>
+  </div>
+  <div class="card-list">
+    {% for c in supervision.controles %}
+    <div class="card-row">
+      <span class="dot {{ niveaux[c.niveau].dot }}" aria-hidden="true"></span>
+      <span class="row-main">
+        <span class="row-title">{{ c.titre }}</span>
+        <span class="row-sub" style="white-space: normal">{{ c.resume }}
+          {%- if c.detail %} {{ c.detail }}{% endif %}</span>
+      </span>
+      <span class="chip {{ niveaux[c.niveau].chip }}">{{ niveaux[c.niveau].mot }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
 
 <div class="kpi-grid">
   {% if latency %}

@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, reservations, tenants
+from .. import calls, reservations, supervision, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from . import charts, deps, presenters
@@ -233,6 +233,13 @@ async def health(request: Request):
             "venues": sorted(rows, key=lambda r: -r["stats"]["total_cost"]),
             "max_cost": max_cost,
             "stack": stack,
+            # `force=True` : la sonde met son verdict en cache quelques secondes pour
+            # rester interrogeable en boucle, mais un super-admin qui recharge la page
+            # après avoir corrigé quelque chose doit voir l'état de MAINTENANT.
+            # C'est la MÊME fonction que celle servie à `/supervision` : un tableau de
+            # bord qui pourrait afficher « tout va bien » pendant que l'alerte crie
+            # serait pire que pas de tableau de bord.
+            "supervision": supervision.etat(force=True),
             "greeting_ready": ready,
             "greeting_total": len(rows),
             "voice": presenters.voice_label(),

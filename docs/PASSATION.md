@@ -43,7 +43,7 @@ Plus de ngrok, plus de PC allumé : l'app tourne 24/7 sur le VPS derrière Caddy
 | TTS Modal | `wss://helmi75--moshi-server-tts-server.modal.run` |
 | Dépôt | https://github.com/helmi75/moshi-rag-voice-assistant |
 
-## 4. ✅ Régression de sécurité — refermée le 23/08, mais pas encore durablement
+## 4. ✅ Régression de sécurité — refermée durablement le 23/08
 
 **Ce qui était ouvert.** `http://187.77.172.87:8000/admin` répondait `HTTP 307`
 (`server: uvicorn`) sur IPv4 **et** IPv6 : l'API était joignable en clair, hors Caddy et
@@ -57,30 +57,17 @@ hors TLS. `ufw` était inactif. Le conteneur tournait ainsi depuis au moins 4 jo
 2. `ufw` activé (22/80/443) et persistant au reboot. **Il ne protège rien de plus
    aujourd'hui** : hors Docker, seul `sshd` écoute. Sa valeur est future — empêcher
    qu'un service lancé plus tard sur l'hôte soit exposé par distraction.
-3. **`docker-compose.override.yml` posé sur le VPS** (non versionné, donc insensible à
-   `git pull`) :
+3. **Le correctif est dans `main`** (PR #80) : `docker-compose.yml` publie
+   `127.0.0.1:8000:8000`. Un `docker-compose.override.yml` avait d'abord été posé sur le
+   VPS comme rustine ; il a été **supprimé** une fois la branche fusionnée, sinon il
+   aurait masqué en silence toute évolution légitime des ports.
 
-   ```yaml
-   services:
-     api:
-       ports: !override
-         - "127.0.0.1:8000:8000"
-   ```
+   Vérifié le 23/08 sur la machine : plus d'override, prod sur `ea6cca2`, et
+   `docker inspect` du conteneur `api` montre `8000/tcp -> 127.0.0.1:8000`.
 
-   `!override` **remplace** la liste au lieu de s'y ajouter : Compose fusionne les
-   séquences par concaténation, donc sans ce marqueur `0.0.0.0:8000` resterait publié.
-   Vérifié en conditions réelles : l'arbre git du VPS est **propre**, son
-   `docker-compose.yml` suivi publie toujours `8000:8000`, et le port reste malgré tout
-   fermé de l'extérieur.
-
-**Pourquoi ce n'est pas encore réglé.** La protection vit dans un fichier propre à cette
-machine. Le correctif de fond est le commit `9a6801e` de la branche de travail : **tant
-qu'il n'est pas dans `main`, le dépôt continue de décrire une configuration non sûre**, et
-tout nouveau serveur déployé depuis `main` naîtrait avec le port ouvert.
-
-➡️ **À faire : fusionner la branche dans `main`, puis supprimer
-`docker-compose.override.yml` du VPS** — sinon il masquera silencieusement toute évolution
-légitime des ports.
+4. **Le déploiement le revérifie tout seul.** `scripts/deploy.sh` teste le port 8000
+   depuis le poste, pas depuis le serveur : ce qui compte est ce qu'un tiers voit. Ce
+   port a été rouvert deux fois par un `git pull`, découvert par hasard les deux fois.
 
 **Recherche d'intrusion (23/08).** Aucun signe : 2 comptes, tous deux créés le 30/07
 (`superadmin` + le restaurateur de démo), aucun ajouté ; 1 établissement, 17 réservations,
@@ -98,29 +85,30 @@ avant ufw — elle est vide sur ce serveur). Ce qui ferme le port 8000, c'est l'
 
 ## 5. Écart entre la branche et la production
 
-**La prod tourne sur `main` (v1.0.0, `1fcd6be`).** La branche de travail contient 5 commits
-qui ne sont PAS déployés :
+**La prod tourne sur `main` (`ea6cca2`)**, déployée par `scripts/deploy.sh`, qui refuse de
+partir si la branche n'est pas `main`, si l'arbre est sale, si `HEAD ≠ origin/main` ou si
+la CI n'est pas verte **pour ce commit exact**.
+
+Reste sur la branche de travail, non fusionné :
 
 | Commit | Contenu |
 |---|---|
-| `00d0aed` | Prompt système v2 (prononciation, dates relatives, garde-fous) + `@modal.concurrent` + `max_containers` |
-| `576217b` | Backlog complet (`docs/backlog-jira.csv`) |
-| `1e646d0` | `scripts/link_subissues.sh` |
-| `5ca094e` | `scripts/backup-db.sh` + procédure de restauration dans `DEPLOY.md` |
-| `9a6801e` | API sur `127.0.0.1` uniquement |
+| `6faa290` | Le Caddyfile monté en DOSSIER + rechargement validé dans `deploy.sh` + contrôle du port 8000 |
+| _(#24)_ | Supervision : sonde `/supervision`, workflow GitHub, écran admin |
 
-**Tant que ce n'est pas fusionné dans `main`, chaque `git pull` sur le VPS rouvrira le
-port 8000.** Fusionner est donc la vraie correction. ⚠️ Ne pas ouvrir de pull request
-sans demande explicite de l'utilisateur.
+⚠️ Ne pas ouvrir de pull request sans demande explicite de l'utilisateur.
 
 ## 6. Ce qui marche (vérifié)
 
 - ✅ Appel Twilio réel de bout en bout : voix Développeuse, conversation, réservation en base.
 - ✅ Blanc médian mesuré **1,16 s** (p90 1,58 s). Coût mesuré **11,4 ¢/appel**.
-- ✅ 220 tests, aucun appel réseau. CI GitHub Actions verte.
+- ✅ 284 tests, aucun appel réseau (vérifié : la relève Twilio est coupée par conftest).
+  CI GitHub Actions verte, contrôle de mutation 12/12.
 - ✅ Conteneurs remontés seuls après reboot (critère de résilience de `DEPLOY.md`).
 - ✅ Sauvegarde quotidienne **avec test de restauration réussi** (`ok / 17 réservations / 1 établissement`).
 - ✅ Admin v3, voix par établissement (catalogue fermé de 7 voix), latence instrumentée en base.
+- ✅ Supervision (#24) : sonde `/supervision` (9 contrôles, aucun appel réseau), surveillée
+  **depuis GitHub Actions** — donc de l'extérieur du serveur. Voir `docs/SUPERVISION.md`.
 
 ## 7. Suivi du travail — GitHub Issues
 
@@ -129,7 +117,7 @@ encode la séquence logique :
 
 | Phase | Label | Tickets |
 |---|---|---|
-| ① Fiabiliser | `phase-1-fiabiliser` | #21 #23 #24 #25 #39 |
+| ① Fiabiliser | `phase-1-fiabiliser` | ~~#21~~ #23 ~~#24~~ ~~#25~~ ~~#39~~ |
 | ② Tenir la charge | `phase-2-charge` | #26 #27 #28 #40 |
 | ③ Vendre | `phase-3-vendre` | #22 #29 #30 #31 #32 |
 | ④ Industrialiser | `phase-4-industrialiser` | #33 → #38 |
@@ -141,16 +129,18 @@ Priorités : `P0` … `P3`. Un Project board existe côté GitHub (créé par l'
 
 ## 8. Prochaines étapes
 
-1. **Refermer la régression du §4**, puis fusionner la branche pour qu'elle ne revienne pas.
-2. **#25 + #39** — `modal deploy deploy/modal_moshi_server.py`, puis **deux appels
-   simultanés depuis deux téléphones**. Critère : **un seul conteneur** dans le tableau de
-   bord Modal (avant le correctif, il y en avait deux). Le code est écrit, la preuve manque.
+1. **Fusionner et déployer la branche** (`6faa290` + supervision), puis poser
+   `SUPERVISION_TOKEN` dans le `.env` du VPS **et** en secret GitHub — sans les deux,
+   le workflow de supervision échoue à chaque passage et rien n'est surveillé.
+2. **#23 reste ouvert** : les sauvegardes sont sur la même machine que la base. Un incident
+   disque emporte tout. Les sortir du serveur reste à faire. La supervision surveille
+   désormais leur *fraîcheur*, pas leur *survie* à une panne disque.
 3. **#29 grille tarifaire** — proposition : Essentiel 89 € (150 appels), Service 149 €
    (400), Maison 249 € (5 établissements). Marché FR : Yumcall 99 €, Nerolia 149 €,
    Accueil IA 39-149 €. Coût de revient 11,4 ¢/appel → marge > 80 % à 89 €. Débloque la
    page de vente, les plafonds et Stripe.
-4. **#23 reste ouvert** : les sauvegardes sont sur la même machine que la base. Un incident
-   disque emporte tout. Les sortir du serveur reste à faire.
+4. **#40 volontairement ouvert** : `max_containers=4` est déployé mais le plafond
+   lui-même n'est pas prouvé (il faudrait plus de 32 sessions simultanées).
 5. **#30 numéro de démo** — bloqué côté Twilio, voir §9.
 
 ## 9. Twilio — dossier réglementaire en attente
@@ -178,7 +168,8 @@ curl -s localhost:8000/health
 /opt/backups/backup-db.sh                      # sauvegarde à la demande
 
 # En local
-cd api && python -m pytest tests/ -q            # 220 tests, aucun réseau
+cd api && python -m pytest tests/ -q            # 284 tests, aucun réseau
+python3 scripts/mutation_check.py               # 12 garde-fous : chacun doit MORDRE
 modal deploy deploy/modal_moshi_server.py
 python scripts/test_moshi_server.py --url https://helmi75--moshi-server-tts-server.modal.run
 
@@ -186,6 +177,10 @@ python scripts/test_moshi_server.py --url https://helmi75--moshi-server-tts-serv
 # ce qui compte est ce qu'un tiers voit, pas ce que la machine croit exposer.
 curl -sI --max-time 8 http://187.77.172.87:8000/ >/dev/null 2>&1 \
   && echo "ALERTE : port 8000 joignable publiquement" || echo "OK : 8000 fermé"
+
+# État réel de la pile (le jeton vit dans le .env du VPS, jamais ici) :
+curl -s -H "X-Supervision-Token: $SUPERVISION_TOKEN" \
+  https://app.helmane.fr/supervision | jq '.niveau, .controles[] | .titre + " : " + .niveau'
 ```
 
 ## 11. Contraintes et règles
