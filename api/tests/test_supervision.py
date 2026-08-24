@@ -340,6 +340,48 @@ class TestTwilio:
         supervision.noter("twilio", {"erreur": "ConnectTimeout"})
         assert _controle("twilio")["niveau"] == supervision.ATTENTION
 
+    def test_un_401_est_nomme_pour_ce_qu_il_est(self, base):
+        """Twilio A répondu : dire « l'API n'a pas répondu » enverrait chercher un
+        problème de réseau là où il faut renouveler un jeton. Constaté en production
+        le 24/08 — jeton révoqué depuis l'incident #20, jamais reporté dans le `.env`,
+        et rien ne l'avait signalé parce que les appels ENTRANTS n'en dépendent pas."""
+        supervision.noter("twilio", {"erreur": "HTTP 401"})
+        controle = _controle("twilio")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "401" in controle["resume"]
+        assert "identifiants" in controle["detail"]
+        assert controle["mesure"]["cause"] == "HTTP 401"
+
+    def test_une_reponse_d_erreur_porte_son_code(self, base, monkeypatch):
+        """Le code HTTP doit survivre jusqu'à l'ardoise, sinon le diagnostic se perd."""
+        import asyncio
+
+        import httpx
+
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-test")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "secret-de-test")
+
+        class _Reponse:
+            status_code = 401
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError("refusé", request=None, response=self)
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, *a, **k):
+                return _Reponse()
+
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_twilio())
+        valeur, _ = supervision.relire("twilio")
+        assert valeur == {"erreur": "HTTP 401"}
+
     def test_une_releve_figee_est_signalee(self, base):
         """Une tâche de fond morte laisserait un « 0 erreur » éternellement vert."""
         supervision.noter("twilio", {"erreurs": 0, "codes": {}})
