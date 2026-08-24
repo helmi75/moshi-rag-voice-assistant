@@ -467,12 +467,21 @@ def _controle_twilio() -> Controle:
     valeur, maj = memo
     age_min = round((_maintenant() - maj).total_seconds() / 60, 1) if maj else None
     if valeur.get("erreur"):
+        cause = str(valeur["erreur"])
+        explication = {
+            "HTTP 401": "les identifiants Twilio du serveur sont refusés — le jeton "
+                        "d'authentification a probablement été renouvelé côté console "
+                        "sans être reporté dans le `.env`. Les appels ENTRANTS n'en "
+                        "souffrent pas (Twilio nous appelle, il n'a pas besoin du jeton), "
+                        "ce qui rend la panne parfaitement silencieuse.",
+            "HTTP 429": "trop de relèves : baisser SUPERVISION_TWILIO_SECONDES est inutile, "
+                        "c'est l'inverse qu'il faut faire.",
+        }.get(cause, f"l'API Twilio n'a pas répondu ({cause}).")
         return Controle(
             "twilio", "Alertes Twilio", ATTENTION,
-            "Relève impossible.",
-            f"L'API Twilio n'a pas répondu ({valeur['erreur']}). Ce contrôle ne dit donc "
-            "rien de l'état réel des webhooks.",
-            mesure={"releve": False, "age_minutes": age_min},
+            f"Relève impossible ({cause}).",
+            f"{explication} Ce contrôle ne dit donc rien de l'état réel des webhooks.",
+            mesure={"releve": False, "cause": cause, "age_minutes": age_min},
         )
     n = int(valeur.get("erreurs", 0))
     # La relève est périodique : un mémo vieux de plusieurs heures ne décrit plus le
@@ -626,6 +635,12 @@ async def rafraichir_twilio() -> None:
             )
         reponse.raise_for_status()
         alertes = reponse.json().get("alerts", []) or []
+    except httpx.HTTPStatusError as exc:
+        # Twilio A répondu, et son code dit quoi faire : 401 = identifiants à renouveler,
+        # 429 = trop de relèves, 5xx = panne chez eux. « L'API n'a pas répondu » aurait
+        # envoyé chercher un problème de réseau là où il n'y en a pas.
+        noter("twilio", {"erreur": f"HTTP {exc.response.status_code}"})
+        return
     except Exception as exc:
         noter("twilio", {"erreur": type(exc).__name__})
         return
