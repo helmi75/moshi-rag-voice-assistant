@@ -172,6 +172,26 @@ GARDE_FOUS = [
         k="catalogue or inventee or defaut",
         panne="une valeur hors catalogue en base donnerait le plafond le plus généreux",
     ),
+    # --- Données personnelles (#22) -------------------------------------------
+    GardeFou(
+        nom="La purge efface vraiment les transcriptions",
+        fichier="api/app/rgpd.py",
+        avant="                 AND (transcript IS NOT NULL OR summary IS NOT NULL)\"\"\",",
+        apres="                 AND 1 = 0\"\"\",  # mutation",
+        tests=["test_rgpd.py"],
+        k="transcript or purge",
+        panne="la durée de conservation annoncée deviendrait un mensonge : le registre "
+              "dirait 30 jours et la base garderait tout",
+    ),
+    GardeFou(
+        nom="L'accueil ne se prononce jamais sans la mention d'information",
+        fichier="api/app/rgpd.py",
+        avant="    return f\"{texte} {MENTION}\".strip()",
+        apres="    return texte  # mutation",
+        tests=["test_rgpd.py"],
+        k="mention",
+        panne="l'appelant ignorerait qu'il parle à une machine et que ce qu'il dit est traité",
+    ),
 ]
 
 

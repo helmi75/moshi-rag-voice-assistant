@@ -8,7 +8,7 @@ from xml.sax.saxutils import escape
 from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
-from . import calls, db, llm, reservations, supervision, tenants, users
+from . import calls, db, llm, reservations, rgpd, supervision, tenants, users
 
 app = FastAPI(title="Voice Assistant SaaS")
 
@@ -92,42 +92,51 @@ async def _prerender_greetings():
     asyncio.create_task(greeting_mod.keep_warm_loop())
 
 
-# Tâche de fond de la supervision. Gardée en référence pour pouvoir l'ARRÊTER :
-# une boucle infinie qu'on abandonne empêche la boucle d'événements de se fermer, et
-# le processus (ou un TestClient) attend indéfiniment. Vécu le 23/08 — le contrôle de
+# Tâches de fond permanentes, gardées en référence pour pouvoir les ARRÊTER : une
+# boucle infinie qu'on abandonne empêche la boucle d'événements de se fermer, et le
+# processus (ou un TestClient) attend indéfiniment. Vécu le 23/08 — le contrôle de
 # mutation s'est figé une demi-heure sur un test qui sortait en erreur d'un
-# `with TestClient(...)`, précisément à cause de cette tâche orpheline.
-_supervision_tache = None
+# `with TestClient(...)`, précisément à cause d'une tâche orpheline.
+#
+# Une LISTE plutôt qu'une variable par tâche : à la troisième, le motif copié-collé
+# finit par oublier un arrêt quelque part.
+_taches_de_fond: list = []
 
 
 @app.on_event("startup")
-async def _supervision_twilio():
-    """Relève périodique des alertes Twilio (webhook injoignable, TwiML invalide).
+async def _demarrer_taches_de_fond():
+    """Deux boucles permanentes, chacune hors du chemin d'appel :
 
-    Hors de la sonde à dessein : c'est le SEUL contrôle qui exige un appel réseau, et
-    la sonde doit rester gratuite et instantanée pour être interrogeable en boucle.
+    - **relève des alertes Twilio** (#24) : hors de la sonde à dessein, c'est le seul
+      contrôle qui exige un appel réseau et la sonde doit rester gratuite ;
+    - **purge des données personnelles** (#22) : les durées de conservation ne valent
+      rien tant que rien ne les APPLIQUE.
     """
     import asyncio
 
-    global _supervision_tache
-    _supervision_tache = asyncio.create_task(supervision.boucle_twilio())
+    from . import rgpd
+
+    _taches_de_fond.extend([
+        asyncio.create_task(supervision.boucle_twilio()),
+        asyncio.create_task(rgpd.boucle()),
+    ])
 
 
 @app.on_event("shutdown")
-async def _arreter_supervision():
-    """Arrête proprement la relève. Sans ça, l'arrêt du service traîne — et un service
-    qui ne sait pas s'arrêter est un service qu'on finit par tuer au signal 9, en
-    pleine écriture SQLite."""
+async def _arreter_taches_de_fond():
+    """Arrête proprement toutes les boucles. Sans ça, l'arrêt du service traîne — et un
+    service qui ne sait pas s'arrêter est un service qu'on finit par tuer au signal 9,
+    en pleine écriture SQLite."""
     import asyncio
     import contextlib
 
-    global _supervision_tache
-    tache, _supervision_tache = _supervision_tache, None
-    if tache is None or tache.done():
-        return
-    tache.cancel()
-    with contextlib.suppress(asyncio.CancelledError, Exception):
-        await tache
+    taches, _taches_de_fond[:] = list(_taches_de_fond), []
+    for tache in taches:
+        if not tache.done():
+            tache.cancel()
+    for tache in taches:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await tache
 
 
 # Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;
@@ -293,7 +302,7 @@ async def voice_webhook(
 
     # Premier tour : accueil sans appel LLM (latence nulle)
     if not SpeechResult:
-        return _say_and_gather(tenant.greeting, tenant.language)
+        return _say_and_gather(rgpd.accueil(tenant), tenant.language)
 
     try:
         history = _get_history(CallSid or "")

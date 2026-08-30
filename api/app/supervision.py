@@ -439,6 +439,56 @@ def _controle_sauvegarde() -> Controle:
     )
 
 
+def _controle_purge() -> Controle:
+    """La purge des données personnelles tourne-t-elle vraiment ? (#22)
+
+    Une durée de conservation écrite dans un registre et jamais appliquée est pire que
+    pas de durée du tout : elle donne une réponse fausse à qui la demande. Ce contrôle
+    existe pour que « on conserve 30 jours » soit une constatation, pas une intention.
+    """
+    from . import rgpd
+
+    memo = relire("purge")
+    intervalle_h = rgpd.intervalle_secondes() / 3600
+    if intervalle_h <= 0:
+        return Controle(
+            "purge", "Purge des données personnelles", ATTENTION,
+            "Purge désactivée.",
+            "RETENTION_INTERVALLE_SECONDES vaut 0 : les numéros et transcriptions sont "
+            "conservés sans limite, ce qui contredit le registre de traitement "
+            "(docs/RGPD.md).",
+            mesure={"active": False},
+        )
+    if memo is None:
+        return Controle(
+            "purge", "Purge des données personnelles", ATTENTION,
+            "Jamais exécutée.",
+            "Aucune purge n'a encore été notée. Au démarrage elle a lieu tout de suite ; "
+            "si ce message persiste, la tâche de fond ne tourne pas.",
+            mesure={"active": True, "executee": False},
+        )
+    valeur, maj = memo
+    age_h = (_maintenant() - maj).total_seconds() / 3600 if maj else None
+    # Deux intervalles de tolérance : un redémarrage ou une exécution décalée ne doit
+    # pas crier, deux cycles manqués si.
+    if age_h is not None and age_h > 2 * intervalle_h:
+        return Controle(
+            "purge", "Purge des données personnelles", PANNE,
+            f"Dernière purge il y a {age_h:.0f} h.",
+            f"La purge devrait passer toutes les {intervalle_h:.0f} h. Des données "
+            "personnelles sont conservées au-delà de la durée annoncée.",
+            mesure={"active": True, "age_heures": round(age_h, 1)},
+        )
+    return Controle(
+        "purge", "Purge des données personnelles", OK,
+        f"Passée il y a {age_h:.0f} h" if age_h is not None else "Passée.",
+        f"Dernier passage : {valeur.get('transcripts', 0)} transcription(s), "
+        f"{valeur.get('numeros', 0)} numéro(s), "
+        f"{valeur.get('reservations', 0)} réservation(s).",
+        mesure={"active": True, "age_heures": age_h, **valeur},
+    )
+
+
 def _controle_twilio() -> Controle:
     """Erreurs remontées par Twilio lui-même (Monitor/Alerts), relues depuis l'ardoise.
 
@@ -549,6 +599,7 @@ def controles() -> list[Controle]:
         ("twilio", _controle_twilio),
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
+        ("purge", _controle_purge),
     ]
     resultats = []
     for cle, fabrique in fabriques:

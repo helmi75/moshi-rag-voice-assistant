@@ -98,6 +98,13 @@ services:
       SUPERVISION_SAUVEGARDE_PANNE_H: "${SUPERVISION_SAUVEGARDE_PANNE_H:-72}"
       SUPERVISION_TWILIO_SECONDES: "${SUPERVISION_TWILIO_SECONDES:-900}"
       SUPERVISION_BACKUP_STAMP: "${SUPERVISION_BACKUP_STAMP:-/app/data/derniere-sauvegarde}"
+      # Données personnelles (#22). Mêmes règles que ci-dessus : une variable posée dans
+      # `.env` n'atteint pas le conteneur si elle ne figure pas ICI.
+      RETENTION_TRANSCRIPT_JOURS: "${RETENTION_TRANSCRIPT_JOURS:-30}"
+      RETENTION_NUMERO_JOURS: "${RETENTION_NUMERO_JOURS:-90}"
+      RETENTION_RESERVATION_JOURS: "${RETENTION_RESERVATION_JOURS:-365}"
+      RETENTION_INTERVALLE_SECONDES: "${RETENTION_INTERVALLE_SECONDES:-86400}"
+      RGPD_MENTION: "${RGPD_MENTION:-1}"
     volumes:
       - api_data:/app/data
 
