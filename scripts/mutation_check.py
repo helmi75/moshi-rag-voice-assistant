@@ -152,6 +152,26 @@ GARDE_FOUS = [
         k="muet",
         panne="la panne du 30/07 (appels sans un mot, tout en HTTP 200) redeviendrait invisible",
     ),
+    # --- Facturation (#31) ----------------------------------------------------
+    GardeFou(
+        nom="La formule ne se choisit pas soi-même",
+        fichier="api/app/admin/routes_tenants.py",
+        avant="    if user.is_superadmin and plans.get(plan) is not None:",
+        apres="    if plans.get(plan) is not None:  # mutation",
+        tests=["test_quotas.py"],
+        k="formule or choisit",
+        panne="un restaurateur s'attribuerait la formule à 750 appels : élévation de "
+              "privilège qui ne ressemble pas à une faille, et qui coûte de l'argent",
+    ),
+    GardeFou(
+        nom="Un plafond vient d'une formule réellement vendue",
+        fichier="api/app/plans.py",
+        avant="    choisie = getattr(tenant, \"plan\", None)\n    return get(choisie) or defaut()",
+        apres="    return get(getattr(tenant, \"plan\", None)) or CATALOGUE[-1]  # mutation",
+        tests=["test_quotas.py", "test_plans.py"],
+        k="catalogue or inventee or defaut",
+        panne="une valeur hors catalogue en base donnerait le plafond le plus généreux",
+    ),
 ]
 
 

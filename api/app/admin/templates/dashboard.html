@@ -20,6 +20,37 @@
   {{ kpi("Coût estimé", money(totals.total_cost), deltas.cost, tone="dot-warn") }}
 </div>
 
+{% if quota %}
+{# Le forfait a sa propre carte, hors de la grille d'indicateurs : les autres portent
+   sur 30 jours glissants, celui-ci sur le mois CALENDAIRE parce que c'est la maille de
+   facturation. Les mélanger ferait douter de la facture. #}
+{% set etat = {'ok':        {'classe': '',                  'chip': 'chip-good', 'mot': 'Dans le forfait'},
+               'alerte':    {'classe': 'meter-alerte',      'chip': 'chip-warn', 'mot': 'Bientôt au plafond'},
+               'depassement': {'classe': 'meter-depassement', 'chip': 'chip-bad', 'mot': 'Plafond dépassé'}}[quota.niveau] %}
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>Forfait {{ quota.formule.label }}
+        <span class="chip {{ etat.chip }}">{{ etat.mot }}</span></h2>
+      <p class="card-sub">{{ quota.appels }} appel(s) ce mois-ci sur {{ quota.inclus }} inclus.
+        {% if quota.hors_forfait %}
+        <b>{{ quota.hors_forfait }} appel(s) hors forfait</b>, soit
+        {{ "%.2f" | format(quota.montant_eur) }} € à facturer.
+        Votre ligne n'a pas été coupée et ne le sera pas : un appel manqué coûte plus
+        cher qu'un appel facturé.
+        {% else %}
+        Au-delà, chaque appel est facturé {{ "%.2f" | format(depassement_eur) }} €.
+        {% endif %}
+      </p>
+    </div>
+  </div>
+  <div class="meter {{ etat.classe }}" role="img"
+       aria-label="{{ quota.appels }} appels sur {{ quota.inclus }} inclus">
+    <i style="width: {{ quota.part_affichable }}%"></i>
+  </div>
+</section>
+{% endif %}
+
 <section class="card" style="margin-bottom: .9rem">
   {{ slots_chart }}
 </section>

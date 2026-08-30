@@ -159,9 +159,24 @@ class TestCalls:
         assert all(c["tenant_id"] == other for c in calls.list_calls(other))
 
     def test_estimate_cost_formula(self):
-        assert calls.estimate_call_cost(0) == pytest.approx(0.0035)
-        one_min = calls.estimate_call_cost(60)
-        assert one_min == pytest.approx(0.0085 + 0.0058 + 0.02 + 0.0035)
+        """Le coût est linéaire en durée, plus un forfait par appel.
+
+        Le test LIT les constantes du module au lieu de les recopier. Un test qui
+        répète les tarifs ne vérifie pas la formule : il duplique la grille, et il
+        casse à chaque révision de prix sans avoir rien protégé. Vécu le 30/08/2026,
+        en corrigeant le tarif Deepgram de nova-2 vers nova-3 — ce test a rougi alors
+        que le calcul était juste."""
+        par_minute = (calls._COST_TWILIO_PER_MIN + calls._COST_DEEPGRAM_PER_MIN
+                      + calls._COST_MODAL_PER_MIN)
+        assert calls.estimate_call_cost(0) == pytest.approx(calls._COST_LLM_PER_CALL)
+        assert calls.estimate_call_cost(60) == pytest.approx(
+            par_minute + calls._COST_LLM_PER_CALL)
+        # Linéaire : la 3e minute coûte autant que la 2e.
+        assert (calls.estimate_call_cost(180) - calls.estimate_call_cost(120)
+                == pytest.approx(calls.estimate_call_cost(120)
+                                 - calls.estimate_call_cost(60)))
+        # Une durée négative (horloge qui recule pendant l'appel) ne crée pas d'avoir.
+        assert calls.estimate_call_cost(-30) == pytest.approx(calls._COST_LLM_PER_CALL)
 
     def test_stats_daily(self, fresh_db, tenant_id):
         calls.start_call("CA-1", tenant_id)

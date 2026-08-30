@@ -353,6 +353,12 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
 .meter-head span { color: var(--app-muted); font-variant-numeric: tabular-nums; }
 .meter { height: 7px; border-radius: 4px; background: var(--app-surface-2); overflow: hidden; }
 .meter > i { display: block; height: 100%; border-radius: 4px; background: var(--app-accent); }
+/* États d'un forfait (#31). La couleur ne porte JAMAIS l'information seule : chaque
+   compteur est accompagné du texte « x / y appels » et d'une pastille nommée. Ces
+   teintes sont celles du statut (good/warn/bad), réservées — jamais réutilisées comme
+   couleur de série dans un graphique. */
+.meter-alerte > i      { background: var(--app-warn); }
+.meter-depassement > i { background: var(--app-bad); }
 
 /* ---- Filtres segmentés --------------------------------------------------- */
 .segmented {

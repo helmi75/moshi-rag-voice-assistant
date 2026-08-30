@@ -33,6 +33,19 @@
         <input name="phone_number" required value="{{ tenant.phone_number if tenant else '' }}"
                placeholder="+33612345678">
       </label>
+      {# La formule décide du plafond et de la facture : elle se vend, elle ne se
+         choisit pas soi-même. Réservée au super-admin, comme le numéro. #}
+      <label>Formule <small class="muted">(plafond et facturation)</small>
+        <select name="plan">
+          {% for f in formules %}
+          <option value="{{ f.id }}"
+                  {{ "selected" if tenant and tenant.plan == f.id }}>
+            {{ f.label }} — {{ f.prix_mensuel_eur }} €/mois, {{ f.appels_inclus }} appels
+            {%- if f.etablissements_inclus > 1 %}, {{ f.etablissements_inclus }} établissements{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
       {% endif %}
       <label>Langue
         <input name="language" value="{{ tenant.language if tenant else 'fr-FR' }}">

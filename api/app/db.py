@@ -102,6 +102,14 @@ CREATE TABLE IF NOT EXISTS supervision (
     maj_le TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 """,
+    # v7 — plan : la formule commerciale de l'établissement (#31). NULL = la formule par
+    # défaut du catalogue, ce qui laisse le parc existant fonctionner sans qu'on ait à
+    # lui attribuer un plan avant qu'une facturation existe. Comme pour `voice`, une
+    # valeur hors catalogue est ignorée par app/plans.py:resolve — un plafond doit
+    # toujours venir d'une formule que quelqu'un a réellement vendue.
+    """
+ALTER TABLE tenants ADD COLUMN plan TEXT;
+""",
 ]
 
 
