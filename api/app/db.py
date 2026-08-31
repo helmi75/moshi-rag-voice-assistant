@@ -110,6 +110,15 @@ CREATE TABLE IF NOT EXISTS supervision (
     """
 ALTER TABLE tenants ADD COLUMN plan TEXT;
 """,
+    # v8 — cancelled_at : une annulation par téléphone (#33) n'efface pas la ligne, elle
+    # l'horodate. Supprimer ferait disparaître la preuve le jour où un client affirme
+    # avoir annulé et où le restaurant a gardé la table — c'est précisément le litige
+    # qu'une annulation automatisée rend possible. NULL = réservation active ; toute
+    # requête qui COMPTE des couverts doit exclure les annulées, sinon la salle paraît
+    # pleine alors qu'elle ne l'est pas.
+    """
+ALTER TABLE reservations ADD COLUMN cancelled_at TEXT;
+""",
 ]
 
 

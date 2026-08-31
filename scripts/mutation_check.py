@@ -192,6 +192,36 @@ GARDE_FOUS = [
         k="mention",
         panne="l'appelant ignorerait qu'il parle à une machine et que ce qu'il dit est traité",
     ),
+    # --- Modification par téléphone (#33) -------------------------------------
+    GardeFou(
+        nom="Une réservation n'est rendue qu'à son propriétaire",
+        fichier="api/app/reservations.py",
+        avant="                WHERE id = ? AND tenant_id = ? AND customer_phone = ? AND {ACTIVES}\"\"\",\n            (reservation_id, tenant_id, phone),",
+        apres="                WHERE id = ?\"\"\",  # mutation\n            (reservation_id,),",
+        tests=["test_reservation_modification.py"],
+        k="autre or masque or impossible",
+        panne="l'assistante annulerait la réservation de quelqu'un d'autre sur un simple "
+              "identifiant — incident qu'aucun journal ne rattrape",
+    ),
+    GardeFou(
+        nom="Une annulation libère vraiment la table",
+        fichier="api/app/reservations.py",
+        avant='ACTIVES = "cancelled_at IS NULL"',
+        apres='ACTIVES = "1 = 1"  # mutation',
+        tests=["test_reservation_modification.py"],
+        k="annul or libere or couverts",
+        panne="une table annulée compterait encore : l'assistante refuserait un créneau "
+              "pourtant libre, sans qu'aucune erreur n'apparaisse",
+    ),
+    GardeFou(
+        nom="Le téléphone d'une réservation vient du réseau, pas du modèle",
+        fichier="api/app/llm.py",
+        avant='            customer_phone=(caller_number or "").strip() or None,',
+        apres='            customer_phone=tool_input.get("customer_phone"),  # mutation',
+        tests=["test_reservation_modification.py"],
+        k="reseau or telephone",
+        panne="l'appelant déciderait de qui il est, donc à quelles réservations il accède",
+    ),
 ]
 
 

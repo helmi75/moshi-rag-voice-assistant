@@ -306,7 +306,7 @@ async def voice_webhook(
 
     try:
         history = _get_history(CallSid or "")
-        text, messages = await llm.respond(tenant, history, SpeechResult)
+        text, messages = await llm.respond(tenant, history, SpeechResult, From)
         if CallSid:
             _save_history(CallSid, messages)
         if not text:
@@ -330,7 +330,7 @@ async def sms_webhook(
         text = "Ce numéro n'est pas encore configuré."
     else:
         try:
-            text, _ = await llm.respond(tenant, [], Body)
+            text, _ = await llm.respond(tenant, [], Body, From)
         except Exception as exc:
             print(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
             text = "Désolé, une erreur s'est produite. Réessayez dans quelques instants."

@@ -12,6 +12,7 @@ vectoriel n'apporterait rien à cette échelle (voir ARCHITECTURE.md).
 import json
 import os
 from datetime import date
+from typing import Optional
 
 from openai import AsyncOpenAI
 
@@ -66,13 +67,75 @@ TOOLS = [
                 "date": {"type": "string", "description": "Date au format AAAA-MM-JJ"},
                 "time": {"type": "string", "description": "Heure au format HH:MM"},
                 "party_size": {"type": "integer", "description": "Nombre de personnes"},
-                "customer_phone": {"type": "string", "description": "Téléphone du client si connu"},
                 "notes": {"type": "string", "description": "Demandes particulières"},
             },
             "required": ["customer_name", "date", "time", "party_size"],
         },
     },
+    # --- Modification et annulation (#33) -------------------------------------
+    # Aucun de ces outils ne reçoit le numéro de l'appelant : il est injecté par le
+    # serveur (run_tool), jamais par le modèle. Un identifiant de réservation proposé
+    # par le modèle ne donne accès à rien sans ce numéro.
+    {
+        "name": "find_reservation",
+        "description": (
+            "Retrouve les réservations À VENIR de la personne qui appelle, à partir de "
+            "son numéro. Appelle cet outil AVANT toute modification ou annulation : il "
+            "donne les identifiants nécessaires. S'il ne renvoie rien, la personne n'a "
+            "pas de réservation à ce numéro — propose de prendre le message."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "Filtre facultatif, format AAAA-MM-JJ : ne renvoie "
+                                   "que les réservations à partir de cette date.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "modify_reservation",
+        "description": (
+            "Modifie une réservation existante de la personne qui appelle. Utilise "
+            "l'identifiant rendu par find_reservation. Ne fournis que les champs qui "
+            "changent. Récapitule au client avant d'appeler, et n'annonce la "
+            "modification qu'APRÈS le retour de l'outil."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reservation_id": {"type": "integer", "description": "Identifiant rendu par find_reservation"},
+                "date": {"type": "string", "description": "Nouvelle date, format AAAA-MM-JJ"},
+                "time": {"type": "string", "description": "Nouvelle heure, format HH:MM"},
+                "party_size": {"type": "integer", "description": "Nouveau nombre de personnes"},
+                "notes": {"type": "string", "description": "Demandes particulières"},
+            },
+            "required": ["reservation_id"],
+        },
+    },
+    {
+        "name": "cancel_reservation",
+        "description": (
+            "Annule une réservation de la personne qui appelle. Utilise l'identifiant "
+            "rendu par find_reservation. Fais confirmer l'annulation à l'oral avant "
+            "d'appeler cet outil : elle libère la table."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reservation_id": {"type": "integer", "description": "Identifiant rendu par find_reservation"},
+            },
+            "required": ["reservation_id"],
+        },
+    },
 ]
+
+# Outils qui agissent sur une réservation existante : ils exigent d'identifier
+# l'appelant, donc son numéro. Sans numéro (appel masqué, numéro purgé), ils refusent.
+OUTILS_APPELANT = ("find_reservation", "modify_reservation", "cancel_reservation")
 
 _client: AsyncOpenAI | None = None
 
@@ -177,8 +240,11 @@ quinze août, c'est bien ça ? ».
 # Les autres appels
 - Question pratique (horaires, adresse, carte, parking, accès) : réponds en une phrase
   à partir des informations ci-dessous.
-- Modification ou annulation : tu ne sais pas encore le faire toi-même. Note la demande
-  et annonce que l'équipe rappelle. Ne prétends jamais avoir annulé quoi que ce soit.
+- Modification ou annulation : appelle find_reservation (il retrouve les réservations à
+  venir du numéro qui appelle), fais préciser laquelle s'il y en a plusieurs, récapitule,
+  puis appelle modify_reservation ou cancel_reservation. N'annonce le changement qu'APRÈS
+  le retour de l'outil. Aucune réservation trouvée, ou numéro masqué : prends le message,
+  n'invente rien et ne demande pas de « numéro de dossier », il n'en existe pas.
 - Groupe important, privatisation, événement, réclamation, démarchage commercial,
   fournisseur : ne traite pas, prends le message et annonce un rappel de l'équipe.
 - Urgence réelle : invite à raccrocher et à appeler le quinze.
@@ -212,9 +278,73 @@ N'emploie ces formules QUE pour raccrocher vraiment : elles terminent l'appel.
 {tenant.knowledge_base}"""
 
 
-async def run_tool(tenant: Tenant, name: str, tool_input: dict) -> str:
+def _refus(message: str) -> str:
+    """Réponse d'outil qui dit NON sans faire échouer l'appel : le modèle lit le message
+    et enchaîne. Lever une exception le ferait s'excuser d'un « problème technique »
+    alors qu'il s'agit d'une règle métier."""
+    return json.dumps({"error": message}, ensure_ascii=False)
+
+
+async def run_tool(tenant: Tenant, name: str, tool_input: dict,
+                   caller_number: Optional[str] = None) -> str:
     """Exécute un outil métier. Partagé entre le mode Gather (respond) et le
-    pipeline streaming Pipecat (voice/bot.py)."""
+    pipeline streaming Pipecat (voice/bot.py).
+
+    `caller_number` vient du réseau téléphonique, jamais du modèle : c'est lui qui
+    autorise l'accès à une réservation existante. Un identifiant de réservation seul
+    n'ouvre rien.
+    """
+    # Garde unique pour les trois outils qui touchent à une réservation existante.
+    # Placée AVANT le routage : ajouter un quatrième outil à OUTILS_APPELANT suffit à
+    # le protéger, on ne peut pas oublier la vérification en écrivant sa branche.
+    if name in OUTILS_APPELANT and not (caller_number or "").strip():
+        return _refus(
+            "Numéro de l'appelant inconnu (appel masqué) : impossible de retrouver ou "
+            "de modifier une réservation. Prends le message et annonce un rappel."
+        )
+
+    if name == "find_reservation":
+        trouvees = reservations.find_by_phone(
+            tenant.id, caller_number, a_partir_de=tool_input.get("date"))
+        return json.dumps(
+            {"reservations": [
+                {"reservation_id": r["id"], "customer_name": r["customer_name"],
+                 "date": r["date"], "time": r["time"], "party_size": r["party_size"],
+                 "notes": r["notes"]}
+                for r in trouvees
+            ]},
+            ensure_ascii=False,
+        )
+
+    if name in ("modify_reservation", "cancel_reservation"):
+        try:
+            reservation_id = int(tool_input.get("reservation_id"))
+        except (TypeError, ValueError):
+            return _refus("Identifiant de réservation manquant : appelle d'abord find_reservation.")
+        # LA porte : rien n'est chargé sans le tenant ET le numéro appelant.
+        existante = reservations.get_for_caller(reservation_id, tenant.id, caller_number)
+        if existante is None:
+            return _refus(
+                "Aucune réservation à venir ne correspond à ce numéro. Ne prétends pas "
+                "l'avoir trouvée ; propose de prendre le message."
+            )
+        if name == "cancel_reservation":
+            reservations.cancel_reservation(reservation_id)
+            return json.dumps(
+                {"status": "cancelled", "reservation_id": reservation_id,
+                 "date": existante["date"], "time": existante["time"]},
+                ensure_ascii=False)
+        champs = {k: tool_input[k] for k in ("date", "time", "party_size", "notes")
+                  if tool_input.get(k) not in (None, "")}
+        if not champs:
+            return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
+        modifiee = reservations.update_reservation(reservation_id, **champs)
+        return json.dumps(
+            {"status": "modified", "reservation_id": reservation_id,
+             "date": modifiee["date"], "time": modifiee["time"],
+             "party_size": modifiee["party_size"]},
+            ensure_ascii=False)
+
     if name == "check_availability":
         booked = reservations.count_for_slot(
             tenant.id, tool_input["date"], tool_input["time"]
@@ -224,20 +354,26 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict) -> str:
             ensure_ascii=False,
         )
     if name == "create_reservation":
+        # Le téléphone vient du RÉSEAU, jamais du modèle, et ce n'est pas qu'une question
+        # de qualité de transcription : c'est ce champ qui autorisera plus tard la
+        # modification et l'annulation (#33). Laisser le modèle le proposer reviendrait à
+        # accepter que l'appelant décide de qui il est. Un appel masqué donne None : la
+        # réservation existe, mais elle ne sera pas modifiable au téléphone.
         row = reservations.create_reservation(
             tenant_id=tenant.id,
             customer_name=tool_input["customer_name"],
             date=tool_input["date"],
             time=tool_input["time"],
             party_size=tool_input["party_size"],
-            customer_phone=tool_input.get("customer_phone"),
+            customer_phone=(caller_number or "").strip() or None,
             notes=tool_input.get("notes"),
         )
         return json.dumps({"status": "confirmed", "reservation_id": row["id"]}, ensure_ascii=False)
     return json.dumps({"error": f"outil inconnu: {name}"}, ensure_ascii=False)
 
 
-async def respond(tenant: Tenant, history: list, user_text: str) -> tuple[str, list]:
+async def respond(tenant: Tenant, history: list, user_text: str,
+                  caller_number: Optional[str] = None) -> tuple[str, list]:
     """Fait avancer la conversation d'un tour.
 
     `history` est la liste de messages (format OpenAI/OpenRouter, sans le message
@@ -283,7 +419,7 @@ async def respond(tenant: Tenant, history: list, user_text: str) -> tuple[str, l
             except json.JSONDecodeError:
                 args = {}
             try:
-                result = await run_tool(tenant, tc.function.name, args)
+                result = await run_tool(tenant, tc.function.name, args, caller_number)
             except Exception as exc:  # l'outil a échoué, on laisse le modèle s'excuser
                 result = f"Erreur: {exc}"
             api_messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
