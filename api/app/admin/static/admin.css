@@ -533,3 +533,8 @@ mark { background: var(--app-accent-soft); color: var(--app-text); border-radius
   .kpi-value { font-size: 1.5rem; }
   .row-metric { min-width: 3.6rem; }
 }
+
+/* Réservation annulée (#33) : atténuée, mais l'information reste portée par le mot
+   « Annulée » à côté du nom — jamais par la seule opacité. */
+tr.annulee { opacity: .55; }
+tr.annulee strong { text-decoration: line-through; }

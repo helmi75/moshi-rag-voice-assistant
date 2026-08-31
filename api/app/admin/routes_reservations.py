@@ -42,9 +42,14 @@ async def reservations_list(
     if not user.is_superadmin:
         tenant_id = user.tenant_id
     page = max(1, page)
+    # Cet écran-ci MONTRE les annulées : un restaurateur qui voit « annulée à 15h32 »
+    # peut reproposer le créneau, et retrouver la preuve si le client conteste. La liste
+    # « à venir » de la salle de contrôle, elle, garde le défaut qui les masque — y
+    # laisser des annulées ferait préparer des couverts pour personne.
     rows = reservations.list_filtered(
         tenant_id=tenant_id, date_from=date_from or None,
         limit=PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE,
+        inclure_annulees=True,
     )
     has_next = len(rows) > PAGE_SIZE
     tenant_names = _tenant_names(user)

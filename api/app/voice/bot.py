@@ -26,18 +26,16 @@ def make_tool_handler(
 
     `created_reservations` (journal des appels) : collecte les ids des réservations
     créées pendant l'appel — le handler voit passer tous les résultats d'outils.
-    `caller_number` : numéro Twilio de l'appelant, injecté d'office comme customer_phone
-    de la réservation (identifiant fiable, quelle que soit la qualité de transcription du
-    nom). Le client n'a jamais à le dicter."""
+    `caller_number` : numéro Twilio de l'appelant, transmis à `run_tool` qui en fait la
+    source de vérité — téléphone de la réservation, et surtout autorisation d'accès à une
+    réservation existante (#33). L'injection se fait LÀ-BAS et non ici : le mode `gather`
+    passe par `llm.respond` sans traverser ce handler, et deux points d'injection
+    finiraient par diverger."""
 
     async def handle(params):  # params: pipecat FunctionCallParams
         args = dict(params.arguments or {})
-        # Le numéro de l'appelant est la source de vérité : on l'impose comme téléphone
-        # de la réservation (le nom, lui, peut être écorché par la STT sur le 8 kHz).
-        if params.function_name == "create_reservation" and caller_number:
-            args["customer_phone"] = caller_number
         try:
-            result = await llm.run_tool(tenant, params.function_name, args)
+            result = await llm.run_tool(tenant, params.function_name, args, caller_number)
         except Exception as exc:
             result = f"Erreur outil {params.function_name}: {exc}"
         if created_reservations is not None and params.function_name == "create_reservation":

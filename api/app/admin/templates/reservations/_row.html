@@ -1,5 +1,8 @@
-<tr id="resa-{{ r.id }}">
-  <td><strong>{{ r.customer_name }}</strong></td>
+<tr id="resa-{{ r.id }}"{% if r.cancelled_at %} class="annulee"{% endif %}>
+  <td><strong>{{ r.customer_name }}</strong>
+    {# L'état n'est jamais porté par la seule mise en forme : le mot est écrit. #}
+    {% if r.cancelled_at %}<span class="chip chip-bad">Annulée</span>{% endif %}
+  </td>
   <td>{{ r.customer_phone or "—" }}</td>
   <td>{{ r.date }}</td>
   <td>{{ r.time }}</td>
@@ -7,10 +10,15 @@
   {% if tenant_names %}<td>{{ tenant_names.get(r.tenant_id, r.tenant_id) }}</td>{% endif %}
   <td>{{ r.notes or "" }}</td>
   <td style="white-space: nowrap">
+    {% if r.cancelled_at %}
+    <span class="muted" title="Annulée le {{ r.cancelled_at }}">
+      annulée {{ r.cancelled_at[:10] }}</span>
+    {% else %}
     <a href="#" hx-get="/admin/reservations/{{ r.id }}/edit"
        hx-target="closest tr" hx-swap="outerHTML">Modifier</a> ·
     <a href="#" hx-post="/admin/reservations/{{ r.id }}/delete"
        hx-confirm="Annuler la réservation de {{ r.customer_name }} ?"
        hx-target="closest tr" hx-swap="delete swap:0.2s">Annuler</a>
+    {% endif %}
   </td>
 </tr>
