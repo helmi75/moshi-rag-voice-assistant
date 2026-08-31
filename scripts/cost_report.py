@@ -27,9 +27,11 @@ SNAP_FILE = os.path.expanduser(
     os.getenv("COST_SNAPSHOT_FILE", "~/moshi-rag-voice-assistant/.cost_snapshot.json")
 )
 MODAL_BIN = os.path.expanduser("~/moshi-rag-voice-assistant/.modal-venv/bin/modal")
-# Tarif Deepgram nova-2 streaming (À CONFIRMER sur ton dashboard : le seul chiffre non
-# récupérable en API faute de scope billing sur la clé).
-DEEPGRAM_RATE_PER_MIN = float(os.getenv("DEEPGRAM_RATE_PER_MIN", "0.0058"))
+# Tarif Deepgram nova-3 streaming, à la carte, monolingue — CONFIRMÉ le 30/08/2026 sur
+# deepgram.com/pricing. C'est le seul chiffre non récupérable en API (la clé n'a pas le
+# scope billing). Le multilingue est à 0,0092 $/min : si DEEPGRAM_LANGUAGE=multi, régler
+# DEEPGRAM_RATE_PER_MIN en conséquence.
+DEEPGRAM_RATE_PER_MIN = float(os.getenv("DEEPGRAM_RATE_PER_MIN", "0.0077"))
 APP_NAME = "moshi-server"
 
 
@@ -132,7 +134,7 @@ def cmd_report():
     line("Modal GPU L4",   modal_delta.get("L4", 0.0), "EXACT (modal billing)")
     line("Modal CPU",      modal_delta.get("CPU", 0.0), "EXACT (modal billing)")
     line("Modal Mémoire",  modal_delta.get("Memory", 0.0), "EXACT (modal billing)")
-    line("Deepgram STT", deepgram_total, f"tarif {DEEPGRAM_RATE_PER_MIN}$/min (À CONFIRMER)")
+    line("Deepgram STT", deepgram_total, f"tarif {DEEPGRAM_RATE_PER_MIN}$/min (nova-3)")
     print("-" * 58)
     line("TOTAL", grand, "")
     if n:

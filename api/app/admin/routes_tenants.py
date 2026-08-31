@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from .. import tenants, users
+from .. import plans, tenants, users
 from ..users import User
 from . import deps
 
@@ -26,7 +26,8 @@ async def tenants_list(request: Request, user: User = Depends(deps.require_super
 async def tenant_new(request: Request, user: User = Depends(deps.require_superadmin)):
     deps.ensure_csrf(request)
     return deps.templates.TemplateResponse(
-        request, "tenants/form.html", {"tenant": None, "error": None}
+        request, "tenants/form.html",
+        {"tenant": None, "error": None, "formules": plans.catalogue()},
     )
 
 
@@ -40,6 +41,7 @@ async def tenant_create(
     language: str = Form("fr-FR"),
     greeting: str = Form(""),
     knowledge_base: str = Form(""),
+    plan: Optional[str] = Form(None),
 ):
     try:
         tenant = tenants.create_tenant(
@@ -49,9 +51,15 @@ async def tenant_create(
     except sqlite3.IntegrityError:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
-            {"tenant": None, "error": f"Le numéro {phone_number} est déjà utilisé."},
+            {"tenant": None, "error": f"Le numéro {phone_number} est déjà utilisé.",
+             "formules": plans.catalogue()},
             status_code=409,
         )
+    # `create_tenant` ne prend pas la formule (signature historique) : on la pose juste
+    # après, et seulement si elle appartient au catalogue. Sans ça, l'établissement
+    # naîtrait sur la formule par défaut sans que personne ne l'ait décidé.
+    if plans.get(plan) is not None:
+        tenants.update_tenant(tenant.id, plan=plan)
     _prerender_greeting(tenant.id)
     return RedirectResponse("/admin/tenants", status_code=303)
 
@@ -62,7 +70,8 @@ async def tenant_edit(request: Request, tenant_id: int,
     tenant = deps.resolve_tenant(tenant_id, user)
     deps.ensure_csrf(request)
     return deps.templates.TemplateResponse(
-        request, "tenants/form.html", {"tenant": tenant, "error": None}
+        request, "tenants/form.html",
+        {"tenant": tenant, "error": None, "formules": plans.catalogue()},
     )
 
 
@@ -77,6 +86,7 @@ async def tenant_update(
     language: str = Form("fr-FR"),
     greeting: str = Form(""),
     knowledge_base: str = Form(""),
+    plan: Optional[str] = Form(None),
 ):
     tenant = deps.resolve_tenant(tenant_id, user)
     fields = {
@@ -89,13 +99,20 @@ async def tenant_update(
     # Le numéro de téléphone (routage Twilio) est réservé au super-admin.
     if user.is_superadmin and phone_number is not None:
         fields["phone_number"] = phone_number.strip()
+    # La formule aussi : elle décide du plafond et de ce qui sera facturé. Un
+    # restaurateur qui pourrait se l'attribuer choisirait son propre tarif.
+    # `plans.get` rejette toute valeur hors catalogue — un formulaire forgé ne peut
+    # donc pas inscrire un plafond que personne n'a vendu.
+    if user.is_superadmin and plans.get(plan) is not None:
+        fields["plan"] = plan
     greeting_changed = (greeting.strip() or None) != tenant.greeting
     try:
         tenants.update_tenant(tenant.id, **fields)
     except sqlite3.IntegrityError:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
-            {"tenant": tenant, "error": f"Le numéro {phone_number} est déjà utilisé."},
+            {"tenant": tenant, "error": f"Le numéro {phone_number} est déjà utilisé.",
+             "formules": plans.catalogue()},
             status_code=409,
         )
     if greeting_changed:

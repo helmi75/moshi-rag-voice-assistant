@@ -81,7 +81,8 @@ class TestEnumeration:
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
     ATTENDUS = ["base", "configuration", "appels_muets", "appels_echoues",
-                "appels_inacheves", "latence", "twilio", "accueils", "sauvegarde"]
+                "appels_inacheves", "latence", "twilio", "accueils", "sauvegarde",
+                "purge"]
 
     def test_tous_les_controles_sont_presents(self, base):
         assert [c["cle"] for c in supervision.etat(force=True)["controles"]] == self.ATTENDUS
@@ -450,17 +451,22 @@ class TestTwilio:
         monkeypatch.setenv("TWILIO_ACCOUNT_SID", "")
         monkeypatch.setenv("TWILIO_AUTH_TOKEN", "")
 
-        async def scenario():
-            await main_mod._supervision_twilio()
-            tache = main_mod._supervision_tache
-            assert tache is not None and not tache.done()
-            await asyncio.sleep(0)
-            await main_mod._arreter_supervision()
-            return tache
+        monkeypatch.setenv("RETENTION_INTERVALLE_SECONDES", "3600")
 
-        tache = asyncio.run(scenario())
-        assert tache.done()
-        assert main_mod._supervision_tache is None
+        async def scenario():
+            await main_mod._demarrer_taches_de_fond()
+            taches = list(main_mod._taches_de_fond)
+            assert taches, "aucune tâche de fond démarrée : le test ne vérifie rien"
+            assert all(not t.done() for t in taches)
+            await asyncio.sleep(0)
+            await main_mod._arreter_taches_de_fond()
+            return taches
+
+        taches = asyncio.run(scenario())
+        # TOUTES doivent être arrêtées, pas seulement la première : c'est précisément
+        # ce qu'un motif copié-collé par tâche finit par oublier.
+        assert all(t.done() for t in taches)
+        assert main_mod._taches_de_fond == []
 
     def test_sans_identifiants_la_releve_se_declare_impossible(self, base, monkeypatch):
         import asyncio
@@ -599,8 +605,8 @@ class TestCablage:
 
         app = pathlib.Path(__file__).resolve().parents[1] / "app"
         lues: set[str] = set()
-        for source in (app / "supervision.py", app / "main.py"):
-            lues |= set(re.findall(r'["\'](SUPERVISION_[A-Z_]+)["\']',
+        for source in (app / "supervision.py", app / "main.py", app / "rgpd.py"):
+            lues |= set(re.findall(r'["\']((?:SUPERVISION|RETENTION|RGPD)_[A-Z_]+)["\']',
                                    source.read_text(encoding="utf-8")))
         return lues
 

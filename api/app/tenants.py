@@ -42,6 +42,9 @@ class Tenant:
     # Identifiant de voix choisi dans l'admin. None = la voix par défaut du parc ;
     # c'est voice/voices.py qui tranche (et ignore une valeur hors catalogue).
     voice: Optional[str] = None
+    # Formule commerciale (#31). None = formule par défaut ; c'est app/plans.py:resolve
+    # qui tranche, et qui ignore une valeur hors catalogue.
+    plan: Optional[str] = None
 
 
 def _row_to_tenant(row) -> Tenant:
@@ -54,6 +57,7 @@ def _row_to_tenant(row) -> Tenant:
         greeting=row["greeting"] or f"Bonjour, {row['name']}, que puis-je faire pour vous ?",
         knowledge_base=row["knowledge_base"],
         voice=row["voice"],
+        plan=row["plan"],
     )
 
 
@@ -132,9 +136,10 @@ def create_tenant(
 
 def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     """Met à jour les champs fournis (name, business_type, phone_number, language,
-    greeting, knowledge_base, voice). Lève sqlite3.IntegrityError si numéro en conflit."""
+    greeting, knowledge_base, voice, plan). Lève sqlite3.IntegrityError si numéro en
+    conflit."""
     allowed = {"name", "business_type", "phone_number", "language", "greeting",
-               "knowledge_base", "greeting_customized", "voice"}
+               "knowledge_base", "greeting_customized", "voice", "plan"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_by_id(tenant_id)

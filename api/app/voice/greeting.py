@@ -39,6 +39,14 @@ def is_moshi_server() -> bool:
     return os.getenv("TTS_PROVIDER", "").strip().lower() == "moshi_server"
 
 
+def _texte(tenant: Tenant) -> str:
+    """Accueil + mention d'information (#22). Un seul point d'entrée : l'accueil ne doit
+    jamais être prononcé sans la mention, quel que soit le chemin emprunté."""
+    from ..rgpd import accueil
+
+    return accueil(tenant)
+
+
 def _voice(tenant: Optional[Tenant] = None) -> str:
     """Voix de cet établissement (voix par défaut du parc si rien n'est choisi)."""
     return voices.resolve(tenant)
@@ -57,7 +65,7 @@ def _cache_path(tenant: Tenant) -> Path:
 
     C'est ce qui rend le changement de voix sûr : le WAV rendu dans l'ancienne voix
     n'est plus jamais retrouvé, donc jamais rejoué par-dessus la nouvelle."""
-    key = f"{_voice(tenant)}|{tenant.greeting}".encode("utf-8")
+    key = f"{_voice(tenant)}|{_texte(tenant)}".encode("utf-8")
     digest = hashlib.sha1(key).hexdigest()[:12]
     return _cache_dir() / f"tenant{tenant.id}_{digest}.wav"
 
@@ -142,7 +150,7 @@ async def ensure_greeting_wav(tenant: Tenant) -> Path | None:
         return existing
     try:
         t0 = time.monotonic()
-        pcm = await _render_pcm(tenant.greeting, _voice(tenant))
+        pcm = await _render_pcm(_texte(tenant), _voice(tenant))
         if pcm is None:
             logger.warning(f"greeting: rendu vide (tenant {tenant.id})")
             return None
@@ -260,7 +268,7 @@ async def run_switchboard_intro(
             for frame in load_greeting_frames(greeting_path):
                 await output_transport.send_audio(frame)
         else:
-            await task.queue_frames([TTSSpeakFrame(tenant.greeting)])  # repli TTS live
+            await task.queue_frames([TTSSpeakFrame(_texte(tenant))])  # repli TTS live
 
         if is_moshi_server():
             # 2. Réveil du GPU en tâche de fond (retourne quand le serveur est chaud).

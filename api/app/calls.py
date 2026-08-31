@@ -13,10 +13,18 @@ from . import db
 
 # Tarifs pour le coût ESTIMÉ par appel (affichage admin). Calés sur les mesures réelles
 # de scripts/cost_report.py (18/07/2026) : L4 ~2 ct/min (helmi), Twilio entrant
-# ~0,85 ct/min, Deepgram nova-2 ~0,58 ct/min, LLM gemini-flash ~0,35 ct/appel.
+# ~0,85 ct/min, LLM gemini-flash ~0,35 ct/appel.
 # Le coût EXACT reste l'affaire de cost_report.py (APIs de facturation).
+#
+# Deepgram corrigé le 30/08/2026 : 0,0058 était le tarif **nova-2**, alors que la
+# production tourne en **nova-3** (DEEPGRAM_MODEL) depuis le réglage de naturalité.
+# Tarif nova-3 streaming, à la carte, monolingue : 0,0077 $/min (deepgram.com/pricing).
+# ⚠️ Le multilingue est à 0,0092 : passer DEEPGRAM_LANGUAGE=multi change ce coût, et
+# il faudra alors ajuster COST_DEEPGRAM_PER_MIN — sinon l'admin sous-estime en silence.
+# L'écart n'était pas cosmétique : +33 % sur la ligne transcription, et c'est sur ces
+# chiffres qu'on arrête une grille tarifaire (#29).
 _COST_TWILIO_PER_MIN = float(os.getenv("COST_TWILIO_PER_MIN", "0.0085"))
-_COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0058"))
+_COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0077"))
 _COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
 _COST_LLM_PER_CALL = float(os.getenv("COST_LLM_PER_CALL", "0.0035"))
 

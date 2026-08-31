@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, reservations, supervision, tenants
+from .. import calls, plans, quotas, reservations, supervision, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from . import charts, deps, presenters
@@ -71,10 +71,14 @@ def _fill_days(stats: list[dict], days: int, key: str) -> list[tuple[str, float]
 
 
 def _venue_rows(days: int = _WINDOW_DAYS) -> list[dict]:
-    """Une ligne par établissement : agrégats réels + état de sa voix et de sa base."""
+    """Une ligne par établissement : agrégats réels + état de sa voix, de sa base et de
+    son forfait."""
     per_tenant = calls.stats_by_tenant(days=days)
+    liste = tenants.list_all()
+    # Une seule requête pour tout le parc (cf. quotas.etat_par_tenant).
+    conso = quotas.etat_par_tenant(liste)
     rows = []
-    for tenant in tenants.list_all():
+    for tenant in liste:
         stats = per_tenant.get(tenant.id, {
             "n_calls": 0, "n_with_reservation": 0, "total_cost": 0.0,
             "n_reservations": 0, "capture_rate": 0,
@@ -87,6 +91,7 @@ def _venue_rows(days: int = _WINDOW_DAYS) -> list[dict]:
             "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None,
             "sections": sections,
             "gaps": [s for s in sections if not s["filled"]],
+            "quota": conso[tenant.id],
         })
     return rows
 
@@ -122,7 +127,9 @@ def _alerts(rows: list[dict]) -> list[dict]:
                 "detail": f"Vérifiez que le webhook Twilio du {row['tenant'].phone_number} "
                           "pointe bien sur ce serveur.",
             })
-    return alerts
+    # Forfait : prévenir à 80 %, pas après coup (#31). Placées en TÊTE parce qu'un
+    # dépassement engage de l'argent, contrairement à une fiche de connaissance vide.
+    return quotas.alertes([r["tenant"] for r in rows]) + alerts
 
 
 @router.get("/admin/")
@@ -179,6 +186,11 @@ def _control_room(request: Request, tenant_id: Optional[int]):
         title="Couverts réservés par créneau, aujourd'hui", series=2, height=160,
         empty_label="Aucune réservation pour aujourd'hui.",
     )
+    # Son forfait, sur le mois EN COURS — pas sur la fenêtre glissante de 30 jours des
+    # autres indicateurs : c'est la maille de facturation, et afficher autre chose ferait
+    # douter de la facture.
+    tenant = tenants.get_by_id(tenant_id) if tenant_id else None
+    conso = quotas.etat(tenant) if tenant else None
     return deps.templates.TemplateResponse(
         request, "dashboard.html",
         {
@@ -194,6 +206,8 @@ def _control_room(request: Request, tenant_id: Optional[int]):
             "recent_calls": recent,
             "upcoming": upcoming,
             "slots_chart": slots_chart,
+            "quota": conso,
+            "depassement_eur": plans.DEPASSEMENT_EUR,
             "tenant_id": tenant_id,
             "days": _WINDOW_DAYS,
         },

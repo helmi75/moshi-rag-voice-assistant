@@ -19,5 +19,9 @@ os.environ["SESSION_SECRET"] = "test-session-secret"
 # via docker-compose quand les tests tournent en conteneur, donc l'appel PARTIRAIT
 # vraiment sans cette ligne. `rafraichir_twilio` reste testée, avec httpx bouchonné.
 os.environ["SUPERVISION_TWILIO_SECONDES"] = "0"
+# Même raison, autre risque : la purge de rétention (#22) ÉCRIT en base. Lancée à chaque
+# démarrage d'un TestClient, elle effacerait des données que d'autres tests viennent de
+# créer, et l'ordre d'exécution déciderait du résultat. `purger()` est testée en direct.
+os.environ["RETENTION_INTERVALLE_SECONDES"] = "0"
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

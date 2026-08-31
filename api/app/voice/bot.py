@@ -525,7 +525,9 @@ async def run_bot(
         if greeting_mod.cached_greeting_path(tenant) is None:
             asyncio.create_task(greeting_mod.ensure_greeting_wav(tenant))
     else:
-        await task.queue_frames([TTSSpeakFrame(tenant.greeting)])
+        from ..rgpd import accueil
+
+        await task.queue_frames([TTSSpeakFrame(accueil(tenant))])
 
     runner = PipelineRunner(handle_sigint=False)
     status = "completed"
