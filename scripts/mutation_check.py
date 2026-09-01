@@ -176,7 +176,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="La purge efface vraiment les transcriptions",
         fichier="api/app/rgpd.py",
-        avant="                 AND (transcript IS NOT NULL OR summary IS NOT NULL)\"\"\",",
+        avant="                 AND (transcript IS NOT NULL OR summary IS NOT NULL\n"
+              "                      OR journal IS NOT NULL)\"\"\",",
         apres="                 AND 1 = 0\"\"\",  # mutation",
         tests=["test_rgpd.py"],
         k="transcript or purge",
@@ -186,7 +187,7 @@ GARDE_FOUS = [
     GardeFou(
         nom="L'accueil ne se prononce jamais sans la mention d'information",
         fichier="api/app/rgpd.py",
-        avant="    return f\"{texte} {MENTION}\".strip()",
+        avant="    return f\"{texte} {mention()}\".strip()",
         apres="    return texte  # mutation",
         tests=["test_rgpd.py"],
         k="mention",
