@@ -15,6 +15,17 @@
 {# ─── Réécoute ─────────────────────────────────────────────────────────────
    Le lecteur stéréo d'abord : appelant à gauche, assistante à droite. C'est ce qui
    fait ENTENDRE qui parle par-dessus qui — un mixage le laisserait deviner. #}
+{% if journal and journal.accueil and journal.accueil.premiere_parole_ms
+      and journal.accueil.premiere_parole_ms > 10000 %}
+{# Un décroché lent se confondrait avec un problème de latence de conversation. Ce sont
+   deux sujets distincts, qui appellent deux correctifs distincts. #}
+<div class="callout" style="margin-top: 1rem">
+  <b>{{ (journal.accueil.premiere_parole_ms / 1000) | round | int }} s avant la première
+  parole utile.</b> Démarrage à froid du GPU : l'appelant a entendu l'accueil puis la
+  musique d'attente. Cela ne dit rien de la qualité de la conversation qui a suivi.
+</div>
+{% endif %}
+
 <section class="card">
   <div class="card-head">
     <div>
@@ -50,8 +61,12 @@
 {% if tours %}
 <div class="kpi-grid" style="margin-top: 1.5rem">
   {{ kpi("Tours de parole", journal.compteurs.tours) }}
-  {{ kpi("Interruptions", journal.compteurs.interruptions,
-         sub="Coupures dans un sens ou dans l'autre.", tone="dot-warn") }}
+  {{ kpi("Le client a coupé", journal.compteurs.coupures_du_client,
+         sub="Il s'est mis à parler pendant qu'elle parlait : elle est trop longue.",
+         tone="dot-warn") }}
+  {{ kpi("Elle a coupé le client", journal.compteurs.coupures_du_bot,
+         sub="Elle a démarré pendant qu'il parlait : fin de tour décidée trop tôt.",
+         tone="dot-bad") }}
   {{ kpi("Révisions de transcription", journal.compteurs.revisions_stt,
          sub="Beaucoup de révisions signalent un audio difficile, pas un modèle qui se trompe.",
          tone="dot") }}
