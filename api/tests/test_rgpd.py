@@ -213,3 +213,151 @@ class TestMentionDInformation:
         monkeypatch.setenv("RGPD_MENTION", "0")
         sans = greeting_mod._cache_path(tenant)
         assert avec != sans
+
+
+class TestEnregistrementsEtRetention:
+    """La voix est la donnée la plus sensible du produit (#88).
+
+    Une durée de conservation qu'aucun code n'applique est un mensonge au registre — et
+    sur de l'audio, ce mensonge se paie plus cher que sur du texte.
+    """
+
+    @pytest.fixture(autouse=True)
+    def dossier(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ENREGISTREMENT_DIR", str(tmp_path / "audio"))
+        monkeypatch.setenv("ENREGISTREMENT_APPELS", "1")
+        monkeypatch.setenv("RGPD_MENTION", "1")
+        yield
+
+    @staticmethod
+    def _poser_audio(tenant_id, call_id):
+        from app.voice import enregistrement
+
+        for piste in enregistrement.PISTES:
+            chemin = enregistrement.chemin(tenant_id, call_id, piste)
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            chemin.write_bytes(b"\xff" * 800)
+        return [enregistrement.chemin(tenant_id, call_id, p)
+                for p in enregistrement.PISTES]
+
+    @staticmethod
+    def _appel(tenant_id, sid, *, jours):
+        from app import calls
+
+        call_id = calls.start_call(sid, tenant_id, "+33612345678")
+        with db.get_conn() as conn:
+            conn.execute(
+                """UPDATE calls SET started_at = ?, ended_at = ?, recording_bytes = 1600,
+                       journal = '{"version":1}' WHERE id = ?""",
+                (_jadis(jours), _jadis(jours), call_id))
+        return call_id
+
+    def test_la_voix_ne_survit_jamais_a_sa_transcription(self, monkeypatch):
+        """L'invariant central. Un réglage distrait sur la durée des enregistrements ne
+        doit pas pouvoir garder la voix plus longtemps que le texte qu'elle a produit —
+        le registre annonce l'un, il serait faux sur l'autre."""
+        monkeypatch.setenv("RETENTION_TRANSCRIPT_JOURS", "30")
+        monkeypatch.setenv("RETENTION_ENREGISTREMENT_JOURS", "90")
+        assert rgpd.jours_enregistrement() == 30
+
+    def test_une_duree_plus_courte_est_respectee(self, monkeypatch):
+        monkeypatch.setenv("RETENTION_TRANSCRIPT_JOURS", "30")
+        monkeypatch.setenv("RETENTION_ENREGISTREMENT_JOURS", "7")
+        assert rgpd.jours_enregistrement() == 7
+
+    def test_la_purge_efface_les_FICHIERS(self, resto):
+        """Effacer la ligne sans le fichier laisserait la voix sur le disque, hors de
+        toute durée de conservation et hors de portée de l'effacement."""
+        call_id = self._appel(resto.id, "CA-audio-vieux", jours=400)
+        pistes = self._poser_audio(resto.id, call_id)
+        assert all(p.exists() for p in pistes)
+
+        resultat = rgpd.purger()
+
+        assert not any(p.exists() for p in pistes)
+        assert resultat.enregistrements == 2
+
+    def test_un_enregistrement_recent_est_conserve(self, resto):
+        call_id = self._appel(resto.id, "CA-audio-neuf", jours=3)
+        pistes = self._poser_audio(resto.id, call_id)
+        rgpd.purger()
+        assert all(p.exists() for p in pistes)
+
+    def test_la_base_cesse_de_pretendre_que_le_fichier_existe(self, resto):
+        from app import calls
+
+        call_id = self._appel(resto.id, "CA-audio-oubli", jours=400)
+        self._poser_audio(resto.id, call_id)
+        rgpd.purger()
+        assert calls.get_call(call_id)["recording_bytes"] is None
+
+    def test_le_journal_tombe_avec_le_transcript(self, resto):
+        """Le journal cite le transcript — extraits de ce qui a été dit et entendu. Le
+        garder après l'avoir purgé laisserait survivre la conversation sous une autre
+        forme."""
+        from app import calls
+
+        call_id = self._appel(resto.id, "CA-journal-vieux", jours=400)
+        rgpd.purger()
+        assert calls.get_call(call_id)["journal"] is None
+
+    def test_un_orphelin_est_ramasse(self, resto, monkeypatch):
+        """Après une restauration de sauvegarde, la base revient sans les fichiers — et
+        l'inverse. Un fichier dont plus aucune ligne ne parle resterait sinon
+        indéfiniment, hors de toute durée de conservation."""
+        import os
+        import time
+
+        from app.voice import enregistrement
+
+        orphelin = enregistrement.chemin(resto.id, 99999, "appelant")
+        orphelin.parent.mkdir(parents=True, exist_ok=True)
+        orphelin.write_bytes(b"\xff" * 100)
+        vieux = time.time() - 400 * 86400
+        os.utime(orphelin, (vieux, vieux))
+
+        rgpd.purger()
+        assert not orphelin.exists()
+
+    def test_l_effacement_d_un_appelant_emporte_sa_voix(self, resto):
+        """Le droit à l'effacement porte d'abord sur ce qui identifie le plus : la voix."""
+        call_id = self._appel(resto.id, "CA-efface", jours=1)
+        pistes = self._poser_audio(resto.id, call_id)
+
+        resultat = rgpd.effacer_appelant("+33612345678")
+
+        assert not any(p.exists() for p in pistes)
+        assert resultat.enregistrements == 2
+
+    def test_une_purge_de_fichiers_impossible_n_empeche_pas_la_purge_SQL(
+            self, resto, monkeypatch):
+        """La purge SQL est celle que le registre promet : elle doit aboutir même si le
+        disque refuse."""
+        from app import calls
+        from app.voice import enregistrement
+
+        def refuse(*a, **k):
+            raise OSError("système de fichiers en lecture seule")
+
+        call_id = self._appel(resto.id, "CA-disque-ko", jours=400)
+        monkeypatch.setattr(enregistrement, "supprimer", refuse)
+
+        rgpd.purger()
+        assert calls.get_call(call_id)["transcript"] is None
+
+
+class TestLaMentionAnnonceLEnregistrement:
+    class _Tenant:
+        greeting = "Bonjour, restaurant Le Test."
+
+    def test_elle_dit_enregistre_quand_on_enregistre(self, monkeypatch):
+        monkeypatch.setenv("ENREGISTREMENT_APPELS", "1")
+        monkeypatch.setenv("RGPD_MENTION", "1")
+        assert "enregistré" in rgpd.accueil(self._Tenant())
+
+    def test_elle_ne_le_dit_PAS_quand_on_n_enregistre_pas(self, monkeypatch):
+        """Prétendre enregistrer sans le faire est aussi malhonnête que l'inverse."""
+        monkeypatch.setenv("ENREGISTREMENT_APPELS", "0")
+        monkeypatch.setenv("RGPD_MENTION", "1")
+        texte = rgpd.accueil(self._Tenant())
+        assert "assistant vocal" in texte and "enregistré" not in texte

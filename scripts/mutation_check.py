@@ -176,7 +176,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="La purge efface vraiment les transcriptions",
         fichier="api/app/rgpd.py",
-        avant="                 AND (transcript IS NOT NULL OR summary IS NOT NULL)\"\"\",",
+        avant="                 AND (transcript IS NOT NULL OR summary IS NOT NULL\n"
+              "                      OR journal IS NOT NULL)\"\"\",",
         apres="                 AND 1 = 0\"\"\",  # mutation",
         tests=["test_rgpd.py"],
         k="transcript or purge",
@@ -186,7 +187,7 @@ GARDE_FOUS = [
     GardeFou(
         nom="L'accueil ne se prononce jamais sans la mention d'information",
         fichier="api/app/rgpd.py",
-        avant="    return f\"{texte} {MENTION}\".strip()",
+        avant="    return f\"{texte} {mention()}\".strip()",
         apres="    return texte  # mutation",
         tests=["test_rgpd.py"],
         k="mention",
@@ -221,6 +222,65 @@ GARDE_FOUS = [
         tests=["test_reservation_modification.py"],
         k="reseau or telephone",
         panne="l'appelant déciderait de qui il est, donc à quelles réservations il accède",
+    ),
+    # --- Enregistrement et journal de bord (#88) ------------------------------
+    GardeFou(
+        nom="On n'enregistre jamais sans l'avoir annoncé",
+        fichier="api/app/voice/enregistrement.py",
+        avant="    return demande and rgpd.mention_active()",
+        apres="    return demande  # mutation",
+        tests=["test_enregistrement.py", "test_rgpd.py"],
+        k="mention or annonce",
+        panne="on enregistrerait la voix d'appelants qui n'en ont pas été informés — "
+              "la faute qu'aucun journal ne rattrape et qu'aucun client ne pardonne",
+    ),
+    GardeFou(
+        nom="La voix ne survit jamais à sa transcription",
+        fichier="api/app/rgpd.py",
+        avant='    return min(_jours("RETENTION_ENREGISTREMENT_JOURS", 30), jours_transcript())',
+        apres='    return _jours("RETENTION_ENREGISTREMENT_JOURS", 30)  # mutation',
+        tests=["test_rgpd.py"],
+        k="survit or transcription or duree",
+        panne="un réglage distrait garderait la voix des mois après le texte qu'elle a "
+              "produit, en contradiction avec le registre",
+    ),
+    GardeFou(
+        nom="La purge efface les fichiers, pas seulement les lignes",
+        fichier="api/app/rgpd.py",
+        avant="        enregistrements=_purger_enregistrements(),",
+        apres="        enregistrements=0,  # mutation",
+        tests=["test_rgpd.py"],
+        k="fichiers or orphelin or efface",
+        panne="la durée du registre deviendrait un mensonge sur la donnée la plus "
+              "sensible du produit : la voix resterait sur le disque indéfiniment",
+    ),
+    GardeFou(
+        nom="Le journal de bord tombe avec le transcript",
+        fichier="api/app/rgpd.py",
+        avant='            """UPDATE calls SET transcript = NULL, summary = NULL, journal = NULL',
+        apres='            """UPDATE calls SET transcript = NULL, summary = NULL  -- mutation',
+        tests=["test_rgpd.py"],
+        k="journal",
+        panne="des extraits de conversation survivraient au transcript qu'ils citent",
+    ),
+    GardeFou(
+        nom="Une piste audio ne se choisit pas librement",
+        fichier="api/app/admin/routes_calls.py",
+        avant="    if piste not in _PISTES_SERVIES:",
+        apres="    if False:  # mutation",
+        tests=["test_admin_diagnostic.py"],
+        k="piste",
+        panne="un chemin arbitraire servi depuis l'admin, sur la donnée la plus sensible",
+    ),
+    GardeFou(
+        nom="Les métriques restent activées (sans elles, le blanc est indécomposable)",
+        fichier="api/app/voice/bot.py",
+        avant="            enable_metrics=True,\n            enable_usage_metrics=True,",
+        apres="            enable_metrics=False,  # mutation",
+        tests=["test_voice_stream.py"],
+        k="metriques or enregistrement",
+        panne="les services publieraient leur temps jusqu'au premier octet dans le vide : "
+              "on retomberait sur un blanc global impossible à attribuer, la panne d'origine",
     ),
 ]
 

@@ -36,7 +36,7 @@ appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles mor
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les neuf contrôles
+## Les douze contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
@@ -49,6 +49,9 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Alertes Twilio | Webhook injoignable, TwiML invalide — **invisible de l'intérieur** | non |
 | Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) | non |
 | Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité | oui à 72 h |
+| Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |
+| Espace disque | Un disque plein laisse passer les `SELECT` et fait échouer la seule chose qui compte : enregistrer une réservation | oui sous 2 Go |
+| Enregistrement des appels | Activé mais n'aboutit pas — « 0 sur 12 » est le cas qu'on veut voir | non |
 
 Un contrôle qui échoue lui-même est signalé « état INCONNU », jamais vert : une panne de
 supervision ne doit pas se déguiser en bonne nouvelle.

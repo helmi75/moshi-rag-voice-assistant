@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Diagnostic de l'appel{% endblock %}
+{% block content %}
+{% from "_macros.html" import kpi %}
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow"><a href="/admin/calls?open={{ call.id }}">← Retour au journal</a></p>
+    <h1>Diagnostic — {{ call.caller }}</h1>
+    <p class="lede">{{ call.date_label }} à {{ call.time_label }} ·
+       {{ call.duration_label }}{% if tenant %} · {{ tenant.name }}{% endif %}</p>
+  </div>
+</div>
+
+{# ─── Réécoute ─────────────────────────────────────────────────────────────
+   Le lecteur stéréo d'abord : appelant à gauche, assistante à droite. C'est ce qui
+   fait ENTENDRE qui parle par-dessus qui — un mixage le laisserait deviner. #}
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>Réécouter</h2>
+      {% if pistes %}
+      <p class="card-sub">Appelant à gauche, assistante à droite. Les deux pistes sont
+         aussi écoutables séparément.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% if pistes %}
+  <audio controls preload="metadata" style="width: 100%; margin-top: .75rem"
+         src="/admin/calls/{{ call.id }}/audio.wav?piste=stereo">
+    Votre navigateur ne sait pas lire cet enregistrement.
+  </audio>
+  <p class="card-sub" style="margin-top: .5rem">
+    {% for piste in pistes %}
+    <a href="/admin/calls/{{ call.id }}/audio.wav?piste={{ piste }}">{{ piste }} seul</a>{% if not loop.last %} · {% endif %}
+    {% endfor %}
+  </p>
+  {% else %}
+  <p class="empty">Pas d'enregistrement pour cet appel.
+     {% if journal and journal.enregistrement and journal.enregistrement.raison %}
+     Raison : <b>{{ journal.enregistrement.raison }}</b>.
+     {% else %}
+     L'enregistrement était désactivé, ou les fichiers ont été purgés.
+     {% endif %}
+  </p>
+  {% endif %}
+</section>
+
+{# ─── Chronologie ───────────────────────────────────────────────────────── #}
+{% if tours %}
+<div class="kpi-grid" style="margin-top: 1.5rem">
+  {{ kpi("Tours de parole", journal.compteurs.tours) }}
+  {{ kpi("Interruptions", journal.compteurs.interruptions,
+         sub="Coupures dans un sens ou dans l'autre.", tone="dot-warn") }}
+  {{ kpi("Révisions de transcription", journal.compteurs.revisions_stt,
+         sub="Beaucoup de révisions signalent un audio difficile, pas un modèle qui se trompe.",
+         tone="dot") }}
+  {{ kpi("Transcriptions vides", journal.compteurs.finales_vides,
+         sub="Le STT a tranché sans un mot : l'assistante n'avait rien à quoi répondre.",
+         tone="dot-bad") }}
+</div>
+
+<section class="card card-flush" style="margin-top: 1.5rem">
+  <div class="card-head">
+    <div>
+      <h2>Chronologie</h2>
+      <p class="card-sub">Pour chaque tour, le blanc ressenti par l'appelant et sa
+         décomposition. Placez le lecteur à l'horodatage indiqué pour réécouter le
+         passage.</p>
+    </div>
+  </div>
+  <div class="card-list">
+    {% for tour in tours %}
+    <div class="card-row" style="align-items: flex-start">
+      <span class="row-time">{{ tour.horodatage }}</span>
+      <span class="row-main">
+        <span class="row-title">
+          Tour {{ tour.n }} · blanc {{ tour.blanc_s }} s
+          {% if tour.interruption == 'client_coupe_bot' %}
+          <span class="chip chip-warn">Le client a coupé</span>
+          {% elif tour.interruption == 'bot_coupe_client' %}
+          <span class="chip chip-bad">L'assistante a coupé</span>
+          {% endif %}
+          {% if tour.confiance is not none and tour.confiance < 0.8 %}
+          <span class="chip chip-warn">Transcription peu sûre · {{ tour.confiance }}</span>
+          {% endif %}
+        </span>
+
+        {% if tour.entendu %}
+        <span class="row-sub" style="white-space: normal">Entendu : « {{ tour.entendu }} »</span>
+        {% else %}
+        <span class="row-sub">Rien n'a été transcrit pour ce tour.</span>
+        {% endif %}
+        {% if tour.dit %}
+        <span class="row-sub" style="white-space: normal">Dit : « {{ tour.dit }} »</span>
+        {% endif %}
+
+        {# La décomposition : c'est elle qui dit QUEL maillon a pris le temps. #}
+        {% for etage in tour.etages %}
+        <span class="meter-row" style="display: block; margin-top: .4rem">
+          <span class="meter-head">
+            <b>{{ etage.libelle }}</b><span>{{ etage.ms }} ms · {{ etage.part }} %</span>
+          </span>
+          <span class="meter" style="display: block"><i style="width: {{ etage.part }}%"></i></span>
+        </span>
+        {% endfor %}
+
+        {% if tour.smart_turn %}
+        <span class="row-sub">Fin de tour détectée à
+          {{ (tour.smart_turn.proba * 100) | round | int }} % de confiance
+          {% if not tour.smart_turn.complet %}(jugée incomplète){% endif %}.</span>
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+{% if journal.tronque %}
+<p class="muted" style="margin-top: 1rem">⚠️ Journal tronqué : l'appel a produit plus
+   d'évènements que la limite. Les compteurs restent exacts.</p>
+{% endif %}
+
+{% else %}
+<section class="card" style="margin-top: 1.5rem">
+  <p class="empty">Pas de mesure pour cet appel. Les appels antérieurs à la mise en place
+     du journal de bord n'en ont pas — afficher des zéros donnerait à croire à un appel
+     parfait.</p>
+</section>
+{% endif %}
+{% endblock %}

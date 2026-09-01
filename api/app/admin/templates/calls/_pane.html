@@ -31,6 +31,15 @@
 </div>
 {% endif %}
 
+{# Lien vers le diagnostic, seulement s'il y a quelque chose à y voir. La chronologie
+   n'est PAS chargée ici : ce panneau est inclus par la liste, et la rendre pour chaque
+   ligne coûterait sur une page qui en affiche vingt-cinq. #}
+{% if call.journal or call.recording_bytes %}
+<p class="section-label">
+  <a href="/admin/calls/{{ call.id }}/diagnostic">Diagnostic — réécouter et disséquer →</a>
+</p>
+{% endif %}
+
 <p class="section-label">Transcription</p>
 {% if call.transcript %}
 <div class="transcript">

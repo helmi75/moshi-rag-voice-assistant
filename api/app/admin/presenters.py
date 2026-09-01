@@ -90,3 +90,52 @@ def call_view(call: dict) -> dict:
         "date_label": started[:10],
         "time_label": started[11:16],
     }
+
+
+def parse_journal(raw: Optional[str]) -> Optional[dict]:
+    """Journal de bord d'un appel (#88). None si absent ou illisible.
+
+    Défensif comme `parse_transcript` : un journal corrompu ne doit pas casser la page
+    de diagnostic — c'est précisément la page qu'on ouvre quand quelque chose va mal."""
+    if not raw:
+        return None
+    try:
+        journal = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return journal if isinstance(journal, dict) else None
+
+
+def format_mmss(millisecondes: Optional[int]) -> str:
+    """`mm:ss` — le repère qu'on retrouve dans le lecteur audio."""
+    if millisecondes is None:
+        return "—"
+    total = max(0, int(millisecondes)) // 1000
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def tours_du_journal(journal: Optional[dict]) -> list[dict]:
+    """Les tours, prêts à l'affichage : horodatage lisible et parts en pourcentage.
+
+    Les parts sont calculées ICI et non dans le gabarit — un gabarit qui calcule finit
+    par diverger de ce que le journal dit réellement."""
+    if not journal:
+        return []
+    sortie = []
+    for tour in journal.get("tours", []) or []:
+        blanc = tour.get("blanc_ms") or 0
+        etages = []
+        for cle, libelle in (("stt_ms", "Transcription"), ("llm_ms", "Compréhension"),
+                             ("outil_ms", "Outil"), ("tts_ms", "Voix"),
+                             ("non_attribue_ms", "Non attribué")):
+            valeur = tour.get(cle) or 0
+            if valeur:
+                etages.append({
+                    "libelle": libelle, "ms": valeur,
+                    "part": round(100 * valeur / blanc) if blanc else 0,
+                })
+        sortie.append({**tour,
+                       "horodatage": format_mmss(tour.get("t_ms")),
+                       "blanc_s": f"{blanc / 1000:.1f}",
+                       "etages": etages})
+    return sortie

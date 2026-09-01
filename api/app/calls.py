@@ -36,15 +36,55 @@ def estimate_call_cost(duration_seconds: float) -> float:
 
 
 def start_call(call_sid: Optional[str], tenant_id: int,
-               caller_number: Optional[str] = None) -> None:
-    """Enregistre le début d'appel. ON CONFLICT DO NOTHING : un doublon de webhook
-    ne doit jamais faire échouer l'appel."""
+               caller_number: Optional[str] = None) -> Optional[int]:
+    """Enregistre le début d'appel et renvoie son identifiant.
+
+    ON CONFLICT DO NOTHING : un doublon de webhook ne doit jamais faire échouer l'appel.
+    L'identifiant est relu plutôt que pris de `lastrowid`, précisément pour ce cas —
+    sur un doublon, `lastrowid` ne désigne aucune insertion.
+
+    Cet identifiant nomme les fichiers d'enregistrement (#88). On n'utilise pas le
+    `call_sid` pour ça : il arrive dans le message `start` du websocket, donc de
+    l'extérieur, alors qu'un entier de notre base ne peut désigner qu'un de nos fichiers.
+    """
     with db.get_conn() as conn:
         conn.execute(
             """INSERT INTO calls (call_sid, tenant_id, caller_number) VALUES (?, ?, ?)
                ON CONFLICT(call_sid) DO NOTHING""",
             (call_sid, tenant_id, caller_number),
         )
+        row = conn.execute(
+            "SELECT id FROM calls WHERE call_sid = ?", (call_sid,)
+        ).fetchone()
+    return row[0] if row else None
+
+
+# Plafond du journal de bord stocké. Un appel pathologique — une boucle d'interruptions
+# sur quarante minutes — ne doit gonfler ni la base ni les sauvegardes quotidiennes.
+_JOURNAL_MAX_OCTETS = 64 * 1024
+
+
+def _journal_borne(journal: Optional[dict]) -> Optional[str]:
+    """Sérialise le journal en restant sous le plafond, en sacrifiant par ordre d'utilité.
+
+    On abandonne d'abord les évènements bruts (le détail image par image), puis on
+    tronque les tours. Ce qui survit en dernier, ce sont les compteurs : même sur un
+    appel monstrueux, on saura combien de fois elle a été coupée. Et `tronque` est posé
+    à chaque fois — un journal amputé qui ne le dirait pas ferait conclure à tort.
+    """
+    if not journal:
+        return None
+    charge = json.dumps(journal, ensure_ascii=False, separators=(",", ":"))
+    if len(charge.encode("utf-8")) <= _JOURNAL_MAX_OCTETS:
+        return charge
+
+    reduit = {**journal, "tronque": True}
+    reduit.pop("evenements", None)
+    charge = json.dumps(reduit, ensure_ascii=False, separators=(",", ":"))
+    while len(charge.encode("utf-8")) > _JOURNAL_MAX_OCTETS and reduit.get("tours"):
+        reduit["tours"] = reduit["tours"][: len(reduit["tours"]) // 2]
+        charge = json.dumps(reduit, ensure_ascii=False, separators=(",", ":"))
+    return charge
 
 
 def finish_call(
@@ -53,6 +93,8 @@ def finish_call(
     transcript: Optional[list[dict]] = None,
     reservation_id: Optional[int] = None,
     turn_latencies: Optional[list[int]] = None,
+    journal: Optional[dict] = None,
+    recording_bytes: Optional[int] = None,
 ) -> None:
     """Clôt l'appel : durée depuis started_at, statut, transcript JSON, coût estimé.
 
@@ -71,7 +113,8 @@ def finish_call(
         conn.execute(
             """UPDATE calls SET ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                    duration_seconds = ?, status = ?, transcript = ?,
-                   reservation_id = ?, estimated_cost = ?, turn_latencies = ?
+                   reservation_id = ?, estimated_cost = ?, turn_latencies = ?,
+                   journal = ?, recording_bytes = ?
                WHERE id = ?""",
             (
                 duration,
@@ -80,6 +123,8 @@ def finish_call(
                 reservation_id,
                 estimate_call_cost(duration),
                 json.dumps(turn_latencies) if turn_latencies else None,
+                _journal_borne(journal),
+                recording_bytes,
                 row["id"],
             ),
         )
@@ -336,3 +381,69 @@ def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict
          "share": round(100 * amount / raw_total)}
         for label, amount in rows
     ]
+
+
+def enregistrements_stats(tenant_id: Optional[int] = None, days: int = 7) -> dict:
+    """Combien d'appels clos ont réellement produit un enregistrement (#88).
+
+    Sert au contrôle de supervision. Le cas qu'on veut voir est « 0 sur 12 » : la
+    fonctionnalité activée mais cassée en silence — dossier non inscriptible, disque
+    plein, régression. Un simple « actif : oui » ne le montrerait jamais.
+    """
+    clause, params = _window(days, 0)
+    where = clause.format(col="started_at") + " AND ended_at IS NOT NULL"
+    if tenant_id is not None:
+        where += " AND tenant_id = ?"
+        params = [*params, tenant_id]
+    with db.get_conn() as conn:
+        row = conn.execute(
+            f"""SELECT COUNT(*) AS clos,
+                       COALESCE(SUM(CASE WHEN recording_bytes IS NOT NULL THEN 1 ELSE 0 END), 0)
+                           AS enregistres,
+                       COALESCE(SUM(recording_bytes), 0) AS octets
+                FROM calls WHERE {where}""",
+            params,
+        ).fetchone()
+    return {"clos": row["clos"], "enregistres": row["enregistres"], "octets": row["octets"]}
+
+
+def appels_avec_enregistrement(avant_jours: int) -> list[dict]:
+    """Appels dont l'enregistrement a dépassé sa durée de conservation (#88).
+
+    Rend `id` et `tenant_id`, de quoi reconstruire les chemins côté serveur. La purge est
+    ainsi PILOTÉE PAR LA BASE et non par un balayage de répertoire : elle n'efface que
+    des fichiers qu'on sait nôtres, et jamais ce qu'un tiers aurait déposé là.
+    """
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, tenant_id FROM calls
+               WHERE recording_bytes IS NOT NULL AND started_at < datetime('now', ?)""",
+            (f"-{int(avant_jours)} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def appels_d_un_numero(numero: str) -> list[dict]:
+    """Appels rattachés à ce numéro, pour le droit à l'effacement (#88).
+
+    À appeler AVANT d'anonymiser `caller_number` : après, le lien est rompu et les
+    fichiers deviennent des orphelins que plus rien ne désigne.
+    """
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, tenant_id FROM calls WHERE caller_number = ?", (numero,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def oublier_enregistrements(call_ids: list[int]) -> None:
+    """Remet `recording_bytes` à NULL : les fichiers ont été supprimés, la base doit
+    cesser de prétendre qu'ils existent."""
+    if not call_ids:
+        return
+    with db.get_conn() as conn:
+        conn.execute(
+            f"UPDATE calls SET recording_bytes = NULL WHERE id IN "
+            f"({','.join('?' * len(call_ids))})",
+            [int(i) for i in call_ids],
+        )

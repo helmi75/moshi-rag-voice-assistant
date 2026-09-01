@@ -18,6 +18,12 @@
 #   ( crontab -l 2>/dev/null; echo "0 4 * * * /opt/backups/backup-db.sh >> /var/log/helmane-backup.log 2>&1" ) | crontab -
 #
 # Restauration : voir docs/DEPLOY.md, section Sauvegardes.
+#
+# ⚠️ CE SCRIPT NE SAUVEGARDE QUE `app.db`, et c'est délibéré pour les enregistrements
+# d'appels (#88). Les dupliquer dans des archives à rétention 14 jours étendrait
+# l'exposition sur la donnée la plus sensible du produit — la voix — sans rien apporter :
+# perdre un enregistrement de diagnostic est sans conséquence. Effet de bord heureux,
+# `rgpd.effacer_appelant()` est COMPLET sur l'audio, ce qu'il n'est pas sur le transcript.
 
 set -euo pipefail
 

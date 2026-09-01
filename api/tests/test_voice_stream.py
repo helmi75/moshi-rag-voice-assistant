@@ -341,6 +341,68 @@ class TestPriseDeConge:
         assert not has_taken_leave([])
 
 
+class TestEnregistrementNeCassePasLAppel:
+    """Le garde-fou le plus important du chantier (#88).
+
+    Un enregistrement est un confort de diagnostic ; un appel est le produit. Si
+    l'enregistrement peut faire tomber l'appel, on a échangé un outil contre un client —
+    et on ne s'en apercevrait que le jour où le disque se remplit, c'est-à-dire un jour
+    de forte activité.
+    """
+
+    def test_le_pipeline_se_construit_sans_enregistreur(self, monkeypatch):
+        """Quand l'enregistrement est coupé, la liste du pipeline ne contient pas le
+        processeur audio — et l'appel se déroule exactement comme avant."""
+        monkeypatch.setenv("ENREGISTREMENT_APPELS", "0")
+
+        from app.voice import enregistrement
+
+        assert enregistrement.actif() is False
+
+    def test_un_enregistreur_qui_leve_ne_remonte_pas(self, monkeypatch):
+        """Reproduit le bloc de `run_bot` : toute la construction est sous try/except.
+        Sans lui, une exception ici raccrocherait au nez du client."""
+        import asyncio
+
+        from app.voice import enregistrement
+
+        monkeypatch.setenv("ENREGISTREMENT_APPELS", "1")
+        monkeypatch.setenv("RGPD_MENTION", "1")
+
+        def explose(self):
+            raise RuntimeError("le disque a disparu")
+
+        monkeypatch.setattr(enregistrement.Enregistreur, "_ouvrir", explose)
+
+        async def scenario():
+            e = enregistrement.Enregistreur(tenant_id=1, call_id=1)
+            return await e.demarrer()
+
+        assert asyncio.run(scenario()) is False  # renonce, ne lève pas
+
+    def test_les_metriques_sont_activees(self):
+        """Sans `enable_metrics`, les services publient leur temps jusqu'au premier octet
+        dans le vide, et le blanc redevient indécomposable — la panne d'origine."""
+        import pathlib
+        import re
+
+        source = (pathlib.Path(__file__).resolve().parents[1]
+                  / "app" / "voice" / "bot.py").read_text(encoding="utf-8")
+        assert re.search(r"enable_metrics\s*=\s*True", source)
+        assert re.search(r"enable_usage_metrics\s*=\s*True", source)
+
+    def test_le_processeur_audio_est_apres_le_transport_de_sortie(self):
+        """Placé avant, il ajouterait sa latence sur le chemin sortant. Après, l'audio
+        est déjà parti chez Twilio quand on le voit."""
+        import pathlib
+
+        source = (pathlib.Path(__file__).resolve().parents[1]
+                  / "app" / "voice" / "bot.py").read_text(encoding="utf-8")
+        debut = source.index("etapes = [")
+        bloc = source[debut:debut + 900]
+        assert bloc.index("output_transport") < bloc.index("audiobuffer")
+
+
 class TestObservateurDeLatence:
     """Mesure le blanc tel que l'oreille le vit : de l'arrêt de la parole du client à
     la reprise de la voix. En nanosecondes côté horloge Pipecat, en ms en sortie."""
