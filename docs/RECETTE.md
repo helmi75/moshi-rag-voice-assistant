@@ -94,10 +94,28 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 | F2 | Contrôle « Appels muets » | Passe de « pas de mesure » à un vrai comptage | |
 | F3 | Contrôle « Alertes Twilio » | Passe au vert une fois le jeton renouvelé | |
 | F4 | Contrôle « Purge » | « Passée il y a N h » | |
+| F5 | Contrôle « Espace disque » | Vert, avec le volume des enregistrements | |
+| F6 | Contrôle « Enregistrement des appels » | `N / N` — « 0 sur 12 » signifie cassé en silence | |
 
 ```bash
 curl -s -H "X-Supervision-Token: $SUPERVISION_TOKEN" https://app.helmane.fr/supervision | jq
 ```
+
+## F bis. Diagnostiquer un appel raté (#88) — le cœur du sujet
+
+Après les appels du bloc D, ouvrir **Journal des appels → un appel → Diagnostic**.
+
+| # | Test | Attendu | ✅/❌ |
+|---|---|---|---|
+| H1 | Le lecteur audio joue | On entend l'appel. **En stéréo** : soi-même à gauche, l'assistante à droite | |
+| H2 | Provoquer une coupure : parler pendant qu'elle parle | La chronologie affiche « Le client a coupé » sur le bon tour, et on l'ENTEND sur les deux canaux | |
+| H3 | Sur le tour le plus lent, lire la décomposition | Un seul étage domine. **C'est la réponse** : STT, compréhension, outil ou voix | |
+| H4 | Prononcer un nom difficile (« Nguyen », « Kowalski ») | La chronologie montre le texte entendu et, s'il est douteux, « Transcription peu sûre » | |
+| H5 | Comparer « Entendu » et ce que tu as réellement dit | S'ils diffèrent : problème de STT. S'ils concordent mais la réponse est absurde : problème de prompt | |
+| H6 | Vérifier l'accueil au début de l'enregistrement | ⚠️ Il n'y sera **pas** : il est injecté hors pipeline. Attendu, pas un bug |
+
+**H3 est le test qui justifie tout le chantier.** Avant, un blanc de 3 s ne disait rien.
+Maintenant il dit lequel des quatre maillons l'a produit.
 
 ## G. Le test qu'on oublie toujours
 

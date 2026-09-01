@@ -116,8 +116,8 @@ contient rien de non livré.
 
 - ✅ Appel Twilio réel de bout en bout : voix Développeuse, conversation, réservation en base.
 - ✅ Blanc médian mesuré **1,16 s** (p90 1,58 s). Coût mesuré **11,4 ¢/appel**.
-- ✅ 367 tests, aucun appel réseau (relève Twilio et purge coupées par conftest).
-  CI GitHub Actions verte, contrôle de mutation 19/19.
+- ✅ 451 tests, aucun appel réseau (relève Twilio et purge coupées par conftest).
+  CI GitHub Actions verte, contrôle de mutation 25/25.
 - ✅ Conteneurs remontés seuls après reboot (critère de résilience de `DEPLOY.md`).
 - ✅ Sauvegarde quotidienne **avec test de restauration réussi** (`ok / 17 réservations / 1 établissement`).
 - ✅ Admin v3, voix par établissement (catalogue fermé de 7 voix), latence instrumentée en base.
@@ -153,6 +153,13 @@ RGPD (#22), modification par téléphone (#33). **Le dernier appel réel date du
 Les tests couvrent la logique — 367 tests, 19/19 garde-fous de mutation. Ils ne disent
 rien de ce qu'un client entend. La cause est unique et connue : le compte Twilio est
 suspendu (§4 bis).
+
+**Depuis le 01/09 (#88), l'instrumentation existe** : enregistrement deux pistes, journal
+de bord qui décompose le blanc par étage, écran de diagnostic. Les quatre symptômes
+constatés au téléphone — blancs, incompréhension, coupures, ton — laissaient jusque-là
+exactement la même trace. Ils sont désormais séparables. Déploiement prévu **en deux
+temps** : d'abord `ENREGISTREMENT_APPELS=0` (le journal tourne seul, aucun risque), puis
+l'activation, qui change la mention entendue donc la clé de cache des accueils.
 
 ➡️ **`docs/RECETTE.md` liste ce qu'il faudra vérifier, dans l'ordre, le jour où la ligne
 sonne.** Écrite à froid pour ne pas être improvisée le jour J. Le point D est le plus
@@ -198,8 +205,8 @@ curl -s localhost:8000/health
 /opt/backups/backup-db.sh                      # sauvegarde à la demande
 
 # En local
-cd api && python -m pytest tests/ -q            # 367 tests, aucun réseau
-python3 scripts/mutation_check.py               # 19 garde-fous : chacun doit MORDRE
+cd api && python -m pytest tests/ -q            # 451 tests, aucun réseau
+python3 scripts/mutation_check.py               # 25 garde-fous : chacun doit MORDRE
 modal deploy deploy/modal_moshi_server.py
 python scripts/test_moshi_server.py --url https://helmi75--moshi-server-tts-server.modal.run
 
