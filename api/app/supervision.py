@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from pathlib import Path as _Path
+
 from . import calls, db, tenants
 
 # --- Niveaux -----------------------------------------------------------------
@@ -489,6 +491,92 @@ def _controle_purge() -> Controle:
     )
 
 
+def disque_seuils_mo() -> tuple[int, int]:
+    """(attention, panne), en mégaoctets libres."""
+    return (_entier("SUPERVISION_DISQUE_ATTENTION_MO", 10_000),
+            _entier("SUPERVISION_DISQUE_PANNE_MO", 2_000))
+
+
+def _controle_disque() -> Controle:
+    """Espace libre sur le volume de données (#88).
+
+    Ce contrôle n'existait pas, et son absence était un angle mort sérieux : un disque
+    plein laisse passer les `SELECT` et fait échouer la seule chose qui compte —
+    enregistrer une réservation. `_controle_base` le détecte, mais seulement APRÈS, en
+    échouant à écrire. Ici on le voit venir.
+
+    L'enregistrement des appels rend la question concrète : ~3,4 Mo par appel de
+    3,5 min, soit plusieurs gigaoctets sur une rétention de 30 jours.
+    """
+    from .voice import enregistrement
+
+    attention_mo, panne_mo = disque_seuils_mo()
+    libre = enregistrement.espace_libre_mo(_Path(db.DB_PATH).parent)
+    if libre is None:
+        return Controle(
+            "disque", "Espace disque", ATTENTION,
+            "Espace libre inconnu.",
+            "Le système de fichiers n'a pas répondu. On ne sait donc pas si la base "
+            "pourra continuer d'écrire.",
+            mesure={"libre_mo": None},
+        )
+    niveau = PANNE if libre < panne_mo else ATTENTION if libre < attention_mo else OK
+    audio = 0
+    try:
+        dossier = enregistrement.dossier()
+        if dossier.exists():
+            audio = sum(f.stat().st_size for f in dossier.rglob("*.ulaw")) // 1_000_000
+    except OSError:
+        audio = 0
+    return Controle(
+        "disque", "Espace disque", niveau,
+        f"{libre} Mo libres" + (f" · {audio} Mo d'enregistrements" if audio else ""),
+        f"Seuils : attention à {attention_mo} Mo, panne à {panne_mo} Mo. Un disque plein "
+        "n'emporterait pas que les enregistrements : SQLite cesserait d'écrire, donc les "
+        "réservations seraient perdues." if niveau != OK else "",
+        mesure={"libre_mo": libre, "enregistrements_mo": audio},
+    )
+
+
+def _controle_enregistrements() -> Controle:
+    """Les appels sont-ils RÉELLEMENT enregistrés ? (#88)
+
+    Le cas qu'on veut voir est « 0 sur 12 » : la fonctionnalité activée mais cassée en
+    silence — dossier non inscriptible, régression, disque saturé entre-temps. Un simple
+    « actif : oui » ne le montrerait jamais, et on ne s'en apercevrait qu'en cherchant à
+    réécouter l'appel qui s'est mal passé, c'est-à-dire trop tard.
+    """
+    from . import calls
+    from .voice import enregistrement
+
+    if not enregistrement.actif():
+        return Controle(
+            "enregistrements", "Enregistrement des appels", OK,
+            "Sans objet : l'enregistrement est désactivé.",
+            "ENREGISTREMENT_APPELS=0, ou la mention d'information est coupée — sans "
+            "annonce, on n'enregistre pas.",
+            mesure={"actif": False},
+        )
+    stats = calls.enregistrements_stats(days=fenetre_jours())
+    if not stats["clos"]:
+        return Controle(
+            "enregistrements", "Enregistrement des appels", OK,
+            f"Aucun appel clos sur {fenetre_jours()} jours — pas de mesure.",
+            mesure={"actif": True, "clos": 0},
+        )
+    part = stats["enregistres"] / stats["clos"]
+    niveau = OK if part >= 0.8 else ATTENTION
+    return Controle(
+        "enregistrements", "Enregistrement des appels", niveau,
+        f"{stats['enregistres']} / {stats['clos']} appels enregistrés · "
+        f"{stats['octets'] // 1_000_000} Mo.",
+        "L'enregistrement est activé mais n'aboutit pas : vérifier les droits du dossier "
+        "et l'espace disque. Sans lui, un appel raté ne peut pas être réécouté."
+        if niveau != OK else "",
+        mesure={"actif": True, **stats},
+    )
+
+
 def _controle_twilio() -> Controle:
     """Erreurs remontées par Twilio lui-même (Monitor/Alerts), relues depuis l'ardoise.
 
@@ -600,6 +688,8 @@ def controles() -> list[Controle]:
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
         ("purge", _controle_purge),
+        ("disque", _controle_disque),
+        ("enregistrements", _controle_enregistrements),
     ]
     resultats = []
     for cle, fabrique in fabriques:

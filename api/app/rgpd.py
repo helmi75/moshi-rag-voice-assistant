@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
+from loguru import logger
+
 from . import db
 
 
@@ -35,8 +37,31 @@ from . import db
 # politique de confidentialité au téléphone, et une mention qu'on n'écoute pas
 # n'informe personne. C'est une information de premier niveau ; le détail (durées,
 # droits, contact) vit dans `docs/RGPD.md` et sera repris sur la page publique.
-MENTION = ("Cet accueil est assuré par un assistant vocal ; "
-           "votre appel est traité pour votre réservation.")
+_MENTION_BASE = ("Cet accueil est assuré par un assistant vocal ; "
+                 "votre appel est traité pour votre réservation.")
+_MENTION_ENREGISTRE = ("Cet accueil est assuré par un assistant vocal ; "
+                       "votre appel est enregistré et traité pour votre réservation.")
+
+# Conservé pour compatibilité de lecture : la mention réellement prononcée dépend de
+# l'état de l'enregistrement, et se lit par `mention()`.
+MENTION = _MENTION_BASE
+
+
+def mention() -> str:
+    """La mention RÉELLEMENT prononcée.
+
+    Elle annonce l'enregistrement si et seulement s'il a lieu. C'est le même
+    interrupteur qui pilote les deux (`enregistrement.actif()` exige `mention_active()`),
+    donc ils ne peuvent pas diverger : on n'enregistre jamais sans l'avoir dit, et on ne
+    prétend jamais enregistrer sans le faire.
+
+    ⚠️ Réserve portée au registre (docs/RGPD.md §8) : la finalité réelle de l'audio est
+    le DIAGNOSTIC, pas la réservation. Nommer une finalité incomplète est un défaut de
+    transparence — formulation retenue par Helmi le 31/08/2026, à faire valider.
+    """
+    from .voice import enregistrement
+
+    return _MENTION_ENREGISTRE if enregistrement.actif() else _MENTION_BASE
 
 
 def mention_active() -> bool:
@@ -57,7 +82,7 @@ def accueil(tenant) -> str:
     texte = (getattr(tenant, "greeting", "") or "").strip()
     if not mention_active():
         return texte
-    return f"{texte} {MENTION}".strip()
+    return f"{texte} {mention()}".strip()
 
 
 def _jours(nom: str, defaut: int) -> int:
@@ -82,6 +107,14 @@ def jours_numero() -> int:
 
 # Les réservations sont la donnée métier du restaurateur : il en a besoin après coup
 # (litige, habitué qui revient, comptabilité). Un an après la date, plus.
+# La voix est la donnée la plus sensible du produit. Sa durée est donc PLAFONNÉE par
+# celle de la transcription : un enregistrement ne survit jamais au texte qu'il a produit.
+# Un réglage distrait sur `RETENTION_ENREGISTREMENT_JOURS` ne peut pas allonger la
+# conservation de la voix au-delà de ce que le registre annonce pour le transcript.
+def jours_enregistrement() -> int:
+    return min(_jours("RETENTION_ENREGISTREMENT_JOURS", 30), jours_transcript())
+
+
 def jours_reservation() -> int:
     return _jours("RETENTION_RESERVATION_JOURS", 365)
 
@@ -94,10 +127,12 @@ class Purge:
     numeros: int
     reservations: int
     quand: str
+    enregistrements: int = 0
 
     @property
     def total(self) -> int:
-        return self.transcripts + self.numeros + self.reservations
+        return (self.transcripts + self.numeros + self.reservations
+                + self.enregistrements)
 
 
 def purger() -> Purge:
@@ -105,9 +140,10 @@ def purger() -> Purge:
     ne trouve plus rien à faire."""
     with db.get_conn() as conn:
         transcripts = conn.execute(
-            """UPDATE calls SET transcript = NULL, summary = NULL
+            """UPDATE calls SET transcript = NULL, summary = NULL, journal = NULL
                WHERE started_at < datetime('now', ?)
-                 AND (transcript IS NOT NULL OR summary IS NOT NULL)""",
+                 AND (transcript IS NOT NULL OR summary IS NOT NULL
+                      OR journal IS NOT NULL)""",
             (f"-{jours_transcript()} days",),
         ).rowcount
         numeros = conn.execute(
@@ -126,9 +162,68 @@ def purger() -> Purge:
         numeros=max(0, numeros),
         reservations=max(0, reservations),
         quand=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        enregistrements=_purger_enregistrements(),
     )
     _noter(resultat)
     return resultat
+
+
+def _purger_enregistrements() -> int:
+    """Efface les fichiers audio expirés. **Piloté par la base, jamais par le répertoire.**
+
+    On demande à SQLite quels appels ont dépassé leur durée, puis on reconstruit les
+    chemins côté serveur. Balayer le dossier serait plus court et plus dangereux : on
+    effacerait ce qui s'y trouve, y compris ce qu'on n'y a pas mis.
+
+    Un balayage complémentaire ramasse les orphelins — fichiers dont la ligne a disparu,
+    ce qui arrive après une restauration de sauvegarde (la base revient, les fichiers non,
+    et l'inverse). Sans lui, ces fichiers resteraient indéfiniment, hors de toute durée
+    de conservation.
+
+    Tout est sous `try/except` : une purge de fichiers qui échoue ne doit jamais empêcher
+    la purge SQL, qui est celle que le registre promet.
+    """
+    from . import calls
+    from .voice import enregistrement
+
+    supprimes = 0
+    try:
+        expires = calls.appels_avec_enregistrement(jours_enregistrement())
+        for appel in expires:
+            supprimes += enregistrement.supprimer(appel["tenant_id"], appel["id"])
+        calls.oublier_enregistrements([a["id"] for a in expires])
+    except Exception as exc:
+        logger.warning(f"rétention : purge des enregistrements échouée ({exc})")
+    try:
+        supprimes += _purger_orphelins()
+    except Exception as exc:
+        logger.warning(f"rétention : balayage des orphelins échoué ({exc})")
+    return supprimes
+
+
+def _purger_orphelins() -> int:
+    """Fichiers audio plus vieux que la durée de conservation dont aucune ligne ne parle.
+
+    Filet de sécurité, pas mécanisme principal : la base reste la source de vérité. On
+    se fie ici à la date du fichier, faute de mieux — c'est précisément le cas où la
+    ligne n'existe plus."""
+    import time
+
+    from .voice import enregistrement
+
+    dossier = enregistrement.dossier()
+    if not dossier.exists():
+        return 0
+    limite = time.time() - jours_enregistrement() * 86_400
+    supprimes = 0
+    for fichier in dossier.rglob("*.ulaw"):
+        try:
+            if fichier.stat().st_mtime < limite:
+                fichier.unlink()
+                supprimes += 1
+        except OSError:
+            continue
+    return supprimes
 
 
 def _noter(resultat: Purge) -> None:
@@ -140,6 +235,7 @@ def _noter(resultat: Purge) -> None:
         "transcripts": resultat.transcripts,
         "numeros": resultat.numeros,
         "reservations": resultat.reservations,
+        "enregistrements": resultat.enregistrements,
     })
 
 
@@ -167,9 +263,26 @@ def effacer_appelant(numero: str) -> Purge:
     numero = (numero or "").strip()
     if not numero:
         raise ValueError("numéro vide : refus d'effacer au hasard")
+
+    from . import calls as calls_mod
+    from .voice import enregistrement
+
+    # Les fichiers d'abord, AVANT d'anonymiser : c'est `caller_number` qui relie un
+    # numéro à ses appels, donc à ses enregistrements. Une fois mis à NULL, le lien est
+    # rompu et les fichiers deviennent des orphelins que plus rien ne désigne.
+    fichiers = 0
+    try:
+        concernes = calls_mod.appels_d_un_numero(numero)
+        for appel in concernes:
+            fichiers += enregistrement.supprimer(appel["tenant_id"], appel["id"])
+        calls_mod.oublier_enregistrements([a["id"] for a in concernes])
+    except Exception as exc:
+        logger.warning(f"effacement : enregistrements non supprimés ({exc})")
+
     with db.get_conn() as conn:
         appels = conn.execute(
-            """UPDATE calls SET caller_number = NULL, transcript = NULL, summary = NULL
+            """UPDATE calls SET caller_number = NULL, transcript = NULL, summary = NULL,
+                   journal = NULL
                WHERE caller_number = ?""",
             (numero,),
         ).rowcount
@@ -180,6 +293,7 @@ def effacer_appelant(numero: str) -> Purge:
         transcripts=max(0, appels), numeros=max(0, appels),
         reservations=max(0, reservations),
         quand=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        enregistrements=fichiers,
     )
 
 
@@ -199,8 +313,6 @@ async def boucle() -> None:
     disparaître. Attendre 24 h de plus n'aurait aucune justification.
     """
     import asyncio
-
-    from loguru import logger
 
     intervalle = intervalle_secondes()
     if intervalle <= 0:

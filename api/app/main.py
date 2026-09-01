@@ -412,14 +412,18 @@ async def voice_stream(websocket: WebSocket):
         return
 
     # Journal des appels (admin) : best-effort, ne doit JAMAIS faire échouer un appel.
+    # L'identifiant rendu nomme les fichiers d'enregistrement (#88) ; à None, l'appel a
+    # lieu normalement mais n'est pas enregistré — on n'invente pas de clé de fichier.
+    call_id = None
     try:
-        calls.start_call(call_sid, tenant.id, from_number)
+        call_id = calls.start_call(call_sid, tenant.id, from_number)
     except Exception as exc:
         print(f"[calls] start_call KO (sans conséquence): {exc}")
 
     run_bot = _get_bot_runner()
     try:
-        await run_bot(websocket, stream_sid, call_sid, tenant, caller_number=from_number)
+        await run_bot(websocket, stream_sid, call_sid, tenant,
+                      caller_number=from_number, call_id=call_id)
     except Exception as exc:
         print(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
         try:

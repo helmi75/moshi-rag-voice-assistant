@@ -82,7 +82,7 @@ class TestEnumeration:
 
     ATTENDUS = ["base", "configuration", "appels_muets", "appels_echoues",
                 "appels_inacheves", "latence", "twilio", "accueils", "sauvegarde",
-                "purge"]
+                "purge", "disque", "enregistrements"]
 
     def test_tous_les_controles_sont_presents(self, base):
         assert [c["cle"] for c in supervision.etat(force=True)["controles"]] == self.ATTENDUS
@@ -605,9 +605,11 @@ class TestCablage:
 
         app = pathlib.Path(__file__).resolve().parents[1] / "app"
         lues: set[str] = set()
-        for source in (app / "supervision.py", app / "main.py", app / "rgpd.py"):
-            lues |= set(re.findall(r'["\']((?:SUPERVISION|RETENTION|RGPD)_[A-Z_]+)["\']',
-                                   source.read_text(encoding="utf-8")))
+        sources = (app / "supervision.py", app / "main.py", app / "rgpd.py",
+                   app / "voice" / "enregistrement.py", app / "voice" / "journal.py")
+        motif = r'["\']((?:SUPERVISION|RETENTION|RGPD|ENREGISTREMENT|JOURNAL)_[A-Z_]+)["\']'
+        for source in sources:
+            lues |= set(re.findall(motif, source.read_text(encoding="utf-8")))
         return lues
 
     def test_toutes_les_variables_lues_sont_transmises(self):

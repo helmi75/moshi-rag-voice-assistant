@@ -278,15 +278,20 @@ async def run_bot(
     call_sid: str | None,
     tenant: Tenant,
     caller_number: str | None = None,
+    call_id: int | None = None,
 ) -> None:
     """Construit et exécute le pipeline Pipecat pour un appel Twilio Media Streams.
 
     `caller_number` : numéro de l'appelant (Twilio From), rattaché d'office à toute
-    réservation créée pendant l'appel."""
+    réservation créée pendant l'appel.
+    `call_id` : identifiant SQLite de l'appel, qui nomme les fichiers d'enregistrement
+    (#88). À None, l'appel se déroule normalement mais n'est pas enregistré — on
+    n'invente pas de clé de fichier."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.audio.vad.vad_analyzer import VADParams
     from pipecat.frames.frames import EndFrame, TTSSpeakFrame
 
+    from .journal import JournalDeBord
     from .latency import TurnLatencyObserver
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.pipeline.runner import PipelineRunner
@@ -464,29 +469,78 @@ async def run_bot(
     # Réf. sur le transport de sortie : le flux « standardiste » y injecte l'accueil et
     # la musique via send_audio() (DIRECT vers Twilio), sans traverser STT/VAD.
     output_transport = transport.output()
-    pipeline = Pipeline(
-        [
-            transport.input(),
-            stt,
-            context_aggregator.user(),
-            llm_service,
-            tts,
-            output_transport,
-            context_aggregator.assistant(),
-        ]
-    )
 
-    # Mesure passive des blancs ressentis (cf. voice/latency.py). En OBSERVATEUR :
-    # rien n'est inséré sur le chemin de l'audio, le turn-taking n'est pas touché.
+    # --- Enregistrement des deux pistes (#88) --------------------------------
+    # TOUT ce bloc est sous try/except : un enregistrement impossible ne doit jamais
+    # empêcher un appel d'avoir lieu. En cas d'échec, `audiobuffer` reste None, la
+    # liste du pipeline s'en passe, et l'appel se déroule exactement comme avant.
+    enregistreur = None
+    audiobuffer = None
+    try:
+        from .enregistrement import Enregistreur
+
+        enregistreur = Enregistreur(tenant_id=tenant.id, call_id=call_id)
+        if await enregistreur.demarrer():
+            from pipecat.processors.audio.audio_buffer_processor import (
+                AudioBufferProcessor,
+            )
+
+            # `buffer_size` non nul est ESSENTIEL : à zéro, la bibliothèque garde tout
+            # l'appel en mémoire et n'émet qu'à la fin. 160 000 octets ≈ 10 s de PCM
+            # 8 kHz : assez rare pour ne rien coûter, assez fréquent pour borner la RAM.
+            audiobuffer = AudioBufferProcessor(
+                sample_rate=8000, num_channels=1,
+                buffer_size=160_000, enable_turn_audio=False,
+            )
+
+            @audiobuffer.event_handler("on_track_audio_data")
+            async def _sur_audio(buffer, audio_client, audio_bot, sample_rate, canaux):
+                # Deux dépôts non bloquants, RIEN d'autre. Ce gestionnaire est appelé
+                # sur le chemin des frames : un `await` sur une écriture disque ici
+                # ferait bégayer la voix.
+                enregistreur.ecrire("appelant", audio_client)
+                enregistreur.ecrire("assistante", audio_bot)
+    except Exception as exc:  # pragma: no cover — vérifié par mutation
+        logger.warning(f"enregistrement indisponible ({exc}) — l'appel continue sans")
+        audiobuffer = None
+
+    etapes = [
+        transport.input(),
+        stt,
+        context_aggregator.user(),
+        llm_service,
+        tts,
+        output_transport,
+    ]
+    if audiobuffer is not None:
+        # APRÈS output_transport : l'audio est déjà parti chez Twilio quand on le voit,
+        # donc zéro milliseconde ajoutée sur le chemin sortant. C'est aussi le seul
+        # point où passent à la fois l'audio entrant et l'audio sortant.
+        etapes.append(audiobuffer)
+    etapes.append(context_aggregator.assistant())
+    pipeline = Pipeline(etapes)
+
+    # Deux observateurs : rien n'est inséré sur le chemin de l'audio, le turn-taking
+    # n'est pas touché.
+    #   - `latence` (historique) alimente calls.latency_stats et le contrôle de
+    #     supervision « Blanc ressenti ». Laissé INCHANGÉ : y toucher risquerait la
+    #     seule mesure qui fonctionne aujourd'hui.
+    #   - `bord` décompose le blanc par étage et trace coupures et transcriptions (#88).
+    # Les deux mesurent le même intervalle : un test de recoupement le vérifie.
     latence = TurnLatencyObserver()
+    bord = JournalDeBord()
     task = PipelineTask(
         pipeline,
-        observers=[latence],
+        observers=[latence, bord],
         params=PipelineParams(
             # Twilio Media Streams est en 8 kHz : caler tout le pipeline dessus
             # évite des rééchantillonnages inutiles.
             audio_in_sample_rate=8000,
             audio_out_sample_rate=8000,
+            # Les services publiaient déjà leur temps jusqu'au premier octet ; sans
+            # ceci, personne ne le ramassait. C'est ce qui rend le blanc décomposable.
+            enable_metrics=True,
+            enable_usage_metrics=True,
         ),
     )
 
@@ -505,16 +559,29 @@ async def run_bot(
     # tâche de fond, en parallèle du pipeline, pour injecter les frames au fil de l'eau.
     from . import greeting as greeting_mod
 
+    # Le transport de sortie jette l'audio reçu avant le StartFrame : l'intro attend ce
+    # signal avant d'émettre l'accueil (sinon il part dans le vide).
+    #
+    # UN SEUL gestionnaire pour cet événement, enregistré INCONDITIONNELLEMENT : le
+    # démarrage de l'enregistrement ne dépend pas du fournisseur de TTS. Le placer dans
+    # la branche `moshi_server` aurait fait qu'aucun appel ne serait enregistré sur les
+    # autres pipelines — une panne silencieuse, invisible aux tests qui n'y passent pas.
+    pipeline_ready = asyncio.Event()
+
+    @task.event_handler("on_pipeline_started")
+    async def _on_pipeline_started(task, frame):
+        pipeline_ready.set()
+        # L'enregistrement ne démarre pas tout seul (auto_start_recording=False) : on
+        # attend que le pipeline tourne, sinon les premières tranches arriveraient avant
+        # que les fichiers ne soient ouverts.
+        if audiobuffer is not None:
+            try:
+                await audiobuffer.start_recording()
+            except Exception as exc:
+                logger.warning(f"enregistrement : démarrage KO ({exc}) — appel non enregistré")
+
     intro_task = None
     if greeting_mod.is_moshi_server():
-        # Le transport de sortie jette l'audio reçu avant le StartFrame : l'intro
-        # attend ce signal avant d'émettre l'accueil (sinon il part dans le vide).
-        pipeline_ready = asyncio.Event()
-
-        @task.event_handler("on_pipeline_started")
-        async def _on_pipeline_started(task, frame):
-            pipeline_ready.set()
-
         intro_task = asyncio.create_task(
             greeting_mod.run_switchboard_intro(task, output_transport, tenant, pipeline_ready)
         )
@@ -537,6 +604,17 @@ async def run_bot(
     finally:
         if intro_task is not None:
             intro_task.cancel()
+        # Fermeture de l'enregistrement AVANT la clôture en base : `etat()` doit refléter
+        # ce qui a réellement été écrit, y compris les tranches perdues. Son propre
+        # try/except : une fermeture imparfaite ne doit pas masquer l'erreur qui nous a
+        # amenés dans ce `finally`.
+        etat_enregistrement = {}
+        if enregistreur is not None:
+            try:
+                await enregistreur.fermer()
+                etat_enregistrement = enregistreur.etat()
+            except Exception as exc:
+                logger.warning(f"enregistrement : fermeture KO (sans conséquence): {exc}")
         # Journal des appels : clôture best-effort, hors chemin de latence (l'appel est
         # déjà terminé) et en thread (écriture SQLite hors event loop).
         if call_sid:
@@ -550,6 +628,8 @@ async def run_bot(
                     _extract_transcript(context),
                     created_reservations[0] if created_reservations else None,
                     latence.samples,
+                    bord.journal(etat_enregistrement),
+                    etat_enregistrement.get("octets"),
                 )
             except Exception as exc:
                 logger.warning(f"[calls] finish_call KO (sans conséquence): {exc}")

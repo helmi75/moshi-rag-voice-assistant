@@ -119,6 +119,24 @@ ALTER TABLE tenants ADD COLUMN plan TEXT;
     """
 ALTER TABLE reservations ADD COLUMN cancelled_at TEXT;
 """,
+    # v9 — journal et recording_bytes : de quoi DIAGNOSTIQUER un appel raté (#88).
+    #
+    # `turn_latencies` (v4) donne une liste d'entiers nus : on sait qu'un blanc a duré
+    # 3 s, jamais lequel des étages l'a produit, ni ce que l'appelant avait dit. Les
+    # quatre symptômes constatés — blancs, incompréhension, coupures, ton — laissaient
+    # donc EXACTEMENT la même trace. `journal` porte la chronologie corrélée : le blanc
+    # décomposé par étage, la décision de fin de tour, les interruptions, le texte
+    # entendu en regard du texte dit. NULL = appel antérieur à la mesure, ou journal
+    # perdu : afficher des zéros à la place serait pire, on affiche « pas de mesure ».
+    #
+    # `recording_bytes` fait le lien avec les fichiers audio du volume. NULL = pas
+    # d'enregistrement (désactivé, disque plein, échec) ; 0 = tenté mais rien écrit.
+    # C'est aussi ce que lit la purge pour savoir quels fichiers effacer — sans cette
+    # colonne, elle devrait balayer un répertoire, ce qui est plus fragile.
+    """
+ALTER TABLE calls ADD COLUMN journal TEXT;
+ALTER TABLE calls ADD COLUMN recording_bytes INTEGER;
+""",
 ]
 
 
