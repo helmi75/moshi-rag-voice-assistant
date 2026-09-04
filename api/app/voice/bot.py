@@ -634,10 +634,27 @@ async def run_bot(
                     created_reservations[0] if created_reservations else None,
                     latence.samples,
                     bord.journal(etat_enregistrement),
-                    etat_enregistrement.get("octets"),
+                    _octets_enregistres(etat_enregistrement),
                 )
             except Exception as exc:
                 logger.warning(f"[calls] finish_call KO (sans conséquence): {exc}")
+
+
+def _octets_enregistres(etat: dict) -> int | None:
+    """Ce qu'on écrit dans `calls.recording_bytes`, qui porte TROIS états distincts :
+    NULL = on n'a pas enregistré (fonction coupée), 0 = tenté et rien écrit (disque
+    plein, droits manquants), N = N octets réellement sur le disque.
+
+    Écrire 0 quand la fonction est désactivée les confondrait, et le contrôle de
+    supervision compterait ces appels comme enregistrés : il afficherait « 6 / 15
+    enregistrés · 0 Mo ». C'est faux dans la direction dangereuse — le contrôle existe
+    précisément pour voir « 0 sur 12 », l'enregistrement cassé en silence, et des
+    appels jamais tentés gonfleraient le numérateur jusqu'à masquer la panne."""
+    from .enregistrement import DESACTIVE
+
+    if etat.get("raison") == DESACTIVE:
+        return None
+    return etat.get("octets")
 
 
 def _extract_transcript(context) -> list[dict] | None:
