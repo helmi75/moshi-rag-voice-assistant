@@ -43,8 +43,23 @@ frames n'est pas celui qu'on imagine** :
    `UserStoppedSpeakingFrame` n'arrive qu'après la décision de fin de tour. Tout ce délai
    — smart-turn qui hésite, `USER_TURN_STOP_TIMEOUT` — n'était compté nulle part, alors
    que l'appelant l'entend. `blanc_ressenti_ms` le comprend enfin.
+
+5. **Un observateur voit chaque frame UNE FOIS PAR PROCESSEUR** (relu dans
+   `FrameProcessor.__internal_push_frame` : l'observateur est prévenu à chaque `push`,
+   et chaque maillon repousse la frame au suivant). Une frame diffusée existe en plus en
+   deux instances liées par `broadcast_sibling_id`. Journal de l'appel 39 : 55
+   `client_stop` pour onze fins de tour, 114 `fin_de_tour` dont 94 doublons consécutifs.
+   C'est la vraie cause derrière les points 1 et 2 : la deuxième copie de
+   `UserStoppedSpeakingFrame` recréait le tour avec `entendu=None`, et chaque copie de
+   `UserStartedSpeakingFrame` comptait une coupure. `latency.py` n'y survit que parce
+   qu'il est idempotent par construction. Ici, on dédoublonne par identité de frame.
+
+6. **Le VAD annonce la fin de parole `stop_secs` APRÈS qu'elle a eu lieu** — c'est sa
+   définition. La frame porte cette valeur : on la retranche, sinon le silence ressenti
+   est sous-compté de 500 ms, précisément ce que le point 4 devait corriger.
 """
 import os
+from collections import OrderedDict
 from typing import Optional
 
 from pipecat.frames.frames import (
@@ -72,6 +87,24 @@ _MAX_EVENEMENTS = 400
 
 # Un blanc plus long que ça n'est pas un blanc, c'est un silence entre deux appels.
 _PLAFOND_BLANC_MS = 30_000
+
+# Mémoire des frames déjà vues. Une frame traverse le pipeline en quelques millisecondes
+# et ne revient jamais une minute plus tard : on ne garde que les récentes, pour que la
+# mémoire reste bornée sur un appel d'une heure.
+_VUES_MAX = 1024
+
+
+def _cle(frame) -> Optional[int]:
+    """Identité d'une frame pour le dédoublonnage, ou None si elle n'en a pas.
+
+    Une frame diffusée (`broadcast_frame`) existe en DEUX instances — une par sens —
+    liées par `broadcast_sibling_id`. La plus petite des deux ids identifie la paire :
+    quel que soit l'exemplaire vu en premier, la clé est la même."""
+    ident = getattr(frame, "id", None)
+    if not isinstance(ident, int):
+        return None
+    jumelle = getattr(frame, "broadcast_sibling_id", None)
+    return min(ident, jumelle) if isinstance(jumelle, int) else ident
 
 
 def _entier(nom: str, defaut: int) -> int:
@@ -144,6 +177,7 @@ class JournalDeBord(BaseObserver):
         self._dit: str = ""
         self._client_parle = False
         self._bot_parle = False
+        self._vues: OrderedDict = OrderedDict()
         self._compteurs = {
             "tours": 0, "coupures_du_client": 0, "coupures_du_bot": 0,
             "finales_vides": 0, "revisions_stt": 0,
@@ -166,11 +200,28 @@ class JournalDeBord(BaseObserver):
 
     async def on_push_frame(self, data: FramePushed):
         try:
+            if self._deja_vue(data.frame):
+                return
             self._observer(data)
         except Exception:
             # Un instrument ne fait jamais tomber ce qu'il mesure. On perd une ligne de
             # journal, jamais un appel.
             self._tronque = True
+
+    def _deja_vue(self, frame) -> bool:
+        """Vrai si cette frame (ou sa jumelle diffusée) a déjà été observée.
+
+        Chaque maillon du pipeline repousse la frame au suivant et l'observateur est
+        prévenu à chaque fois : sans ceci, un seul évènement compte cinq à sept fois."""
+        cle = _cle(frame)
+        if cle is None:
+            return False
+        if cle in self._vues:
+            return True
+        self._vues[cle] = True
+        if len(self._vues) > _VUES_MAX:
+            self._vues.popitem(last=False)
+        return False
 
     def _observer(self, data: FramePushed) -> None:
         frame = data.frame
@@ -197,8 +248,14 @@ class JournalDeBord(BaseObserver):
         if isinstance(frame, VADUserStoppedSpeakingFrame):
             # L'instant où l'appelant SE TAIT réellement. Le silence qu'il ressent part
             # d'ici — pas de `UserStoppedSpeakingFrame`, qui n'arrive qu'une fois la fin
-            # de tour décidée.
-            self._vad_stop = t
+            # de tour décidée. Et le VAD lui-même n'émet cette frame qu'après `stop_secs`
+            # de silence : on retranche ce délai, qu'elle porte. On lit la frame, pas la
+            # variable d'environnement — seule la frame reflète le VAD réellement instancié.
+            try:
+                stop_ms = int(float(getattr(frame, "stop_secs", 0) or 0) * 1000)
+            except (TypeError, ValueError):
+                stop_ms = 0
+            self._vad_stop = t - max(0, stop_ms)
             return
 
         if isinstance(frame, UserStoppedSpeakingFrame):
@@ -214,7 +271,12 @@ class JournalDeBord(BaseObserver):
                 "interruption": None, "smart_turn": None,
             }
             # Le texte entendu a été collecté AVANT ce point : on le consomme ici, puis
-            # on remet les compteurs à zéro pour le tour suivant.
+            # on remet les compteurs à zéro pour le tour suivant. Le texte DIT repart
+            # aussi d'ici, et non à chaque début de parole du bot : une réponse en deux
+            # phrases passe par deux `BotStartedSpeaking` (le TTS met ~600 ms à rendre
+            # la seconde, plus que le seuil de silence du transport), et remettre à zéro
+            # là-bas ne gardait que la dernière phrase.
+            self._dit = ""
             self._entendu = None
             self._confiance = None
             self._revisions = 0
@@ -270,14 +332,17 @@ class JournalDeBord(BaseObserver):
                 self._premiere_parole = t
             self._bot_parle = True
             self._debut_parole_bot = t
-            self._dit = ""  # nouveau tour de parole du bot
             self._cloturer_tour(t)
             return
 
         if isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_parle = False
             if self._debut_parole_bot is not None and self.tours:
-                self.tours[-1]["parole_bot_ms"] = t - self._debut_parole_bot
+                # Cumulé, pas écrasé : une réponse en plusieurs phrases fait plusieurs
+                # segments de parole, et c'est leur somme que l'appelant écoute.
+                dernier = self.tours[-1]
+                dernier["parole_bot_ms"] = (dernier.get("parole_bot_ms") or 0) + (
+                    t - self._debut_parole_bot)
             self._debut_parole_bot = None
             return
 

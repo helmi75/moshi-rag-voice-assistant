@@ -68,7 +68,9 @@ class TestUnTourComplet:
         qui déclenche la fin de tour), et le texte TTS suit `BotStartedSpeaking`."""
         _pousser(journal, StartFrame(), 0)
         _pousser(journal, UserStartedSpeakingFrame(), 1000)
-        _pousser(journal, VADUserStoppedSpeakingFrame(), 2600)      # il se tait vraiment
+        # Le VAD ne décide « il se tait » qu'après 0,5 s de silence : la fin RÉELLE de
+        # parole est donc à 2100, et la frame porte ce délai.
+        _pousser(journal, VADUserStoppedSpeakingFrame(stop_secs=0.5), 2600)
         _pousser(journal, _transcription("bonjour je voudrais une table", 0.94), 2800)
         _pousser(journal, UserStoppedSpeakingFrame(), 3000)         # fin de tour décidée
         _pousser(journal, MetricsFrame(data=[
@@ -92,14 +94,15 @@ class TestUnTourComplet:
         assert (tour["llm_ms"], tour["tts_ms"]) == (500, 1100)
 
     def test_le_silence_ressenti_inclut_l_attente_de_fin_de_tour(self):
-        """L'appelant se tait à 2600 et n'entend une réponse qu'à 5000 : il a vécu
-        2,4 s de silence, pas 2,0. Les 400 ms de décision de fin de tour n'étaient
-        comptées nulle part — alors qu'elles s'entendent exactement pareil."""
+        """L'appelant se tait à 2100 et n'entend une réponse qu'à 5000 : il a vécu
+        2,9 s de silence, pas 2,0. Ni les 500 ms que le VAD met à le constater, ni les
+        400 ms de décision de fin de tour n'étaient comptées — alors qu'elles
+        s'entendent exactement comme le reste."""
         j = JournalDeBord()
         self._tour_type(j)
         tour = j.journal()["tours"][0]
-        assert tour["attente_tour_ms"] == 400
-        assert tour["blanc_ressenti_ms"] == 2400
+        assert tour["attente_tour_ms"] == 900
+        assert tour["blanc_ressenti_ms"] == 2900
 
     def test_l_ecart_non_attribue_est_nomme(self):
         """2000 ms de blanc, 1600 attribuées : les 400 restantes ne disparaissent pas
@@ -290,6 +293,104 @@ class TestOutils:
         _pousser(j, _dit("La table"), 2100)
         _pousser(j, _dit("est disponible."), 2200)
         assert j.journal()["tours"][0]["dit"] == "La table est disponible."
+
+
+class TestDoublons:
+    """⚠️ Le défaut que la revue du 04/09 a trouvé DANS la correction précédente.
+
+    Un observateur Pipecat est prévenu à chaque `push` de chaque processeur : une frame
+    qui traverse le pipeline est vue cinq à sept fois, et une frame diffusée existe en
+    deux exemplaires liés. Journal de l'appel 39 : 55 `client_stop` pour onze fins de
+    tour. Sans dédoublonnage, la deuxième copie de `UserStoppedSpeaking` recréait le
+    tour avec `entendu=None` — le champ qu'on venait de « réparer »."""
+
+    def _cinq_fois(self, j, frame, t_ms):
+        for _ in range(5):
+            _pousser(j, frame, t_ms)
+
+    def test_la_meme_frame_vue_cinq_fois_ne_compte_qu_une_fois(self):
+        j = JournalDeBord()
+        _pousser(j, StartFrame(), 0)
+        self._cinq_fois(j, UserStartedSpeakingFrame(), 1000)
+        self._cinq_fois(j, VADUserStoppedSpeakingFrame(stop_secs=0.5), 2600)
+        self._cinq_fois(j, _transcription("bonjour", 0.9), 2800)
+        self._cinq_fois(j, UserStoppedSpeakingFrame(), 3000)
+        self._cinq_fois(j, BotStartedSpeakingFrame(), 5000)
+        self._cinq_fois(j, _dit("Bonjour !"), 5100)
+        journal = j.journal()
+        assert len(journal["tours"]) == 1
+        tour = journal["tours"][0]
+        # C'est exactement ce qui restait vide en production.
+        assert tour["entendu"] == "bonjour" and tour["confiance"] == 0.9
+        assert tour["attente_tour_ms"] == 900
+        assert tour["dit"] == "Bonjour !"
+        assert [e["quoi"] for e in journal["evenements"]].count("client_stop") == 1
+
+    def test_une_coupure_diffusee_compte_une_fois(self):
+        """`broadcast_frame` crée deux instances, une par sens, liées par
+        `broadcast_sibling_id`. Chacune est ensuite repoussée par chaque maillon."""
+        j = JournalDeBord()
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
+        _pousser(j, BotStartedSpeakingFrame(), 2000)
+        aval, amont = UserStartedSpeakingFrame(), UserStartedSpeakingFrame()
+        aval.broadcast_sibling_id = amont.id
+        amont.broadcast_sibling_id = aval.id
+        for _ in range(3):
+            _pousser(j, aval, 3000)
+        for _ in range(4):
+            _pousser(j, amont, 3000)
+        assert j.journal()["compteurs"]["coupures_du_client"] == 1
+
+    def test_deux_frames_distinctes_restent_deux_evenements(self):
+        """Le dédoublonnage porte sur l'identité, pas sur le type : deux vraies
+        coupures sont deux coupures."""
+        j = JournalDeBord()
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
+        _pousser(j, BotStartedSpeakingFrame(), 2000)
+        _pousser(j, UserStartedSpeakingFrame(), 3000)
+        _pousser(j, UserStartedSpeakingFrame(), 4000)
+        assert j.journal()["compteurs"]["coupures_du_client"] == 2
+
+    def test_la_memoire_des_frames_vues_est_bornee(self):
+        from app.voice import journal as module
+
+        j = JournalDeBord()
+        for i in range(module._VUES_MAX * 3):
+            _pousser(j, UserStartedSpeakingFrame(), i)
+        assert len(j._vues) == module._VUES_MAX
+
+
+class TestReponseEnPlusieursPhrases:
+    """Le TTS met ~600 ms à rendre chaque phrase, plus que le seuil de silence du
+    transport : une réponse en deux phrases fait deux `BotStarted`/`BotStopped`."""
+
+    def _deux_phrases(self, j):
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
+        _pousser(j, BotStartedSpeakingFrame(), 2000)
+        _pousser(j, _dit("Bien sûr."), 2100)
+        _pousser(j, BotStoppedSpeakingFrame(), 3000)
+        _pousser(j, BotStartedSpeakingFrame(), 3600)
+        _pousser(j, _dit("Pour combien de personnes ?"), 3700)
+        _pousser(j, BotStoppedSpeakingFrame(), 5000)
+
+    def test_le_texte_dit_garde_toutes_les_phrases(self):
+        j = JournalDeBord()
+        self._deux_phrases(j)
+        assert j.journal()["tours"][0]["dit"] == "Bien sûr. Pour combien de personnes ?"
+
+    def test_la_parole_du_bot_est_cumulee(self):
+        j = JournalDeBord()
+        self._deux_phrases(j)
+        assert j.journal()["tours"][0]["parole_bot_ms"] == 1000 + 1400
+
+    def test_le_tour_suivant_repart_de_zero(self):
+        j = JournalDeBord()
+        self._deux_phrases(j)
+        _pousser(j, UserStoppedSpeakingFrame(), 8000)
+        _pousser(j, BotStartedSpeakingFrame(), 9000)
+        _pousser(j, _dit("Très bien."), 9100)
+        assert [t["dit"] for t in j.journal()["tours"]] == [
+            "Bien sûr. Pour combien de personnes ?", "Très bien."]
 
 
 class TestRobustesse:
