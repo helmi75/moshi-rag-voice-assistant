@@ -214,6 +214,49 @@ class TestPlafondDeDuree:
         assert etat["octets"] <= 1 * 8000 * 2 + 800
 
 
+class TestCeQuOnEcritEnBase:
+    """`calls.recording_bytes` porte TROIS états, et les confondre casse la seule
+    surveillance qui verrait l'enregistrement tomber en panne en silence."""
+
+    def test_fonction_coupee_la_colonne_reste_vide(self, monkeypatch):
+        """NULL, pas 0. Écrire 0 ferait compter l'appel comme enregistré : la
+        supervision afficherait « 6 / 15 enregistrés · 0 Mo » et un enregistrement
+        réellement cassé se noierait dans ces faux positifs."""
+        from app.voice.bot import _octets_enregistres
+
+        monkeypatch.setenv("ENREGISTREMENT_APPELS", "0")
+        enr = enregistrement.Enregistreur(tenant_id=1, call_id=1)
+        assert _lancer(enr.demarrer()) is False
+        assert _octets_enregistres(enr.etat()) is None
+
+    def test_tente_mais_rien_ecrit_vaut_zero_pas_vide(self, monkeypatch):
+        """Le disque plein est un ÉCHEC, pas une absence : il doit peser dans la
+        proportion d'appels enregistrés, sinon la panne reste invisible."""
+        from app.voice.bot import _octets_enregistres
+
+        monkeypatch.setattr(enregistrement, "espace_libre_mo", lambda *a, **k: 10)
+        enr = enregistrement.Enregistreur(tenant_id=1, call_id=1)
+        assert _lancer(enr.demarrer()) is False
+        assert enr.raison == enregistrement.DISQUE
+        assert _octets_enregistres(enr.etat()) == 0
+
+    def test_enregistrement_reussi_rend_les_octets(self):
+        """µ-law tient un échantillon par octet, là où le PCM16 en prend deux : ce qui
+        est compté est la taille RÉELLE sur le disque, pas celle de ce qu'on a reçu."""
+        from app.voice.bot import _octets_enregistres
+
+        echantillons = 800
+        enr = enregistrement.Enregistreur(tenant_id=1, call_id=1)
+
+        async def scenario():
+            assert await enr.demarrer() is True
+            enr.ecrire("appelant", _pcm(echantillons))
+            await enr.fermer()
+
+        _lancer(scenario())
+        assert _octets_enregistres(enr.etat()) == echantillons
+
+
 class TestSuppression:
     def test_supprime_les_deux_pistes_et_les_compte(self):
         async def scenario():
