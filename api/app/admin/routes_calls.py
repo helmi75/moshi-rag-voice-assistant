@@ -149,6 +149,8 @@ async def call_audio(call_id: int, piste: str = "stereo",
     qui rend lisible un enregistrement interrompu par un arrêt brutal — précisément
     l'appel qu'on veut réécouter.
     """
+    import asyncio
+
     from fastapi.responses import Response
 
     from ..voice import enregistrement, ulaw
@@ -161,15 +163,19 @@ async def call_audio(call_id: int, piste: str = "stereo",
         chemin = enregistrement.chemin(call["tenant_id"], call["id"], nom)
         return ulaw.decoder(chemin.read_bytes()) if chemin.exists() else b""
 
-    try:
+    def _assembler() -> tuple[bytes, int]:
         if piste == "stereo":
             # Appelant à gauche, assistante à droite : on ENTEND qui parle par-dessus
             # qui, ce qu'un mixage laisserait seulement deviner.
-            pcm = ulaw.entrelacer(_lire("appelant"), _lire("assistante"))
-            canaux = 2
-        else:
-            pcm = _lire(piste)
-            canaux = 1
+            return ulaw.entrelacer(_lire("appelant"), _lire("assistante")), 2
+        return _lire(piste), 1
+
+    # Lecture et décodage DANS UN THREAD : l'admin tourne dans le même processus que
+    # les appels en cours, et Twilio attend une trame toutes les 20 ms. Un appel de dix
+    # minutes en stéréo, c'est ~20 Mo à décoder — bloquer la boucle d'événements ce
+    # temps-là ferait bégayer la voix d'un client au téléphone pour qu'un admin réécoute.
+    try:
+        pcm, canaux = await asyncio.to_thread(_assembler)
     except OSError:
         raise HTTPException(status_code=404)
     if not pcm:

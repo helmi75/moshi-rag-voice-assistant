@@ -135,6 +135,11 @@ def build_stt(tenant: Tenant, language: str):
             ("réservation", 3), ("réserver", 3), ("couverts", 2), ("personnes", 2),
             ("table", 2), ("midi", 1), ("soir", 1), ("demain", 1),
             ("allergie", 2), ("terrasse", 2), ("annuler", 2),
+            # Ajoutés le 01/09/2026 après trois appels réels : « je voudrais annuler »
+            # est revenu en « je voudrais l'abuler », et il a fallu TROIS relances avant
+            # qu'elle comprenne. Trois relances, c'est le moment où un client raccroche.
+            ("annulation", 3), ("modifier", 2), ("décaler", 2), ("changer", 2),
+            ("confirmation", 2), ("réservé", 2),
         ]
         extra = [k.strip() for k in os.getenv("DEEPGRAM_KEYWORDS", "").split(",") if k.strip()]
 

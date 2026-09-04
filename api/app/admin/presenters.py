@@ -123,19 +123,21 @@ def tours_du_journal(journal: Optional[dict]) -> list[dict]:
         return []
     sortie = []
     for tour in journal.get("tours", []) or []:
-        blanc = tour.get("blanc_ms") or 0
+        # Le total de référence est le silence RESSENTI, pas le blanc technique :
+        # l'appelant entend aussi le temps de décision de fin de tour.
+        ressenti = tour.get("blanc_ressenti_ms") or tour.get("blanc_ms") or 0
         etages = []
-        for cle, libelle in (("stt_ms", "Transcription"), ("llm_ms", "Compréhension"),
-                             ("outil_ms", "Outil"), ("tts_ms", "Voix"),
-                             ("non_attribue_ms", "Non attribué")):
+        for cle, libelle in (("attente_tour_ms", "Fin de tour détectée"),
+                             ("llm_ms", "Compréhension"), ("outil_ms", "Outil"),
+                             ("tts_ms", "Voix"), ("non_attribue_ms", "Non attribué")):
             valeur = tour.get(cle) or 0
             if valeur:
                 etages.append({
                     "libelle": libelle, "ms": valeur,
-                    "part": round(100 * valeur / blanc) if blanc else 0,
+                    "part": round(100 * valeur / ressenti) if ressenti else 0,
                 })
         sortie.append({**tour,
                        "horodatage": format_mmss(tour.get("t_ms")),
-                       "blanc_s": f"{blanc / 1000:.1f}",
+                       "blanc_s": f"{ressenti / 1000:.1f}",
                        "etages": etages})
     return sortie
