@@ -203,15 +203,47 @@ class TestCoupures:
 
     def test_la_decision_de_fin_de_tour_est_tracee(self):
         """Smart-turn décide quand le client a fini de parler. Sa probabilité est la
-        seule façon de savoir s'il a hésité — ou tranché à tort."""
+        seule façon de savoir s'il a hésité — ou tranché à tort.
+
+        L'inférence arrive AVANT `UserStoppedSpeaking` : c'est elle qui le déclenche."""
         j = JournalDeBord()
-        _pousser(j, UserStoppedSpeakingFrame(), 1000)
         _pousser(j, MetricsFrame(data=[TurnMetricsData(
             processor="SmartTurn", is_complete=True, probability=0.62,
-            e2e_processing_time_ms=40)]), 1100)
+            e2e_processing_time_ms=40)]), 900)
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
         _pousser(j, BotStartedSpeakingFrame(), 2000)
         assert j.journal()["tours"][0]["smart_turn"] == {
             "complet": True, "proba": 0.62, "ms": 40}
+
+    def test_la_decision_va_au_tour_qu_elle_a_ferme(self):
+        """⚠️ Relevé sur l'appel 44 : l'inférence de 21 925 ms a fermé le tour ouvert à
+        22 545 ms, mais on y stockait celle de 26 496 ms — la SUIVANTE. On lisait donc,
+        pour chaque tour, la décision d'un autre."""
+        j = JournalDeBord()
+        _pousser(j, MetricsFrame(data=[TurnMetricsData(
+            processor="SmartTurn", is_complete=False, probability=0.005,
+            e2e_processing_time_ms=75)]), 900)
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)      # ce tour-ci
+        _pousser(j, MetricsFrame(data=[TurnMetricsData(
+            processor="SmartTurn", is_complete=True, probability=0.96,
+            e2e_processing_time_ms=70)]), 1500)            # décision du tour SUIVANT
+        _pousser(j, BotStartedSpeakingFrame(), 2000)
+        _pousser(j, UserStoppedSpeakingFrame(), 5000)
+        _pousser(j, BotStartedSpeakingFrame(), 6000)
+        proba = [t["smart_turn"]["proba"] for t in j.journal()["tours"]]
+        assert proba == [0.005, 0.96]
+
+    def test_la_derniere_inference_avant_la_fin_de_tour_gagne(self):
+        """Smart-turn tourne plusieurs fois pendant une hésitation : celle qui compte
+        est la dernière, celle qui a effectivement tranché."""
+        j = JournalDeBord()
+        for proba in (0.005, 0.04, 0.103):
+            _pousser(j, MetricsFrame(data=[TurnMetricsData(
+                processor="SmartTurn", is_complete=False, probability=proba,
+                e2e_processing_time_ms=50)]), 900)
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
+        _pousser(j, BotStartedSpeakingFrame(), 2000)
+        assert j.journal()["tours"][0]["smart_turn"]["proba"] == 0.103
 
     def test_l_ancien_nom_de_metrique_reste_compris(self):
         """`SmartTurnMetricsData` est déprécié mais peut encore être émis. Ne pas
@@ -220,10 +252,10 @@ class TestCoupures:
         from pipecat.metrics.metrics import SmartTurnMetricsData
 
         j = JournalDeBord()
-        _pousser(j, UserStoppedSpeakingFrame(), 1000)
         _pousser(j, MetricsFrame(data=[SmartTurnMetricsData(
             processor="SmartTurn", is_complete=False, probability=0.31,
-            inference_time_ms=34, e2e_processing_time_ms=40)]), 1100)
+            inference_time_ms=34, e2e_processing_time_ms=40)]), 900)
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
         _pousser(j, BotStartedSpeakingFrame(), 2000)
         assert j.journal()["tours"][0]["smart_turn"] == {
             "complet": False, "proba": 0.31, "ms": 34}
@@ -267,6 +299,46 @@ class TestComprehension:
         journal = j.journal()
         assert journal["compteurs"]["finales_vides"] == 1
         assert journal["tours"][0]["entendu"] is None
+
+
+class TestPlusieursFinalesParTour:
+    """⚠️ Trouvé le 04/09 en comparant le journal au transcript réellement reçu par le
+    modèle. Deepgram publie une transcription finale PAR SEGMENT de parole : garder la
+    dernière écrasait tout le reste. Sur l'appel 43, huit secondes de parole se lisaient
+    « pour la visite » alors que le modèle avait reçu la phrase entière — le champ censé
+    répondre à « elle a mal compris ? » racontait autre chose que ce qui s'était passé."""
+
+    def test_les_finales_d_un_tour_sont_toutes_gardees(self):
+        j = JournalDeBord()
+        _pousser(j, _transcription("Ouais ouais, c'est bon, merci."), 900)
+        _pousser(j, _transcription("Est-ce que vous recrutez des plongeurs"), 950)
+        _pousser(j, _transcription("pour la visite"), 990)
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
+        _pousser(j, BotStartedSpeakingFrame(), 2000)
+        assert j.journal()["tours"][0]["entendu"] == (
+            "Ouais ouais, c'est bon, merci. Est-ce que vous recrutez des plongeurs "
+            "pour la visite")
+
+    def test_la_confiance_retenue_est_la_plus_faible(self):
+        """On cherche le segment sur lequel elle a PU se tromper. Une moyenne le
+        noierait dans les segments sûrs, et c'est justement celui-là qu'on veut voir."""
+        j = JournalDeBord()
+        _pousser(j, _transcription("bonjour", 0.99), 900)
+        _pousser(j, _transcription("Bertrand", 0.41), 950)
+        _pousser(j, _transcription("merci", 0.97), 990)
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
+        _pousser(j, BotStartedSpeakingFrame(), 2000)
+        assert j.journal()["tours"][0]["confiance"] == 0.41
+
+    def test_chaque_tour_repart_de_zero(self):
+        j = JournalDeBord()
+        for mots, t in ((("premier", "morceau"), 1000), (("second", "morceau"), 5000)):
+            for i, mot in enumerate(mots):
+                _pousser(j, _transcription(mot), t - 100 + i * 10)
+            _pousser(j, UserStoppedSpeakingFrame(), t)
+            _pousser(j, BotStartedSpeakingFrame(), t + 1000)
+        assert [t["entendu"] for t in j.journal()["tours"]] == [
+            "premier morceau", "second morceau"]
 
 
 class TestOutils:
@@ -410,12 +482,13 @@ class TestRobustesse:
     def test_une_confiance_illisible_vaut_none_pas_une_exception(self):
         """La forme du résultat appartient au fournisseur et peut changer sans prévenir."""
         j = JournalDeBord()
-        _pousser(j, UserStoppedSpeakingFrame(), 1000)
         frame = _transcription("bonjour")
         frame.result = {"forme": "inattendue"}
-        _pousser(j, frame, 1100)
+        _pousser(j, frame, 900)
+        _pousser(j, UserStoppedSpeakingFrame(), 1000)
         _pousser(j, BotStartedSpeakingFrame(), 2000)
-        assert j.journal()["tours"][0]["confiance"] is None
+        tour = j.journal()["tours"][0]
+        assert tour["confiance"] is None and tour["entendu"] == "bonjour"
 
     def test_le_nombre_de_tours_est_borne(self, monkeypatch):
         monkeypatch.setenv("JOURNAL_MAX_TOURS", "3")

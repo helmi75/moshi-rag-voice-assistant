@@ -57,6 +57,22 @@ frames n'est pas celui qu'on imagine** :
 6. **Le VAD annonce la fin de parole `stop_secs` APRÈS qu'elle a eu lieu** — c'est sa
    définition. La frame porte cette valeur : on la retranche, sinon le silence ressenti
    est sous-compté de 500 ms, précisément ce que le point 4 devait corriger.
+
+## Ce que six vrais appels enregistrés ont corrigé (04/09/2026)
+
+7. **Deepgram publie PLUSIEURS transcriptions finales par tour**, une par segment de
+   parole. Garder la dernière écrasait tout le reste : sur l'appel 43, huit secondes de
+   parole se lisaient « pour la visite » alors que le modèle avait reçu la phrase
+   entière. Le champ censé répondre à « elle a mal compris ? » racontait donc autre
+   chose que ce qui s'était passé. On accumule désormais, comme pour `dit` — même faute,
+   corrigée à moitié la fois précédente.
+
+8. **La décision de fin de tour arrive AVANT `UserStoppedSpeakingFrame`.** C'est elle
+   qui déclenche la fin de tour, donc l'inférence attachée au tour ouvert était la
+   SUIVANTE, pas celle qui l'avait fermé. Relevé sur l'appel 44 : l'inférence à 21 925 ms
+   (incomplet, p=0,005) a fermé le tour ouvert à 22 545 ms, mais on y stockait celle de
+   26 496 ms. On la met en attente et on la consomme à l'ouverture du tour, comme le
+   texte entendu.
 """
 import os
 from collections import OrderedDict
@@ -170,10 +186,12 @@ class JournalDeBord(BaseObserver):
         self._debut_outil: Optional[int] = None
         self._vad_stop: Optional[int] = None
         self._premiere_parole: Optional[int] = None
-        # Buffers HORS fenêtre de tour : le texte n'arrive pas quand on l'attend.
-        self._entendu: Optional[str] = None
+        # Buffers HORS fenêtre de tour : ni le texte ni la décision de fin de tour
+        # n'arrivent quand on les attend — les deux PRÉCÈDENT la fin de tour.
+        self._entendu: list[str] = []
         self._confiance: Optional[float] = None
         self._revisions = 0
+        self._decision: Optional[dict] = None
         self._dit: str = ""
         self._client_parle = False
         self._bot_parle = False
@@ -265,10 +283,11 @@ class JournalDeBord(BaseObserver):
             self._tour = {
                 "n": len(self.tours) + 1, "t_ms": t, "parole_client_ms": duree,
                 "attente_tour_ms": max(0, attente) if attente is not None else None,
-                "entendu": self._entendu, "confiance": self._confiance,
+                "entendu": " ".join(self._entendu) or None,
+                "confiance": self._confiance,
                 "revisions_stt": self._revisions, "dit": "",
                 "llm_ms": None, "outil_ms": 0, "tts_ms": None,
-                "interruption": None, "smart_turn": None,
+                "interruption": None, "smart_turn": self._decision,
             }
             # Le texte entendu a été collecté AVANT ce point : on le consomme ici, puis
             # on remet les compteurs à zéro pour le tour suivant. Le texte DIT repart
@@ -277,9 +296,10 @@ class JournalDeBord(BaseObserver):
             # la seconde, plus que le seuil de silence du transport), et remettre à zéro
             # là-bas ne gardait que la dernière phrase.
             self._dit = ""
-            self._entendu = None
+            self._entendu = []
             self._confiance = None
             self._revisions = 0
+            self._decision = None
             self._vad_stop = None
             self._debut_parole_client = None
             self._noter(t, "client_stop")
@@ -296,8 +316,14 @@ class JournalDeBord(BaseObserver):
             if not texte:
                 self._compteurs["finales_vides"] += 1
             else:
-                self._entendu = texte
-                self._confiance = _confiance(frame)
+                self._entendu.append(texte)
+                confiance = _confiance(frame)
+                if confiance is not None:
+                    # La PLUS FAIBLE des confiances du tour, pas la dernière ni la
+                    # moyenne : ce qu'on cherche est le segment sur lequel elle a pu
+                    # se tromper, et une moyenne le noierait dans les segments sûrs.
+                    self._confiance = (confiance if self._confiance is None
+                                       else min(self._confiance, confiance))
             self._noter(t, "entendu", texte=texte[:120])
             return
 
@@ -366,10 +392,9 @@ class JournalDeBord(BaseObserver):
                     "proba": round(float(getattr(donnee, "probability", 0) or 0), 3),
                     "ms": int(ms or 0),
                 }
-                if self._tour is not None:
-                    self._tour["smart_turn"] = decision
-                elif self.tours:
-                    self.tours[-1]["smart_turn"] = decision
+                # En ATTENTE : cette inférence précède la fin de tour qu'elle décide.
+                # L'attacher au tour ouvert le rattacherait au tour précédent.
+                self._decision = decision
                 self._noter(t, "fin_de_tour", **decision)
             elif nom == "TTFBMetricsData":
                 etage = _etage(getattr(donnee, "processor", None))
