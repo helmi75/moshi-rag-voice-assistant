@@ -417,15 +417,22 @@ async def run_bot(
     # - VAD Silero : start_secs bas = barge-in rapide ; stop_secs un peu relevé = tolère
     #   les pauses courtes en milieu de phrase (moins de re-segmentation) ; confidence
     #   relevée = moins de faux départs sur le bruit de fond (téléphone bruyant).
-    # - user_turn_stop_timeout : filet quand smart-turn v3 hésite sur la fin de tour.
-    #   Défaut Pipecat = 5 s -> ressenti « lent à reprendre ». Ramené à 1 s.
-    # Défauts validés à l'oreille sur appels réels (reprise vive sans couper le client).
+    # - user_turn_stop_timeout : filet quand smart-turn v3 dit que le client n'a PAS
+    #   fini. Défaut Pipecat 5 s -> « lente à reprendre » ; on l'avait ramené à 1 s à
+    #   l'oreille, et six appels enregistrés ont montré le prix de ce réglage : sur 48
+    #   tours, 16 (33 %) ont reçu une réponse alors que la phrase n'était pas finie —
+    #   « Alors moi, c'est… » a produit une récapitulation au nom de « Mada ».
+    #   Le chiffre qui tranche : quand smart-turn dit « pas fini », le client reprend
+    #   effectivement la parole 62 % du temps. Il avait raison et on le coupait.
+    #   Porté à 2 s. Ce délai ne se paie QUE sur les tours où smart-turn hésite : un
+    #   tour franc part toujours à ~550 ms. C'est ce qui le distingue de VAD_STOP_SECS,
+    #   qui alourdirait tous les tours sans distinction — mesuré, pas supposé.
     vad_params = VADParams(
         confidence=float(os.getenv("VAD_CONFIDENCE", "0.85")),
         start_secs=float(os.getenv("VAD_START_SECS", "0.2")),
         stop_secs=float(os.getenv("VAD_STOP_SECS", "0.5")),
     )
-    turn_stop_timeout = float(os.getenv("USER_TURN_STOP_TIMEOUT", "1.0"))
+    turn_stop_timeout = float(os.getenv("USER_TURN_STOP_TIMEOUT", "2.0"))
     context_aggregator = LLMContextAggregatorPair(
         context,
         # VAD Silero pour le début de tour ; fin de tour via smart-turn v3 (défaut

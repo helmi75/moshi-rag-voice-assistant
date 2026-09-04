@@ -34,7 +34,7 @@ services:
       # Naturalité de la conversation (fin de tour / barge-in). Baisser USER_TURN_STOP_TIMEOUT
       # = reprise plus vive quand smart-turn hésite ; monter VAD_CONFIDENCE = moins de faux
       # départs sur le bruit ; VAD_STOP_SECS = tolérance aux pauses courtes en milieu de phrase.
-      USER_TURN_STOP_TIMEOUT: "${USER_TURN_STOP_TIMEOUT:-1.0}"
+      USER_TURN_STOP_TIMEOUT: "${USER_TURN_STOP_TIMEOUT:-2.0}"
       VAD_CONFIDENCE: "${VAD_CONFIDENCE:-0.85}"
       VAD_START_SECS: "${VAD_START_SECS:-0.2}"
       VAD_STOP_SECS: "${VAD_STOP_SECS:-0.5}"
