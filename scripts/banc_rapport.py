@@ -19,6 +19,10 @@ import os
 import shlex
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+import banc_couts  # noqa: E402  (le chemin doit être posé avant l'import)
 
 SSH_CLE = os.getenv("VPS_SSH_KEY", os.path.expanduser("~/.ssh/moshi-vps-deploy"))
 VPS = os.getenv("VPS_HOTE", "root@187.77.172.87")
@@ -90,6 +94,10 @@ print("  blanc ressenti median 1904 ms, p90 2668 ms | attente 570 | llm 529 | tt
 print("\nLecture : le palier ou le blanc median decroche est la limite reelle.")
 print("Si `llm` et `tts` restent plats et que seule `attente` monte, c'est le CPU du VPS.")
 print("Si `tts` monte, c'est le GPU (batch 8 par conteneur) qui sature.")
+
+# Ligne lisible par la partie financiere du rapport : total des secondes d'audio et
+# nombre d'appels, pour que le cout par appel porte sur les MEMES appels que la latence.
+print(f"\n#TOTAUX {len(lignes)} {sum(float(r['duration_seconds'] or 0) for r in lignes):.0f}")
 '''
 
 
@@ -115,12 +123,26 @@ def main() -> int:
         return 1
     # moshi-server et pipecat écrivent leur bannière sur la sortie : on la retire pour
     # que le rapport reste lisible.
+    appels, secondes = 0, 0.0
     for ligne in sortie.stdout.splitlines():
+        if ligne.startswith("#TOTAUX"):
+            _, a, sec = ligne.split()
+            appels, secondes = int(a), float(sec)
+            continue
         if "Pipecat" not in ligne:
             print(ligne)
     if sortie.returncode != 0:
         print(sortie.stderr.strip()[:600], file=sys.stderr)
         return sortie.returncode
+
+    # Volet financier. Un banc technique qui ne chiffre pas ne sert qu'à moitié : savoir
+    # qu'on tient dix appels ne dit pas si on peut se le permettre.
+    releves = banc_couts.lire()
+    if releves and appels:
+        banc_couts.afficher(banc_couts.calculer(
+            releves["avant"], releves["apres"], secondes, appels))
+    elif appels:
+        print("\n(pas de relevé de facturation : relancer banc_appels.py pour en produire un)")
     return 0
 
 
