@@ -136,6 +136,10 @@ OUTCOME_FILTERS = {
     "reservation": "reservation_id IS NOT NULL",
     "failed": "status = 'failed'",
     "info": "reservation_id IS NULL AND status = 'completed'",
+    # Un rappel a été promis à l'appelant. Sans ce filtre, ces appels se noyaient dans
+    # « info », au même titre qu'une question d'horaires — et le restaurateur n'avait
+    # aucun moyen de savoir qu'on s'était engagé en son nom.
+    "message": "EXISTS (SELECT 1 FROM messages m WHERE m.call_id = calls.id)",
 }
 
 

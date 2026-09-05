@@ -21,6 +21,7 @@ def make_tool_handler(
     tenant: Tenant,
     created_reservations: list[int] | None = None,
     caller_number: str | None = None,
+    call_id: int | None = None,
 ):
     """Handler Pipecat commun aux outils métier : délègue à llm.run_tool.
 
@@ -30,12 +31,15 @@ def make_tool_handler(
     source de vérité — téléphone de la réservation, et surtout autorisation d'accès à une
     réservation existante (#33). L'injection se fait LÀ-BAS et non ici : le mode `gather`
     passe par `llm.respond` sans traverser ce handler, et deux points d'injection
-    finiraient par diverger."""
+    finiraient par diverger.
+    `call_id` : rattache un message pris à l'appel qui l'a produit, pour qu'on puisse
+    réécouter ce qui a été dit."""
 
     async def handle(params):  # params: pipecat FunctionCallParams
         args = dict(params.arguments or {})
         try:
-            result = await llm.run_tool(tenant, params.function_name, args, caller_number)
+            result = await llm.run_tool(tenant, params.function_name, args,
+                                        caller_number, call_id)
         except Exception as exc:
             result = f"Erreur outil {params.function_name}: {exc}"
         if created_reservations is not None and params.function_name == "create_reservation":
@@ -371,7 +375,7 @@ async def run_bot(
     )
     # Journal des appels : collecte les réservations créées pendant CET appel.
     created_reservations: list[int] = []
-    tool_handler = make_tool_handler(tenant, created_reservations, caller_number)
+    tool_handler = make_tool_handler(tenant, created_reservations, caller_number, call_id)
     for tool in llm.TOOLS:
         llm_service.register_function(tool["name"], tool_handler)
 

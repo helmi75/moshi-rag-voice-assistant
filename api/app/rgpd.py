@@ -128,11 +128,12 @@ class Purge:
     reservations: int
     quand: str
     enregistrements: int = 0
+    messages: int = 0
 
     @property
     def total(self) -> int:
         return (self.transcripts + self.numeros + self.reservations
-                + self.enregistrements)
+                + self.enregistrements + self.messages)
 
 
 def purger() -> Purge:
@@ -157,12 +158,29 @@ def purger() -> Purge:
             "DELETE FROM reservations WHERE date < date('now', ?)",
             (f"-{jours_reservation()} days",),
         ).rowcount
+        # Un message contient le NOM et la DEMANDE de l'appelant, donc de la donnée
+        # personnelle en clair — parfois plus parlante qu'un transcript, puisqu'elle est
+        # résumée. Il suit donc la même durée que le transcript, et le numéro celle du
+        # numéro. Un message plus vieux que ça n'a de toute façon plus d'usage : un
+        # rappel promis il y a un mois ne se rattrape pas.
+        messages_vides = conn.execute(
+            """UPDATE messages SET subject = 'Message effacé (durée de conservation)',
+                   details = NULL, customer_name = NULL
+               WHERE created_at < datetime('now', ?) AND details IS NOT NULL""",
+            (f"-{jours_transcript()} days",),
+        ).rowcount
+        conn.execute(
+            """UPDATE messages SET caller_number = NULL
+               WHERE created_at < datetime('now', ?) AND caller_number IS NOT NULL""",
+            (f"-{jours_numero()} days",),
+        )
     resultat = Purge(
         transcripts=max(0, transcripts),
         numeros=max(0, numeros),
         reservations=max(0, reservations),
         quand=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         enregistrements=_purger_enregistrements(),
+        messages=max(0, messages_vides),
     )
     _noter(resultat)
     return resultat
@@ -236,6 +254,7 @@ def _noter(resultat: Purge) -> None:
         "numeros": resultat.numeros,
         "reservations": resultat.reservations,
         "enregistrements": resultat.enregistrements,
+        "messages": resultat.messages,
     })
 
 
@@ -289,11 +308,18 @@ def effacer_appelant(numero: str) -> Purge:
         reservations = conn.execute(
             "DELETE FROM reservations WHERE customer_phone = ?", (numero,)
         ).rowcount
+        # Les messages sont SUPPRIMÉS, pas anonymisés : contrairement à un appel, ils ne
+        # portent aucune valeur comptable. Un message vidé de son objet et de son numéro
+        # n'est plus qu'une ligne que le restaurateur ne peut ni traiter ni comprendre.
+        messages_effaces = conn.execute(
+            "DELETE FROM messages WHERE caller_number = ?", (numero,)
+        ).rowcount
     return Purge(
         transcripts=max(0, appels), numeros=max(0, appels),
         reservations=max(0, reservations),
         quand=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         enregistrements=fichiers,
+        messages=max(0, messages_effaces),
     )
 
 

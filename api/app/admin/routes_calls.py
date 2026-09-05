@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from .. import calls, reservations, tenants
+from .. import calls, messages, reservations, tenants
 from ..users import User
 from . import deps, presenters
 
@@ -14,6 +14,7 @@ PAGE_SIZE = 25
 FILTERS = [
     ("", "Tous"),
     ("reservation", "Avec réservation"),
+    ("message", "Rappel promis"),
     ("info", "Sans réservation"),
     ("failed", "Échecs"),
 ]
@@ -28,10 +29,12 @@ def _load_scoped(call_id: int, user: User) -> dict:
 
 
 def _pane_context(request: Request, call: dict) -> dict:
-    """Contexte du panneau de détail : l'appel enrichi + la réservation qu'il a créée."""
+    """Contexte du panneau de détail : l'appel enrichi, la réservation qu'il a créée, et
+    les messages pris — c'est là qu'un rappel promis doit se voir."""
     view = presenters.call_view(call)
     resa = reservations.get_reservation(call["reservation_id"]) if call["reservation_id"] else None
     return {"call": view, "reservation": resa,
+            "messages": messages.messages_d_un_appel(call["id"]),
             "tenant": tenants.get_by_id(call["tenant_id"])}
 
 
@@ -81,6 +84,30 @@ async def calls_list(
             "has_next": has_next,
         },
     )
+
+
+@router.post("/admin/messages/{message_id}/traite",
+             dependencies=[Depends(deps.verify_csrf)])
+async def message_traite(request: Request, message_id: int,
+                         user: User = Depends(deps.current_user)):
+    """Marque un rappel comme traité.
+
+    Le `tenant_id` part dans la clause WHERE de `marquer_traite`, il n'est pas seulement
+    vérifié avant : un identifiant deviné ne touche donc pas le message d'un autre
+    établissement, même si la vérification préalable était contournée."""
+    from fastapi.responses import RedirectResponse
+
+    message = messages.get_message(message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    deps.check_tenant_access(user, message["tenant_id"])
+    messages.marquer_traite(message_id, message["tenant_id"])
+    retour = (await request.form()).get("retour") or "/admin/calls"
+    # Jamais une URL fournie librement : seul un chemin interne est accepté, sinon on
+    # offrirait une redirection ouverte depuis une page authentifiée.
+    if not str(retour).startswith("/admin/"):
+        retour = "/admin/calls"
+    return RedirectResponse(str(retour), status_code=303)
 
 
 @router.get("/admin/calls/{call_id}")

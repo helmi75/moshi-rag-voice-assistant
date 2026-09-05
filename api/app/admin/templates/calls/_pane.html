@@ -31,6 +31,30 @@
 </div>
 {% endif %}
 
+{# Messages pris pendant l'appel. Placés HAUT et en jaune délibérément : ils portent un
+   engagement pris au nom du restaurateur — quelqu'un attend un rappel. Un message non
+   traité vaut moins qu'un message jamais pris, puisqu'il a en plus engagé la maison. #}
+{% for m in messages %}
+<div class="callout" style="background: var(--app-warn-soft)">
+  <b>{% if m.handled_at %}Message transmis{% else %}Rappel promis — à traiter{% endif %}</b>
+  {{ m.subject }}
+  {% if m.details %}<br>{{ m.details }}{% endif %}
+  <br>
+  {% if m.caller_number %}Rappeler le {{ m.caller_number }}{% else %}
+    <i>Numéro masqué : aucun rappel possible.</i>{% endif %}
+  {% if m.customer_name %} · {{ m.customer_name }}{% endif %}
+  {% if not m.handled_at %}
+  <form method="post" action="/admin/messages/{{ m.id }}/traite" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <input type="hidden" name="retour" value="/admin/calls/{{ call.id }}">
+    <button type="submit" class="secondary" style="padding:.1rem .5rem;font-size:.75rem">
+      Marquer traité
+    </button>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+
 {# Lien vers le diagnostic, seulement s'il y a quelque chose à y voir. La chronologie
    n'est PAS chargée ici : ce panneau est inclus par la liste, et la rendre pour chaque
    ligne coûterait sur une page qui en affiche vingt-cinq. #}
