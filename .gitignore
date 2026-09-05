@@ -109,3 +109,7 @@ data/
 local/
 /twillo.txt
 /outils.sh
+
+# Audio du banc d'essai : une piste appelant réelle, jamais versionnée (données personnelles).
+banc.ulaw
+*.ulaw
