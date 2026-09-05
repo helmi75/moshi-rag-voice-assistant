@@ -82,12 +82,17 @@ class TestLeHandlerTransmetLeNumero:
     def test_le_numero_parvient_a_run_tool(self, monkeypatch):
         recu = {}
 
-        async def faux_run_tool(tenant, name, args, caller_number=None):
+        async def faux_run_tool(tenant, name, args, caller_number=None, call_id=None):
             recu["numero"] = caller_number
+            recu["call_id"] = call_id
             return json.dumps({"status": "confirmed", "reservation_id": 7})
 
         monkeypatch.setattr(bot.llm, "run_tool", faux_run_tool)
-        handler = bot.make_tool_handler(object(), [], caller_number="+33612345678")
+        handler = bot.make_tool_handler(object(), [], caller_number="+33612345678",
+                                        call_id=42)
         asyncio.new_event_loop().run_until_complete(
             handler(self._FakeParams("create_reservation", dict(ARGS))))
         assert recu["numero"] == "+33612345678"
+        # `call_id` suit le même chemin : c'est lui qui rattache un message pris à
+        # l'appel qui l'a produit, donc à l'enregistrement qu'on pourra réécouter.
+        assert recu["call_id"] == 42

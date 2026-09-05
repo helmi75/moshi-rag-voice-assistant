@@ -223,6 +223,27 @@ GARDE_FOUS = [
         k="reseau or telephone",
         panne="l'appelant déciderait de qui il est, donc à quelles réservations il accède",
     ),
+    # --- Messages pris au téléphone (#32) -------------------------------------
+    GardeFou(
+        nom="Une promesse de rappel laisse toujours une trace",
+        fichier="api/app/llm.py",
+        avant="        identifiant = messages.create_message(",
+        apres="        identifiant = 1 if True else messages.create_message(  # mutation",
+        tests=["test_messages.py"],
+        k="enregistre or masque or trace",
+        panne="l'assistante annoncerait un rappel que personne n'aurait noté — le "
+              "défaut relevé dans 5 vrais appels sur 10 avant que cet outil n'existe",
+    ),
+    GardeFou(
+        nom="Les messages tombent sous la purge comme le reste",
+        fichier="api/app/rgpd.py",
+        avant="               WHERE created_at < datetime('now', ?) AND details IS NOT NULL\"\"\",",
+        apres="               WHERE 0 AND created_at < datetime('now', ?) AND details IS NOT NULL\"\"\",",
+        tests=["test_messages.py"],
+        k="purge",
+        panne="le nom et la demande d'un appelant resteraient en base sans limite de "
+              "durée, hors de tout ce que le registre annonce",
+    ),
     # --- Enregistrement et journal de bord (#88) ------------------------------
     GardeFou(
         nom="On n'enregistre jamais sans l'avoir annoncé",

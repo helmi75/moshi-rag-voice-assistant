@@ -137,6 +137,32 @@ ALTER TABLE reservations ADD COLUMN cancelled_at TEXT;
 ALTER TABLE calls ADD COLUMN journal TEXT;
 ALTER TABLE calls ADD COLUMN recording_bytes INTEGER;
 """,
+    # v10 — messages : tenir la promesse faite au téléphone.
+    #
+    # Le prompt demandait déjà de « prendre le message et annoncer un rappel », et
+    # l'assistante le disait — dans 5 appels réels sur 10. Mais aucun outil ne
+    # l'enregistrait : le message n'existait que dans la transcription, et le
+    # restaurateur n'avait AUCUN signal qu'un rappel était attendu. Une candidature
+    # perdue est un désagrément ; un client à qui on promet un rappel qui ne viendra
+    # jamais est une promesse rompue, et c'est plus grave qu'un blanc de deux secondes.
+    #
+    # `handled_at` NULL = à traiter. C'est la seule colonne d'état : on ne modélise pas
+    # un cycle de vie que personne n'a demandé.
+    """
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL,
+    call_id INTEGER,
+    caller_number TEXT,
+    customer_name TEXT,
+    subject TEXT NOT NULL,
+    details TEXT,
+    created_at TEXT NOT NULL,
+    handled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id, handled_at);
+CREATE INDEX IF NOT EXISTS idx_messages_call ON messages(call_id);
+""",
 ]
 
 
