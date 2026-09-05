@@ -46,6 +46,23 @@ app.include_router(admin_pkg.admin_router)
 
 
 @app.on_event("startup")
+async def _partager_le_modele_de_fin_de_tour():
+    """Charge le modèle smart-turn une seule fois pour tout le processus (#40).
+
+    Sans ceci, il est relu du disque à CHAQUE appel, dans la boucle d'événements : au
+    banc d'essai, huit appels simultanés produisaient huit chargements sérialisés et le
+    dernier appelant attendait 6,2 s avant d'entendre l'accueil — un fichier WAV en
+    cache, qui ne dépend pourtant d'aucun modèle.
+
+    Posé au démarrage et non au premier appel : le détournement doit être en place avant
+    que Pipecat ne construise son premier analyseur."""
+    from .voice import modeles
+
+    if modeles.partager_le_modele_de_fin_de_tour():
+        print("[voix] modèle de fin de tour : partagé entre les appels")
+
+
+@app.on_event("startup")
 async def _preload_voice_model():
     """Précharge le modèle TTS local au démarrage (mode stream + TTS_PROVIDER=pocket),
     dans un thread, pour éviter un gel de 30-60 s au tout premier appel et pour que

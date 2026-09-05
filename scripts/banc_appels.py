@@ -38,6 +38,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+import banc_couts  # noqa: E402  (le chemin doit être posé avant l'import)
+
 try:
     import websockets
 except ImportError:  # pragma: no cover
@@ -241,6 +244,14 @@ async def principal() -> int:
               f"{' · ' + etat['erreur'] if etat.get('erreur') else ''}")
         await asyncio.sleep(5)
 
+    # Relevé de facturation AVANT. Le banc est autant une mesure d'argent qu'une
+    # mesure de latence : « on tient dix appels » ne dit rien tant qu'on ignore ce que
+    # dix appels coûtent.
+    print("\nRelevé de facturation (avant)…")
+    avant = banc_couts.instantane()
+    print(f"   OpenRouter : {avant['openrouter_usd']} $ cumulés"
+          f" · Modal : {'lu' if avant['modal'] else 'indisponible'}")
+
     tous: list = []
     for i, n in enumerate(paliers):
         tous += await palier(n, args.url, audio, args.duree, args.tenant_tel, args.depart)
@@ -249,6 +260,17 @@ async def principal() -> int:
             # mesurerait la queue du précédent.
             print("   (pause de 20 s avant le palier suivant)")
             await asyncio.sleep(20)
+
+    # Modal facture par seau horaire et la donnée met un instant à remonter : sans ce
+    # délai, le relevé « après » serait pris avant que la consommation n'y figure.
+    print("\nRelevé de facturation (après, 45 s d'attente pour que Modal remonte)…")
+    await asyncio.sleep(45)
+    apres = banc_couts.instantane()
+    fichier = banc_couts.enregistrer(avant, apres)
+    print(f"   relevés écrits dans {fichier}")
+
+    secondes = sum(r.get("duree_s", 0) for r in tous)
+    banc_couts.afficher(banc_couts.calculer(avant, apres, secondes, len(tous)))
 
     print("\n" + "=" * 66)
     print(f"{len(tous)} appels passés. Les chiffres qui comptent sont dans les journaux")
