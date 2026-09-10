@@ -72,6 +72,19 @@ class TestLePasseEstRefuse:
         assert "illisible" in reponse["error"]
 
 
+class TestLeNomEstObligatoire:
+    """Relevé au banc le 10/09/2026 : « …au nom de. C'est bien ça ? », « Très bien
+    merci », et une table enregistrée sans nom — introuvable pour l'équipe en salle."""
+
+    @pytest.mark.parametrize("nom", ["", "   ", None])
+    def test_une_reservation_sans_nom_est_refusee(self, resto, nom):
+        reponse = _outil(resto, "create_reservation",
+                         {"customer_name": nom, "date": DEMAIN, "time": "20:00",
+                          "party_size": 4})
+        assert "Nom manquant" in reponse["error"]
+        assert reservations.list_reservations(resto.id) == []
+
+
 class TestLAvenirPasse:
     def test_plus_tard_le_meme_jour(self, resto):
         assert _outil(resto, "check_availability",

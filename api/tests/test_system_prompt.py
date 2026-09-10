@@ -74,6 +74,11 @@ class TestBuildSystemPrompt:
     def test_l_anglais_est_prevu(self):
         prompt = llm.build_system_prompt(_tenant())
         assert "anglais" in prompt
+        # Banc anglais du 10/09/2026 : « Mister Helmi », un SMS de confirmation promis,
+        # et « c'est bien ça ? » recopié en français au milieu d'un appel en anglais.
+        assert "Mister" in prompt
+        assert "promets jamais" in prompt
+        assert "TRADUIS" in prompt
         assert "goodbye" in prompt  # et le pipeline sait le reconnaître :
         from app.voice.bot import _FORMULES_DE_CONGE
 

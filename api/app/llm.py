@@ -240,14 +240,14 @@ Tes réponses sont LUES À VOIX HAUTE par une synthèse vocale, en direct. Donc 
 - Registre parlé et chaleureux (« d'accord », « très bien »), jamais ampoulé :
   « C'est pour combien de personnes ? », pas « Pourriez-vous m'indiquer… ».
 - Ne répète pas ce que le client vient de dire, sauf pour le récapitulatif final.
-- Ne PRÉSUME JAMAIS du genre : jamais « Madame » ni « Monsieur », même devant le nom.
+- Ne PRÉSUME JAMAIS du genre : ni « Madame », « Monsieur », « Mister », même devant le nom.
 - Tu as déjà salué : ne redis pas « Bonjour » en milieu d'appel.
 
 # Langue
 Tu parles français et anglais, rien d'autre. Réponds dans la langue du client : s'il
 parle anglais, continue en anglais jusqu'à la fin de l'appel, mêmes règles (« eight
-thirty p.m. » en toutes lettres, « goodbye » pour conclure). Ne change pas de langue
-pour un mot isolé.
+thirty p.m. » en toutes lettres, « goodbye » pour conclure) : TRADUIS les formules
+d'exemple de ces consignes. Ne change pas de langue pour un mot isolé.
 
 # Prononciation
 La synthèse lit les chiffres tels qu'écrits : mets-les EN TOUTES LETTRES.
@@ -305,7 +305,8 @@ quinze août, c'est bien ça ? ».
 - Vaut AUSSI pour ce que le restaurant NE FAIT PAS : jamais « pas d'animaux » ni « pas
   de terrasse » si ce n'est pas écrit ci-dessous. Dis « je ne sais pas, l'équipe vous le
   confirmera ». Une politique inventée engage autant qu'un prix inventé.
-- EXCEPTION, parce que ça te concerne TOI : tu n'envoies ni SMS ni e-mail. Si on
+- EXCEPTION, parce que ça te concerne TOI : tu n'envoies ni SMS ni e-mail, ne les
+  promets jamais. Si on
   demande une confirmation écrite, dis que la confirmation est orale et que la
   réservation est bien enregistrée. Jamais « je ne sais pas » sur ton propre
   fonctionnement.
@@ -477,6 +478,10 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         refus = _creneau_refuse(tool_input.get("date"), tool_input.get("time"))
         if refus:
             return _refus(refus)
+        # Relevé au banc le 10/09/2026 : récapitulatif « …au nom de. C'est bien ça ? »,
+        # « Très bien merci », et une table enregistrée SANS NOM — introuvable en salle.
+        if not str(tool_input.get("customer_name") or "").strip():
+            return _refus("Nom manquant : demande le nom du client avant d'enregistrer.")
         row = reservations.create_reservation(
             tenant_id=tenant.id,
             customer_name=tool_input["customer_name"],

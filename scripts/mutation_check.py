@@ -315,6 +315,16 @@ GARDE_FOUS = [
               "vécu sur l'appel 104, le client a dû le lui faire remarquer",
     ),
     GardeFou(
+        nom="Une table ne s'enregistre pas sans nom",
+        fichier="api/app/llm.py",
+        avant='        if not str(tool_input.get("customer_name") or "").strip():',
+        apres="        if False:  # mutation",
+        tests=["test_creneau.py"],
+        k="sans_nom",
+        panne="une réservation « au nom de. » entrerait en base — vécu au banc : "
+              "introuvable pour l'équipe en salle le soir venu",
+    ),
+    GardeFou(
         nom="Le modèle ne répond qu'une fois par fin de tour",
         fichier="api/app/voice/bot.py",
         avant="        une_seule_reponse_par_tour(_user_agg)",
