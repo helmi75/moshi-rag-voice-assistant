@@ -4,6 +4,7 @@ Exécuter depuis api/ avec : pytest tests/ -v
 Le LLM est mocké partout — aucun appel réseau.
 """
 import json
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -210,7 +211,8 @@ class TestLLMToolLoop:
                 "create_reservation",
                 {
                     "customer_name": "Durand",
-                    "date": "2026-07-10",
+                    # À venir : un créneau passé est refusé par le serveur (test_creneau).
+                    "date": (date.today() + timedelta(days=30)).isoformat(),
                     "time": "20:00",
                     "party_size": 4,
                 },
@@ -256,9 +258,10 @@ class TestLLMToolLoop:
             text, messages = asyncio.run(llm.respond(tenant, [], "Vous avez de la place ?"))
 
         assert text == "Un instant, je vérifie autrement."
-        # l'outil a bien été appelé avec des args vides (KeyError -> message d'erreur en tool result)
+        # L'outil a bien été appelé avec des args vides. Il ne lève plus de KeyError : il
+        # répond, lisiblement, ce qui manque — le modèle sait quoi redemander.
         assert messages[2]["role"] == "tool"
-        assert "Erreur" in messages[2]["content"]
+        assert "illisible" in json.loads(messages[2]["content"])["error"]
 
     def test_openai_tools_schema_matches_tools(self):
         schemas = llm._openai_tools()

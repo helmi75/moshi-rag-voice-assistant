@@ -109,3 +109,12 @@ data/
 local/
 /twillo.txt
 /outils.sh
+
+# Audio du banc d'essai : une piste appelant réelle, jamais versionnée (données personnelles).
+banc.ulaw
+*.ulaw
+
+# Voix réelle de Helmi pour le banc conversationnel, et résultats du banc (transcriptions de test).
+banc-voix/
+banc-conversation-*.json
+banc-couts.json

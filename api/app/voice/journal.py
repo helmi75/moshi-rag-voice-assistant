@@ -196,6 +196,8 @@ class JournalDeBord(BaseObserver):
         self._client_parle = False
         self._bot_parle = False
         self._vues: OrderedDict = OrderedDict()
+        self._langue: Optional[str] = None
+        self._dernier_t = 0
         self._compteurs = {
             "tours": 0, "coupures_du_client": 0, "coupures_du_bot": 0,
             "finales_vides": 0, "revisions_stt": 0,
@@ -244,6 +246,7 @@ class JournalDeBord(BaseObserver):
     def _observer(self, data: FramePushed) -> None:
         frame = data.frame
         t = self._ms(data.timestamp)
+        self._dernier_t = t
 
         if isinstance(frame, StartFrame):
             self._t0 = data.timestamp
@@ -431,6 +434,15 @@ class JournalDeBord(BaseObserver):
             self._tronque = True
         self._compteurs["tours"] = len(self.tours)
 
+    def noter_langue(self, langue: str) -> None:
+        """Langue de l'appel, tranchée par voice/langue.py. Sans elle, un anglophone mal
+        compris se lirait comme une mauvaise oreille, pas comme une mauvaise langue."""
+        try:
+            self._langue = langue
+            self._noter(self._dernier_t, "langue", langue=langue)
+        except Exception:
+            self._tronque = True
+
     # -- restitution ----------------------------------------------------------
 
     def journal(self, enregistrement: Optional[dict] = None) -> dict:
@@ -446,6 +458,7 @@ class JournalDeBord(BaseObserver):
             # démarrage se confondrait avec un problème de latence de conversation, qui
             # est un tout autre sujet et appelle un tout autre correctif.
             "accueil": {"premiere_parole_ms": self._premiere_parole},
+            "langue": self._langue,
             "compteurs": {
                 **self._compteurs,
                 "blanc_median_ms": sorted(blancs)[len(blancs) // 2] if blancs else None,
