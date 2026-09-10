@@ -234,9 +234,11 @@ class TestPipecatToolBridge:
         callback = AsyncMock()
         params = SimpleNamespace(
             function_name="create_reservation",
-            # Créneau valide et à venir, mais sans nom ni couverts -> KeyError dans run_tool.
-            # (Des arguments vides ne lèvent plus rien : le serveur répond « illisible ».)
-            arguments={"date": (date.today() + timedelta(days=32)).isoformat(),
+            # Créneau valide et à venir, nom donné, mais sans couverts -> KeyError dans
+            # run_tool. (Des arguments vides ou sans nom ne lèvent plus rien : le serveur
+            # répond « illisible » ou « nom manquant ».)
+            arguments={"customer_name": "Sans Couverts",
+                       "date": (date.today() + timedelta(days=32)).isoformat(),
                        "time": "19:00"},
             result_callback=callback,
         )
