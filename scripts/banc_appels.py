@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Banc d'essai : combien d'appels simultanés la ligne tient-elle ? (#40)
 
+⚠️ BANC DE CHARGE BRUTE, PAS DE CONVERSATION. Il rejoue un enregistrement à l'aveugle, sans
+écouter l'assistante : il parle pendant qu'elle parle, et son « client » n'a aucun rapport
+avec ce qu'elle répond. Mesuré sur son passage à dix appels : huit coupures pour trente
+tours. Ses chiffres de charge (CPU, premier son, étages) restent valables ; pour juger la
+conversation — compréhension, réservation juste, silence perçu — utiliser
+`banc_conversation.py`, qui attend qu'elle ait fini avant de parler.
+
 On ne sait pas combien d'appels le service encaisse. Les seuls chiffres disponibles sont
 théoriques — 8 flux par conteneur GPU, 4 conteneurs, donc 32 — et ils décrivent le TTS,
 pas la chaîne complète. Or le maillon le plus chargé n'est pas le GPU : c'est le CPU du
@@ -29,6 +36,7 @@ Usage :
 """
 import argparse
 import asyncio
+import datetime
 import base64
 import json
 import os
@@ -250,7 +258,7 @@ async def principal() -> int:
     print("\nRelevé de facturation (avant)…")
     avant = banc_couts.instantane()
     print(f"   OpenRouter : {avant['openrouter_usd']} $ cumulés"
-          f" · Modal : {'lu' if avant['modal'] else 'indisponible'}")
+          f" · Modal : {'lu' if avant.get('modal_heures') is not None else 'indisponible'}")
 
     tous: list = []
     for i, n in enumerate(paliers):
@@ -265,7 +273,7 @@ async def principal() -> int:
     # délai, le relevé « après » serait pris avant que la consommation n'y figure.
     print("\nRelevé de facturation (après, 45 s d'attente pour que Modal remonte)…")
     await asyncio.sleep(45)
-    apres = banc_couts.instantane()
+    apres = banc_couts.instantane(datetime.datetime.fromisoformat(avant["quand"]))
     fichier = banc_couts.enregistrer(avant, apres)
     print(f"   relevés écrits dans {fichier}")
 
