@@ -303,6 +303,47 @@ GARDE_FOUS = [
         panne="les services publieraient leur temps jusqu'au premier octet dans le vide : "
               "on retomberait sur un blanc global impossible à attribuer, la panne d'origine",
     ),
+    # --- Qualité de l'interaction : appels 100 à 106 (10/09/2026) ---------------
+    GardeFou(
+        nom="Un créneau déjà passé ne se réserve pas",
+        fichier="api/app/llm.py",
+        avant="    if creneau < instant:",
+        apres="    if False:  # mutation",
+        tests=["test_creneau.py"],
+        k="passe or quinze or treize",
+        panne="l'assistante enregistrerait une table à treize heures à quinze heures — "
+              "vécu sur l'appel 104, le client a dû le lui faire remarquer",
+    ),
+    GardeFou(
+        nom="Le modèle ne répond qu'une fois par fin de tour",
+        fichier="api/app/voice/bot.py",
+        avant="        une_seule_reponse_par_tour(_user_agg)",
+        apres="        pass  # mutation",
+        tests=["test_voice_stream.py"],
+        k="pipeline_applique",
+        panne="un bout de phrase partirait au modèle : une réponse dite par-dessus le "
+              "client, puis une seconde — 1,27 génération par fin de tour",
+    ),
+    GardeFou(
+        nom="Un appel français quitte le bilingue",
+        fichier="api/app/voice/langue.py",
+        avant="        if langue == self._lieu:",
+        apres="        if False:  # mutation",
+        tests=["test_langue.py"],
+        k="francais or cumul or decision",
+        panne="un Français resterait en `multi` : « C'est ça » transcrit « Yes, sir. », "
+              "et le modèle lui répondrait en anglais",
+    ),
+    GardeFou(
+        nom="Un anglophone est compris dès le décroché",
+        fichier="api/app/voice/bot.py",
+        avant='    return "multi" if detection_de_langue() else language',
+        apres="    return language  # mutation",
+        tests=["test_voice_stream.py", "test_kyutai_stt.py"],
+        k="bilingue",
+        panne="Deepgram en `fr` perd l'anglais : « Yes, hello, my name is Helmi… » n'a "
+              "rien produit du tout sur l'appel 101",
+    ),
 ]
 
 

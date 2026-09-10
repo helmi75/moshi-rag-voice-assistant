@@ -25,10 +25,25 @@ from loguru import logger
 
 from ..tenants import Tenant
 from . import voices
-from .moshi_server_tts import _DEFAULT_HOLD_MUSIC, _NATIVE_RATE, _ws_base
+from .moshi_server_tts import _DEFAULT_HOLD_MUSIC, _NATIVE_RATE, _ws_base, gpu_chaud, noter_son
 
 # Phrase de reprise après l'attente (vrai standard téléphonique). Surchargeable.
 _RESUME_TEXT = "Merci d'avoir patienté, je vous écoute."
+# GPU chaud : il n'y a pas eu d'attente, donc rien dont remercier.
+_RESUME_TEXT_CHAUD = "Je vous écoute."
+
+# Avance de la reprise sur la fin de l'accueil, GPU chaud : le temps que la synthèse
+# rende sa première syllabe (≈ 610 ms mesurés, journal de bord de l'appel 39). Lancée
+# plus tard, elle laisserait un blanc ; plus tôt, elle chevaucherait l'accueil.
+_AVANCE_REPRISE = 0.6
+
+
+def texte_de_reprise(chaud: bool) -> str:
+    """Ce que dit l'assistante pour passer la main. Une seule source, lue aussi par le
+    pipeline pour le contexte du modèle : la voix et le contexte ne divergent jamais."""
+    if chaud:
+        return os.getenv("MOSHI_RESUME_TEXT_CHAUD", _RESUME_TEXT_CHAUD)
+    return os.getenv("MOSHI_RESUME_TEXT", _RESUME_TEXT)
 
 # Débit du WAV mis en cache : celui de Twilio (8 kHz), pour être rejoué tel quel
 # par le transport sortant sans rééchantillonnage.
@@ -116,6 +131,8 @@ async def _render_pcm(text: str, voice: Optional[str] = None) -> np.ndarray | No
         finally:
             send_task.cancel()
 
+    if chunks:
+        noter_son()
     return np.concatenate(chunks) if chunks else None
 
 
@@ -228,7 +245,8 @@ def load_hold_music_chunks(
 
 
 async def run_switchboard_intro(
-    task, output_transport, tenant: Tenant, pipeline_ready: Optional[asyncio.Event] = None
+    task, output_transport, tenant: Tenant, pipeline_ready: Optional[asyncio.Event] = None,
+    chaud: Optional[bool] = None,
 ) -> None:
     """Flux « standardiste » (Phase 3) : accueil pré-rendu → musique d'attente pendant
     le réveil du GPU → reprise proactive. Lancé en tâche de fond parallèle au pipeline.
@@ -246,8 +264,17 @@ async def run_switchboard_intro(
     Séquence : « Bonjour … un instant s'il vous plaît » (WAV, latence 0) → 🎻 musique
     (bouclée) tant que le warmup n'a pas rendu le GPU chaud → « Merci d'avoir patienté,
     je vous écoute » (TTS, désormais rapide) → la conversation prend le relais.
+
+    GPU CHAUD (`chaud`, décidé par le pipeline pour que le contexte du modèle dise la
+    même chose que la voix ; à défaut, `gpu_chaud()`) : ni réveil ni musique. Même GPU
+    allumé, le réveil ouvrait une connexion de plus par appel — celle qui allumait un
+    deuxième GPU dès cinq appels simultanés au banc — et faisait patienter l'appelant
+    pour rien. « Je vous écoute. » s'enchaîne alors sur la fin de l'accueil.
     """
     from pipecat.frames.frames import OutputAudioRawFrame, STTMuteFrame, TTSSpeakFrame
+
+    if chaud is None:
+        chaud = gpu_chaud()
 
     # STT muté pendant l'intro : la parole du client pendant l'attente est ignorée
     # (il est « en ligne d'attente ») ; on écoute à la reprise. La musique, elle, ne
@@ -263,14 +290,25 @@ async def run_switchboard_intro(
     try:
         # 1. Accueil pré-rendu → envoyé DIRECT vers la sortie (bypass STT/VAD).
         greeting_path = cached_greeting_path(tenant)
+        debut = time.monotonic()
+        duree_accueil = 0.0
         if greeting_path is not None:
             logger.info(f"Accueil pré-rendu joué depuis {greeting_path.name} (latence 0).")
-            for frame in load_greeting_frames(greeting_path):
+            frames = load_greeting_frames(greeting_path)
+            duree_accueil = len(frames) * 0.02  # trames de 20 ms
+            for frame in frames:
                 await output_transport.send_audio(frame)
         else:
             await task.queue_frames([TTSSpeakFrame(_texte(tenant))])  # repli TTS live
 
-        if is_moshi_server():
+        if is_moshi_server() and chaud:
+            # `send_audio` met en file et rend la main aussitôt : l'accueil est encore en
+            # train d'être joué. On attend sa fin, moins le temps de rendu de la reprise.
+            logger.info("GPU chaud : ni réveil ni musique d'attente.")
+            reste = debut + duree_accueil - _AVANCE_REPRISE - time.monotonic()
+            if reste > 0:
+                await asyncio.sleep(reste)
+        elif is_moshi_server():
             # 2. Réveil du GPU en tâche de fond (retourne quand le serveur est chaud).
             warm = asyncio.create_task(warmup_moshi_server())
 
@@ -293,7 +331,7 @@ async def run_switchboard_intro(
             logger.info(f"Fin de l'attente (~{i}s de musique jouée) : reprise proactive.")
 
         # 4. Reprise proactive (TTS désormais chaud → ~1,2 s), via le pipeline normal.
-        await task.queue_frames([TTSSpeakFrame(os.getenv("MOSHI_RESUME_TEXT", _RESUME_TEXT))])
+        await task.queue_frames([TTSSpeakFrame(texte_de_reprise(chaud))])
     finally:
         # Démute : le client peut désormais parler et être transcrit.
         await task.queue_frames([STTMuteFrame(mute=False)])

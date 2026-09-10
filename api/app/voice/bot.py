@@ -107,6 +107,24 @@ def build_tts(tenant: Optional[Tenant] = None):
     )
 
 
+def detection_de_langue() -> bool:
+    """Vrai si l'appel décroche en bilingue et laisse voice/langue.py fixer la langue.
+
+    Seulement Deepgram nova-3 — le seul qui étiquette chaque mot en `multi` — et
+    seulement si DEEPGRAM_LANGUAGE n'impose rien."""
+    return (os.getenv("STT_PROVIDER", "deepgram").strip().lower() == "deepgram"
+            and os.getenv("DEEPGRAM_MODEL", "nova-3").strip().startswith("nova-3")
+            and not os.getenv("DEEPGRAM_LANGUAGE", "").strip())
+
+
+def langue_de_depart(language: str) -> str:
+    """La langue demandée à Deepgram au décroché."""
+    forcee = os.getenv("DEEPGRAM_LANGUAGE", "").strip()
+    if forcee:
+        return forcee
+    return "multi" if detection_de_langue() else language
+
+
 def build_stt(tenant: Tenant, language: str):
     """Construit le service STT selon STT_PROVIDER (défaut : deepgram).
 
@@ -161,18 +179,24 @@ def build_stt(tenant: Tenant, language: str):
             boost = {"keywords": [f"{w}:5" for w in name_words]
                      + [f"{w}:{n}" for w, n in lexicon] + extra}
 
-        # DEEPGRAM_LANGUAGE permet d'essayer « multi » : mesuré le 30/07/2026, nova-3 en
-        # `language=fr` ne ponctue ni ne capitalise (smart_format ET punctuate restent
-        # sans effet), alors que « multi » le fait. La ponctuation n'est pas cosmétique :
-        # c'est elle qui donne « 20 h » plutôt que « vingt heures » au LLM.
+        # Langue : voir voice/langue.py. On décroche en `multi` — un anglophone est compris
+        # dès sa première phrase — puis le détecteur fixe la langue de l'établissement dès
+        # qu'elle est avérée. DEEPGRAM_LANGUAGE impose une langue pour tout l'appel et
+        # coupe la détection. (Le constat du 30/07/2026, « `fr` ne ponctue pas », ne tient
+        # plus : rejouées le 10/09/2026, les pistes des appels 100 à 106 sortent en `fr`
+        # ponctuées et avec « 20 heures » ; c'est `multi` qui écrit « vingt heures ».)
         return DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY", ""),
             live_options=LiveOptions(
                 model=model,
-                language=os.getenv("DEEPGRAM_LANGUAGE", "").strip() or language,
+                language=langue_de_depart(language),
                 # smart_format : dates/nombres proprement formatés (« 20 h » plutôt que
                 # « vingt heures ») -> le LLM extrait mieux date/heure/couverts.
                 smart_format=True,
+                # Activé par défaut chez Pipecat : il retire ou remplace les mots jugés
+                # grossiers, autant de trous dans ce que le modèle reçoit. Un restaurant
+                # n'a rien à censurer, et un client énervé doit être compris tel quel.
+                profanity_filter=False,
                 **boost,
             ),
         )
@@ -188,6 +212,9 @@ _FORMULES_DE_CONGE = (
     "au revoir", "bonne journée", "bonne soirée", "à bientôt", "au plaisir",
     "excellente journée", "excellente soirée", "bonne fin de journée",
     "bonne fin de soirée", "à très bientôt",
+    # Appel en anglais (voice/langue.py) : même règle, autres mots.
+    "goodbye", "have a nice day", "have a good day", "have a great day",
+    "have a nice evening", "have a good evening", "have a lovely",
 )
 
 
@@ -208,6 +235,61 @@ def has_taken_leave(transcript: list[dict] | None) -> bool:
         texte = (message.get("content") or "").lower()
         return any(formule in texte for formule in _FORMULES_DE_CONGE)
     return False
+
+
+# Relances d'un silence, dans la langue de l'appel. La première était « Je vous écoute,
+# que puis-je faire pour vous ? » : en pleine réservation, c'était faire comme si rien
+# n'avait été dit. La dernière prend congé : le pipeline raccroche derrière.
+_RELANCES = {
+    "fr": ("Vous êtes toujours là ?",
+           "Je ne vous entends plus. Êtes-vous toujours en ligne ?",
+           "Je n'ai plus personne en ligne, je vous souhaite une bonne journée. Au revoir."),
+    "en": ("Are you still there?",
+           "I can't hear you anymore. Are you still on the line?",
+           "There's no one on the line anymore. Have a nice day, goodbye."),
+}
+
+
+def relance(n: int, langue: str | None) -> tuple[str, bool]:
+    """La n-ième relance (1, 2, 3…) dans la langue de l'appel, et s'il faut raccrocher
+    après l'avoir dite. Langue inconnue → français, la langue de l'accueil."""
+    textes = _RELANCES.get((langue or "").split("-")[0].lower(), _RELANCES["fr"])
+    n = max(1, n)
+    return textes[min(n, len(textes)) - 1], n >= len(textes)
+
+
+def une_seule_reponse_par_tour(aggregateur) -> bool:
+    """Le modèle ne répond qu'une fois par fin de tour, avec TOUT ce que le client a dit.
+
+    Pipecat lance le modèle dès que la fin de tour est pressentie
+    (`on_user_turn_inference_triggered`), puis la valide. Les deux arrivent d'ordinaire
+    ensemble — mais si l'appelant a repris la parole entre-temps, la validation est
+    refusée, le tour reste ouvert, et le modèle a déjà reçu un bout de phrase. Il répond
+    à ce bout, puis répond encore à la phrase entière : deux réponses, la première
+    prononcée par-dessus le client puis oubliée du contexte. Relevé le 10/09/2026 : 1,27
+    génération par fin de tour au lieu d'une.
+
+    On retire l'envoi anticipé et on garde le signal : le texte part au modèle à la
+    validation (`_maybe_emit_user_turn_stopped` pousse tout ce qui a été accumulé). Sur
+    un tour franc, pressentiment et validation sont consécutifs : aucun délai ajouté.
+
+    Touche l'intérieur de Pipecat 1.5 : si sa forme change, on le signale et on garde le
+    comportement d'origine — un appel qui répond deux fois vaut mieux qu'un appel muet.
+    Renvoie True si la correction est en place."""
+    controleur = getattr(aggregateur, "_user_turn_controller", None)
+    origine = getattr(aggregateur, "_on_user_turn_inference_triggered", None)
+    evenement = getattr(controleur, "_event_handlers", {}).get("on_user_turn_inference_triggered")
+    if origine is None or evenement is None or origine not in evenement.handlers:
+        logger.warning("réponse anticipée : structure de Pipecat inattendue, "
+                       "comportement d'origine conservé")
+        return False
+
+    async def _signal_seulement(_controleur, strategie):
+        await aggregateur._call_event_handler("on_user_turn_inference_triggered", strategie)
+
+    controleur.remove_event_handler("on_user_turn_inference_triggered", origine)
+    controleur.add_event_handler("on_user_turn_inference_triggered", _signal_seulement)
+    return True
 
 
 def interruption_strategies():
@@ -347,6 +429,22 @@ async def run_bot(
     # STT interchangeable (deepgram par défaut, kyutai = module ASR de moshi-server).
     stt = build_stt(tenant, language)
 
+    # Langue de l'appel (voice/langue.py) : décroché bilingue, puis fixée. Le journal de
+    # bord est créé plus bas ; la décision arrive bien après, en pleine conversation.
+    detecteur = None
+    if detection_de_langue():
+        from pipecat.frames.frames import STTUpdateSettingsFrame
+        from pipecat.services.deepgram.stt import DeepgramSTTService
+
+        from .langue import DetecteurDeLangue
+
+        detecteur = DetecteurDeLangue(
+            language,
+            reglage=lambda langue: STTUpdateSettingsFrame(
+                delta=DeepgramSTTService.Settings(language=langue)),
+            noter=lambda langue: bord.noter_langue(langue),
+        )
+
     # TTS dans la voix choisie pour cet établissement (même décision que l'accueil
     # pré-rendu : voices.resolve, sinon un appel mélangerait deux voix).
     tts = build_tts(tenant)
@@ -404,12 +502,20 @@ async def run_bot(
     asyncio.create_task(_warm_llm())
 
     messages = [{"role": "system", "content": llm.build_system_prompt(tenant)}]
+    chaud = False
     if os.getenv("TTS_PROVIDER", "").strip().lower() == "moshi_server":
+        from . import greeting as greeting_mod
+        from .moshi_server_tts import gpu_chaud
+
+        # Décidé UNE fois ici et transmis à l'intro : la phrase de reprise dépend de
+        # l'état du GPU, et le contexte doit contenir celle qui sera réellement dite.
+        chaud = gpu_chaud()
         # Le flux « standardiste » a déjà salué et mis en relation (accueil pré-rendu +
-        # « merci d'avoir patienté ») : on l'inscrit au contexte pour que le modèle
-        # enchaîne directement sur la demande du client, sans re-saluer.
+        # reprise) : on l'inscrit au contexte pour que le modèle enchaîne directement sur
+        # la demande du client, sans re-saluer.
         messages.append(
-            {"role": "assistant", "content": f"{tenant.greeting} Merci d'avoir patienté, je vous écoute."}
+            {"role": "assistant",
+             "content": f"{tenant.greeting} {greeting_mod.texte_de_reprise(chaud)}"}
         )
     context = LLMContext(
         messages=messages,
@@ -456,6 +562,9 @@ async def run_bot(
     # Relances progressives, plafonnées ; le compteur repart dès que le client parle.
     _idle = {"n": 0}
     _user_agg = context_aggregator.user()
+    # REPONSE_ANTICIPEE=on rend le comportement de Pipecat (comparaison au banc).
+    if os.getenv("REPONSE_ANTICIPEE", "off").strip().lower() != "on":
+        une_seule_reponse_par_tour(_user_agg)
 
     @_user_agg.event_handler("on_user_turn_idle")
     async def _on_user_idle(aggregator):
@@ -466,17 +575,11 @@ async def run_bot(
             await task.queue_frames([EndFrame()])
             return
         _idle["n"] += 1
-        if _idle["n"] == 1:
-            await task.queue_frames([TTSSpeakFrame("Je vous écoute, que puis-je faire pour vous ?")])
-        elif _idle["n"] == 2:
-            await task.queue_frames([TTSSpeakFrame("Êtes-vous toujours en ligne ?")])
-        else:
-            # Deux relances sans réponse : la ligne est abandonnée. On prend congé et
-            # on libère, plutôt que de facturer des minutes Twilio pour du silence.
-            await task.queue_frames(
-                [TTSSpeakFrame("Je n'ai plus personne en ligne, je vous souhaite une bonne "
-                               "journée. Au revoir."), EndFrame()]
-            )
+        langue_appel = (detecteur.langue if detecteur is not None else None) or language
+        texte, raccrocher = relance(_idle["n"], langue_appel)
+        # Après deux relances sans réponse, la ligne est abandonnée : on prend congé et
+        # on libère, plutôt que de facturer des minutes Twilio pour du silence.
+        await task.queue_frames([TTSSpeakFrame(texte)] + ([EndFrame()] if raccrocher else []))
 
     @_user_agg.event_handler("on_user_turn_stopped")
     async def _reset_idle(aggregator, *args):
@@ -534,6 +637,9 @@ async def run_bot(
         # point où passent à la fois l'audio entrant et l'audio sortant.
         etapes.append(audiobuffer)
     etapes.append(context_aggregator.assistant())
+    if detecteur is not None:
+        # Juste derrière le STT : c'est vers lui qu'il renvoie le changement de langue.
+        etapes.insert(etapes.index(stt) + 1, detecteur)
     pipeline = Pipeline(etapes)
 
     # Deux observateurs : rien n'est inséré sur le chemin de l'audio, le turn-taking
@@ -599,7 +705,8 @@ async def run_bot(
     intro_task = None
     if greeting_mod.is_moshi_server():
         intro_task = asyncio.create_task(
-            greeting_mod.run_switchboard_intro(task, output_transport, tenant, pipeline_ready)
+            greeting_mod.run_switchboard_intro(task, output_transport, tenant, pipeline_ready,
+                                               chaud=chaud)
         )
         # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
         # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).

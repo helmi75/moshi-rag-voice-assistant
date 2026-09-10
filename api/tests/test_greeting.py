@@ -97,3 +97,81 @@ def test_is_moshi_server(monkeypatch):
     assert g.is_moshi_server() is True
     monkeypatch.setenv("TTS_PROVIDER", "pocket")
     assert g.is_moshi_server() is False
+
+
+# --- GPU chaud : ni réveil ni musique au décroché ------------------------------------
+
+
+def test_gpu_chaud_seulement_dans_la_fenetre(monkeypatch):
+    import time
+
+    from app.voice import moshi_server_tts as m
+
+    monkeypatch.delenv("MOSHI_CHAUD_SECONDES", raising=False)
+    monkeypatch.setattr(m, "_dernier_son", None)
+    assert not m.gpu_chaud(), "sans aucun son rendu, on ne sait pas : on réveille"
+    m.noter_son()
+    assert m.gpu_chaud()
+    # Au-delà de 75 s, on n'est plus sûr que Modal (120 s) ne l'a pas éteint.
+    monkeypatch.setattr(m, "_dernier_son", time.monotonic() - 80)
+    assert not m.gpu_chaud()
+    monkeypatch.setenv("MOSHI_CHAUD_SECONDES", "0")
+    m.noter_son()
+    assert not m.gpu_chaud(), "0 désactive le raccourci"
+
+
+def test_texte_de_reprise_selon_l_attente(monkeypatch):
+    monkeypatch.delenv("MOSHI_RESUME_TEXT", raising=False)
+    monkeypatch.delenv("MOSHI_RESUME_TEXT_CHAUD", raising=False)
+    assert g.texte_de_reprise(True) == "Je vous écoute."
+    assert g.texte_de_reprise(False) == "Merci d'avoir patienté, je vous écoute."
+
+
+def _intro(monkeypatch, chaud, secondes_accueil=0.5):
+    """Joue l'intro avec de faux transport/tâche ; renvoie (réveils, textes dits,
+    trames audio envoyées, attentes)."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+    reveils, attentes = [], []
+
+    async def faux_reveil():
+        reveils.append(1)
+
+    async def fausse_attente(secondes):
+        attentes.append(secondes)
+
+    monkeypatch.setattr(g, "warmup_moshi_server", faux_reveil)
+    monkeypatch.setattr(g, "load_hold_music_chunks", lambda **kw: (8000, []))
+    monkeypatch.setattr(g.asyncio, "sleep", fausse_attente)
+    _write_wav(g._cache_path(_tenant()), seconds=secondes_accueil)
+    task = SimpleNamespace(queue_frames=AsyncMock())
+    sortie = SimpleNamespace(send_audio=AsyncMock())
+    asyncio.run(g.run_switchboard_intro(task, sortie, _tenant(), None, chaud=chaud))
+    frames = [f for appel in task.queue_frames.await_args_list for f in appel.args[0]]
+    textes = [f.text for f in frames if type(f).__name__ == "TTSSpeakFrame"]
+    assert type(frames[-1]).__name__ == "STTMuteFrame" and frames[-1].mute is False
+    return reveils, textes, sortie.send_audio.await_count, attentes
+
+
+def test_intro_gpu_chaud_ni_reveil_ni_musique(monkeypatch):
+    reveils, textes, trames, _ = _intro(monkeypatch, chaud=True)
+    assert reveils == [], "le réveil ouvrait une connexion GPU de plus par appel"
+    assert textes == ["Je vous écoute."]
+    assert trames == 25, "l'accueil seul (0,5 s en trames de 20 ms), aucune musique"
+
+
+def test_intro_gpu_chaud_attend_la_fin_de_l_accueil(monkeypatch):
+    """`send_audio` rend la main aussitôt : sans attente, la reprise partirait pendant
+    l'accueil et le client pourrait parler par-dessus la mention d'information."""
+    _, _, _, attentes = _intro(monkeypatch, chaud=True, secondes_accueil=2.0)
+    assert len(attentes) == 1
+    assert attentes[0] == pytest.approx(2.0 - g._AVANCE_REPRISE, abs=0.2)
+
+
+def test_intro_gpu_froid_reveille_et_remercie(monkeypatch):
+    reveils, textes, _, _ = _intro(monkeypatch, chaud=False)
+    assert reveils == [1]
+    assert textes == ["Merci d'avoir patienté, je vous écoute."]

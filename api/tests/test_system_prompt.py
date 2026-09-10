@@ -55,9 +55,29 @@ class TestBuildSystemPrompt:
         """Le modèle a besoin du jour de la semaine pour résoudre « vendredi
         prochain », et de l'ISO pour remplir les appels d'outils."""
         prompt = llm.build_system_prompt(_tenant())
-        aujourdhui = date.today()
+        # Le jour du RESTAURANT, pas celui du serveur : entre minuit et deux heures,
+        # heure de Paris, `date.today()` (UTC) désigne encore la veille.
+        aujourdhui = llm.maintenant().date()
         assert aujourdhui.isoformat() in prompt
         assert llm._date_en_toutes_lettres(aujourdhui) in prompt
+
+    def test_l_heure_du_restaurant(self, monkeypatch):
+        """Appel 104 : sans l'heure, elle a proposé treize heures à quinze heures."""
+        from datetime import datetime
+
+        monkeypatch.setattr(llm, "maintenant",
+                            lambda: datetime(2026, 9, 10, 15, 7, tzinfo=llm.FUSEAU))
+        prompt = llm.build_system_prompt(_tenant())
+        assert "2026-09-10" in prompt
+        assert "15 h 07 au restaurant" in prompt
+
+    def test_l_anglais_est_prevu(self):
+        prompt = llm.build_system_prompt(_tenant())
+        assert "anglais" in prompt
+        assert "goodbye" in prompt  # et le pipeline sait le reconnaître :
+        from app.voice.bot import _FORMULES_DE_CONGE
+
+        assert "goodbye" in _FORMULES_DE_CONGE
 
     def test_formats_stricts_des_outils_rappeles(self):
         prompt = llm.build_system_prompt(_tenant())
@@ -80,5 +100,10 @@ class TestBuildSystemPrompt:
         assert any(formule in prompt for formule in _FORMULES_DE_CONGE)
 
     def test_reste_compact(self):
-        """Le prompt est renvoyé à chaque tour : au-delà, on paie en latence."""
-        assert len(llm.build_system_prompt(_tenant())) < 6000
+        """Le prompt est renvoyé à chaque tour : au-delà, on paie en latence.
+
+        Porté de 6 000 à 7 000 le 10/09/2026 pour les règles tirées des appels 100 à
+        106 — heure du restaurant, épellation, récapitulatif en question, anglais —,
+        chacune corrigeant une faute entendue. Environ 200 jetons de plus. Le plafond
+        reste là pour que la prochaine règle se paie par une autre qu'on retire."""
+        assert len(llm.build_system_prompt(_tenant())) < 7000

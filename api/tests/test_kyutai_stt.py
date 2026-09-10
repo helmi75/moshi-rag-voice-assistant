@@ -259,6 +259,17 @@ class TestDeepgramVocabulary:
         s = self._options(monkeypatch, DEEPGRAM_MODEL="nova-3", DEEPGRAM_LANGUAGE="multi")
         assert str(self._get(s, "language")) == "multi"
 
+    def test_decroche_en_bilingue_par_defaut(self, monkeypatch):
+        """Un anglophone doit être compris dès sa première phrase (voice/langue.py)."""
+        monkeypatch.delenv("DEEPGRAM_LANGUAGE", raising=False)
+        s = self._options(monkeypatch, DEEPGRAM_MODEL="nova-3")
+        assert str(self._get(s, "language")) == "multi"
+
+    def test_filtre_de_grossierete_coupe(self, monkeypatch):
+        """Pipecat l'active par défaut : des mots retirés de ce que le modèle reçoit."""
+        s = self._options(monkeypatch, DEEPGRAM_MODEL="nova-3")
+        assert self._get(s, "profanity_filter") is False
+
 
 # asyncio.run local (évite d'importer asyncio au niveau module juste pour ça).
 def asyncio_run(coro):

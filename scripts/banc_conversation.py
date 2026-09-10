@@ -39,6 +39,7 @@ chaque appel réussi crée une réservation dans l'établissement de test.
 
 Usage :
     python3 scripts/banc_conversation.py --paliers 1,3,5,7 --je-sais-que-ca-coute
+    python3 scripts/banc_conversation.py --scenario en --paliers 1,3 --je-sais-que-ca-coute
 """
 import argparse
 import asyncio
@@ -113,9 +114,46 @@ SCRIPT = [
      "faits": {}},
 ]
 
+# Le même scénario en anglais (voice/langue.py). La première réplique est la VRAIE voix de
+# Helmi, découpée dans l'appel 101 ; les suivantes sont synthétisées dans une voix anglaise
+# du catalogue Kyutai (p329), faute d'enregistrement de Helmi en anglais.
+SCRIPT_EN = [
+    {"fichier": "Hello_my_name_is_Helmi_I_want_to_make_a_reservation",
+     "texte": "Yes, hello, my name is Helmi. I want to make a reservation. Do you speak English?",
+     "faits": {"reservation": ["reservation"]}},
+    {"fichier": "Its_for_four_people_tomorrow_at_eight_pm",
+     "texte": "It's for four people, tomorrow at eight p.m.",
+     "faits": {"four": ["four", "4"], "tomorrow": ["tomorrow"], "8 pm": ["8", "eight", "20"]}},
+    {"fichier": "The_name_is_Helmi_H_E_L_M_I",
+     "texte": "The name is Helmi. H, E, L, M, I.",
+     "faits": {"Helmi": ["helmi"]}},
+    {"fichier": "Thats_perfect_thank_you",
+     "texte": "That's perfect, thank you.",
+     "faits": {"thank you": ["thank", "thanks"]}},
+    {"fichier": "Thats_perfect_thank_you",
+     "texte": "That's perfect, thank you (confirmation)",
+     "faits": {}},
+]
+
+# Scénario -> (répliques, dossier des voix). Choisi par --scenario.
+SCENARIOS = {"fr": (SCRIPT, "banc-voix"), "en": (SCRIPT_EN, "banc-voix-en")}
+SCRIPT_ACTIF = SCRIPT
+
 # Relances d'inactivité prononcées par le serveur (voice/bot.py) : ce ne sont pas des
-# réponses au client, elles se comptent à part.
-RELANCES = ("je vous ecoute que puis je faire pour vous", "etes vous toujours en ligne")
+# réponses au client, elles se comptent à part. Les deux premières sont les anciennes,
+# gardées pour relire les bancs d'avant le 10/09/2026.
+RELANCES = ("je vous ecoute que puis je faire pour vous", "etes vous toujours en ligne",
+            "vous etes toujours la", "je ne vous entends plus",
+            "are you still there", "i can t hear you anymore")
+
+# Ce que dit l'assistante avant un appel d'outil (« Je vérifie tout de suite. »). Le
+# transcript ne garde pas les outils : cette annonce suivie du résultat n'est PAS une
+# double réponse, et le banc la comptait comme telle.
+_ANNONCES = ("verifie", "je regarde", "un instant", "let me check", "checking", "one moment")
+
+
+def _annonce_outil(norme: str) -> bool:
+    return len(norme.split()) <= 10 and any(x in norme for x in _ANNONCES)
 
 
 # ─── Audio ───────────────────────────────────────────────────────────────────
@@ -128,13 +166,13 @@ def _rms_par_trame(ulaw_octets: bytes) -> np.ndarray:
     return np.sqrt((pcm[:n * TRAME_OCTETS].reshape(n, TRAME_OCTETS) ** 2).mean(axis=1))
 
 
-def preparer_voix(dossier: Path) -> dict:
+def preparer_voix(dossier: Path, script: list) -> dict:
     """Charge chaque réplique et la découpe autour de la parole.
 
     Le découpage rend la mesure exacte : « fin de ma phrase » devient l'instant où la
     voix s'arrête, pas celui où un fichier se termine après une seconde de silence."""
     voix = {}
-    for ligne in SCRIPT:
+    for ligne in script:
         chemin = dossier / f"{ligne['fichier']}.ulaw"
         if not chemin.exists():
             sys.exit(f"Réplique introuvable : {chemin}")
@@ -166,7 +204,7 @@ class Appel:
         self.voix = voix
         self.args = args
         self.decalage = decalage
-        self.script = script if script is not None else SCRIPT
+        self.script = script if script is not None else SCRIPT_ACTIF
         self.call_sid = _sid("CA")
         self.stream_sid = _sid("MZ")
         self.t0 = 0.0
@@ -459,7 +497,9 @@ def mesurer_dialogue(msgs: list[dict], tours: list[dict]) -> dict:
             continue  # l'accueil et la reprise se suivent par construction
         a_relance = any(norme[i].startswith(r) for r in RELANCES)
         b_relance = any(norme[i + 1].startswith(r) for r in RELANCES)
-        if a["role"] == "assistant" and b["role"] == "assistant" and not (a_relance or b_relance):
+        annonce = a["role"] == "assistant" and _annonce_outil(norme[i])
+        if (a["role"] == "assistant" and b["role"] == "assistant"
+                and not (a_relance or b_relance or annonce)):
             doubles.append((a["content"], b["content"]))
         # « Je vérifie tout de suite. » puis… le client reprend : l'outil n'est pas parti.
         if (a["role"] == "assistant" and "verifie" in norme[i]
@@ -473,7 +513,8 @@ def mesurer_dialogue(msgs: list[dict], tours: list[dict]) -> dict:
                  if (t.get("attente_tour_ms") or 0) >= 2000]
     nom = None
     for t in tours:
-        trouve = re.search(r"nom de ((?:[a-z]\s?)+|[a-z]+)", " ".join(_mots(t.get("entendu") or "")))
+        trouve = re.search(r"(?:nom de|name is) ((?:[a-z]\s?)+|[a-z]+)",
+                           " ".join(_mots(t.get("entendu") or "")))
         if trouve:
             nom = trouve.group(1).replace(" ", "")
     return {"doubles": doubles, "relances": relances, "blocages": blocages,
@@ -638,6 +679,12 @@ def rapport(paliers: list[tuple[int, list[Appel]]], serveur: dict) -> dict:
               f" {sum(len(x['doubles']) for x in d):>9}        │ {sum(x['relances'] for x in d):>5}    │"
               f" {sum(len(x['minuterie']) for x in d):>13}               │ "
               + ", ".join(f"{k} ×{v}" for k, v in sorted(noms.items(), key=lambda kv: -kv[1])))
+    langues = {}
+    for a in (a for _, ap in paliers for a in ap):
+        tranchee = ((serveur.get(a.call_sid) or {}).get("journal") or {}).get("langue") or "—"
+        langues[tranchee] = langues.get(tranchee, 0) + 1
+    print("\nLangue tranchée par le serveur : "
+          + ", ".join(f"{k} ×{v}" for k, v in sorted(langues.items())))
     minut = {}
     for a in (a for _, ap in paliers for a in ap):
         for e in analyses[a.call_sid]["dialogue"]["minuterie"]:
@@ -663,7 +710,7 @@ def rapport(paliers: list[tuple[int, list[Appel]]], serveur: dict) -> dict:
 
 
 def SCRIPT_FAITS():
-    for ligne in SCRIPT:
+    for ligne in SCRIPT_ACTIF:
         yield from ligne["faits"].keys()
 
 
@@ -689,12 +736,15 @@ async def palier(n: int, voix: dict, args) -> list[Appel]:
 
 
 async def principal() -> int:
+    global SCRIPT_ACTIF
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--paliers", default="1,3,5,7",
                    help="nombres d'appels simultanés, dans l'ordre (défaut 1,3,5,7)")
-    p.add_argument("--voix", type=Path, default=ICI.parent / "banc-voix",
-                   help="dossier des répliques en µ-law 8 kHz")
+    p.add_argument("--scenario", choices=sorted(SCENARIOS), default="fr",
+                   help="réservation en français (voix de Helmi) ou en anglais")
+    p.add_argument("--voix", type=Path, default=None,
+                   help="dossier des répliques en µ-law 8 kHz (défaut : celui du scénario)")
     p.add_argument("--url", default=DEFAUT_URL)
     p.add_argument("--tenant-tel", default=DEFAUT_TENANT)
     p.add_argument("--patience", type=float, default=2.0,
@@ -718,12 +768,15 @@ async def principal() -> int:
 
     random.seed(args.graine)
     paliers_n = [int(x) for x in args.paliers.split(",")]
-    voix = preparer_voix(args.voix)
+    SCRIPT_ACTIF, dossier = SCENARIOS[args.scenario]
+    if args.voix is None:
+        args.voix = ICI.parent / dossier
+    voix = preparer_voix(args.voix, SCRIPT_ACTIF)
 
     print("=" * 70)
-    print("BANC CONVERSATIONNEL — voix réelle, un appelant qui écoute")
+    print(f"BANC CONVERSATIONNEL — scénario « {args.scenario} », un appelant qui écoute")
     print("=" * 70)
-    for ligne in SCRIPT:
+    for ligne in SCRIPT_ACTIF:
         print(f"  « {ligne['texte']} »  ({len(voix[ligne['fichier']]) / 8000:.1f} s)")
     print(f"Paliers : {paliers_n} — {sum(paliers_n)} appels · patience {args.patience} s · "
           f"départs décalés de 0 à {args.decalage:.0f} s")
@@ -744,7 +797,7 @@ async def principal() -> int:
         # Un seul « Bonjour » pour réveiller le GPU. Pas mesuré, mais FACTURÉ : il fait
         # partie du coût réel d'un banc, et du coût réel d'un premier appel à froid.
         print("\n── préchauffage : un « Bonjour » pour réveiller le GPU ".ljust(66, "─"))
-        a = Appel(0, voix, args, 0.0, script=SCRIPT[:1])
+        a = Appel(0, voix, args, 0.0, script=SCRIPT_ACTIF[:1])
         await a.jouer()
         prechauffe.append(a)
         rep = a.lignes[0]["reponse_ms"] if a.lignes else None
@@ -779,7 +832,7 @@ async def principal() -> int:
     banc_couts.afficher(facture)
 
     horodatage = datetime.datetime.now().strftime("%Y%m%d-%H%M")
-    fichier = ICI.parent / f"banc-conversation-{horodatage}.json"
+    fichier = ICI.parent / f"banc-conversation-{args.scenario}-{horodatage}.json"
     fichier.write_text(json.dumps({
         "parametres": vars(args) | {"voix": str(args.voix)},
         "paliers": [{"simultanes": n, "appels": [

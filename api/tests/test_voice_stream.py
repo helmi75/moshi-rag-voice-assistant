@@ -5,6 +5,7 @@ Exécuter depuis api/ avec : pytest tests/ -v
 """
 import asyncio
 import json
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -169,7 +170,8 @@ class TestSharedTools:
                 "create_reservation",
                 {
                     "customer_name": "Streaming Client",
-                    "date": "2026-08-01",
+                    # À venir : un créneau passé est refusé par le serveur (test_creneau).
+                    "date": (date.today() + timedelta(days=30)).isoformat(),
                     "time": "20:30",
                     "party_size": 3,
                 },
@@ -182,14 +184,15 @@ class TestSharedTools:
 
     def test_check_availability_counts_covers(self):
         tenant = self._tenant()
+        jour = (date.today() + timedelta(days=31)).isoformat()
         reservations.create_reservation(
-            tenant_id=tenant.id, customer_name="X", date="2026-08-02",
+            tenant_id=tenant.id, customer_name="X", date=jour,
             time="20:00", party_size=4,
         )
         result = asyncio.run(
             llm.run_tool(
                 tenant, "check_availability",
-                {"date": "2026-08-02", "time": "20:00", "party_size": 2},
+                {"date": jour, "time": "20:00", "party_size": 2},
             )
         )
         payload = json.loads(result)
@@ -212,7 +215,7 @@ class TestPipecatToolBridge:
             function_name="create_reservation",
             arguments={
                 "customer_name": "Via Pipecat",
-                "date": "2026-08-03",
+                "date": (date.today() + timedelta(days=32)).isoformat(),
                 "time": "19:00",
                 "party_size": 2,
             },
@@ -231,7 +234,10 @@ class TestPipecatToolBridge:
         callback = AsyncMock()
         params = SimpleNamespace(
             function_name="create_reservation",
-            arguments={},  # champs obligatoires manquants -> KeyError dans run_tool
+            # Créneau valide et à venir, mais sans nom ni couverts -> KeyError dans run_tool.
+            # (Des arguments vides ne lèvent plus rien : le serveur répond « illisible ».)
+            arguments={"date": (date.today() + timedelta(days=32)).isoformat(),
+                       "time": "19:00"},
             result_callback=callback,
         )
         asyncio.run(handler(params))
@@ -504,3 +510,126 @@ class TestInterruption:
 
         monkeypatch.setenv("INTERRUPTION", "n'importe quoi")
         assert interruption_strategies() is not None
+
+
+class TestRelances:
+    """Relances d'un silence : dans la langue de l'appel, et la dernière raccroche."""
+
+    def test_la_premiere_ne_fait_pas_comme_si_rien_n_avait_ete_dit(self):
+        texte, raccrocher = bot.relance(1, "fr")
+        assert texte == "Vous êtes toujours là ?"
+        assert "que puis-je faire" not in texte
+        assert not raccrocher
+
+    def test_la_troisieme_prend_conge_et_raccroche(self):
+        texte, raccrocher = bot.relance(3, "fr")
+        assert raccrocher
+        assert bot.has_taken_leave([{"role": "assistant", "content": texte}])
+
+    def test_un_appel_en_anglais_est_relance_en_anglais(self):
+        assert bot.relance(1, "en") == ("Are you still there?", False)
+        texte, raccrocher = bot.relance(3, "en")
+        assert raccrocher
+        assert bot.has_taken_leave([{"role": "assistant", "content": texte}])
+
+    def test_langue_inconnue_ou_absente_donne_le_francais(self):
+        for langue in (None, "", "es", "fr-FR"):
+            assert bot.relance(1, langue)[0] == "Vous êtes toujours là ?", langue
+
+    def test_au_dela_on_reste_sur_la_derniere(self):
+        assert bot.relance(7, "fr") == bot.relance(3, "fr")
+
+
+class TestPriseDeCongeEnAnglais:
+    def test_reconnait_les_formules_anglaises(self):
+        for texte in ("You're welcome, goodbye!", "Thank you, have a nice day.",
+                      "Perfect, have a lovely evening."):
+            assert bot.has_taken_leave([{"role": "assistant", "content": texte}]), texte
+
+
+class TestReponseAnticipee:
+    """Une seule réponse par fin de tour (bot.une_seule_reponse_par_tour)."""
+
+    def _aggregateur(self):
+        from pipecat.processors.aggregators.llm_context import LLMContext
+        from pipecat.processors.aggregators.llm_response_universal import (
+            LLMContextAggregatorPair,
+        )
+
+        return LLMContextAggregatorPair(LLMContext(messages=[])).user()
+
+    def _gestionnaires(self, agg):
+        return agg._user_turn_controller._event_handlers[
+            "on_user_turn_inference_triggered"].handlers
+
+    def test_sans_correction_le_pressentiment_envoie_un_bout_de_phrase(self):
+        """Le comportement d'origine, pour que le test suivant prouve quelque chose."""
+        agg = self._aggregateur()
+        agg.push_aggregation = AsyncMock(return_value="Alors moi c'est")
+        agg._call_event_handler = AsyncMock()
+        asyncio.run(self._gestionnaires(agg)[0](agg._user_turn_controller, None))
+        agg.push_aggregation.assert_awaited_once()
+
+    def test_avec_correction_le_pressentiment_n_envoie_rien(self):
+        agg = self._aggregateur()
+        assert bot.une_seule_reponse_par_tour(agg) is True
+        gestionnaires = self._gestionnaires(agg)
+        assert agg._on_user_turn_inference_triggered not in gestionnaires
+        agg.push_aggregation = AsyncMock(return_value="Alors moi c'est")
+        agg._call_event_handler = AsyncMock()
+        asyncio.run(gestionnaires[0](agg._user_turn_controller, None))
+        agg.push_aggregation.assert_not_awaited()
+        # Le signal, lui, continue d'être émis.
+        agg._call_event_handler.assert_awaited_once_with("on_user_turn_inference_triggered", None)
+
+    def test_la_validation_envoie_toute_la_phrase_une_fois(self):
+        """C'est sur ce point de Pipecat que repose la correction."""
+        agg = self._aggregateur()
+        bot.une_seule_reponse_par_tour(agg)
+        agg.push_aggregation = AsyncMock(return_value="Alors moi c'est Paul")
+        agg._call_event_handler = AsyncMock()
+        asyncio.run(agg._maybe_emit_user_turn_stopped(None))
+        agg.push_aggregation.assert_awaited_once()
+        evenement, _strategie, message = agg._call_event_handler.await_args.args
+        assert evenement == "on_user_turn_stopped"
+        assert message.content == "Alors moi c'est Paul"
+
+    def test_structure_inattendue_rend_la_main(self):
+        assert bot.une_seule_reponse_par_tour(SimpleNamespace()) is False
+
+    def test_le_pipeline_applique_la_correction(self):
+        import pathlib
+        import re
+
+        source = (pathlib.Path(__file__).resolve().parents[1]
+                  / "app" / "voice" / "bot.py").read_text(encoding="utf-8")
+        assert re.search(r"^\s+une_seule_reponse_par_tour\(_user_agg\)", source, re.M)
+
+
+class TestDetectionDeLangue:
+    """Décroché bilingue (voice/langue.py) : seulement là où il est mesuré."""
+
+    def _env(self, monkeypatch, **env):
+        for cle in ("STT_PROVIDER", "DEEPGRAM_MODEL", "DEEPGRAM_LANGUAGE"):
+            monkeypatch.delenv(cle, raising=False)
+        for cle, valeur in env.items():
+            monkeypatch.setenv(cle, valeur)
+
+    def test_par_defaut_on_decroche_en_bilingue(self, monkeypatch):
+        self._env(monkeypatch)
+        assert bot.detection_de_langue()
+        assert bot.langue_de_depart("fr") == "multi"
+
+    def test_une_langue_imposee_coupe_la_detection(self, monkeypatch):
+        self._env(monkeypatch, DEEPGRAM_LANGUAGE="fr")
+        assert not bot.detection_de_langue()
+        assert bot.langue_de_depart("fr") == "fr"
+
+    def test_pas_de_detection_hors_nova3(self, monkeypatch):
+        self._env(monkeypatch, DEEPGRAM_MODEL="nova-2")
+        assert not bot.detection_de_langue()
+        assert bot.langue_de_depart("fr") == "fr"
+
+    def test_pas_de_detection_avec_kyutai(self, monkeypatch):
+        self._env(monkeypatch, STT_PROVIDER="kyutai")
+        assert not bot.detection_de_langue()

@@ -514,3 +514,15 @@ class TestRobustesse:
         j = JournalDeBord()
         etat = {"actif": False, "octets": 0, "chunks_perdus": 0, "raison": "disque"}
         assert j.journal(etat)["enregistrement"]["raison"] == "disque"
+
+
+class TestLangueDeLAppel:
+    def test_la_langue_tranchee_est_consignee(self):
+        j = JournalDeBord()
+        j.noter_langue("en")
+        journal = j.journal()
+        assert journal["langue"] == "en"
+        assert any(e["quoi"] == "langue" and e["langue"] == "en" for e in journal["evenements"])
+
+    def test_sans_decision_la_langue_reste_vide(self):
+        assert JournalDeBord().journal()["langue"] is None

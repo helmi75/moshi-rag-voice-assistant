@@ -11,8 +11,9 @@ vectoriel n'apporterait rien à cette échelle (voir ARCHITECTURE.md).
 """
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
 
@@ -22,6 +23,16 @@ from .tenants import Tenant
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 MAX_TOOL_ROUNDS = 5
+
+# L'heure qui compte est celle du RESTAURANT, pas celle du serveur (UTC) : `date.today()`
+# se trompait de jour entre minuit et deux heures du matin, heure de Paris.
+FUSEAU = ZoneInfo(os.getenv("RESTAURANT_TIMEZONE", "Europe/Paris"))
+
+
+def maintenant() -> datetime:
+    """L'instant présent, au fuseau du restaurant. Point unique, pour que les tests
+    puissent le fixer et que le prompt et les outils ne divergent jamais."""
+    return datetime.now(FUSEAU)
 
 # Jours et mois en toutes lettres : le modèle doit résoudre « vendredi prochain » sans
 # rien deviner, et l'ISO seul ne dit pas quel jour de la semaine on est. Table figée
@@ -67,7 +78,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "customer_name": {"type": "string", "description": "Nom du client"},
+                "customer_name": {"type": "string", "description": "Nom du client, reconstitué s'il a été épelé — jamais une suite de lettres"},
                 "date": {"type": "string", "description": "Date au format AAAA-MM-JJ"},
                 "time": {"type": "string", "description": "Heure au format HH:MM"},
                 "party_size": {"type": "integer", "description": "Nombre de personnes"},
@@ -212,7 +223,8 @@ def build_system_prompt(tenant: Tenant) -> str:
     jetons sur toute la conversation. On garde donc des règles courtes, impératives,
     et uniquement celles qui corrigent un comportement réellement observé au téléphone.
     """
-    aujourdhui = date.today()
+    instant = maintenant()
+    aujourdhui = instant.date()
     return f"""Tu es l'assistante téléphonique de « {tenant.name} » ({tenant.business_type}).
 Tu décroches à la place de l'équipe, en salle. Ta mission, dans l'ordre : prendre les
 réservations, répondre aux questions pratiques, prendre un message sinon.
@@ -228,8 +240,14 @@ Tes réponses sont LUES À VOIX HAUTE par une synthèse vocale, en direct. Donc 
 - Registre parlé et chaleureux (« d'accord », « très bien »), jamais ampoulé :
   « C'est pour combien de personnes ? », pas « Pourriez-vous m'indiquer… ».
 - Ne répète pas ce que le client vient de dire, sauf pour le récapitulatif final.
-- Ne PRÉSUME JAMAIS du genre : jamais « Madame » ni « Monsieur », aucun titre inventé.
+- Ne PRÉSUME JAMAIS du genre : jamais « Madame » ni « Monsieur », même devant le nom.
 - Tu as déjà salué : ne redis pas « Bonjour » en milieu d'appel.
+
+# Langue
+Tu parles français et anglais, rien d'autre. Réponds dans la langue du client : s'il
+parle anglais, continue en anglais jusqu'à la fin de l'appel, mêmes règles (« eight
+thirty p.m. » en toutes lettres, « goodbye » pour conclure). Ne change pas de langue
+pour un mot isolé.
 
 # Prononciation
 La synthèse lit les chiffres tels qu'écrits : mets-les EN TOUTES LETTRES.
@@ -240,32 +258,37 @@ Dans les APPELS D'OUTILS au contraire : date en AAAA-MM-JJ, heure en HH:MM sur
 vingt-quatre heures. Le client ne les entend jamais.
 
 # Aujourd'hui
-Nous sommes {_date_en_toutes_lettres(aujourdhui)} ({aujourdhui.isoformat()}).
-Calcule toi-même « demain », « samedi », « vendredi prochain ». Un jour déjà passé
-désigne le prochain à venir. Si la date reste ambiguë, fais préciser en proposant le
-jour compris : « Samedi quinze août, c'est bien ça ? ».
+Nous sommes {_date_en_toutes_lettres(aujourdhui)} ({aujourdhui.isoformat()}), il est
+{instant.hour} h {instant.minute:02d} au restaurant. Calcule toi-même « demain », « samedi ».
+Un jour déjà passé désigne le prochain à venir. Une heure d'aujourd'hui déjà passée ne
+se réserve pas : propose la suivante. Si la date reste ambiguë, fais préciser : « Samedi
+quinze août, c'est bien ça ? ».
 
 # Réservation — dans l'ordre
 1. Il te faut QUATRE informations : nom, date, heure, nombre de personnes. Demande
    celles qui manquent, une par une, jamais une déjà donnée.
-2. Le NOM : demande-le une seule fois. Si tu n'es pas sûr, fais répéter ou épeler UNE
-   fois, garde ta meilleure compréhension et AVANCE. Le numéro est DÉJÀ enregistré
-   automatiquement : ne le demande pas. N'ÉPELLE JAMAIS un nom qu'on ne t'a pas épelé —
-   cela transforme une erreur d'écoute en erreur confirmée ; répète-le simplement.
+2. Le NOM : demande-le une seule fois. S'il est ÉPELÉ — lettres, ou « H comme Henri,
+   E comme Émilie… » —, reconstitue-le avec les initiales et relis-le lettre par
+   lettre : « H, E, L, M, I, c'est bien ça ? ». Un nom sans voyelle (« HLMI ») est une
+   épellation mal entendue : ne le prononce jamais, fais-le épeler avec des prénoms.
+   Sinon garde ta meilleure compréhension et AVANCE. Le numéro est DÉJÀ enregistré :
+   ne le demande pas. N'ÉPELLE JAMAIS un nom qu'on ne t'a pas épelé.
 3. Appelle check_availability. Dis d'abord une phrase courte
    (« Je vérifie tout de suite. ») : sans elle le client subit un silence.
-4. Récapitule en une phrase — nom, date, heure, nombre — et demande confirmation.
+4. Récapitule sous forme de QUESTION — « Je récapitule : …, c'est bien ça ? » —,
+   jamais « je vous confirme » : rien n'est encore réservé.
 5. Le client confirme : tu DOIS appeler create_reservation. Cet appel, et lui seul,
-   enregistre la table. N'annonce « c'est enregistré » qu'APRÈS son retour ; le dire à
-   l'oral ne réserve rien.
-6. Si un outil échoue, ne fais pas semblant : prends le message et annonce un rappel.
+   enregistre la table. N'annonce « c'est enregistré » qu'APRÈS son retour.
+6. Avant ce retour, AUCUNE réservation n'existe : si le client change l'heure ou la
+   date, repropose simplement le créneau, sans parler de « modifier ».
+7. Si un outil échoue, ne fais pas semblant : prends le message et annonce un rappel.
 
 # Les autres appels
 - Question pratique (horaires, adresse, carte, parking, accès) : réponds en une phrase
   à partir des informations ci-dessous.
-- Modification ou annulation : appelle find_reservation (réservations à venir du numéro
-  qui appelle), fais préciser laquelle s'il y en a plusieurs, récapitule, puis appelle
-  modify_reservation ou cancel_reservation. N'annonce le changement qu'APRÈS le retour
+- Modification ou annulation : appelle find_reservation. Il cherche par le NUMÉRO qui
+  appelle, jamais par le nom : dis « à ce numéro ». Fais préciser laquelle s'il y en a
+  plusieurs, récapitule, puis appelle modify_reservation ou cancel_reservation. N'annonce le changement qu'APRÈS le retour
   de l'outil. Rien trouvé, ou numéro masqué : prends le message, et ne demande pas de
   « numéro de dossier », il n'en existe pas.
 - Groupe important, privatisation, événement, réclamation, démarchage, fournisseur :
@@ -288,6 +311,8 @@ jour compris : « Samedi quinze août, c'est bien ça ? ».
   fonctionnement.
 - Jamais de garantie sur les allergènes ni sur un régime : renvoie vers l'équipe en
   salle, qui vérifiera en cuisine.
+- N'invente aucun incident ni aucune raison : ni « difficulté technique », ni
+  « confidentialité ». Si tu ne sais pas faire, dis-le simplement.
 - Aucun geste commercial, remise, gratuité ou promesse d'arrangement.
 - Aucun conseil médical, juridique ou financier.
 - Reste sur l'établissement. Autre sujet (actualité, calcul, poème, autre entreprise) :
@@ -308,8 +333,8 @@ phrase : redis-la AUTREMENT et plus courte. C'est cette formulation-là qui n'es
 passée ; la rejouer ne sert à rien.
 
 # Fin d'appel
-Quand tout est réglé, conclus en une phrase avec « au revoir » ou « bonne journée ».
-N'emploie ces formules QUE pour raccrocher vraiment : elles terminent l'appel.
+Une fois la demande réglée, demande « Autre chose ? ». S'il n'y a rien, conclus en une
+phrase avec « au revoir » ou « bonne journée » : ces formules terminent l'appel.
 
 # Informations de l'établissement
 {tenant.knowledge_base}"""
@@ -320,6 +345,24 @@ def _refus(message: str) -> str:
     et enchaîne. Lever une exception le ferait s'excuser d'un « problème technique »
     alors qu'il s'agit d'une règle métier."""
     return json.dumps({"error": message}, ensure_ascii=False)
+
+
+def _creneau_refuse(date_iso, heure) -> Optional[str]:
+    """Le motif de refus si le créneau est illisible ou déjà passé, sinon None.
+
+    Relevé le 10/09/2026 sur un vrai appel (104) : l'assistante a proposé une table
+    « aujourd'hui à treize heures » alors qu'il était quinze heures — elle ne
+    connaissait que la date. Le prompt lui donne désormais l'heure, mais une règle
+    écrite ne remplace pas une vérification : c'est le serveur qui tranche."""
+    try:
+        creneau = datetime.strptime(f"{date_iso} {heure}", "%Y-%m-%d %H:%M").replace(tzinfo=FUSEAU)
+    except (TypeError, ValueError):
+        return "Date ou heure illisible : date au format AAAA-MM-JJ, heure au format HH:MM."
+    instant = maintenant()
+    if creneau < instant:
+        return (f"Ce créneau est déjà passé : il est {instant:%H:%M}. "
+                "Propose au client un horaire à venir.")
+    return None
 
 
 async def run_tool(tenant: Tenant, name: str, tool_input: dict,
@@ -380,6 +423,10 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
                   if tool_input.get(k) not in (None, "")}
         if not champs:
             return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
+        refus = _creneau_refuse(champs.get("date", existante["date"]),
+                                champs.get("time", existante["time"]))
+        if refus:
+            return _refus(refus)
         modifiee = reservations.update_reservation(reservation_id, **champs)
         return json.dumps(
             {"status": "modified", "reservation_id": reservation_id,
@@ -411,6 +458,9 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
             ensure_ascii=False)
 
     if name == "check_availability":
+        refus = _creneau_refuse(tool_input.get("date"), tool_input.get("time"))
+        if refus:
+            return _refus(refus)
         booked = reservations.count_for_slot(
             tenant.id, tool_input["date"], tool_input["time"]
         )
@@ -424,6 +474,9 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         # modification et l'annulation (#33). Laisser le modèle le proposer reviendrait à
         # accepter que l'appelant décide de qui il est. Un appel masqué donne None : la
         # réservation existe, mais elle ne sera pas modifiable au téléphone.
+        refus = _creneau_refuse(tool_input.get("date"), tool_input.get("time"))
+        if refus:
+            return _refus(refus)
         row = reservations.create_reservation(
             tenant_id=tenant.id,
             customer_name=tool_input["customer_name"],

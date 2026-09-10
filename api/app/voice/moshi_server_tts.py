@@ -41,6 +41,32 @@ _NATIVE_RATE = 24000  # le serveur renvoie du PCM 24 kHz
 _DEFAULT_HOLD_MUSIC = str(Path(__file__).resolve().parent.parent / "assets" / "hold_music.wav")
 
 
+# Dernier instant (horloge monotone) où moshi-server a rendu du son, pour tout le
+# processus : un appel profite du GPU réveillé par le précédent.
+_dernier_son: float | None = None
+
+
+def noter_son() -> None:
+    global _dernier_son
+    _dernier_son = time.monotonic()
+
+
+def gpu_chaud() -> bool:
+    """Le GPU a-t-il rendu du son assez récemment pour être encore allumé ?
+
+    Modal éteint un conteneur 120 s après sa dernière requête (`scaledown_window` de
+    deploy/modal_moshi_server.py). En deçà de MOSHI_CHAUD_SECONDES (75 s par défaut :
+    45 s de marge), on le sait allumé, et le décroché n'a ni réveil ni musique à faire.
+    Au-delà on ne sait pas : on réveille, comme avant. Se tromper dans ce sens coûte un
+    préchauffage inutile ; dans l'autre, le filet de `run_tts` meuble le démarrage."""
+    try:
+        fenetre = float(os.getenv("MOSHI_CHAUD_SECONDES", "75") or 0)
+    except ValueError:
+        fenetre = 0.0
+    return (_dernier_son is not None and fenetre > 0
+            and time.monotonic() - _dernier_son < fenetre)
+
+
 def _ws_base() -> str:
     """Base websocket du serveur. Accepte http(s):// ou ws(s):// dans MOSHI_TTS_URL
     et normalise vers ws(s):// (Modal expose en https -> wss)."""
@@ -293,6 +319,7 @@ class MoshiServerTTSService(TTSService):
                     )
                     first = False
                 got_real = True
+                noter_son()
                 n_samples += pcm.shape[0]
                 audio_int16 = (pcm * 32767).astype(np.int16).tobytes()
                 audio_data = await self._resampler.resample(
