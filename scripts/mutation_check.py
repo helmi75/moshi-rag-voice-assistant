@@ -237,8 +237,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Les messages tombent sous la purge comme le reste",
         fichier="api/app/rgpd.py",
-        avant="               WHERE created_at < datetime('now', ?) AND details IS NOT NULL\"\"\",",
-        apres="               WHERE 0 AND created_at < datetime('now', ?) AND details IS NOT NULL\"\"\",",
+        avant="               WHERE created_at < ? AND details IS NOT NULL\"\"\",",
+        apres="               WHERE 0 AND created_at < ? AND details IS NOT NULL\"\"\",",
         tests=["test_messages.py"],
         k="purge",
         panne="le nom et la demande d'un appelant resteraient en base sans limite de "
@@ -416,6 +416,15 @@ GARDE_FOUS = [
         tests=["test_notifications.py"],
         k="casse or leve",
         panne="un SMTP en panne ferait échouer l'outil : l'assistante s'excuserait d'un problème technique et la réservation ne serait pas prise",
+    ),
+    GardeFou(
+        nom="Le forfait compte le mois du restaurant, pas celui d'UTC",
+        fichier="api/app/quotas.py",
+        avant="            (tenant_id, horloge.debut_du_mois()),",
+        apres='            (tenant_id, "1970-01-01"),  # mutation',
+        tests=["test_horloge.py"],
+        k="mois",
+        panne="le compteur de forfait additionnerait tous les mois : plafond atteint le 3, facture fausse",
     ),
 ]
 

@@ -6,12 +6,12 @@ viennent de `calls`/`reservations`, les états viennent du cache de voix et de l
 configuration réelle — aucune métrique de latence n'existe, donc aucune n'est montrée.
 """
 import os
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, db, disponibilite, plans, quotas, reservations, supervision, tenants
+from .. import calls, db, disponibilite, horloge, plans, quotas, reservations, supervision, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from . import charts, deps, presenters
@@ -61,7 +61,7 @@ def _fill_days(stats: list[dict], days: int, key: str) -> list[tuple[str, float]
     """Série jour par jour, trous compris — `stats_daily` ne renvoie que les jours
     actifs, et un graphique à trous mentirait sur le rythme réel."""
     by_day = {s["day"]: s for s in stats}
-    today = date.today()
+    today = horloge.aujourd_hui()
     points = []
     for offset in range(days - 1, -1, -1):
         day = today - timedelta(days=offset)
@@ -185,7 +185,7 @@ def _park(request: Request):
 def _control_room(request: Request, tenant_id: Optional[int]):
     now = calls.totals(tenant_id, days=_WINDOW_DAYS)
     before = calls.totals(tenant_id, days=_WINDOW_DAYS, offset_days=_WINDOW_DAYS)
-    today = date.today().isoformat()
+    today = horloge.aujourd_hui().isoformat()
     recent = [presenters.call_view(c) for c in calls.list_calls(tenant_id, limit=5)]
     upcoming = reservations.list_filtered(
         tenant_id=tenant_id, date_from=today, limit=6,

@@ -303,11 +303,11 @@ _MAX_APPELS = 500
 
 
 def _appels_fenetre() -> list[dict]:
-    depuis = f"-{fenetre_jours()} days"
+    depuis = horloge.il_y_a(fenetre_jours())
     with db.get_conn() as conn:
         rows = conn.execute(
             """SELECT started_at, ended_at, duration_seconds, status, transcript
-               FROM calls WHERE started_at >= datetime('now', ?)
+               FROM calls WHERE started_at >= ?
                ORDER BY started_at DESC LIMIT ?""",
             (depuis, _MAX_APPELS),
         ).fetchall()

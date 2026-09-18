@@ -79,6 +79,12 @@ def il_y_a_jours(n: int) -> str:
     return utc_iso(debut_du_jour(aujourd_hui() - timedelta(days=int(n))))
 
 
+def il_y_a(jours: float) -> str:
+    """L'instant il y a n jours — pas minuit : pour les durées de conservation et les
+    fenêtres glissantes de la sonde, qui se comptent en jours pleins depuis maintenant."""
+    return utc_iso(datetime.now(timezone.utc) - timedelta(days=float(jours)))
+
+
 def debut_du_mois() -> str:
     """La borne SQL du mois calendaire en cours — la maille de facturation."""
     return utc_iso(debut_du_jour(aujourd_hui().replace(day=1)))

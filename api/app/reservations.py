@@ -10,7 +10,7 @@ conséquences à ne jamais perdre de vue :
 """
 from typing import Optional
 
-from . import db
+from . import db, horloge
 
 # Fragment SQL partagé par tout ce qui compte des couverts. Écrit UNE fois : une
 # annulation oubliée dans une requête de comptage est invisible à la lecture et se
@@ -161,9 +161,9 @@ def find_by_phone(tenant_id: int, phone: str, *, a_partir_de: Optional[str] = No
         rows = conn.execute(
             f"""SELECT * FROM reservations
                 WHERE tenant_id = ? AND customer_phone = ? AND {ACTIVES}
-                  AND date >= COALESCE(?, date('now'))
+                  AND date >= ?
                 ORDER BY date, time""",
-            (tenant_id, phone, a_partir_de),
+            (tenant_id, phone, a_partir_de or horloge.aujourd_hui().isoformat()),
         ).fetchall()
     return [dict(r) for r in rows]
 
