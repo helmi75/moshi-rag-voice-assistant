@@ -441,20 +441,24 @@ class TestTwilio:
 
         monkeypatch.setenv("RETENTION_INTERVALLE_SECONDES", "3600")
 
+        from app import taches as registre
+
         async def scenario():
             await main_mod._demarrer_taches_de_fond()
-            taches = list(main_mod._taches_de_fond)
-            assert taches, "aucune tâche de fond démarrée : le test ne vérifie rien"
-            assert all(not t.done() for t in taches)
+            boucles = [t for t in registre.retenues()
+                       if t.get_name() in ("relève des alertes Twilio",
+                                           "purge des données personnelles")]
+            assert len(boucles) == 2, "les deux boucles doivent être retenues par le registre"
+            assert all(not t.done() for t in boucles)
             await asyncio.sleep(0)
             await main_mod._arreter_taches_de_fond()
-            return taches
+            return boucles
 
-        taches = asyncio.run(scenario())
+        boucles = asyncio.run(scenario())
         # TOUTES doivent être arrêtées, pas seulement la première : c'est précisément
         # ce qu'un motif copié-collé par tâche finit par oublier.
-        assert all(t.done() for t in taches)
-        assert main_mod._taches_de_fond == []
+        assert all(t.done() for t in boucles)
+        assert registre.en_cours() == 0
 
     def test_sans_identifiants_la_releve_se_declare_impossible(self, base, monkeypatch):
         import asyncio

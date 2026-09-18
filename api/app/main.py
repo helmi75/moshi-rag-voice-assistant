@@ -14,7 +14,7 @@ from xml.sax.saxutils import escape
 from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
-from . import calls, db, llm, supervision, tenants, users
+from . import calls, db, llm, supervision, taches, tenants, users
 
 app = FastAPI(title="Voice Assistant SaaS")
 
@@ -74,8 +74,6 @@ async def _prerender_greetings():
     pour que le tout premier appelant entende un accueil instantané. Déclenche au
     passage un cold start du GPU une seule fois, au démarrage, plutôt qu'en appel.
     Active aussi le keep-warm périodique si MOSHI_KEEPWARM_SECONDS > 0."""
-    import asyncio
-
     from .voice import greeting as greeting_mod
 
     if not greeting_mod.is_moshi_server():
@@ -90,19 +88,8 @@ async def _prerender_greetings():
         except Exception as exc:
             print(f"Pré-rendu des accueils échoué (repli TTS live au 1er appel): {exc}")
 
-    asyncio.create_task(_prerender())
-    asyncio.create_task(greeting_mod.keep_warm_loop())
-
-
-# Tâches de fond permanentes, gardées en référence pour pouvoir les ARRÊTER : une
-# boucle infinie qu'on abandonne empêche la boucle d'événements de se fermer, et le
-# processus (ou un TestClient) attend indéfiniment. Vécu le 23/08 — le contrôle de
-# mutation s'est figé une demi-heure sur un test qui sortait en erreur d'un
-# `with TestClient(...)`, précisément à cause d'une tâche orpheline.
-#
-# Une LISTE plutôt qu'une variable par tâche : à la troisième, le motif copié-collé
-# finit par oublier un arrêt quelque part.
-_taches_de_fond: list = []
+    taches.lancer(_prerender(), nom="pré-rendu des accueils")
+    taches.lancer(greeting_mod.keep_warm_loop(), nom="keep-warm moshi-server")
 
 
 @app.on_event("startup")
@@ -113,32 +100,23 @@ async def _demarrer_taches_de_fond():
       contrôle qui exige un appel réseau et la sonde doit rester gratuite ;
     - **purge des données personnelles** (#22) : les durées de conservation ne valent
       rien tant que rien ne les APPLIQUE.
-    """
-    import asyncio
 
+    Retenues par le registre `taches`, comme tout ce qui tourne en fond : une boucle
+    infinie qu'on abandonne empêche la boucle d'événements de se fermer, et le processus
+    — ou un TestClient — attend indéfiniment. Vécu le 23/08.
+    """
     from . import rgpd
 
-    _taches_de_fond.extend([
-        asyncio.create_task(supervision.boucle_twilio()),
-        asyncio.create_task(rgpd.boucle()),
-    ])
+    taches.lancer(supervision.boucle_twilio(), nom="relève des alertes Twilio")
+    taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
 
 
 @app.on_event("shutdown")
 async def _arreter_taches_de_fond():
-    """Arrête proprement toutes les boucles. Sans ça, l'arrêt du service traîne — et un
-    service qui ne sait pas s'arrêter est un service qu'on finit par tuer au signal 9,
-    en pleine écriture SQLite."""
-    import asyncio
-    import contextlib
-
-    taches, _taches_de_fond[:] = list(_taches_de_fond), []
-    for tache in taches:
-        if not tache.done():
-            tache.cancel()
-    for tache in taches:
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await tache
+    """Arrête proprement toutes les tâches de fond. Sans ça, l'arrêt du service traîne —
+    et un service qui ne sait pas s'arrêter est un service qu'on finit par tuer au
+    signal 9, en pleine écriture SQLite."""
+    await taches.arreter_tout()
 
 
 def _twiml(inner: str) -> Response:
@@ -251,7 +229,7 @@ async def voice_webhook(
 
     Le numéro appelé (`To`) désigne l'établissement ; un numéro que personne n'a
     configuré est raccroché poliment plutôt que routé au hasard."""
-    tenant = tenants.get_by_phone(To)
+    tenant = await db.hors_boucle(tenants.get_by_phone, To)
     if tenant is None:
         return _raccrocher("Ce numéro n'est pas encore configuré. Au revoir.")
     return _stream_twiml(request, To or "", CallSid or "", From or "")
@@ -264,7 +242,7 @@ async def sms_webhook(
     To: Optional[str] = Form(None),
 ):
     """Webhook SMS Twilio : réponse mono-tour via le LLM du tenant."""
-    tenant = tenants.get_by_phone(To)
+    tenant = await db.hors_boucle(tenants.get_by_phone, To)
     if tenant is None:
         text = "Ce numéro n'est pas encore configuré."
     else:
@@ -336,7 +314,7 @@ async def voice_stream(websocket: WebSocket):
     to_number = custom.get("To")
     from_number = custom.get("From")
 
-    tenant = tenants.get_by_phone(to_number)
+    tenant = await db.hors_boucle(tenants.get_by_phone, to_number)
     if tenant is None or not stream_sid:
         print(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
         await websocket.close(code=1008)  # policy violation
@@ -347,7 +325,7 @@ async def voice_stream(websocket: WebSocket):
     # lieu normalement mais n'est pas enregistré — on n'invente pas de clé de fichier.
     call_id = None
     try:
-        call_id = calls.start_call(call_sid, tenant.id, from_number)
+        call_id = await db.hors_boucle(calls.start_call, call_sid, tenant.id, from_number)
     except Exception as exc:
         print(f"[calls] start_call KO (sans conséquence): {exc}")
 

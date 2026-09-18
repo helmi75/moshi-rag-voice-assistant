@@ -761,7 +761,7 @@ async def rafraichir_twilio() -> None:
     sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
     token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
     if not sid or not token:
-        noter("twilio", {"erreur": "identifiants Twilio absents"})
+        await db.hors_boucle(noter, "twilio", {"erreur": "identifiants Twilio absents"})
         return
     depuis = (_maintenant() - timedelta(days=fenetre_jours())).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
@@ -777,10 +777,10 @@ async def rafraichir_twilio() -> None:
         # Twilio A répondu, et son code dit quoi faire : 401 = identifiants à renouveler,
         # 429 = trop de relèves, 5xx = panne chez eux. « L'API n'a pas répondu » aurait
         # envoyé chercher un problème de réseau là où il n'y en a pas.
-        noter("twilio", {"erreur": f"HTTP {exc.response.status_code}"})
+        await db.hors_boucle(noter, "twilio", {"erreur": f"HTTP {exc.response.status_code}"})
         return
     except Exception as exc:
-        noter("twilio", {"erreur": type(exc).__name__})
+        await db.hors_boucle(noter, "twilio", {"erreur": type(exc).__name__})
         return
     # `error_code` est renseigné pour les erreurs (11200 webhook injoignable, 12100
     # TwiML invalide, 31920 flux média refusé…) ; les alertes de niveau `notice` ne
@@ -790,7 +790,7 @@ async def rafraichir_twilio() -> None:
     for alerte in erreurs:
         code = str(alerte["error_code"])
         codes[code] = codes.get(code, 0) + 1
-    noter("twilio", {"erreurs": len(erreurs), "codes": codes})
+    await db.hors_boucle(noter, "twilio", {"erreurs": len(erreurs), "codes": codes})
 
 
 async def boucle_twilio() -> None:

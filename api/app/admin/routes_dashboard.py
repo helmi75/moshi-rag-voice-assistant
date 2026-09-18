@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, plans, quotas, reservations, supervision, tenants
+from .. import calls, db, plans, quotas, reservations, supervision, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from . import charts, deps, presenters
@@ -136,9 +136,11 @@ def _alerts(rows: list[dict]) -> list[dict]:
 async def home(request: Request, tenant_id: Optional[int] = None,
                user: User = Depends(deps.current_user)):
     deps.ensure_csrf(request)
+    # Rendu dans un thread : une dizaine de requêtes SQLite par page, et l'admin tourne
+    # dans le même processus que les appels en cours (voir db.hors_boucle).
     if user.is_superadmin and tenant_id is None:
-        return _park(request)
-    return _control_room(request, _scope(user, tenant_id))
+        return await db.hors_boucle(_park, request)
+    return await db.hors_boucle(_control_room, request, _scope(user, tenant_id))
 
 
 def _park(request: Request):
@@ -216,6 +218,10 @@ def _control_room(request: Request, tenant_id: Optional[int]):
 
 @router.get("/admin/health", dependencies=[Depends(deps.require_superadmin)])
 async def health(request: Request):
+    return await db.hors_boucle(_health, request)
+
+
+def _health(request: Request):
     deps.ensure_csrf(request)
     now = calls.totals(None, days=_WINDOW_DAYS)
     rows = _venue_rows()
@@ -264,7 +270,10 @@ async def health(request: Request):
 @router.get("/admin/stats/charts")
 async def stats_charts(request: Request, tenant_id: Optional[int] = None, days: int = 30,
                        user: User = Depends(deps.current_user)):
-    scope = _scope(user, tenant_id)
+    return await db.hors_boucle(_stats_charts, request, _scope(user, tenant_id), days)
+
+
+def _stats_charts(request: Request, scope: Optional[int], days: int):
     days = min(days, 90)
     stats = calls.stats_daily(scope, days=days)
     calls_svg = charts.bar_chart(

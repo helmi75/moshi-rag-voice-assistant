@@ -12,6 +12,9 @@ os.environ["TWILIO_NUMBER"] = "+33100000000"
 # Un seul chemin d'appel (Media Streams) : le TwiML annonce toujours une URL de flux et la
 # supervision l'exige. Une valeur de test, sauf si l'environnement en fournit déjà une.
 os.environ.setdefault("PUBLIC_WS_URL", "wss://testserver/ws/voice")
+# Bases jetables : aucun fsync. Chaque test qui crée une base payait 5 s de migrations
+# synchronisées sur disque (mesuré le 18/09/2026 : 10 min de suite pour 20 s de tests).
+os.environ.setdefault("DB_SYNCHRONOUS", "OFF")
 # Plateforme admin : super-admin semé au démarrage + secret de session déterministes.
 os.environ["ADMIN_PASSWORD"] = "test-admin-pass"
 os.environ["ADMIN_EMAIL"] = "admin@test.local"

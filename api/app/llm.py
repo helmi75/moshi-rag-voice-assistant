@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
 
-from . import messages, reservations
+from . import db, messages, reservations
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
@@ -379,6 +379,10 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
     `call_id` rattache un message pris à l'appel qui l'a produit, pour que le
     restaurateur puisse réécouter ce qui a été dit. Absent, le message est quand même
     enregistré : une trace incomplète vaut mieux qu'une promesse perdue.
+
+    Chaque accès à la base passe par `db.hors_boucle` : cette fonction s'exécute dans la
+    boucle d'événements qui sert TOUS les appels en cours, et un verrou SQLite attendu
+    ici ferait bégayer leur voix.
     """
     # Garde unique pour les trois outils qui touchent à une réservation existante.
     # Placée AVANT le routage : ajouter un quatrième outil à OUTILS_APPELANT suffit à
@@ -390,7 +394,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         )
 
     if name == "find_reservation":
-        trouvees = reservations.find_by_phone(
+        trouvees = await db.hors_boucle(
+            reservations.find_by_phone,
             tenant.id, caller_number, a_partir_de=tool_input.get("date"))
         return json.dumps(
             {"reservations": [
@@ -408,14 +413,15 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         except (TypeError, ValueError):
             return _refus("Identifiant de réservation manquant : appelle d'abord find_reservation.")
         # LA porte : rien n'est chargé sans le tenant ET le numéro appelant.
-        existante = reservations.get_for_caller(reservation_id, tenant.id, caller_number)
+        existante = await db.hors_boucle(
+            reservations.get_for_caller, reservation_id, tenant.id, caller_number)
         if existante is None:
             return _refus(
                 "Aucune réservation à venir ne correspond à ce numéro. Ne prétends pas "
                 "l'avoir trouvée ; propose de prendre le message."
             )
         if name == "cancel_reservation":
-            reservations.cancel_reservation(reservation_id)
+            await db.hors_boucle(reservations.cancel_reservation, reservation_id)
             return json.dumps(
                 {"status": "cancelled", "reservation_id": reservation_id,
                  "date": existante["date"], "time": existante["time"]},
@@ -428,7 +434,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
                                 champs.get("time", existante["time"]))
         if refus:
             return _refus(refus)
-        modifiee = reservations.update_reservation(reservation_id, **champs)
+        modifiee = await db.hors_boucle(reservations.update_reservation, reservation_id, **champs)
         return json.dumps(
             {"status": "modified", "reservation_id": reservation_id,
              "date": modifiee["date"], "time": modifiee["time"],
@@ -440,7 +446,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         # un message, c'est même le cas où il en a le plus besoin — il ne peut ni
         # réserver ni retrouver quoi que ce soit. On enregistre alors sans numéro, et le
         # restaurateur voit qu'il n'y a pas de quoi rappeler.
-        identifiant = messages.create_message(
+        identifiant = await db.hors_boucle(
+            messages.create_message,
             tenant_id=tenant.id,
             subject=tool_input.get("subject") or "",
             details=tool_input.get("details"),
@@ -462,8 +469,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         refus = _creneau_refuse(tool_input.get("date"), tool_input.get("time"))
         if refus:
             return _refus(refus)
-        booked = reservations.count_for_slot(
-            tenant.id, tool_input["date"], tool_input["time"]
+        booked = await db.hors_boucle(
+            reservations.count_for_slot, tenant.id, tool_input["date"], tool_input["time"]
         )
         return json.dumps(
             {"available": True, "covers_already_booked": booked},
@@ -482,7 +489,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         # « Très bien merci », et une table enregistrée SANS NOM — introuvable en salle.
         if not str(tool_input.get("customer_name") or "").strip():
             return _refus("Nom manquant : demande le nom du client avant d'enregistrer.")
-        row = reservations.create_reservation(
+        row = await db.hors_boucle(
+            reservations.create_reservation,
             tenant_id=tenant.id,
             customer_name=tool_input["customer_name"],
             date=tool_input["date"],

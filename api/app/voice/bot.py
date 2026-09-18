@@ -16,7 +16,7 @@ from typing import Optional
 
 from loguru import logger
 
-from .. import llm
+from .. import llm, taches
 from ..tenants import Tenant
 
 
@@ -448,7 +448,7 @@ async def run_bot(
         except Exception as exc:
             logger.warning(f"warmup LLM échoué (sans conséquence): {exc}")
 
-    asyncio.create_task(_warm_llm())
+    taches.lancer(_warm_llm(), nom=f"préchauffage du LLM {call_sid}")
 
     messages = [{"role": "system", "content": llm.build_system_prompt(tenant)}]
     from . import greeting as greeting_mod
@@ -657,7 +657,8 @@ async def run_bot(
     # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
     # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).
     if greeting_mod.cached_greeting_path(tenant) is None:
-        asyncio.create_task(greeting_mod.ensure_greeting_wav(tenant))
+        taches.lancer(greeting_mod.ensure_greeting_wav(tenant),
+                      nom=f"accueil de l'établissement {tenant.id}")
 
     runner = PipelineRunner(handle_sigint=False)
     status = "completed"

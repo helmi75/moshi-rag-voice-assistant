@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from .. import plans, tenants, users
+from .. import plans, taches, tenants, users
 from ..users import User
 from . import deps
 
@@ -236,4 +236,5 @@ def _prerender_greeting(tenant_id: int) -> None:
 
     tenant = tenants.get_by_id(tenant_id)
     if tenant is not None and greeting_mod.is_moshi_server():
-        asyncio.create_task(greeting_mod.ensure_greeting_wav(tenant))
+        taches.lancer(greeting_mod.ensure_greeting_wav(tenant),
+                      nom=f"accueil de l'établissement {tenant.id}")

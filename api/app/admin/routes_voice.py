@@ -1,5 +1,4 @@
 """Config voix par tenant : accueil (re-rendu auto), aperçu WAV, musique d'attente."""
-import asyncio
 import io
 import wave
 from typing import Optional
@@ -8,7 +7,7 @@ import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 
-from .. import tenants
+from .. import taches, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from ..voice import voices
@@ -71,7 +70,8 @@ async def voice_update(
     if refreshed is not None and greeting_mod.is_moshi_server():
         # Re-rendu en tâche de fond (60-90 s si GPU froid) : jamais bloquant ici,
         # l'UI polle /greeting/status jusqu'à ce que le WAV soit prêt.
-        asyncio.create_task(greeting_mod.ensure_greeting_wav(refreshed))
+        taches.lancer(greeting_mod.ensure_greeting_wav(refreshed),
+                      nom=f"accueil de l'établissement {tenant.id}")
     return RedirectResponse(f"/admin/tenants/{tenant.id}/voice", status_code=303)
 
 

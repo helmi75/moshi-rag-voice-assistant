@@ -22,6 +22,17 @@ client = TestClient(app)
 DEMO_NUMBER = "+33100000000"
 
 
+def _attendre_le_bot(run_bot, delai: float = 2.0) -> None:
+    """Le gestionnaire /ws/voice se suspend le temps des accès SQLite en thread
+    (db.hors_boucle) : le client de test doit lui laisser lancer le bot avant de fermer
+    la session, sinon il l'annule en plein milieu — et croit qu'il n'a rien fait."""
+    import time
+
+    fin = time.monotonic() + delai
+    while run_bot.await_count == 0 and time.monotonic() < fin:
+        time.sleep(0.01)
+
+
 def _twilio_start_message(to=DEMO_NUMBER, stream_sid="MZ123", call_sid="CA_stream_1"):
     return {
         "event": "start",
@@ -84,6 +95,7 @@ class TestVoiceWebSocket:
             with client.websocket_connect("/ws/voice") as ws:
                 ws.send_text(json.dumps({"event": "connected", "protocol": "Call"}))
                 ws.send_text(json.dumps(_twilio_start_message()))
+                _attendre_le_bot(run_bot)
         assert run_bot.await_count == 1
         _ws, stream_sid, call_sid, tenant = run_bot.await_args.args
         assert stream_sid == "MZ123"

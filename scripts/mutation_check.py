@@ -70,8 +70,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="`keyterm` (et non `keywords`) pour nova-3",
         fichier="api/app/voice/bot.py",
-        avant='        if model.startswith("nova-3"):',
-        apres='        if False:  # mutation',
+        avant='    if model.startswith("nova-3"):',
+        apres='    if False:  # mutation',
         tests=["test_deepgram_stt.py"],
         k="nova3 or nova2 or default_model or keyword",
         panne="HTTP 400 de Deepgram → le STT ne démarre pas, tous les appels muets",
@@ -227,8 +227,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Une promesse de rappel laisse toujours une trace",
         fichier="api/app/llm.py",
-        avant="        identifiant = messages.create_message(",
-        apres="        identifiant = 1 if True else messages.create_message(  # mutation",
+        avant="            messages.create_message,",
+        apres="            (lambda **champs: 1),  # mutation",
         tests=["test_messages.py"],
         k="enregistre or masque or trace",
         panne="l'assistante annoncerait un rappel que personne n'aurait noté — le "
@@ -353,6 +353,24 @@ GARDE_FOUS = [
         k="bilingue",
         panne="Deepgram en `fr` perd l'anglais : « Yes, hello, my name is Helmi… » n'a "
               "rien produit du tout sur l'appel 101",
+    ),
+    GardeFou(
+        nom="Le chemin d'appel ne touche pas SQLite depuis la boucle d'événements",
+        fichier="api/app/db.py",
+        avant="    return await asyncio.to_thread(fn, *args, **kwargs)",
+        apres="    return fn(*args, **kwargs)  # mutation",
+        tests=["test_db_hors_boucle.py"],
+        k="fil or boucle",
+        panne="un verrou SQLite attendu depuis la boucle ferait bégayer la voix de TOUS les appels en cours",
+    ),
+    GardeFou(
+        nom="Une tâche de fond qui meurt est journalisée, et retenue jusque-là",
+        fichier="api/app/taches.py",
+        avant="    tache.add_done_callback(_terminee)",
+        apres="    pass  # mutation",
+        tests=["test_taches.py"],
+        k="journalisee or liberee",
+        panne="un rendu d'accueil échouerait en silence, sans une ligne de journal — comme avant",
     ),
 ]
 
