@@ -1,11 +1,14 @@
-"""Pipeline vocal streaming (phase 2) : Twilio Media Streams + Pipecat.
+"""Pipeline vocal streaming : Twilio Media Streams + Pipecat.
 
-Chaque étage (STT/LLM/TTS) est un service Pipecat interchangeable : Deepgram et
-Cartesia (APIs, phase A) pourront être remplacés par Kyutai STT/TTS auto-hébergés
-(phase B) sans toucher au cerveau métier (llm.py / tenants.py).
+Un seul assemblage : Deepgram (nova-3, décroché bilingue) pour entendre, le LLM via
+OpenRouter pour comprendre et agir (llm.py), la voix Moshi servie par moshi-server sur
+Modal pour parler. Les moteurs locaux — Pocket TTS, Kyutai TTS/STT en PyTorch, Cartesia —
+ont été retirés le 18/09/2026 (tag `archive/moteurs-locaux`) : trois moteurs à maintenir
+pour un seul en production, et `torch` dans l'image par défaut. Le cerveau métier
+(llm.py, tenants.py) ignore toujours le transport.
 
-Les imports Pipecat sont faits à l'intérieur des fonctions : l'application reste
-utilisable en mode `gather` même si les extras audio ne sont pas installés.
+Les imports Pipecat sont faits à l'intérieur des fonctions : ils sont lourds, et les tests
+qui ne construisent pas de pipeline n'ont pas à les payer.
 """
 import asyncio
 import os
@@ -29,7 +32,7 @@ def make_tool_handler(
     créées pendant l'appel — le handler voit passer tous les résultats d'outils.
     `caller_number` : numéro Twilio de l'appelant, transmis à `run_tool` qui en fait la
     source de vérité — téléphone de la réservation, et surtout autorisation d'accès à une
-    réservation existante (#33). L'injection se fait LÀ-BAS et non ici : le mode `gather`
+    réservation existante (#33). L'injection se fait LÀ-BAS et non ici : le webhook SMS
     passe par `llm.respond` sans traverser ce handler, et deux points d'injection
     finiraient par diverger.
     `call_id` : rattache un message pris à l'appel qui l'a produit, pour qu'on puisse
@@ -57,63 +60,29 @@ def make_tool_handler(
 
 
 def build_tts(tenant: Optional[Tenant] = None):
-    """Construit le service TTS selon TTS_PROVIDER (défaut : pocket = voix Kyutai,
-    CPU, sans clé). `cartesia` en alternative (API, nécessite CARTESIA_API_KEY).
+    """Le service TTS : la voix Moshi 1.6B via le serveur Rust moshi-server (Modal GPU).
 
-    `tenant` sert à choisir la voix : seul moshi_server la gère par établissement
-    (les autres moteurs restent pilotés par leurs variables d'environnement)."""
-    provider = os.getenv("TTS_PROVIDER", "pocket").strip().lower()
-    logger.info(f"TTS provider sélectionné : {provider}")
-    if provider == "pocket":
-        from .pocket_tts import PocketTTSService
+    L'app est simple cliente websocket, aucun modèle en local. `tenant` choisit la voix
+    (voices.resolve — la même décision que l'accueil pré-rendu, sinon un appel mélangerait
+    deux voix). Sans MOSHI_TTS_URL on refuse de construire le pipeline : une erreur
+    franche vaut mieux qu'un appel muet, et la supervision annonce déjà cette absence
+    (_configuration_requise)."""
+    if not os.getenv("MOSHI_TTS_URL", "").strip():
+        raise ValueError("MOSHI_TTS_URL manquante : aucun serveur de voix à joindre")
+    from . import voices
+    from .moshi_server_tts import MoshiServerTTSService
 
-        return PocketTTSService()
-    if provider == "moshi_server":
-        # Voix Moshi 1.6B via le serveur Rust moshi-server (production, fluide).
-        # L'app est simple cliente websocket (aucun modèle en local) ; le serveur
-        # tourne sur Modal GPU (voir deploy/modal_moshi_server.py).
-        from . import voices
-        from .moshi_server_tts import MoshiServerTTSService
-
-        voice = voices.resolve(tenant)
-        logger.info(f"Voix moshi-server : {voice}")
-        return MoshiServerTTSService(voice=voice)
-    if provider == "kyutai":
-        # Kyutai TTS 1.6B en PyTorch DANS l'app (GPU requis). Reste sous le temps réel
-        # (sacade) sur L4/T4 — préférer moshi_server. Conservé pour référence/repli.
-        from .kyutai_tts import KyutaiTTSService
-
-        return KyutaiTTSService()
-    if provider == "cartesia":
-        from pipecat.services.cartesia.tts import CartesiaTTSService
-        from pipecat.transcriptions.language import Language
-
-        # Français par défaut + modèle multilingue : sans ça Cartesia lit le
-        # français avec un modèle/accent anglais.
-        lang_code = os.getenv("CARTESIA_LANGUAGE", "fr").strip().lower()
-        try:
-            language = Language(lang_code)
-        except ValueError:
-            language = Language.FR
-        return CartesiaTTSService(
-            api_key=os.getenv("CARTESIA_API_KEY", ""),
-            voice_id=os.getenv("CARTESIA_VOICE_ID", ""),
-            model=os.getenv("CARTESIA_MODEL", "sonic-2"),
-            params=CartesiaTTSService.InputParams(language=language),
-        )
-    raise ValueError(
-        f"TTS_PROVIDER inconnu : {provider!r} "
-        "(valeurs acceptées : moshi_server, pocket, kyutai, cartesia)"
-    )
+    voice = voices.resolve(tenant)
+    logger.info(f"Voix moshi-server : {voice}")
+    return MoshiServerTTSService(voice=voice)
 
 
 def detection_de_langue() -> bool:
     """Vrai si l'appel décroche en bilingue et laisse voice/langue.py fixer la langue.
 
-    Seulement Deepgram nova-3 — le seul qui étiquette chaque mot en `multi` — et
+    Seulement nova-3 — le seul modèle Deepgram qui étiquette chaque mot en `multi` — et
     seulement si DEEPGRAM_LANGUAGE n'impose rien."""
-    return (os.getenv("STT_PROVIDER", "deepgram").strip().lower() == "deepgram"
-            and os.getenv("DEEPGRAM_MODEL", "nova-3").strip().startswith("nova-3")
+    return (os.getenv("DEEPGRAM_MODEL", "nova-3").strip().startswith("nova-3")
             and not os.getenv("DEEPGRAM_LANGUAGE", "").strip())
 
 
@@ -126,83 +95,63 @@ def langue_de_depart(language: str) -> str:
 
 
 def build_stt(tenant: Tenant, language: str):
-    """Construit le service STT selon STT_PROVIDER (défaut : deepgram).
+    """Le service STT : Deepgram nova-3 en flux, avec le vocabulaire de l'établissement.
 
-    `kyutai` = module ASR de moshi-server (Kyutai stt-1b-en_fr) : français natif, VAD
-    sémantique, servi par le même serveur Modal que le TTS -> un fournisseur externe de
-    moins et -1,5 ¢/appel. `deepgram` (nova-3) reste le défaut/repli (bascule instantanée
-    par STT_PROVIDER, sans redéploiement)."""
-    provider = os.getenv("STT_PROVIDER", "deepgram").strip().lower()
-    logger.info(f"STT provider sélectionné : {provider}")
+    Kyutai STT (module ASR de moshi-server) a été essayé puis abandonné pour le
+    téléphone — dérive vers l'anglais sur du µ-law 8 kHz bruité — et retiré le
+    18/09/2026 (tag `archive/moteurs-locaux`)."""
+    from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
 
-    if provider == "kyutai":
-        from pipecat.transcriptions.language import Language
+    # Boost de vocabulaire Deepgram : le nom de l'établissement + le lexique de la
+    # réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz
+    # (mots inventés à la place de « réservation », noms propres écorchés...).
+    name_words = [w for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
+    lexicon = [
+        ("réservation", 3), ("réserver", 3), ("couverts", 2), ("personnes", 2),
+        ("table", 2), ("midi", 1), ("soir", 1), ("demain", 1),
+        ("allergie", 2), ("terrasse", 2), ("annuler", 2),
+        # Ajoutés le 01/09/2026 après trois appels réels : « je voudrais annuler »
+        # est revenu en « je voudrais l'abuler », et il a fallu TROIS relances avant
+        # qu'elle comprenne. Trois relances, c'est le moment où un client raccroche.
+        ("annulation", 3), ("modifier", 2), ("décaler", 2), ("changer", 2),
+        ("confirmation", 2), ("réservé", 2),
+    ]
+    extra = [k.strip() for k in os.getenv("DEEPGRAM_KEYWORDS", "").split(",") if k.strip()]
 
-        from .kyutai_stt import KyutaiSTTService
+    # nova-3 : nettement meilleur sur les noms propres au téléphone (validé à
+    # l'oreille le 30/07/2026, là où nova-2 écrivait « fouguez » pour Fouquet's).
+    model = os.getenv("DEEPGRAM_MODEL", "nova-3").strip()
+    if model.startswith("nova-3"):
+        # nova-3 a REMPLACÉ `keywords` par `keyterm` (termes nus, sans pondération).
+        # Lui envoyer `keywords` renvoie un HTTP 400 « Keywords are not supported
+        # for Nova-3 » : le STT ne démarre pas et TOUS les appels sont muets.
+        # Contrat vérifié contre l'API Deepgram le 30/07/2026.
+        boost = {"keyterm": name_words + [w for w, _ in lexicon]
+                 + [k.split(":")[0] for k in extra]}
+    else:
+        boost = {"keywords": [f"{w}:5" for w in name_words]
+                 + [f"{w}:{n}" for w, n in lexicon] + extra}
 
-        try:
-            lang = Language(language)
-        except ValueError:
-            lang = Language.FR
-        return KyutaiSTTService(language=lang)
-
-    if provider == "deepgram":
-        from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
-
-        # Boost de vocabulaire Deepgram : le nom de l'établissement + le lexique de la
-        # réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz
-        # (mots inventés à la place de « réservation », noms propres écorchés...).
-        name_words = [w for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
-        lexicon = [
-            ("réservation", 3), ("réserver", 3), ("couverts", 2), ("personnes", 2),
-            ("table", 2), ("midi", 1), ("soir", 1), ("demain", 1),
-            ("allergie", 2), ("terrasse", 2), ("annuler", 2),
-            # Ajoutés le 01/09/2026 après trois appels réels : « je voudrais annuler »
-            # est revenu en « je voudrais l'abuler », et il a fallu TROIS relances avant
-            # qu'elle comprenne. Trois relances, c'est le moment où un client raccroche.
-            ("annulation", 3), ("modifier", 2), ("décaler", 2), ("changer", 2),
-            ("confirmation", 2), ("réservé", 2),
-        ]
-        extra = [k.strip() for k in os.getenv("DEEPGRAM_KEYWORDS", "").split(",") if k.strip()]
-
-        # nova-3 : nettement meilleur sur les noms propres au téléphone (validé à
-        # l'oreille le 30/07/2026, là où nova-2 écrivait « fouguez » pour Fouquet's).
-        model = os.getenv("DEEPGRAM_MODEL", "nova-3").strip()
-        if model.startswith("nova-3"):
-            # nova-3 a REMPLACÉ `keywords` par `keyterm` (termes nus, sans pondération).
-            # Lui envoyer `keywords` renvoie un HTTP 400 « Keywords are not supported
-            # for Nova-3 » : le STT ne démarre pas et TOUS les appels sont muets.
-            # Contrat vérifié contre l'API Deepgram le 30/07/2026.
-            boost = {"keyterm": name_words + [w for w, _ in lexicon]
-                     + [k.split(":")[0] for k in extra]}
-        else:
-            boost = {"keywords": [f"{w}:5" for w in name_words]
-                     + [f"{w}:{n}" for w, n in lexicon] + extra}
-
-        # Langue : voir voice/langue.py. On décroche en `multi` — un anglophone est compris
-        # dès sa première phrase — puis le détecteur fixe la langue de l'établissement dès
-        # qu'elle est avérée. DEEPGRAM_LANGUAGE impose une langue pour tout l'appel et
-        # coupe la détection. (Le constat du 30/07/2026, « `fr` ne ponctue pas », ne tient
-        # plus : rejouées le 10/09/2026, les pistes des appels 100 à 106 sortent en `fr`
-        # ponctuées et avec « 20 heures » ; c'est `multi` qui écrit « vingt heures ».)
-        return DeepgramSTTService(
-            api_key=os.getenv("DEEPGRAM_API_KEY", ""),
-            live_options=LiveOptions(
-                model=model,
-                language=langue_de_depart(language),
-                # smart_format : dates/nombres proprement formatés (« 20 h » plutôt que
-                # « vingt heures ») -> le LLM extrait mieux date/heure/couverts.
-                smart_format=True,
-                # Activé par défaut chez Pipecat : il retire ou remplace les mots jugés
-                # grossiers, autant de trous dans ce que le modèle reçoit. Un restaurant
-                # n'a rien à censurer, et un client énervé doit être compris tel quel.
-                profanity_filter=False,
-                **boost,
-            ),
-        )
-
-    raise ValueError(
-        f"STT_PROVIDER inconnu : {provider!r} (valeurs acceptées : deepgram, kyutai)"
+    # Langue : voir voice/langue.py. On décroche en `multi` — un anglophone est compris
+    # dès sa première phrase — puis le détecteur fixe la langue de l'établissement dès
+    # qu'elle est avérée. DEEPGRAM_LANGUAGE impose une langue pour tout l'appel et
+    # coupe la détection. (Le constat du 30/07/2026, « `fr` ne ponctue pas », ne tient
+    # plus : rejouées le 10/09/2026, les pistes des appels 100 à 106 sortent en `fr`
+    # ponctuées et avec « 20 heures » ; c'est `multi` qui écrit « vingt heures ».)
+    return DeepgramSTTService(
+        api_key=os.getenv("DEEPGRAM_API_KEY", ""),
+        live_options=LiveOptions(
+            model=model,
+            language=langue_de_depart(language),
+            # smart_format : dates/nombres proprement formatés (« 20 h » plutôt que
+            # « vingt heures ») -> le LLM extrait mieux date/heure/couverts.
+            smart_format=True,
+            # Activé par défaut chez Pipecat : il retire ou remplace les mots jugés
+            # grossiers, autant de trous dans ce que le modèle reçoit. Un restaurant
+            # n'a rien à censurer, et un client énervé doit être compris tel quel.
+            profanity_filter=False,
+            **boost,
+        ),
     )
 
 
@@ -502,9 +451,10 @@ async def run_bot(
     asyncio.create_task(_warm_llm())
 
     messages = [{"role": "system", "content": llm.build_system_prompt(tenant)}]
+    from . import greeting as greeting_mod
+
     chaud = False
-    if os.getenv("TTS_PROVIDER", "").strip().lower() == "moshi_server":
-        from . import greeting as greeting_mod
+    if greeting_mod.is_moshi_server():
         from .moshi_server_tts import gpu_chaud
 
         # Décidé UNE fois ici et transmis à l'intro : la phrase de reprise dépend de
@@ -679,8 +629,6 @@ async def run_bot(
     # Phase 3 — flux « standardiste » : accueil pré-rendu (latence 0) → musique d'attente
     # pendant le réveil du GPU (décorrélée du barge-in) → reprise proactive. Lancé en
     # tâche de fond, en parallèle du pipeline, pour injecter les frames au fil de l'eau.
-    from . import greeting as greeting_mod
-
     # Le transport de sortie jette l'audio reçu avant le StartFrame : l'intro attend ce
     # signal avant d'émettre l'accueil (sinon il part dans le vide).
     #
@@ -702,20 +650,14 @@ async def run_bot(
             except Exception as exc:
                 logger.warning(f"enregistrement : démarrage KO ({exc}) — appel non enregistré")
 
-    intro_task = None
-    if greeting_mod.is_moshi_server():
-        intro_task = asyncio.create_task(
-            greeting_mod.run_switchboard_intro(task, output_transport, tenant, pipeline_ready,
-                                               chaud=chaud)
-        )
-        # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
-        # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).
-        if greeting_mod.cached_greeting_path(tenant) is None:
-            asyncio.create_task(greeting_mod.ensure_greeting_wav(tenant))
-    else:
-        from ..rgpd import accueil
-
-        await task.queue_frames([TTSSpeakFrame(accueil(tenant))])
+    intro_task = asyncio.create_task(
+        greeting_mod.run_switchboard_intro(task, output_transport, tenant, pipeline_ready,
+                                           chaud=chaud)
+    )
+    # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
+    # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).
+    if greeting_mod.cached_greeting_path(tenant) is None:
+        asyncio.create_task(greeting_mod.ensure_greeting_wav(tenant))
 
     runner = PipelineRunner(handle_sigint=False)
     status = "completed"
@@ -725,8 +667,7 @@ async def run_bot(
         status = "failed"
         raise
     finally:
-        if intro_task is not None:
-            intro_task.cancel()
+        intro_task.cancel()
         # Fermeture de l'enregistrement AVANT la clôture en base : `etat()` doit refléter
         # ce qui a réellement été écrit, y compris les tranches perdues. Son propre
         # try/except : une fermeture imparfaite ne doit pas masquer l'erreur qui nous a

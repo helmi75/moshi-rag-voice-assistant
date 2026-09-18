@@ -93,9 +93,12 @@ def test_load_greeting_frames_chunks_20ms(_cache_dir):
 
 
 def test_is_moshi_server(monkeypatch):
-    monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+    """La garde de tout ce qui parle : un serveur de voix configuré, ou rien."""
+    monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
     assert g.is_moshi_server() is True
-    monkeypatch.setenv("TTS_PROVIDER", "pocket")
+    monkeypatch.setenv("MOSHI_TTS_URL", "   ")
+    assert g.is_moshi_server() is False
+    monkeypatch.delenv("MOSHI_TTS_URL", raising=False)
     assert g.is_moshi_server() is False
 
 
@@ -134,7 +137,7 @@ def _intro(monkeypatch, chaud, secondes_accueil=0.5):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+    monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
     reveils, attentes = [], []
 
     async def faux_reveil():

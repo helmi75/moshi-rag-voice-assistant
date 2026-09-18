@@ -93,7 +93,7 @@ class TestPlomberieTTS:
         pytest.importorskip("pipecat")
         from app.voice.bot import build_tts
 
-        monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
         autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
         assert build_tts(_tenant(autre.id))._voice == autre.id
 
@@ -101,7 +101,7 @@ class TestPlomberieTTS:
         pytest.importorskip("pipecat")
         from app.voice.bot import build_tts
 
-        monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
         monkeypatch.delenv("MOSHI_TTS_VOICE", raising=False)
         assert build_tts()._voice == voices.DEFAULT_VOICE
 
@@ -111,7 +111,7 @@ class TestPlomberieTTS:
         from app.voice import greeting as greeting_mod
         from app.voice.bot import build_tts
 
-        monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
         autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
         tenant = _tenant(autre.id)
         assert greeting_mod._voice(tenant) == build_tts(tenant)._voice

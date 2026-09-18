@@ -225,11 +225,11 @@ async def health(request: Request):
     # une colonne « latence » figurerait ici si elle était mesurée — elle ne l'est pas.
     modal_url = os.getenv("MOSHI_TTS_URL", "")
     stack = [
-        {"name": "Transcription (STT)", "detail": os.getenv("STT_PROVIDER", "deepgram"),
-         "metric": os.getenv("DEEPGRAM_MODEL", "nova-2")},
+        {"name": "Transcription (STT)", "detail": "Deepgram",
+         "metric": os.getenv("DEEPGRAM_MODEL", "nova-3")},
         {"name": "Compréhension (LLM)", "detail": "OpenRouter",
          "metric": os.getenv("LLM_MODEL", "google/gemini-2.5-flash")},
-        {"name": "Voix de synthèse (TTS)", "detail": os.getenv("TTS_PROVIDER", "moshi_server"),
+        {"name": "Voix de synthèse (TTS)", "detail": "moshi-server (voix Moshi)",
          "metric": modal_url.split("//")[-1] or "non configuré"},
         {"name": "Téléphonie", "detail": "Twilio Media Streams",
          "metric": f"{len(rows)} numéro(s) routé(s)"},

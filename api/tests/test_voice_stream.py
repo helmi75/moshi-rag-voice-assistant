@@ -599,7 +599,7 @@ class TestDetectionDeLangue:
     """Décroché bilingue (voice/langue.py) : seulement là où il est mesuré."""
 
     def _env(self, monkeypatch, **env):
-        for cle in ("STT_PROVIDER", "DEEPGRAM_MODEL", "DEEPGRAM_LANGUAGE"):
+        for cle in ("DEEPGRAM_MODEL", "DEEPGRAM_LANGUAGE"):
             monkeypatch.delenv(cle, raising=False)
         for cle, valeur in env.items():
             monkeypatch.setenv(cle, valeur)
@@ -618,7 +618,3 @@ class TestDetectionDeLangue:
         self._env(monkeypatch, DEEPGRAM_MODEL="nova-2")
         assert not bot.detection_de_langue()
         assert bot.langue_de_depart("fr") == "fr"
-
-    def test_pas_de_detection_avec_kyutai(self, monkeypatch):
-        self._env(monkeypatch, STT_PROVIDER="kyutai")
-        assert not bot.detection_de_langue()

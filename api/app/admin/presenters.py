@@ -5,7 +5,6 @@ libellés lisibles. Rien n'est déduit ni estimé — un appel dont le numéro n
 enregistré affiche « Numéro inconnu », pas un numéro plausible.
 """
 import json
-import os
 from typing import Optional
 
 from ..voice import voices
@@ -25,11 +24,7 @@ def voice_label(tenant=None) -> str:
 
     Sans tenant (écran parc), c'est la voix par défaut du parc. Le nom vient du
     catalogue, jamais du chemin du fichier : afficher « 10087 11650 000028 0002 »
-    ne dirait rien à un restaurateur. Seul moshi_server gère la voix par
-    établissement ; pour les autres moteurs on nomme le moteur, sans inventer."""
-    provider = os.getenv("TTS_PROVIDER", "moshi_server")
-    if provider != "moshi_server":
-        return f"Moteur « {provider} »"
+    ne dirait rien à un restaurateur."""
     return voices.label_for(tenant)
 
 

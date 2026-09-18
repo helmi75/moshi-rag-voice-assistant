@@ -2,7 +2,8 @@
 
 C'est LA voie de production de Kyutai (celle d'unmute.sh) : le modèle 1.6B est servi
 par le serveur Rust `moshi-server` (CUDA graphs + batching) qui tient le temps réel là
-où le chemin PyTorch de référence (kyutai_tts.py) reste sous le temps réel et sacade.
+où le chemin PyTorch de référence (retiré le 18/09/2026, tag archive/moteurs-locaux)
+restait sous le temps réel et saccadait.
 
 Ici, l'application n'exécute AUCUN modèle : elle est simple cliente websocket du serveur
 (déployé sur Modal GPU, voir deploy/modal_moshi_server.py). Le pipeline reste donc léger,
@@ -217,8 +218,8 @@ class MoshiServerTTSService(TTSService):
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
         logger.debug(f"{self}: Génération TTS [{text}]")
-        # Imports paresseux : l'app reste utilisable (mode gather / autres providers)
-        # sans ces dépendances, et les tests peuvent les mocker.
+        # Imports paresseux : les tests les remplacent par des doublures, sans ouvrir de
+        # connexion, et l'import du module reste léger.
         import msgpack
         import websockets
 

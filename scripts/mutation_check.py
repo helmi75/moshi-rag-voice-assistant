@@ -72,7 +72,7 @@ GARDE_FOUS = [
         fichier="api/app/voice/bot.py",
         avant='        if model.startswith("nova-3"):',
         apres='        if False:  # mutation',
-        tests=["test_kyutai_stt.py"],
+        tests=["test_deepgram_stt.py"],
         k="nova3 or nova2 or default_model or keyword",
         panne="HTTP 400 de Deepgram → le STT ne démarre pas, tous les appels muets",
     ),
@@ -349,7 +349,7 @@ GARDE_FOUS = [
         fichier="api/app/voice/bot.py",
         avant='    return "multi" if detection_de_langue() else language',
         apres="    return language  # mutation",
-        tests=["test_voice_stream.py", "test_kyutai_stt.py"],
+        tests=["test_voice_stream.py", "test_deepgram_stt.py"],
         k="bilingue",
         panne="Deepgram en `fr` perd l'anglais : « Yes, hello, my name is Helmi… » n'a "
               "rien produit du tout sur l'appel 101",

@@ -51,7 +51,11 @@ TWILIO_RATE = 8000
 
 
 def is_moshi_server() -> bool:
-    return os.getenv("TTS_PROVIDER", "").strip().lower() == "moshi_server"
+    """Un serveur de voix est-il configuré ? C'est la garde de tout ce qui parle : accueil
+    pré-rendu, réveil du GPU, musique d'attente. Depuis le 18/09/2026 il n'y a plus qu'un
+    moteur, donc plus de TTS_PROVIDER : l'URL suffit, et son absence est une panne que la
+    supervision signale (_configuration_requise)."""
+    return bool(os.getenv("MOSHI_TTS_URL", "").strip())
 
 
 def _texte(tenant: Tenant) -> str:
