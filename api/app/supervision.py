@@ -232,6 +232,85 @@ def _controle_configuration() -> Controle:
     )
 
 
+def _controle_signatures() -> Controle:
+    """Les requêtes Twilio sont-elles authentifiées, et l'URL publique est-elle la bonne ?
+
+    Les compteurs vivent en mémoire depuis le démarrage : après un redéploiement on
+    repart de zéro, et « aucune requête » n'est pas « tout va bien », c'est « pas de
+    mesure ». Le cas dangereux est `enforce` avec des refus et AUCUNE acceptation : ce
+    n'est pas une attaque, c'est l'URL publique mal reconstruite — et plus un seul appel
+    n'aboutit. C'est LE risque de cette vérification, et c'est ici qu'il se voit."""
+    from . import twilio_signature
+
+    titre = "Signature des requêtes Twilio"
+    jeton = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    mode = twilio_signature.mode()
+    compteurs = twilio_signature.compteurs()
+    mesure = {"mode": mode, **compteurs}
+    if not jeton:
+        return Controle(
+            "signatures", titre, ATTENTION,
+            "Aucun jeton Twilio : les webhooks ne sont pas authentifiés.",
+            "Sans TWILIO_AUTH_TOKEN, impossible de vérifier que c'est Twilio qui appelle : "
+            "n'importe qui peut faire parler l'assistante. Poser le jeton dans le .env.",
+            mesure=mesure,
+        )
+    if mode == "off":
+        return Controle(
+            "signatures", titre, ATTENTION,
+            "Vérification coupée (TWILIO_SIGNATURE=off).",
+            "Acceptable en développement, jamais en production : les webhooks acceptent "
+            "n'importe quelle requête.",
+            mesure=mesure,
+        )
+    total = compteurs["acceptees"] + compteurs["refusees"]
+    if total == 0:
+        return Controle(
+            "signatures", titre, OK,
+            f"Aucune requête Twilio depuis le démarrage (mode {mode}) : pas de mesure.",
+            mesure=mesure,
+        )
+    if mode == "log":
+        if compteurs["refusees"]:
+            return Controle(
+                "signatures", titre, ATTENTION,
+                f"{compteurs['refusees']} requête(s) sur {total} seraient refusées en mode "
+                "enforce.",
+                "Vérifier PUBLIC_URL (et PUBLIC_WS_URL pour le flux) : l'URL reconstruite doit "
+                "être exactement celle configurée dans la console Twilio, et le jeton celui "
+                "du compte. Tant que ce compteur bouge, ne pas passer en enforce.",
+                mesure=mesure,
+            )
+        return Controle(
+            "signatures", titre, OK,
+            f"Observation : {compteurs['acceptees']} requête(s) correctement signées, "
+            "aucune refusée — prêt pour enforce.",
+            mesure=mesure,
+        )
+    if compteurs["refusees"] and not compteurs["acceptees"]:
+        return Controle(
+            "signatures", titre, PANNE,
+            f"Toutes les requêtes Twilio sont refusées ({compteurs['refusees']}).",
+            "Aucune signature n'est acceptée : l'URL publique reconstruite n'est pas celle "
+            "que Twilio signe (PUBLIC_URL / PUBLIC_WS_URL), ou le jeton n'est plus le bon. "
+            "Plus aucun appel n'aboutit. Passer TWILIO_SIGNATURE=log le temps de corriger.",
+            mesure=mesure,
+        )
+    if compteurs["refusees"]:
+        return Controle(
+            "signatures", titre, ATTENTION,
+            f"{compteurs['refusees']} requête(s) refusée(s) sur {total}.",
+            "Des requêtes sans signature valide arrivent — sondes automatisées, ou un "
+            "webhook secondaire mal configuré. Les appels légitimes passent.",
+            mesure=mesure,
+        )
+    return Controle(
+        "signatures", titre, OK,
+        f"{compteurs['acceptees']} requête(s) signées, aucune refusée.",
+        mesure=mesure,
+    )
+
+
 # Nombre d'appels relus au maximum par la sonde. Au trafic actuel (24 appels en 30
 # jours) la fenêtre entière tient largement dedans ; la borne existe pour que la sonde
 # reste à coût constant le jour où le parc grossit.
@@ -677,6 +756,7 @@ def controles() -> list[Controle]:
     fabriques = [
         ("base", _controle_base),
         ("configuration", _controle_configuration),
+        ("signatures", _controle_signatures),
         ("appels_muets", _sur_appels(_controle_appels_muets)),
         ("appels_echoues", _sur_appels(_controle_appels_echoues)),
         ("appels_inacheves", _sur_appels(_controle_appels_inacheves)),

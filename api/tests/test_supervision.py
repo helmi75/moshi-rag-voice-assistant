@@ -80,7 +80,7 @@ class TestEnumeration:
     """Filet de sécurité : un contrôle supprimé par mégarde ferait passer la sonde au
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
-    ATTENDUS = ["base", "configuration", "appels_muets", "appels_echoues",
+    ATTENDUS = ["base", "configuration", "signatures", "appels_muets", "appels_echoues",
                 "appels_inacheves", "latence", "twilio", "accueils", "sauvegarde",
                 "purge", "disque", "enregistrements"]
 
@@ -598,8 +598,10 @@ class TestCablage:
         app = pathlib.Path(__file__).resolve().parents[1] / "app"
         lues: set[str] = set()
         sources = (app / "supervision.py", app / "main.py", app / "rgpd.py",
-                   app / "voice" / "enregistrement.py", app / "voice" / "journal.py")
-        motif = r'["\']((?:SUPERVISION|RETENTION|RGPD|ENREGISTREMENT|JOURNAL)_[A-Z_]+)["\']'
+                   app / "voice" / "enregistrement.py", app / "voice" / "journal.py",
+                   app / "twilio_signature.py")
+        motif = (r'["\']((?:SUPERVISION|RETENTION|RGPD|ENREGISTREMENT|JOURNAL)_[A-Z_]+'
+                 r'|TWILIO_SIGNATURE|PUBLIC_URL)["\']')
         for source in sources:
             lues |= set(re.findall(motif, source.read_text(encoding="utf-8")))
         return lues

@@ -128,6 +128,29 @@ modal deploy deploy/modal_moshi_server.py
   c'est ainsi qu'on s'est retrouvé avec une production tournant sur une branche jamais
   fusionnée. Le script la rend mécanique.
 
+## Signature des requêtes Twilio
+
+Les webhooks (`/twilio/voice`, `/twilio/sms`, `/twilio/webhook`) et la poignée de main du
+flux (`/ws/voice`) vérifient `X-Twilio-Signature` (`api/app/twilio_signature.py`). Sans
+ça, le numéro d'un restaurant étant public, n'importe qui pouvait faire parler
+l'assistante et payer le LLM ou le GPU.
+
+Twilio signe l'URL **publique** ; derrière Caddy, l'application voit `http://api:8000/…`.
+D'où `PUBLIC_URL` — l'origine exacte configurée dans la console Twilio :
+
+1. dans le `.env` : `PUBLIC_URL=https://assistant.mondomaine.fr` et, pour la première
+   mise en service, `TWILIO_SIGNATURE=log` ;
+2. déployer, passer deux ou trois appels ;
+3. lire la sonde : contrôle « Signature des requêtes Twilio » — `acceptées > 0`,
+   `refusées = 0` (webhooks **et** poignée de main) ;
+4. après 48 h sans refus, retirer la ligne `TWILIO_SIGNATURE=log` et redéployer :
+   le défaut est `enforce` dès qu'un jeton existe.
+
+En `enforce`, « toutes les requêtes refusées » est une **panne** de la sonde : ce n'est
+pas une attaque, c'est l'URL reconstruite (ou le jeton) qui ne correspond plus à ce que
+Twilio signe — remettre `log` le temps de corriger. Le jeton doit être l'*Auth Token*
+courant du compte : un jeton renouvelé dans la console et pas dans le `.env` refuse tout.
+
 ## Dépendances figées (`api/app/requirements.lock`)
 
 L'image et la CI installent `requirements.lock`, la liste **exacte** des versions ;

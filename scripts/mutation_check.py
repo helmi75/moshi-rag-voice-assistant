@@ -372,6 +372,24 @@ GARDE_FOUS = [
         k="journalisee or liberee",
         panne="un rendu d'accueil échouerait en silence, sans une ligne de journal — comme avant",
     ),
+    GardeFou(
+        nom="Une signature Twilio forgée est refusée",
+        fichier="api/app/twilio_signature.py",
+        avant="        if hmac.compare_digest(signature_attendue(jeton, candidate, params), fournie):",
+        apres="        if True:  # mutation",
+        tests=["test_twilio_signature.py"],
+        k="forgee",
+        panne="n'importe qui ferait parler l'assistante, payer le LLM et réveiller le GPU",
+    ),
+    GardeFou(
+        nom="La vérification est exigée par défaut dès qu'un jeton existe",
+        fichier="api/app/twilio_signature.py",
+        avant='    return "enforce" if jeton else "log"',
+        apres='    return "log"  # mutation',
+        tests=["test_twilio_signature.py"],
+        k="defaut",
+        panne="la vérification serait décorative par défaut : tout passerait, compté mais accepté",
+    ),
 ]
 
 

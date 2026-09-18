@@ -15,6 +15,12 @@ os.environ.setdefault("PUBLIC_WS_URL", "wss://testserver/ws/voice")
 # Bases jetables : aucun fsync. Chaque test qui crée une base payait 5 s de migrations
 # synchronisées sur disque (mesuré le 18/09/2026 : 10 min de suite pour 20 s de tests).
 os.environ.setdefault("DB_SYNCHRONOUS", "OFF")
+# Signature Twilio : la suite tourne en mode « log » avec un jeton de test et une URL
+# publique déterministe — les webhooks non signés des tests passent, comptés mais pas
+# refusés. test_twilio_signature.py, lui, passe en « enforce » et signe ses requêtes.
+os.environ["TWILIO_AUTH_TOKEN"] = "test-auth-token"
+os.environ["PUBLIC_URL"] = "http://testserver"
+os.environ["TWILIO_SIGNATURE"] = "log"
 # Plateforme admin : super-admin semé au démarrage + secret de session déterministes.
 os.environ["ADMIN_PASSWORD"] = "test-admin-pass"
 os.environ["ADMIN_EMAIL"] = "admin@test.local"

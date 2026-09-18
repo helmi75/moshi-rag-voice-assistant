@@ -22,6 +22,12 @@ services:
       TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
       TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
       TWILIO_NUMBER: "${TWILIO_NUMBER}"
+      # Signature des requêtes Twilio (X-Twilio-Signature). PUBLIC_URL = l'origine publique
+      # exacte configurée dans la console (https://app.exemple.fr) ; vide, elle est dérivée
+      # de PUBLIC_WS_URL. TWILIO_SIGNATURE : enforce (défaut dès qu'un jeton existe),
+      # log (observer 48 h après un déploiement : compte sans refuser), off (dev local).
+      PUBLIC_URL: "${PUBLIC_URL:-}"
+      TWILIO_SIGNATURE: "${TWILIO_SIGNATURE:-}"
       DB_PATH: "/app/data/app.db"
       # URL publique du flux média annoncée à Twilio (wss://<domaine>/ws/voice). Exigée
       # par la supervision : sans elle, l'appel raccroche sans un mot.

@@ -11,10 +11,10 @@ import os
 from typing import Optional
 from xml.sax.saxutils import escape
 
-from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
-from . import calls, db, llm, supervision, taches, tenants, users
+from . import calls, db, llm, supervision, taches, tenants, twilio_signature, users
 
 app = FastAPI(title="Voice Assistant SaaS")
 
@@ -218,7 +218,11 @@ async def supervision_probe(request: Request):
     )
 
 
-@app.post("/twilio/voice")
+# Les trois webhooks exigent la signature de Twilio (twilio_signature.exiger) : le numéro
+# d'un restaurant est public, et sans elle n'importe qui ferait parler l'assistante — et
+# payer le LLM. L'appel interne de twilio_webhook vers voice_webhook ne repasse pas par
+# la dépendance : une seule vérification par requête.
+@app.post("/twilio/voice", dependencies=[Depends(twilio_signature.exiger)])
 async def voice_webhook(
     request: Request,
     CallSid: Optional[str] = Form(None),
@@ -235,7 +239,7 @@ async def voice_webhook(
     return _stream_twiml(request, To or "", CallSid or "", From or "")
 
 
-@app.post("/twilio/sms")
+@app.post("/twilio/sms", dependencies=[Depends(twilio_signature.exiger)])
 async def sms_webhook(
     Body: str = Form(...),
     From: Optional[str] = Form(None),
@@ -255,7 +259,7 @@ async def sms_webhook(
     return _twiml(f"    <Message>{escape(text)}</Message>")
 
 
-@app.post("/twilio/webhook")
+@app.post("/twilio/webhook", dependencies=[Depends(twilio_signature.exiger)])
 async def twilio_webhook(request: Request):
     """Webhook générique : route vers voice ou sms selon la charge utile."""
     form_data = await request.form()
@@ -291,6 +295,11 @@ _WS_START_MAX_MESSAGES = 10
 async def voice_stream(websocket: WebSocket):
     """Point d'entrée Twilio Media Streams : poignée de main puis pipeline Pipecat."""
     print("[stream] WebSocket /ws/voice : connexion entrante (Twilio a joint l'URL).")
+    # La signature de la poignée de main est vérifiée AVANT d'accepter : refuser ici
+    # coûte une réponse HTTP ; accepter puis fermer aurait déjà ouvert un flux.
+    if not twilio_signature.verifier_ws(websocket):
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
 
     start_data = None

@@ -36,12 +36,13 @@ appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles mor
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les douze contrôles
+## Les treize contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
 | Base de données | Volume plein ou en lecture seule. Il **écrit** vraiment : lire prouve que la base répond, pas qu'elle accepte encore une réservation | oui |
-| Configuration du chemin d'appel | Une variable manquante selon le mode en vigueur, ou une `PUBLIC_WS_URL` contenant une espace — l'appel raccroche alors sans un mot | oui |
+| Configuration du chemin d'appel | Une des quatre variables du chemin d'appel manque, ou `PUBLIC_WS_URL` contient une espace — l'appel raccroche alors sans un mot | oui |
+| Signature des requêtes Twilio | Jeton absent ou vérification coupée (attention) ; en `log`, des requêtes qui seraient refusées (attention : vérifier `PUBLIC_URL`) ; en `enforce`, **toutes** refusées = l'URL publique n'est plus celle que Twilio signe, plus un appel n'aboutit | oui, si tout est refusé |
 | Appels muets | Appel `completed`, plus de 15 s, **pas un tour** de l'assistante. La signature exacte du 30/07 | si majoritaire |
 | Appels en échec | Le pipeline a levé une erreur pendant l'appel | si majoritaire |
 | Appels jamais clôturés | `finish_call` n'a pas tourné : le worker est mort avec l'appel | si majoritaire |
