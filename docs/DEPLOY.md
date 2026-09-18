@@ -45,15 +45,11 @@ nano .env
 
 `.env` de production — valeurs minimales :
 ```
-VOICE_MODE=stream
 SITE_ADDRESS=assistant.mondomaine.fr             # -> Caddy fait le HTTPS tout seul
 PUBLIC_WS_URL=wss://assistant.mondomaine.fr/ws/voice
-API_REQUIREMENTS=requirements-prod.txt           # image légère (sans torch)
 
-STT_PROVIDER=deepgram
 DEEPGRAM_API_KEY=<clé fraîche>
 
-TTS_PROVIDER=moshi_server
 MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run
 MOSHI_TTS_API_KEY=public_token
 MOSHI_TTS_VOICE=unmute-prod-website/developpeuse-3.wav
@@ -131,6 +127,21 @@ modal deploy deploy/modal_moshi_server.py
   La règle « la production, c'est `main` après CI verte » ne tenait que par la discipline :
   c'est ainsi qu'on s'est retrouvé avec une production tournant sur une branche jamais
   fusionnée. Le script la rend mécanique.
+
+## Dépendances figées (`api/app/requirements.lock`)
+
+L'image et la CI installent `requirements.lock`, la liste **exacte** des versions ;
+`requirements.txt` n'est que l'intention. Sans ce verrou, chaque `docker compose up --build`
+réinstallait « la dernière » version de FastAPI, Starlette, OpenAI, websockets… — la
+production pouvait casser sans un commit. Régénérer (avec [uv](https://docs.astral.sh/uv/)) :
+
+```bash
+uv pip compile api/app/requirements.txt -o api/app/requirements.lock \
+    --python-version 3.12 --python-platform linux --no-annotate --no-header --upgrade
+```
+(puis remettre l'en-tête de commentaire du fichier, qui documente cette commande).
+(`--upgrade-package pipecat-ai` pour ne monter qu'un paquet.) Puis : suite de tests,
+construction de l'image, et la recette (`docs/RECETTE.md`) avant de déployer.
 
 ## Sauvegardes
 

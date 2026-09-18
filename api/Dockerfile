@@ -2,23 +2,21 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# libgomp1  : requis par onnxruntime (VAD Silero / smart-turn du pipeline vocal)
-# libsndfile1 : requis par soundfile (chargement des voix Pocket TTS)
+# libgomp1 : requis par onnxruntime (VAD Silero / smart-turn du pipeline vocal).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 libsndfile1 \
+    && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Jeu de dépendances : requirements.txt (complet, avec pocket-tts/torch — défaut, pratique
-# en local) ou requirements-prod.txt (léger, sans torch — VPS CPU n'utilisant que
-# moshi_server + Deepgram). Sélection : --build-arg REQUIREMENTS=requirements-prod.txt.
-ARG REQUIREMENTS=requirements.txt
-# Copier d'abord les requirements pour profiter du cache Docker
-COPY ./app/requirements.txt ./app/requirements-prod.txt /app/
-# setuptools/wheel récents : certaines dépendances (docopt) ne buildent pas sans
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r "/app/${REQUIREMENTS}"
+# Le verrou d'abord, seul : la couche pip n'est reconstruite que si une version change,
+# pas à chaque ligne de code. `requirements.lock` est la liste EXACTE des versions
+# installées en production ; `requirements.txt` n'est que l'intention. Sans verrou,
+# chaque `docker compose up --build` réinstallait « la dernière » version de FastAPI,
+# Starlette, OpenAI, websockets… : la production pouvait casser sans un commit.
+# Régénération : docs/DEPLOY.md, section « Dépendances figées ».
+COPY ./app/requirements.lock /app/requirements.lock
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r /app/requirements.lock
 
-# Copier le reste de l'application
 COPY ./app /app/app
 
 EXPOSE 8000
