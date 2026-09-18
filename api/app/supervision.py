@@ -29,7 +29,7 @@ from typing import Optional
 
 from pathlib import Path as _Path
 
-from . import calls, db, tenants
+from . import calls, db, horloge, tenants
 
 # --- Niveaux -----------------------------------------------------------------
 # Ordonnés : `pire()` prend le maximum. « attention » = dégradé mais le standard
@@ -110,21 +110,6 @@ def _maintenant() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _lire_horodatage(brut: Optional[str]) -> Optional[datetime]:
-    """Les dates en base sont écrites par SQLite au format `%Y-%m-%dT%H:%M:%SZ` (UTC).
-    Tolérant : une date illisible vaut « inconnue », jamais une exception dans la sonde."""
-    if not brut:
-        return None
-    texte = str(brut).strip().replace(" ", "T")
-    if texte.endswith("Z"):
-        texte = texte[:-1] + "+00:00"
-    try:
-        date = datetime.fromisoformat(texte)
-    except ValueError:
-        return None
-    return date if date.tzinfo else date.replace(tzinfo=timezone.utc)
-
-
 # --- Mémo de supervision -----------------------------------------------------
 # Table clé/valeur (migration v6) : sert d'ardoise aux contrôles qui ne peuvent pas
 # être calculés dans la sonde elle-même (l'état Twilio, rafraîchi en tâche de fond).
@@ -153,7 +138,7 @@ def relire(cle: str) -> Optional[tuple[dict, Optional[datetime]]]:
         valeur = json.loads(row["valeur"])
     except (TypeError, ValueError):
         return None
-    return valeur, _lire_horodatage(row["maj_le"])
+    return valeur, horloge.lire_utc(row["maj_le"])
 
 
 # --- Contrôles ---------------------------------------------------------------
@@ -410,7 +395,7 @@ def _controle_appels_inacheves(appels: list[dict]) -> Controle:
     """
     limite = _maintenant() - timedelta(minutes=inacheve_minutes())
     concernes = [a for a in appels
-                 if (_lire_horodatage(a["started_at"]) or _maintenant()) < limite]
+                 if (horloge.lire_utc(a["started_at"]) or _maintenant()) < limite]
     inacheves = [a for a in concernes if not a["ended_at"]]
     if not concernes:
         return Controle(
@@ -494,7 +479,7 @@ def _controle_sauvegarde() -> Controle:
     attention_h, panne_h = sauvegarde_seuils_heures()
     try:
         with open(chemin, "r", encoding="utf-8") as fichier:
-            date = _lire_horodatage(fichier.read().strip().splitlines()[0])
+            date = horloge.lire_utc(fichier.read().strip().splitlines()[0])
     except (OSError, IndexError):
         date = None
     if date is None:

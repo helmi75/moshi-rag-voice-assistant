@@ -11,41 +11,31 @@ vectoriel n'apporterait rien à cette échelle (voir ARCHITECTURE.md).
 """
 import json
 import os
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
 
-from . import db, messages, reservations
+from . import db, horloge, messages, reservations
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 MAX_TOOL_ROUNDS = 5
 
-# L'heure qui compte est celle du RESTAURANT, pas celle du serveur (UTC) : `date.today()`
-# se trompait de jour entre minuit et deux heures du matin, heure de Paris.
-FUSEAU = ZoneInfo(os.getenv("RESTAURANT_TIMEZONE", "Europe/Paris"))
+# L'heure qui compte est celle du RESTAURANT, pas celle du serveur (UTC) : voir
+# horloge.py, la seule source. `maintenant` garde son nom ici : les tests le fixent pour
+# figer le prompt et les outils d'un même geste.
+FUSEAU = horloge.FUSEAU
 
 
 def maintenant() -> datetime:
     """L'instant présent, au fuseau du restaurant. Point unique, pour que les tests
     puissent le fixer et que le prompt et les outils ne divergent jamais."""
-    return datetime.now(FUSEAU)
-
-# Jours et mois en toutes lettres : le modèle doit résoudre « vendredi prochain » sans
-# rien deviner, et l'ISO seul ne dit pas quel jour de la semaine on est. Table figée
-# plutôt que `locale` : les locales fr_FR ne sont pas installées dans l'image Docker.
-_JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
-_MOIS = (
-    "janvier", "février", "mars", "avril", "mai", "juin",
-    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
-)
+    return horloge.maintenant()
 
 
-def _date_en_toutes_lettres(jour: date) -> str:
-    return f"{_JOURS[jour.weekday()]} {jour.day} {_MOIS[jour.month - 1]} {jour.year}"
+_date_en_toutes_lettres = horloge.en_toutes_lettres
 
 # ⚠️ Le prompt affirme qu'aucun SMS n'est envoyé. C'est vrai AUJOURD'HUI et c'est un fait
 # sur notre propre produit, pas une politique du restaurant — d'où l'exception à la règle
