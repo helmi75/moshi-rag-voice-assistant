@@ -14,6 +14,18 @@ from . import deps
 router = APIRouter()
 
 
+def _email_de_notification(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """(adresse normalisée ou None, message d'erreur ou None). Vérification minimale : une
+    adresse fausse ne casse rien côté appel, mais le restaurateur croirait être prévenu."""
+    adresse = (saisie or "").strip().lower()
+    if not adresse:
+        return None, None
+    domaine = adresse.rpartition("@")[2]
+    if "@" not in adresse or "." not in domaine or " " in adresse:
+        return None, f"L'e-mail de notification « {saisie} » n'est pas une adresse valide."
+    return adresse, None
+
+
 @router.get("/admin/tenants")
 async def tenants_list(request: Request, user: User = Depends(deps.require_superadmin)):
     deps.ensure_csrf(request)
@@ -42,7 +54,14 @@ async def tenant_create(
     greeting: str = Form(""),
     knowledge_base: str = Form(""),
     plan: Optional[str] = Form(None),
+    notify_email: Optional[str] = Form(None),
 ):
+    adresse, erreur = _email_de_notification(notify_email)
+    if erreur:
+        return deps.templates.TemplateResponse(
+            request, "tenants/form.html",
+            {"tenant": None, "error": erreur, "formules": plans.catalogue()}, status_code=422,
+        )
     try:
         tenant = tenants.create_tenant(
             name.strip(), phone_number.strip(), business_type.strip(),
@@ -60,6 +79,8 @@ async def tenant_create(
     # naîtrait sur la formule par défaut sans que personne ne l'ait décidé.
     if plans.get(plan) is not None:
         tenants.update_tenant(tenant.id, plan=plan)
+    if adresse:
+        tenants.update_tenant(tenant.id, notify_email=adresse)
     _prerender_greeting(tenant.id)
     return RedirectResponse("/admin/tenants", status_code=303)
 
@@ -87,14 +108,22 @@ async def tenant_update(
     greeting: str = Form(""),
     knowledge_base: str = Form(""),
     plan: Optional[str] = Form(None),
+    notify_email: Optional[str] = Form(None),
 ):
     tenant = deps.resolve_tenant(tenant_id, user)
+    adresse, erreur = _email_de_notification(notify_email)
+    if erreur:
+        return deps.templates.TemplateResponse(
+            request, "tenants/form.html",
+            {"tenant": tenant, "error": erreur, "formules": plans.catalogue()}, status_code=422,
+        )
     fields = {
         "name": name.strip(),
         "business_type": business_type.strip(),
         "language": language.strip(),
         "greeting": greeting.strip() or None,
         "knowledge_base": knowledge_base,
+        "notify_email": adresse,
     }
     # Le numéro de téléphone (routage Twilio) est réservé au super-admin.
     if user.is_superadmin and phone_number is not None:

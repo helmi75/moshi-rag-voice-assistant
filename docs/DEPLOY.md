@@ -151,6 +151,21 @@ pas une attaque, c'est l'URL reconstruite (ou le jeton) qui ne correspond plus �
 Twilio signe — remettre `log` le temps de corriger. Le jeton doit être l'*Auth Token*
 courant du compte : un jeton renouvelé dans la console et pas dans le `.env` refuse tout.
 
+## Notifications au restaurateur
+
+Chaque réservation prise, modifiée ou annulée par téléphone, et chaque message pris,
+déclenche un e-mail (`api/app/notifications.py`) vers les comptes restaurateurs de
+l'établissement et l'adresse de notification de sa fiche. Cinq variables dans le `.env`
+(`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, plus `SMTP_SSL=1` pour
+un port 465), puis `docker compose up -d api`. L'envoi part en tâche de fond : un SMTP en
+panne se lit dans les journaux, jamais dans l'appel. Essai sans téléphoner :
+
+```bash
+docker compose exec api python -c "import asyncio; from app import notifications, tenants; \
+  print(asyncio.run(notifications.notifier(tenants.get_by_id(1), 'message_pris', \
+  {'subject': 'Essai SMTP', 'details': 'Si vous lisez ceci, ça marche.'})))"
+```
+
 ## Dépendances figées (`api/app/requirements.lock`)
 
 L'image et la CI installent `requirements.lock`, la liste **exacte** des versions ;

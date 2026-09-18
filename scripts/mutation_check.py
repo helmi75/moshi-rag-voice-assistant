@@ -399,6 +399,24 @@ GARDE_FOUS = [
         k="ferme",
         panne="l'assistante enregistrerait une table un lundi de fermeture, et le client se présenterait devant une porte close",
     ),
+    GardeFou(
+        nom="Une réservation prise prévient le restaurateur",
+        fichier="api/app/llm.py",
+        avant='        notifications.planifier(tenant, "reservation_creee", {"reservation": row, "appel_id": call_id})',
+        apres="        pass  # mutation",
+        tests=["test_notifications.py"],
+        k="creee",
+        panne="une table prise au téléphone ne serait vue par personne en salle avant l'heure du service",
+    ),
+    GardeFou(
+        nom="Un SMTP en panne ne remonte jamais jusqu'à l'appel",
+        fichier="api/app/notifications.py",
+        avant="    except Exception as exc:\n        logger.warning(f\"notification {evenement} non envoyée",
+        apres="    except ZeroDivisionError as exc:  # mutation\n        logger.warning(f\"notification {evenement} non envoyée",
+        tests=["test_notifications.py"],
+        k="casse or leve",
+        panne="un SMTP en panne ferait échouer l'outil : l'assistante s'excuserait d'un problème technique et la réservation ne serait pas prise",
+    ),
 ]
 
 

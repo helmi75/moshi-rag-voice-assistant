@@ -61,6 +61,16 @@ services:
       # l'admin (colonne tenants.voice) ; ce réglage ne sert qu'à ceux qui n'ont rien
       # choisi. Une valeur hors catalogue (api/app/voice/voices.py) est ignorée.
       MOSHI_TTS_VOICE: "${MOSHI_TTS_VOICE:-unmute-prod-website/developpeuse-3.wav}"
+      # Notifications au restaurateur par e-mail (réservations, messages pris) : SMTP
+      # générique. Sans SMTP_HOST, rien ne part et rien ne casse. SMTP_SSL=1 pour un port
+      # 465 (TLS implicite) ; sinon STARTTLS sur 587.
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_SSL: "${SMTP_SSL:-0}"
+      SMTP_TIMEOUT: "${SMTP_TIMEOUT:-10}"
       # Plateforme admin : compte super-admin semé au 1er démarrage + secret de session.
       # Sans ADMIN_PASSWORD, l'admin est inaccessible (l'app vocale n'est pas affectée).
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"

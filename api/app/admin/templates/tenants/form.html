@@ -50,6 +50,11 @@
       <label>Langue
         <input name="language" value="{{ tenant.language if tenant else 'fr-FR' }}">
       </label>
+      <label>E-mail de notification
+        <small class="muted">(réservations et messages pris — en plus des comptes)</small>
+        <input name="notify_email" type="email" placeholder="salle@monrestaurant.fr"
+               value="{{ tenant.notify_email if tenant and tenant.notify_email else '' }}">
+      </label>
     </div>
     <label>Message d'accueil <small class="muted">(lu par la voix IA au décroché ; re-rendu automatique)</small>
       <input name="greeting" value="{{ tenant.greeting if tenant else '' }}"

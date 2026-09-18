@@ -175,6 +175,13 @@ CREATE INDEX IF NOT EXISTS idx_messages_call ON messages(call_id);
     """
 ALTER TABLE tenants ADD COLUMN opening_hours TEXT;
 """,
+    # v12 — notify_email : une adresse de notification en plus des comptes restaurateurs
+    # (app/notifications.py). Les comptes ont déjà un e-mail ; ce champ sert au gérant qui
+    # veut aussi une boîte partagée (salle@…) sans créer un compte pour elle. NULL = rien
+    # en plus. Migration séparée de v11 : une migration livrée ne se réécrit pas.
+    """
+ALTER TABLE tenants ADD COLUMN notify_email TEXT;
+""",
 ]
 
 

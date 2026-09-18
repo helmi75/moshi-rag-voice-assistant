@@ -16,7 +16,7 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
-from . import db, disponibilite, horloge, messages, reservations
+from . import db, disponibilite, horloge, messages, notifications, reservations
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
@@ -37,10 +37,12 @@ def maintenant() -> datetime:
 
 _date_en_toutes_lettres = horloge.en_toutes_lettres
 
-# ⚠️ Le prompt affirme qu'aucun SMS n'est envoyé. C'est vrai AUJOURD'HUI et c'est un fait
-# sur notre propre produit, pas une politique du restaurant — d'où l'exception à la règle
-# « n'invente pas ce que le restaurant ne fait pas ». Le jour où #34 livre les SMS de
-# confirmation, cette phrase devient un mensonge : la changer fait partie de ce lot-là.
+# ⚠️ Le prompt affirme que l'assistante n'envoie ni SMS ni e-mail AU CLIENT. C'est vrai, et
+# c'est un fait sur notre propre produit, pas une politique du restaurant — d'où l'exception
+# à la règle « n'invente pas ce que le restaurant ne fait pas ». Les e-mails qui partent
+# vers le RESTAURATEUR (notifications.py, depuis le 19/09/2026) n'y changent rien : le
+# client, lui, ne reçoit toujours rien. Le jour où #34 livre les SMS de confirmation, cette
+# phrase devient un mensonge : la changer fait partie de ce lot-là.
 TOOLS = [
     {
         "name": "check_availability",
@@ -419,6 +421,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
             )
         if name == "cancel_reservation":
             await db.hors_boucle(reservations.cancel_reservation, reservation_id)
+            notifications.planifier(tenant, "reservation_annulee",
+                                    {"reservation": existante, "appel_id": call_id})
             return json.dumps(
                 {"status": "cancelled", "reservation_id": reservation_id,
                  "date": existante["date"], "time": existante["time"]},
@@ -432,6 +436,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         if refus:
             return _refus(refus)
         modifiee = await db.hors_boucle(reservations.update_reservation, reservation_id, **champs)
+        notifications.planifier(tenant, "reservation_modifiee",
+                                {"avant": existante, "reservation": modifiee, "appel_id": call_id})
         return json.dumps(
             {"status": "modified", "reservation_id": reservation_id,
              "date": modifiee["date"], "time": modifiee["time"],
@@ -457,6 +463,11 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
                 "Message non enregistré : il manque l'objet. Demande à l'appelant ce "
                 "qu'il veut transmettre, puis rappelle cet outil."
             )
+        notifications.planifier(tenant, "message_pris", {
+            "message_id": identifiant, "appel_id": call_id,
+            "subject": tool_input.get("subject") or "", "details": tool_input.get("details"),
+            "customer_name": tool_input.get("customer_name"),
+            "caller_number": (caller_number or "").strip() or None})
         return json.dumps(
             {"status": "recorded", "message_id": identifiant,
              "rappel_possible": bool((caller_number or "").strip())},
@@ -496,6 +507,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
             customer_phone=(caller_number or "").strip() or None,
             notes=tool_input.get("notes"),
         )
+        notifications.planifier(tenant, "reservation_creee", {"reservation": row, "appel_id": call_id})
         return json.dumps({"status": "confirmed", "reservation_id": row["id"]}, ensure_ascii=False)
     return json.dumps({"error": f"outil inconnu: {name}"}, ensure_ascii=False)
 
