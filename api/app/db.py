@@ -164,6 +164,17 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id, handled_at);
 CREATE INDEX IF NOT EXISTS idx_messages_call ON messages(call_id);
 """,
+    # v11 — opening_hours : les horaires d'ouverture structurés (JSON, app/disponibilite.py).
+    #
+    # Jusqu'ici check_availability répondait TOUJOURS « disponible » : ni jour de fermeture
+    # ni heure de service, seulement la fiche « Horaires » en texte libre relue par le
+    # modèle à chaque tour. Une table un lundi de fermeture était possible — promise au
+    # client, impossible à honorer. NULL = non renseigné : aucun refus, comme avant, et
+    # l'alerte du parc le signale ; c'est ce qui laisse le parc existant fonctionner sans
+    # qu'on ait à saisir des horaires avant de déployer.
+    """
+ALTER TABLE tenants ADD COLUMN opening_hours TEXT;
+""",
 ]
 
 

@@ -37,6 +37,9 @@ def _include_protected_routes() -> None:
     from . import routes_voice
 
     admin_router.include_router(routes_voice.router)
+    from . import routes_horaires
+
+    admin_router.include_router(routes_horaires.router)
 
 
 _include_protected_routes()

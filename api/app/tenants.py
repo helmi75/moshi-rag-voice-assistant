@@ -45,6 +45,9 @@ class Tenant:
     # Formule commerciale (#31). None = formule par défaut ; c'est app/plans.py:resolve
     # qui tranche, et qui ignore une valeur hors catalogue.
     plan: Optional[str] = None
+    # Horaires d'ouverture structurés (JSON, app/disponibilite.py). None = non renseigné :
+    # l'assistante ne refuse aucun créneau, comme avant.
+    opening_hours: Optional[str] = None
 
 
 def _row_to_tenant(row) -> Tenant:
@@ -58,6 +61,7 @@ def _row_to_tenant(row) -> Tenant:
         knowledge_base=row["knowledge_base"],
         voice=row["voice"],
         plan=row["plan"],
+        opening_hours=row["opening_hours"],
     )
 
 
@@ -139,7 +143,7 @@ def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     greeting, knowledge_base, voice, plan). Lève sqlite3.IntegrityError si numéro en
     conflit."""
     allowed = {"name", "business_type", "phone_number", "language", "greeting",
-               "knowledge_base", "greeting_customized", "voice", "plan"}
+               "knowledge_base", "greeting_customized", "voice", "plan", "opening_hours"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_by_id(tenant_id)

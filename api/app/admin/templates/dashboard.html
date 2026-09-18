@@ -51,6 +51,14 @@
 </section>
 {% endif %}
 
+{% if tenant_id and not horaires_ok %}
+<div class="callout" style="background: var(--app-warn-soft)">
+  <b>Horaires d'ouverture non renseignés</b>
+  L'assistante ne refuse aucun créneau fermé : elle peut enregistrer une table un jour de
+  fermeture. <a href="/admin/tenants/{{ tenant_id }}/horaires">Renseigner les horaires</a>.
+</div>
+{% endif %}
+
 <section class="card" style="margin-bottom: .9rem">
   {{ slots_chart }}
 </section>

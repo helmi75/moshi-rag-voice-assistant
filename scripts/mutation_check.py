@@ -390,6 +390,15 @@ GARDE_FOUS = [
         k="defaut",
         panne="la vérification serait décorative par défaut : tout passerait, compté mais accepté",
     ),
+    GardeFou(
+        nom="Un créneau hors des horaires d'ouverture est refusé",
+        fichier="api/app/llm.py",
+        avant="    fermeture = disponibilite.motif_de_fermeture(horaires, creneau)",
+        apres="    fermeture = None  # mutation",
+        tests=["test_horaires.py"],
+        k="ferme",
+        panne="l'assistante enregistrerait une table un lundi de fermeture, et le client se présenterait devant une porte close",
+    ),
 ]
 
 

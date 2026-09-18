@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, db, plans, quotas, reservations, supervision, tenants
+from .. import calls, db, disponibilite, plans, quotas, reservations, supervision, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from . import charts, deps, presenters
@@ -91,6 +91,8 @@ def _venue_rows(days: int = _WINDOW_DAYS) -> list[dict]:
             "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None,
             "sections": sections,
             "gaps": [s for s in sections if not s["filled"]],
+            "horaires_ok": disponibilite.est_configure(
+                disponibilite.charger(tenant.opening_hours)),
             "quota": conso[tenant.id],
         })
     return rows
@@ -120,6 +122,12 @@ def _alerts(rows: list[dict]) -> list[dict]:
                 "level": "warn",
                 "title": f"{name} · {len(row['gaps'])} fiche(s) sans contenu",
                 "detail": f"Sections vides : {titles}.",
+            })
+        if not row["horaires_ok"]:
+            alerts.append({
+                "level": "warn", "title": f"{name} · horaires d'ouverture non renseignés",
+                "detail": "L'assistante ne refusera aucun créneau fermé : elle peut enregistrer "
+                          "une table un jour de fermeture. Ouvrez « Horaires d'ouverture ».",
             })
         if not row["stats"]["n_calls"]:
             alerts.append({
@@ -211,6 +219,8 @@ def _control_room(request: Request, tenant_id: Optional[int]):
             "quota": conso,
             "depassement_eur": plans.DEPASSEMENT_EUR,
             "tenant_id": tenant_id,
+            "horaires_ok": tenant is None or disponibilite.est_configure(
+                disponibilite.charger(tenant.opening_hours)),
             "days": _WINDOW_DAYS,
         },
     )

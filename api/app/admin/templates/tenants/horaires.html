@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Horaires d'ouverture — {{ tenant.name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Horaires d'ouverture</h1>
+    <p class="lede">Les heures auxquelles l'assistante accepte une réservation — {{ tenant.name }}.
+       Hors de ces plages, elle refuse et propose le créneau ouvert le plus proche.</p>
+  </div>
+</div>
+{% for e in erreurs %}<p role="alert">{{ e }}</p>{% endfor %}
+
+<div class="split">
+  <article class="card card-table">
+    <form method="post" action="/admin/tenants/{{ tenant.id }}/horaires">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+      <table>
+        <thead>
+          <tr><th>Jour</th><th>Fermé</th><th>Service 1</th><th>Service 2</th></tr>
+        </thead>
+        <tbody>
+        {% for j in grille %}
+          <tr>
+            <td>{{ j.label }}</td>
+            <td><input type="checkbox" name="{{ j.nom }}_ferme" {% if j.ferme %}checked{% endif %}
+                       aria-label="{{ j.label }} : fermé"></td>
+            {% for n in [1, 2] %}
+            <td style="white-space: nowrap">
+              <input type="time" name="{{ j.nom }}_{{ n }}_debut" value="{{ j.plages[n - 1][0] }}"
+                     aria-label="{{ j.label }}, service {{ n }}, début" style="width: 7.5rem; display: inline-block">
+              <span class="muted">–</span>
+              <input type="time" name="{{ j.nom }}_{{ n }}_fin" value="{{ j.plages[n - 1][1] }}"
+                     aria-label="{{ j.label }}, service {{ n }}, fin" style="width: 7.5rem; display: inline-block">
+            </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div style="padding: 1rem 1.3rem 1.3rem">
+        <label>Fermetures exceptionnelles
+          <small class="muted">(une par ligne : <code>AAAA-MM-JJ</code>, ou un intervalle
+            <code>AAAA-MM-JJ/AAAA-MM-JJ</code>)</small>
+          <textarea name="fermetures" rows="3">{{ fermetures }}</textarea>
+        </label>
+        <p class="card-sub">Une heure de fin est la dernière heure à laquelle une table est
+           encore prise. Un service qui finit après minuit se saisit tel quel (19:00 – 01:00).</p>
+        <button type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </article>
+
+  <div class="stack">
+    <article class="card">
+      <h2>Ce que l'assistante applique</h2>
+      {% if lettres %}
+      <p class="kb-body">{{ lettres }}</p>
+      {% else %}
+      <div class="callout" style="background: var(--app-warn-soft)">
+        <b>Rien de renseigné</b>
+        L'assistante ne refuse aucun créneau : elle peut enregistrer une table un jour de
+        fermeture.
+      </div>
+      {% endif %}
+      <p class="card-sub" style="margin-top: .8rem">La fiche « Horaires » de
+         <a href="/admin/tenants/{{ tenant.id }}/knowledge">Ce que l'IA sait</a> reste un texte
+         libre pour renseigner les clients ; cette grille est ce qui <b>refuse</b>. Les deux
+         doivent dire la même chose.</p>
+    </article>
+  </div>
+</div>
+{% endblock %}

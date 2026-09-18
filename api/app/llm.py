@@ -16,7 +16,7 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
-from . import db, horloge, messages, reservations
+from . import db, disponibilite, horloge, messages, reservations
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
@@ -254,7 +254,7 @@ Un jour déjà passé désigne le prochain à venir. Une heure d'aujourd'hui dé
 se réserve pas : propose la suivante. Si la date reste ambiguë, fais préciser : « Samedi
 quinze août, c'est bien ça ? ».
 
-# Réservation — dans l'ordre
+{disponibilite.section_prompt(getattr(tenant, 'opening_hours', None))}# Réservation — dans l'ordre
 1. Il te faut QUATRE informations : nom, date, heure, nombre de personnes. Demande
    celles qui manquent, une par une, jamais une déjà donnée.
 2. Le NOM : demande-le une seule fois. S'il est ÉPELÉ — lettres, ou « H comme Henri,
@@ -338,13 +338,16 @@ def _refus(message: str) -> str:
     return json.dumps({"error": message}, ensure_ascii=False)
 
 
-def _creneau_refuse(date_iso, heure) -> Optional[str]:
-    """Le motif de refus si le créneau est illisible ou déjà passé, sinon None.
+def _creneau_refuse(tenant: Tenant, date_iso, heure) -> Optional[str]:
+    """Le motif de refus si le créneau est illisible, déjà passé, ou hors des horaires
+    d'ouverture de l'établissement ; None s'il est réservable.
 
     Relevé le 10/09/2026 sur un vrai appel (104) : l'assistante a proposé une table
     « aujourd'hui à treize heures » alors qu'il était quinze heures — elle ne
     connaissait que la date. Le prompt lui donne désormais l'heure, mais une règle
-    écrite ne remplace pas une vérification : c'est le serveur qui tranche."""
+    écrite ne remplace pas une vérification : c'est le serveur qui tranche. Même
+    logique pour les horaires (18/09/2026) : le prompt les cite, le serveur les applique.
+    Sans horaires renseignés, rien n'est refusé — comme avant."""
     try:
         creneau = datetime.strptime(f"{date_iso} {heure}", "%Y-%m-%d %H:%M").replace(tzinfo=FUSEAU)
     except (TypeError, ValueError):
@@ -353,6 +356,10 @@ def _creneau_refuse(date_iso, heure) -> Optional[str]:
     if creneau < instant:
         return (f"Ce créneau est déjà passé : il est {instant:%H:%M}. "
                 "Propose au client un horaire à venir.")
+    horaires = disponibilite.charger(getattr(tenant, "opening_hours", None))
+    fermeture = disponibilite.motif_de_fermeture(horaires, creneau)
+    if fermeture:
+        return fermeture
     return None
 
 
@@ -420,7 +427,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
                   if tool_input.get(k) not in (None, "")}
         if not champs:
             return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
-        refus = _creneau_refuse(champs.get("date", existante["date"]),
+        refus = _creneau_refuse(tenant, champs.get("date", existante["date"]),
                                 champs.get("time", existante["time"]))
         if refus:
             return _refus(refus)
@@ -456,7 +463,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
             ensure_ascii=False)
 
     if name == "check_availability":
-        refus = _creneau_refuse(tool_input.get("date"), tool_input.get("time"))
+        refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
         if refus:
             return _refus(refus)
         booked = await db.hors_boucle(
@@ -472,7 +479,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         # modification et l'annulation (#33). Laisser le modèle le proposer reviendrait à
         # accepter que l'appelant décide de qui il est. Un appel masqué donne None : la
         # réservation existe, mais elle ne sera pas modifiable au téléphone.
-        refus = _creneau_refuse(tool_input.get("date"), tool_input.get("time"))
+        refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
         if refus:
             return _refus(refus)
         # Relevé au banc le 10/09/2026 : récapitulatif « …au nom de. C'est bien ça ? »,
