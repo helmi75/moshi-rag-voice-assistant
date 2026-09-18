@@ -104,9 +104,12 @@ class TestTwilioUntouched:
         assert resp.status_code == 200
         assert "<?xml" in resp.text
 
-    def test_reservations_api_open(self, client):
+    def test_reservations_api_removed(self, client):
+        """L'inverse d'avant : cette route servait nom, téléphone et notes de tous les
+        clients d'un établissement SANS session. Elle n'existe plus (18/09/2026) ; la
+        seule lecture des réservations passe par l'admin, authentifié et cloisonné."""
         demo = tenants.get_by_phone("+33100000000")
-        assert client.get(f"/tenants/{demo.id}/reservations").status_code == 200
+        assert client.get(f"/tenants/{demo.id}/reservations").status_code == 404
 
 
 class TestTenantsCrud:

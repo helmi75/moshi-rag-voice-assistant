@@ -1,14 +1,20 @@
-"""API du SaaS d'accueil téléphonique : webhooks Twilio multi-tenant + Claude."""
+"""API du SaaS d'accueil téléphonique : webhooks Twilio multi-tenant, flux média, admin.
+
+Un seul chemin d'appel : Twilio Media Streams → Pipecat (Deepgram, LLM via OpenRouter,
+voix Moshi servie par moshi-server). La boucle Gather/Say et les moteurs locaux (Pocket
+TTS, Kyutai en PyTorch) ont été retirés le 18/09/2026 : deux chemins, c'était deux
+produits à tester, et le second n'était plus ni journalisé ni compté au forfait. Le code
+reste lisible au tag `archive/moteurs-locaux`.
+"""
 import json
 import os
-import time
 from typing import Optional
 from xml.sax.saxutils import escape
 
 from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
-from . import calls, db, llm, reservations, rgpd, supervision, tenants, users
+from . import calls, db, llm, supervision, tenants, users
 
 app = FastAPI(title="Voice Assistant SaaS")
 
@@ -63,27 +69,6 @@ async def _partager_le_modele_de_fin_de_tour():
 
 
 @app.on_event("startup")
-async def _preload_voice_model():
-    """Précharge le modèle TTS local au démarrage (mode stream + TTS_PROVIDER=pocket),
-    dans un thread, pour éviter un gel de 30-60 s au tout premier appel et pour que
-    les logs de démarrage confirment le bon chargement du modèle."""
-    if _voice_mode() != "stream" or os.getenv("TTS_PROVIDER", "pocket").lower() != "pocket":
-        return
-    import asyncio
-
-    async def _load():
-        try:
-            from .voice.pocket_tts import _load_model_and_state
-
-            await asyncio.to_thread(_load_model_and_state)
-            print("Modèle TTS Pocket TTS préchargé (prêt pour le premier appel).")
-        except Exception as exc:
-            print(f"Préchargement Pocket TTS échoué (sera retenté au 1er appel): {exc}")
-
-    asyncio.create_task(_load())
-
-
-@app.on_event("startup")
 async def _prerender_greetings():
     """Phase 3 : pré-rend les accueils (voix « Développeuse ») HORS du chemin d'appel,
     pour que le tout premier appelant entende un accueil instantané. Déclenche au
@@ -93,7 +78,7 @@ async def _prerender_greetings():
 
     from .voice import greeting as greeting_mod
 
-    if _voice_mode() != "stream" or not greeting_mod.is_moshi_server():
+    if not greeting_mod.is_moshi_server():
         return
 
     async def _prerender():
@@ -156,36 +141,12 @@ async def _arreter_taches_de_fond():
             await tache
 
 
-# Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;
-# à remplacer par Redis quand l'API sera répliquée (phase 3 de la roadmap).
-CONVERSATION_TTL_SECONDS = 3600
-_conversations: dict[str, dict] = {}
-
-
-def _get_history(call_sid: str) -> list:
-    now = time.time()
-    for sid in [s for s, c in _conversations.items() if now - c["ts"] > CONVERSATION_TTL_SECONDS]:
-        del _conversations[sid]
-    entry = _conversations.get(call_sid)
-    return entry["messages"] if entry else []
-
-
-def _save_history(call_sid: str, messages: list) -> None:
-    _conversations[call_sid] = {"messages": messages, "ts": time.time()}
-
-
 def _twiml(inner: str) -> Response:
     body = f"<Response>\n{inner}\n</Response>" if inner else "<Response></Response>"
     return Response(
         content=f'<?xml version="1.0" encoding="UTF-8"?>\n{body}',
         media_type="text/xml",
     )
-
-
-def _voice_mode() -> str:
-    """"gather" (défaut, boucle Say/Gather) ou "stream" (Media Streams + Pipecat).
-    Lu à chaque requête pour rester configurable sans redémarrage (et testable)."""
-    return os.getenv("VOICE_MODE", "gather").strip().lower()
 
 
 def _stream_ws_url(request: Request) -> str:
@@ -220,30 +181,10 @@ def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "
     )
 
 
-def _say_voice() -> str:
-    """Voix du <Say> Twilio en mode gather. Défaut : voix neuronale Amazon Polly
-    française (Léa) — naturelle, incluse dans Twilio, latence nulle. Bien meilleure
-    que la voix standard robotique. Surchargeable via TWILIO_VOICE (ex. Polly.Remi-Neural,
-    voix masculine). Mettre TWILIO_VOICE="" pour revenir à la voix standard."""
-    return os.getenv("TWILIO_VOICE", "Polly.Lea-Neural")
-
-
-def _say(text: str, language: str) -> str:
-    """Balise <Say> : avec une voix Polly, la langue est portée par la voix ;
-    sinon on retombe sur l'attribut language standard."""
-    voice = _say_voice()
-    if voice:
-        return f'    <Say voice="{escape(voice)}">{escape(text)}</Say>'
-    return f'    <Say language="{language}">{escape(text)}</Say>'
-
-
-def _say_and_gather(text: str, language: str) -> Response:
-    return _twiml(
-        f"{_say(text, language)}\n"
-        f'    <Gather input="speech" language="{language}" timeout="5" speechTimeout="auto"'
-        f' action="/twilio/voice" method="POST"/>\n'
-        f'{_say("Merci pour votre appel. Au revoir.", language)}'
-    )
+def _raccrocher(texte: str) -> Response:
+    """TwiML qui dit une phrase puis raccroche : le seul cas où l'application parle
+    elle-même, sans le pipeline — un numéro que personne n'a configuré."""
+    return _twiml(f'    <Say language="fr-FR">{escape(texte)}</Say>\n    <Hangup/>')
 
 
 @app.get("/health")
@@ -256,7 +197,7 @@ async def health_check():
     mélanger coupleraient le déploiement à des verdicts sans rapport (une sauvegarde
     en retard n'a pas à empêcher de déployer un correctif).
     """
-    return {"status": "ok", "model": llm.MODEL, "voice_mode": _voice_mode()}
+    return {"status": "ok", "model": llm.MODEL}
 
 
 @app.get("/supervision")
@@ -305,34 +246,15 @@ async def voice_webhook(
     CallSid: Optional[str] = Form(None),
     To: Optional[str] = Form(None),
     From: Optional[str] = Form(None),
-    SpeechResult: Optional[str] = Form(None),
 ):
-    """Webhook vocal Twilio : boucle Gather/Say pilotée par le LLM du tenant."""
+    """Webhook vocal Twilio : branche l'appel sur le pipeline Pipecat via Media Streams.
+
+    Le numéro appelé (`To`) désigne l'établissement ; un numéro que personne n'a
+    configuré est raccroché poliment plutôt que routé au hasard."""
     tenant = tenants.get_by_phone(To)
     if tenant is None:
-        not_configured = _say("Ce numéro n'est pas encore configuré. Au revoir.", "fr-FR")
-        return _twiml(not_configured + "\n    <Hangup/>")
-
-    # Mode streaming : on branche l'appel sur le pipeline Pipecat via Media Streams
-    if _voice_mode() == "stream":
-        return _stream_twiml(request, To or "", CallSid or "", From or "")
-
-    # Premier tour : accueil sans appel LLM (latence nulle)
-    if not SpeechResult:
-        return _say_and_gather(rgpd.accueil(tenant), tenant.language)
-
-    try:
-        history = _get_history(CallSid or "")
-        text, messages = await llm.respond(tenant, history, SpeechResult, From)
-        if CallSid:
-            _save_history(CallSid, messages)
-        if not text:
-            text = "Je n'ai pas bien compris, pouvez-vous répéter ?"
-    except Exception as exc:
-        print(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
-        text = "Désolé, je rencontre un problème technique. Pouvez-vous rappeler dans quelques instants ?"
-
-    return _say_and_gather(text, tenant.language)
+        return _raccrocher("Ce numéro n'est pas encore configuré. Au revoir.")
+    return _stream_twiml(request, To or "", CallSid or "", From or "")
 
 
 @app.post("/twilio/sms")
@@ -366,7 +288,6 @@ async def twilio_webhook(request: Request):
             CallSid=form_data.get("CallSid"),
             To=form_data.get("To"),
             From=form_data.get("From"),
-            SpeechResult=form_data.get("SpeechResult"),
         )
     if "Body" in form_data:
         return await sms_webhook(
@@ -377,15 +298,8 @@ async def twilio_webhook(request: Request):
     return _twiml("")
 
 
-@app.get("/tenants/{tenant_id}/reservations")
-async def tenant_reservations(tenant_id: int):
-    if tenants.get_by_id(tenant_id) is None:
-        raise HTTPException(status_code=404, detail="Tenant inconnu")
-    return {"reservations": reservations.list_reservations(tenant_id)}
-
-
 def _get_bot_runner():
-    """Import paresseux du bot Pipecat (mockable en test, extras optionnels en gather)."""
+    """Import paresseux du bot Pipecat (mockable en test)."""
     from .voice.bot import run_bot
 
     return run_bot

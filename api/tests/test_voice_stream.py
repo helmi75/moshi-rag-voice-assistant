@@ -39,10 +39,9 @@ def _twilio_start_message(to=DEMO_NUMBER, stream_sid="MZ123", call_sid="CA_strea
 
 
 class TestStreamTwiML:
-    """TwiML renvoyé par /twilio/voice en mode stream."""
+    """TwiML renvoyé par /twilio/voice : toujours un <Connect><Stream>."""
 
     def test_stream_mode_returns_connect_stream(self, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://assistant.example.com/ws/voice")
         response = client.post(
             "/twilio/voice", data={"CallSid": "CA1", "To": DEMO_NUMBER}
@@ -53,10 +52,8 @@ class TestStreamTwiML:
         assert '<Stream url="wss://assistant.example.com/ws/voice">' in body
         assert f'<Parameter name="To" value="{DEMO_NUMBER}"/>' in body
         assert '<Parameter name="CallSid" value="CA1"/>' in body
-        assert "<Gather" not in body
 
     def test_stream_mode_unknown_tenant_hangs_up(self, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
         response = client.post(
             "/twilio/voice", data={"CallSid": "CA1", "To": "+19999999999"}
         )
@@ -64,23 +61,13 @@ class TestStreamTwiML:
         assert "<Connect>" not in response.text
 
     def test_stream_url_falls_back_to_request_host(self, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
         monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
         response = client.post(
             "/twilio/voice", data={"CallSid": "CA1", "To": DEMO_NUMBER}
         )
         assert 'url="wss://testserver/ws/voice"' in response.text
 
-    def test_default_mode_is_still_gather(self, monkeypatch):
-        monkeypatch.delenv("VOICE_MODE", raising=False)
-        response = client.post(
-            "/twilio/voice", data={"CallSid": "CA1", "To": DEMO_NUMBER}
-        )
-        assert "<Gather" in response.text
-        assert "<Connect>" not in response.text
-
     def test_stream_mode_applies_to_generic_webhook_too(self, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://assistant.example.com/ws/voice")
         response = client.post(
             "/twilio/webhook", data={"CallSid": "CA1", "To": DEMO_NUMBER}

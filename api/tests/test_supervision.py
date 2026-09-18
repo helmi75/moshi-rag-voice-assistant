@@ -159,10 +159,10 @@ class TestConfiguration:
         assert controle["niveau"] == supervision.PANNE
         assert "OPENROUTER_API_KEY" in controle["resume"]
 
-    def test_le_mode_stream_exige_davantage(self, base, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
-        monkeypatch.setenv("STT_PROVIDER", "deepgram")
-        monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+    def test_le_chemin_d_appel_exige_ses_quatre_variables(self, base, monkeypatch):
+        """Un seul chemin d'appel (flux média, Deepgram, moshi-server) : les quatre
+        variables sont exigées sans condition. L'exigence dépendait autrefois d'un mode
+        `gather` qui n'existe plus."""
         monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
         monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
         monkeypatch.delenv("MOSHI_TTS_URL", raising=False)
@@ -171,33 +171,21 @@ class TestConfiguration:
         assert set(controle["mesure"]["manquantes"]) == {
             "PUBLIC_WS_URL", "DEEPGRAM_API_KEY", "MOSHI_TTS_URL"}
 
-    def test_le_mode_gather_n_exige_pas_le_flux(self, base, monkeypatch):
-        """Les exigences suivent la configuration réelle : réclamer PUBLIC_WS_URL en
-        mode gather ferait crier la supervision pour rien, donc on cesserait de l'écouter."""
-        monkeypatch.setenv("VOICE_MODE", "gather")
-        monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
-        assert _controle("configuration")["niveau"] == supervision.OK
-
     @pytest.mark.parametrize("url", ["wss://exemple.fr/ws voice",
                                      "wss://exemple.fr/ws\xa0",
                                      "https://exemple.fr/ws"])
     def test_une_url_de_flux_malformee_est_une_panne(self, base, monkeypatch, url):
         """Une seule espace insécable collée depuis un navigateur, et Twilio ne joint
         jamais le flux : l'appel raccroche sans un mot. Vécu."""
-        monkeypatch.setenv("VOICE_MODE", "stream")
-        monkeypatch.setenv("STT_PROVIDER", "deepgram")
         monkeypatch.setenv("DEEPGRAM_API_KEY", "x")
-        monkeypatch.setenv("TTS_PROVIDER", "pocket")
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
         monkeypatch.setenv("PUBLIC_WS_URL", url)
         controle = _controle("configuration")
         assert controle["niveau"] == supervision.PANNE
         assert "PUBLIC_WS_URL" in controle["resume"]
 
     def test_ok_quand_tout_est_la(self, base, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
-        monkeypatch.setenv("STT_PROVIDER", "deepgram")
         monkeypatch.setenv("DEEPGRAM_API_KEY", "x")
-        monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
         monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://app.exemple.fr/ws/voice")
         assert _controle("configuration")["niveau"] == supervision.OK

@@ -9,6 +9,9 @@ _tmpdir = tempfile.mkdtemp(prefix="voice-assistant-tests-")
 os.environ["DB_PATH"] = os.path.join(_tmpdir, "app.db")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key-not-used")
 os.environ["TWILIO_NUMBER"] = "+33100000000"
+# Un seul chemin d'appel (Media Streams) : le TwiML annonce toujours une URL de flux et la
+# supervision l'exige. Une valeur de test, sauf si l'environnement en fournit déjà une.
+os.environ.setdefault("PUBLIC_WS_URL", "wss://testserver/ws/voice")
 # Plateforme admin : super-admin semé au démarrage + secret de session déterministes.
 os.environ["ADMIN_PASSWORD"] = "test-admin-pass"
 os.environ["ADMIN_EMAIL"] = "admin@test.local"

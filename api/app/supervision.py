@@ -184,21 +184,18 @@ def _controle_base() -> Controle:
     )
 
 
-# Ce dont le chemin d'appel a RÉELLEMENT besoin, selon la configuration en vigueur.
-# Chaque entrée vient d'une panne possible et silencieuse : la variable manque, le
-# service démarre quand même, et l'appelant tombe sur un blanc.
+# Ce dont le chemin d'appel a RÉELLEMENT besoin. Il n'y a plus qu'un chemin — Media
+# Streams, Deepgram, moshi-server — donc plus de « selon le mode » : les quatre sont
+# toujours exigées. Chaque entrée vient d'une panne possible et silencieuse : la variable
+# manque, le service démarre quand même, et l'appelant tombe sur un blanc.
 def _configuration_requise() -> list[tuple[str, str]]:
-    mode = os.getenv("VOICE_MODE", "gather").strip().lower()
-    requis = [("OPENROUTER_API_KEY", "sans clé LLM, l'assistante ne comprend rien")]
-    if mode != "stream":
-        return requis
-    requis.append(("PUBLIC_WS_URL",
-                   "Twilio ne saurait pas où brancher le flux audio : l'appel raccroche"))
-    if os.getenv("STT_PROVIDER", "deepgram").strip().lower() == "deepgram":
-        requis.append(("DEEPGRAM_API_KEY", "sans transcription, l'assistante n'entend rien"))
-    if os.getenv("TTS_PROVIDER", "pocket").strip().lower() == "moshi_server":
-        requis.append(("MOSHI_TTS_URL", "sans serveur de voix, l'assistante ne parle pas"))
-    return requis
+    return [
+        ("OPENROUTER_API_KEY", "sans clé LLM, l'assistante ne comprend rien"),
+        ("PUBLIC_WS_URL",
+         "Twilio ne saurait pas où brancher le flux audio : l'appel raccroche"),
+        ("DEEPGRAM_API_KEY", "sans transcription, l'assistante n'entend rien"),
+        ("MOSHI_TTS_URL", "sans serveur de voix, l'assistante ne parle pas"),
+    ]
 
 
 def _controle_configuration() -> Controle:

@@ -379,7 +379,6 @@ def lancer_tests(garde: GardeFou, runner: str) -> int:
         cmd = [sys.executable, "-m", "pytest", *cible, "-k", garde.k, "-q",
                "--no-header", "-p", "no:cacheprovider"]
         return subprocess.run(cmd, cwd=RACINE / "api",
-                              env={**os.environ, "VOICE_MODE": "gather"},
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
 
     cible = " ".join(f"/app/tests/{t}" for t in garde.tests)
@@ -387,7 +386,7 @@ def lancer_tests(garde: GardeFou, runner: str) -> int:
         "pip install -q -r /app/tests/requirements-test.txt >/dev/null 2>&1; "
         f"python -m pytest {cible} -k \"{garde.k}\" -q --no-header -p no:cacheprovider"
     )
-    cmd = ["docker", "compose", "run", "--rm", "-e", "VOICE_MODE=gather",
+    cmd = ["docker", "compose", "run", "--rm",
            "-v", f"{RACINE}/api/tests:/app/tests", "-v", f"{RACINE}/api/app:/app/app",
            "api", "sh", "-c", interne]
     return subprocess.run(cmd, cwd=RACINE,
