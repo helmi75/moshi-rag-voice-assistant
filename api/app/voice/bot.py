@@ -16,7 +16,7 @@ from typing import Optional
 
 from loguru import logger
 
-from .. import llm, taches
+from .. import db, llm, reservations, taches
 from ..tenants import Tenant
 
 
@@ -420,6 +420,17 @@ async def run_bot(
         default_headers=headers or None,
         **llm_kwargs,
     )
+    # Le nom du dernier passage, cherché une fois au décroché (une requête indexée, hors
+    # boucle) : l'assistante le PROPOSE au lieu de le redemander. Best-effort : sans lui,
+    # l'appel se déroule comme avant.
+    nom_connu = None
+    if caller_number:
+        try:
+            nom_connu = await db.hors_boucle(reservations.dernier_nom, tenant.id, caller_number)
+        except Exception as exc:
+            logger.warning(f"nom du dernier passage introuvable (sans conséquence): {exc}")
+    prompt_systeme = llm.build_system_prompt(tenant, appelant=nom_connu)
+
     # Journal des appels : collecte les réservations créées pendant CET appel.
     created_reservations: list[int] = []
     tool_handler = make_tool_handler(tenant, created_reservations, caller_number, call_id)
@@ -439,7 +450,7 @@ async def run_bot(
             await client.chat.completions.create(
                 model=llm.MODEL,
                 messages=[
-                    {"role": "system", "content": llm.build_system_prompt(tenant)},
+                    {"role": "system", "content": prompt_systeme},
                     {"role": "user", "content": "Bonjour"},
                 ],
                 max_tokens=1,
@@ -450,7 +461,7 @@ async def run_bot(
 
     taches.lancer(_warm_llm(), nom=f"préchauffage du LLM {call_sid}")
 
-    messages = [{"role": "system", "content": llm.build_system_prompt(tenant)}]
+    messages = [{"role": "system", "content": prompt_systeme}]
     from . import greeting as greeting_mod
 
     chaud = False

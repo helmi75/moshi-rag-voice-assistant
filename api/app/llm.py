@@ -208,12 +208,29 @@ def get_client() -> AsyncOpenAI:
     return _client
 
 
-def build_system_prompt(tenant: Tenant) -> str:
+def _section_appelant(nom: Optional[str]) -> str:
+    """Le nom du dernier passage, à PROPOSER : on réserve parfois pour quelqu'un d'autre,
+    et un téléphone se partage. Proposer évite l'étape qui échoue le plus au téléphone —
+    le nom mal entendu —, présumer ferait réserver au mauvais nom."""
+    if not nom:
+        return ""
+    return f"""# Appelant
+Ce numéro a déjà réservé au nom de « {nom} ». Pour une réservation, PROPOSE ce nom au
+lieu de le demander : « C'est au nom de {nom}, comme la dernière fois ? ». Ne le présume
+pas : si le client en donne un autre, c'est celui-là. N'en parle pas hors réservation.
+
+"""
+
+
+def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None) -> str:
     """Prompt système de l'assistante téléphonique.
 
     Il est ré-envoyé à CHAQUE tour : chaque phrase ajoutée se paie en latence et en
     jetons sur toute la conversation. On garde donc des règles courtes, impératives,
     et uniquement celles qui corrigent un comportement réellement observé au téléphone.
+
+    `appelant` : le nom de la dernière réservation faite depuis ce numéro
+    (reservations.dernier_nom), ou None.
     """
     instant = maintenant()
     aujourdhui = instant.date()
@@ -256,7 +273,7 @@ Un jour déjà passé désigne le prochain à venir. Une heure d'aujourd'hui dé
 se réserve pas : propose la suivante. Si la date reste ambiguë, fais préciser : « Samedi
 quinze août, c'est bien ça ? ».
 
-{disponibilite.section_prompt(getattr(tenant, 'opening_hours', None))}# Réservation — dans l'ordre
+{disponibilite.section_prompt(getattr(tenant, 'opening_hours', None))}{_section_appelant(appelant)}# Réservation — dans l'ordre
 1. Il te faut QUATRE informations : nom, date, heure, nombre de personnes. Demande
    celles qui manquent, une par une, jamais une déjà donnée.
 2. Le NOM : demande-le une seule fois. S'il est ÉPELÉ — lettres, ou « H comme Henri,
@@ -523,8 +540,10 @@ async def respond(tenant: Tenant, history: list, user_text: str,
     donc jamais de message système, quel que soit le nombre de tours.
     """
     client = get_client()
+    nom = (await db.hors_boucle(reservations.dernier_nom, tenant.id, caller_number)
+           if caller_number else None)
     api_messages = (
-        [{"role": "system", "content": build_system_prompt(tenant)}]
+        [{"role": "system", "content": build_system_prompt(tenant, appelant=nom)}]
         + history
         + [{"role": "user", "content": user_text}]
     )

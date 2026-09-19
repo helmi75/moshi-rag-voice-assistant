@@ -453,6 +453,15 @@ GARDE_FOUS = [
         k="masque",
         panne="tous les appels masqués partageraient un numéro : chacun verrait les réservations des autres",
     ),
+    GardeFou(
+        nom="Seul un nom plausible entre dans le prompt",
+        fichier="api/app/reservations.py",
+        avant="    if not nom or len(nom) > 40 or not _NOM_PLAUSIBLE.fullmatch(nom):",
+        apres="    if not nom:  # mutation",
+        tests=["test_caller_phone.py"],
+        k="ressemble",
+        panne="une phrase dictée comme nom deviendrait du texte libre dans les consignes de l'appel suivant",
+    ),
 ]
 
 
