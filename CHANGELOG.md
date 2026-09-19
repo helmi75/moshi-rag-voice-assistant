@@ -7,6 +7,78 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## v1.1.0 — non publiée — l'audit du 18/09/2026
+
+Sur la branche `claude/moshi-rag-voice-assistant-0w8lsv`, **ni fusionnée ni déployée**.
+Pour déployer : `.env` du VPS complété (voir « À poser au déploiement »), fusion dans
+`main`, `scripts/deploy.sh`, puis la recette (`docs/RECETTE.md`).
+
+### Pourquoi cette version
+L'audit du 18/09 a relevé cinq défauts critiques : webhooks Twilio non authentifiés,
+une route publique qui listait les réservations, un GPU ouvert avec la clé de
+démonstration, des sauvegardes restées sur la machine, et une disponibilité toujours
+« oui ». Cette version les ferme, et fait du produit un seul chemin d'appel.
+
+### Sécurité
+- **Signature Twilio** (`X-Twilio-Signature`) vérifiée sur les webhooks et la poignée de
+  main du flux ; `PUBLIC_URL` ; mode `log` pour observer avant `enforce`.
+- **Route publique `/tenants/{id}/reservations` supprimée.**
+- **Clé privée du serveur de voix** posée au démarrage du conteneur Modal ; `modal
+  deploy` refuse `public_token` ; contrôle de supervision.
+- **Appels masqués** : les numéros de substitution de Twilio (`+266696687`…) ne sont plus
+  pris pour un vrai numéro — tous les appels masqués partageaient leurs réservations.
+- Jeton de supervision en en-tête seulement ; numéro de l'appelant tronqué dans les
+  journaux ; saisies de l'admin vérifiées côté serveur (numéro E.164, dates, couverts).
+
+### Ajouté
+- **Horaires d'ouverture** par établissement, appliqués par le serveur : un créneau fermé
+  est refusé avec les plages ouvertes du jour (écran « Horaires d'ouverture »).
+- **E-mail au restaurateur** à chaque réservation, modification, annulation et message
+  pris (SMTP générique, `SMTP_*`).
+- **Nom du dernier passage** proposé au lieu d'être redemandé.
+- **Copie des sauvegardes hors du serveur** (rclone), surveillée.
+- Sonde de vie Docker (`HEALTHCHECK`), index SQLite v13, `ruff` et `pip-audit` en CI.
+
+### Modifié
+- **Un seul chemin d'appel** : Media Streams + Pipecat + Deepgram + moshi-server. Retirés :
+  la boucle Gather/Say, Pocket TTS, Kyutai en PyTorch, Cartesia, l'ancienne app Modal
+  (lisibles au tag `archive/moteurs-locaux`). Image 5,67 Go → 845 Mo.
+- **Dépendances verrouillées** (`requirements.lock`), installées telles quelles par l'image
+  et la CI.
+- **Les fenêtres du tableau de bord commencent à minuit, heure de Paris** (et non plus
+  UTC) : les totaux « aujourd'hui », « ce mois-ci » et les stats par jour peuvent bouger
+  légèrement par rapport à v1.0.
+- Coût Deepgram estimé au tarif `multi` (0,0092 $/min, borne haute) ; `docs/TARIFS.md`
+  recalculé.
+- « Annuler » dans l'admin annule la réservation (ligne barrée) au lieu de l'effacer.
+- Supprimer un établissement supprime aussi ses messages et ses enregistrements.
+- Le restaurant de démonstration n'est plus réaligné à chaque démarrage : l'admin fait
+  foi (`SEED_DEMO`).
+- Accès SQLite hors de la boucle d'événements (appel et admin) ; tâches de fond
+  retenues ; `lifespan` ; journaux loguru partout.
+
+### À poser au déploiement
+- `.env` du VPS : `PUBLIC_URL=https://app.helmane.fr`, `TWILIO_SIGNATURE=log` (48 h, puis
+  retirer), `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` ; le jeton
+  Twilio **courant**.
+- Clé du serveur de voix : `MOSHI_TTS_API_KEY` dans le `.env` local et celui du VPS,
+  puis `modal deploy` (ordre dans `docs/MODAL.md`).
+- `/opt/backups/backup.env` avec `RCLONE_REMOTE`, et le script de sauvegarde réinstallé.
+- Dans l'admin : les horaires de chaque établissement.
+
+## v1.0.x — août et septembre 2026 — déployé depuis `main`, sans tag
+
+- Supervision extérieure : sonde `/supervision`, alerte GitHub Actions, relève des
+  alertes Twilio (#24).
+- Sauvegarde quotidienne vérifiée ; API publiée sur `127.0.0.1` seulement ; audit de
+  sécurité de l'admin (#21).
+- Grille tarifaire (#29), plafond mensuel qui ne coupe jamais la ligne (#31).
+- RGPD : durées de conservation appliquées, droit à l'effacement (#22).
+- Modification et annulation de réservation par téléphone (#33).
+- Enregistrement des appels et journal de bord de l'interaction (#88).
+- Messages pris pour l'équipe : la promesse de rappel laisse une trace (#32).
+- Banc d'essai d'appels simultanés ; modèle de fin de tour partagé (#40).
+
 ## v1.0.0 — 2026-07-31 — Première version en production
 
 ### Pourquoi cette version
