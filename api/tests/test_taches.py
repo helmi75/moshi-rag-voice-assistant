@@ -85,3 +85,26 @@ class TestRegistre:
         refermer la coroutine, sinon Python avertit qu'elle n'a jamais été attendue."""
         with pytest.raises(RuntimeError, match="hors d'une boucle"):
             taches.lancer(asyncio.sleep(0), nom="orpheline")
+
+
+class TestCycleDeVie:
+    """Le démarrage et l'arrêt passent par le `lifespan` de l'application : quitter le
+    TestClient doit arrêter TOUTES les boucles de fond, même celles qui tournent sans fin."""
+
+    def test_quitter_l_application_arrete_les_taches_de_fond(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from app.main import app
+
+        monkeypatch.setenv("SUPERVISION_TWILIO_SECONDES", "900")
+        monkeypatch.setenv("RETENTION_INTERVALLE_SECONDES", "3600")
+        with TestClient(app):
+            noms = {t.get_name() for t in taches.retenues()}
+            assert {"relève des alertes Twilio", "purge des données personnelles"} <= noms
+        assert taches.en_cours() == 0
+
+    def test_plus_aucun_on_event(self):
+        """Les `on_event` sont dépréciés, et leur ordre dépendait de l'ordre d'écriture."""
+        from app.main import app
+
+        assert not app.router.on_startup and not app.router.on_shutdown

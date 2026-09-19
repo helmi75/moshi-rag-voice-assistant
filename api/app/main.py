@@ -8,15 +8,35 @@ reste lisible au tag `archive/moteurs-locaux`.
 """
 import json
 import os
+from contextlib import asynccontextmanager
 from typing import Optional
 from xml.sax.saxutils import escape
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
+from loguru import logger
 
 from . import calls, db, llm, supervision, taches, tenants, twilio_signature, users
 
-app = FastAPI(title="Voice Assistant SaaS")
+
+@asynccontextmanager
+async def _cycle_de_vie(_app: FastAPI):
+    """Démarrage puis arrêt, dans cet ordre et à un seul endroit.
+
+    Remplace les quatre `@app.on_event` (dépréciés par FastAPI) : l'ordre y dépendait de
+    l'ordre de déclaration dans le fichier, et rien ne garantissait que l'arrêt suive
+    un démarrage qui aurait échoué à mi-chemin. Ici `finally` arrête les tâches de fond
+    dans tous les cas."""
+    await _partager_le_modele_de_fin_de_tour()
+    await _prerender_greetings()
+    await _demarrer_taches_de_fond()
+    try:
+        yield
+    finally:
+        await _arreter_taches_de_fond()
+
+
+app = FastAPI(title="Voice Assistant SaaS", lifespan=_cycle_de_vie)
 
 db.init_db()
 tenants.seed_demo_tenant()
@@ -39,7 +59,8 @@ if not _session_secret:
     import secrets as _secrets
 
     _session_secret = _secrets.token_hex(32)
-    print("[admin] SESSION_SECRET absent : secret aléatoire (sessions perdues au redémarrage).")
+    logger.warning("[admin] SESSION_SECRET absent : secret aléatoire (sessions perdues au "
+                   "redémarrage).")
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret,
@@ -51,7 +72,6 @@ app.include_router(admin_pkg.public_router)
 app.include_router(admin_pkg.admin_router)
 
 
-@app.on_event("startup")
 async def _partager_le_modele_de_fin_de_tour():
     """Charge le modèle smart-turn une seule fois pour tout le processus (#40).
 
@@ -65,10 +85,9 @@ async def _partager_le_modele_de_fin_de_tour():
     from .voice import modeles
 
     if modeles.partager_le_modele_de_fin_de_tour():
-        print("[voix] modèle de fin de tour : partagé entre les appels")
+        logger.info("[voix] modèle de fin de tour : partagé entre les appels")
 
 
-@app.on_event("startup")
 async def _prerender_greetings():
     """Phase 3 : pré-rend les accueils (voix « Développeuse ») HORS du chemin d'appel,
     pour que le tout premier appelant entende un accueil instantané. Déclenche au
@@ -86,13 +105,12 @@ async def _prerender_greetings():
             for tenant in tenants.list_all():
                 await greeting_mod.ensure_greeting_wav(tenant)
         except Exception as exc:
-            print(f"Pré-rendu des accueils échoué (repli TTS live au 1er appel): {exc}")
+            logger.warning(f"Pré-rendu des accueils échoué (repli TTS live au 1er appel): {exc}")
 
     taches.lancer(_prerender(), nom="pré-rendu des accueils")
     taches.lancer(greeting_mod.keep_warm_loop(), nom="keep-warm moshi-server")
 
 
-@app.on_event("startup")
 async def _demarrer_taches_de_fond():
     """Deux boucles permanentes, chacune hors du chemin d'appel :
 
@@ -111,7 +129,6 @@ async def _demarrer_taches_de_fond():
     taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
 
 
-@app.on_event("shutdown")
 async def _arreter_taches_de_fond():
     """Arrête proprement toutes les tâches de fond. Sans ça, l'arrêt du service traîne —
     et un service qui ne sait pas s'arrêter est un service qu'on finit par tuer au
@@ -147,7 +164,12 @@ def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "
     ws_url = _stream_ws_url(request)
     # Log explicite : si Twilio ne joint pas cette URL (mauvais tunnel ngrok, http
     # au lieu de wss...), le flux média ne se connecte jamais et l'appel raccroche.
-    print(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, From={from_number}, CallSid={call_sid})")
+    # Le numéro de l'appelant est tronqué : les journaux Docker n'ont pas de durée de
+    # conservation, contrairement à la base (RETENTION_NUMERO_JOURS). Deux chiffres
+    # suffisent à reconnaître son propre appel de test.
+    appelant = f"…{from_number[-2:]}" if from_number else "masqué"
+    logger.info(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, From={appelant}, "
+                f"CallSid={call_sid})")
     return _twiml(
         "    <Connect>\n"
         f'        <Stream url="{escape(ws_url)}">\n'
@@ -253,7 +275,7 @@ async def sms_webhook(
         try:
             text, _ = await llm.respond(tenant, [], Body, From)
         except Exception as exc:
-            print(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
+            logger.error(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
             text = "Désolé, une erreur s'est produite. Réessayez dans quelques instants."
 
     return _twiml(f"    <Message>{escape(text)}</Message>")
@@ -294,7 +316,7 @@ _WS_START_MAX_MESSAGES = 10
 @app.websocket("/ws/voice")
 async def voice_stream(websocket: WebSocket):
     """Point d'entrée Twilio Media Streams : poignée de main puis pipeline Pipecat."""
-    print("[stream] WebSocket /ws/voice : connexion entrante (Twilio a joint l'URL).")
+    logger.info("[stream] WebSocket /ws/voice : connexion entrante (Twilio a joint l'URL).")
     # La signature de la poignée de main est vérifiée AVANT d'accepter : refuser ici
     # coûte une réponse HTTP ; accepter puis fermer aurait déjà ouvert un flux.
     if not twilio_signature.verifier_ws(websocket):
@@ -325,7 +347,7 @@ async def voice_stream(websocket: WebSocket):
 
     tenant = await db.hors_boucle(tenants.get_by_phone, to_number)
     if tenant is None or not stream_sid:
-        print(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
+        logger.warning(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
         await websocket.close(code=1008)  # policy violation
         return
 
@@ -336,14 +358,16 @@ async def voice_stream(websocket: WebSocket):
     try:
         call_id = await db.hors_boucle(calls.start_call, call_sid, tenant.id, from_number)
     except Exception as exc:
-        print(f"[calls] start_call KO (sans conséquence): {exc}")
+        logger.warning(f"[calls] start_call KO (sans conséquence): {exc}")
 
     run_bot = _get_bot_runner()
     try:
         await run_bot(websocket, stream_sid, call_sid, tenant,
                       caller_number=from_number, call_id=call_id)
     except Exception as exc:
-        print(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
+        # Avec la pile d'appels : c'est l'erreur qu'on aura à diagnostiquer, et le
+        # message seul (« 'NoneType' object… ») ne dit jamais où.
+        logger.exception(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
         try:
             await websocket.close(code=1011)
         except RuntimeError:
