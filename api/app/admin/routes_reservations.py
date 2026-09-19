@@ -2,7 +2,6 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
 
 from .. import reservations, tenants
 from ..users import User
@@ -110,9 +109,18 @@ async def reservation_update(
     )
 
 
-@router.post("/admin/reservations/{reservation_id}/delete",
+@router.post("/admin/reservations/{reservation_id}/cancel",
              dependencies=[Depends(deps.verify_csrf)])
-async def reservation_delete(reservation_id: int, user: User = Depends(deps.current_user)):
+async def reservation_cancel(request: Request, reservation_id: int,
+                             user: User = Depends(deps.current_user)):
+    """« Annuler » annule : la ligne reste, barrée et horodatée — comme une annulation
+    faite au téléphone. Le lien s'appelait déjà « Annuler » mais EFFAÇAIT la ligne : le
+    restaurateur perdait la preuve en cas de litige, et le client qui rappelait pour
+    reprendre sa table n'était plus retrouvé. L'effacement d'un appelant passe par le
+    droit à l'effacement (rgpd.effacer_appelant), pas par ce bouton."""
     _load_scoped(reservation_id, user)
-    reservations.delete_reservation(reservation_id)
-    return HTMLResponse("")  # htmx hx-swap="delete" retire la ligne
+    resa = reservations.cancel_reservation(reservation_id)
+    return deps.templates.TemplateResponse(
+        request, "reservations/_row.html",
+        {"r": resa, "tenant_names": _tenant_names(user)},
+    )

@@ -76,11 +76,6 @@ def update_reservation(reservation_id: int, **fields) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def delete_reservation(reservation_id: int) -> None:
-    with db.get_conn() as conn:
-        conn.execute("DELETE FROM reservations WHERE id = ?", (reservation_id,))
-
-
 def list_filtered(
     tenant_id: Optional[int] = None,
     date_from: Optional[str] = None,

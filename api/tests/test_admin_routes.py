@@ -87,10 +87,35 @@ class TestCsrf:
         _login(client)
         token = _csrf(client)
         resp = client.post(
-            f"/admin/reservations/{_seed_resa(tenant.id)}/delete",
+            f"/admin/reservations/{_seed_resa(tenant.id)}/cancel",
             headers={"X-CSRF-Token": token},
         )
         assert resp.status_code == 200
+
+
+class TestAnnulationDepuisLAdmin:
+    """« Annuler » annule : la ligne reste, barrée, horodatée — jamais effacée."""
+
+    def test_annuler_garde_la_ligne_et_la_barre(self, client, resto):
+        tenant, user = resto
+        rid = _seed_resa(tenant.id, name="Litige")
+        _login(client, user.email, "resto-pass")
+        resp = client.post(f"/admin/reservations/{rid}/cancel",
+                           headers={"X-CSRF-Token": _csrf(client)})
+        assert resp.status_code == 200
+        assert 'class="annulee"' in resp.text and "Annulée" in resp.text
+        assert "Litige" in resp.text
+        resa = reservations.get_reservation(rid)
+        assert resa is not None and resa["cancelled_at"]
+
+    def test_la_route_d_effacement_n_existe_plus(self, client, resto):
+        tenant, user = resto
+        rid = _seed_resa(tenant.id)
+        _login(client, user.email, "resto-pass")
+        resp = client.post(f"/admin/reservations/{rid}/delete",
+                           headers={"X-CSRF-Token": _csrf(client)})
+        assert resp.status_code in (404, 405)
+        assert reservations.get_reservation(rid) is not None
 
 
 class TestTwilioUntouched:
@@ -176,9 +201,10 @@ class TestRestaurateurScoping:
             rid = _seed_resa(other.id)
             _login(client, user.email, "resto-pass")
             token = _csrf(client)
-            resp = client.post(f"/admin/reservations/{rid}/delete",
+            resp = client.post(f"/admin/reservations/{rid}/cancel",
                                headers={"X-CSRF-Token": token})
             assert resp.status_code == 403
+            assert reservations.get_reservation(rid)["cancelled_at"] is None
         finally:
             tenants.delete_tenant(other.id)
 
