@@ -76,7 +76,7 @@ Au premier démarrage, un restaurant de démonstration est créé, rattaché au 
 ### 3. Connecter Twilio
 
 Pointez le webhook vocal de votre numéro Twilio sur `https://VOTRE_DOMAINE/twilio/webhook`
-(guide : [TWILIO_SETUP.md](TWILIO_SETUP.md), ou script automatique `python setup_twilio.py`).
+(guide : [docs/TWILIO_SETUP.md](docs/TWILIO_SETUP.md), ou `python3 scripts/twilio_setup_number.py --webhook …`).
 
 Appelez votre numéro : l'assistant décroche, renseigne et prend des réservations.
 
