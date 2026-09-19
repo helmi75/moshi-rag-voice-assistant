@@ -10,7 +10,7 @@ Prérequis : pip install websockets msgpack numpy
 
 Exemples :
     python scripts/test_moshi_server.py \
-        --url https://helmi75--moshi-server-tts-server.modal.run
+        --url https://<vous>--moshi-server-tts-server.modal.run
 
     python scripts/test_moshi_server.py --url wss://...modal.run \
         --text "Bonjour, bienvenue au restaurant. Souhaitez-vous réserver une table ?" \

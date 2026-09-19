@@ -296,6 +296,28 @@ def _controle_signatures() -> Controle:
     )
 
 
+def _controle_jeton_voix() -> Controle:
+    """Le serveur de voix est-il fermé par une clé privée ?
+
+    `public_token` est la clé de démonstration de Kyutai, connue de tous : avec l'URL
+    Modal, n'importe qui peut faire parler le GPU à nos frais, et l'occuper pendant les
+    vrais appels. Les appels passent quand même : c'est une ATTENTION, pas une panne.
+    Une clé vide revient au même, l'application retombant alors sur `public_token`."""
+    titre = "Jeton du serveur de voix"
+    cle = os.getenv("MOSHI_TTS_API_KEY", "").strip()
+    if cle and cle != "public_token":
+        return Controle("jeton_voix", titre, OK, "Clé privée posée.",
+                        mesure={"cle_privee": True})
+    return Controle(
+        "jeton_voix", titre, ATTENTION,
+        "Le serveur de voix accepte la clé publique `public_token`.",
+        "Quiconque connaît l'URL Modal peut faire tourner le GPU à nos frais. Générer une "
+        "clé (`openssl rand -hex 32`), la poser dans le .env du VPS et dans le .env local, "
+        "puis `modal deploy` : voir docs/MODAL.md, section Jeton.",
+        mesure={"cle_privee": False},
+    )
+
+
 # Nombre d'appels relus au maximum par la sonde. Au trafic actuel (24 appels en 30
 # jours) la fenêtre entière tient largement dedans ; la borne existe pour que la sonde
 # reste à coût constant le jour où le parc grossit.
@@ -742,6 +764,7 @@ def controles() -> list[Controle]:
         ("base", _controle_base),
         ("configuration", _controle_configuration),
         ("signatures", _controle_signatures),
+        ("jeton_voix", _controle_jeton_voix),
         ("appels_muets", _sur_appels(_controle_appels_muets)),
         ("appels_echoues", _sur_appels(_controle_appels_echoues)),
         ("appels_inacheves", _sur_appels(_controle_appels_inacheves)),

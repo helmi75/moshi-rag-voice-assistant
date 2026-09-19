@@ -80,9 +80,9 @@ class TestEnumeration:
     """Filet de sécurité : un contrôle supprimé par mégarde ferait passer la sonde au
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
-    ATTENDUS = ["base", "configuration", "signatures", "appels_muets", "appels_echoues",
-                "appels_inacheves", "latence", "twilio", "accueils", "sauvegarde",
-                "purge", "disque", "enregistrements"]
+    ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
+                "appels_echoues", "appels_inacheves", "latence", "twilio", "accueils",
+                "sauvegarde", "purge", "disque", "enregistrements"]
 
     def test_tous_les_controles_sont_presents(self, base):
         assert [c["cle"] for c in supervision.etat(force=True)["controles"]] == self.ATTENDUS
@@ -281,6 +281,24 @@ class TestLatence:
         monkeypatch.setenv("SUPERVISION_LATENCE_PANNE_MS", "4000")
         _appel(etablissement.id, "CA-fige", transcript=DIALOGUE, latences=[5000, 6000, 7000])
         assert _controle("latence")["niveau"] == supervision.PANNE
+
+
+class TestJetonVoix:
+    """La clé de démonstration de Kyutai ouvre le GPU à qui connaît l'URL."""
+
+    @pytest.mark.parametrize("valeur", ["", "public_token", "  public_token  "])
+    def test_cle_publique_ou_absente_est_signalee(self, base, monkeypatch, valeur):
+        monkeypatch.setenv("MOSHI_TTS_API_KEY", valeur)
+        controle = _controle("jeton_voix")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert controle["mesure"]["cle_privee"] is False
+
+    def test_cle_privee_est_verte(self, base, monkeypatch):
+        monkeypatch.setenv("MOSHI_TTS_API_KEY", "0f" * 32)
+        controle = _controle("jeton_voix")
+        assert controle["niveau"] == supervision.OK
+        # La valeur de la clé n'apparaît nulle part dans la sonde, qui sort du serveur.
+        assert "0f" * 32 not in json.dumps(controle)
 
 
 class TestSauvegarde:

@@ -18,7 +18,7 @@ Protocole ASR vérifié (kyutai-labs/delayed-streams-modeling, moshi rust/moshi-
 Prérequis : pip install websockets msgpack numpy
 
 Exemples :
-    python scripts/test_moshi_stt.py --url https://helmi75--moshi-server-tts-server.modal.run
+    python scripts/test_moshi_stt.py --url https://<vous>--moshi-server-tts-server.modal.run
     python scripts/test_moshi_stt.py --url wss://...modal.run --idle 120   # test session idle
 """
 import argparse

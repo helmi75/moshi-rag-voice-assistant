@@ -51,7 +51,7 @@ PUBLIC_WS_URL=wss://assistant.mondomaine.fr/ws/voice
 DEEPGRAM_API_KEY=<clé fraîche>
 
 MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run
-MOSHI_TTS_API_KEY=public_token
+MOSHI_TTS_API_KEY=<openssl rand -hex 32>       # même valeur que pour modal deploy (docs/MODAL.md)
 MOSHI_TTS_VOICE=unmute-prod-website/developpeuse-3.wav
 
 LLM_MODEL=google/gemini-2.5-flash

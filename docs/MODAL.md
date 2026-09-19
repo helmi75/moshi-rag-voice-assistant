@@ -33,11 +33,29 @@ Options, lues au moment du `modal deploy` :
 Dans le `.env` du VPS :
 ```
 MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run   # https:// accepté aussi
-MOSHI_TTS_API_KEY=public_token        # doit correspondre au jeton du serveur
+MOSHI_TTS_API_KEY=<openssl rand -hex 32>   # la MÊME valeur que le .env du modal deploy
 MOSHI_TTS_VOICE=unmute-prod-website/developpeuse-3.wav
 ```
 Puis `docker compose up -d api`. La supervision (`/supervision`, contrôle « Configuration du
 chemin d'appel ») exige `MOSHI_TTS_URL`.
+
+## Jeton
+
+La config publique de Kyutai accepte `public_token`, une clé que tout le monde connaît :
+qui trouve l'URL Modal peut faire parler le GPU à nos frais. `deploy/modal_moshi_server.py`
+remplace donc `authorized_ids` **au démarrage du conteneur** par `MOSHI_TTS_API_KEY`, lue
+dans le `.env` (via `Secret.from_dotenv`) — jamais écrite dans l'image. `modal deploy`
+**refuse de partir** si la clé est absente du `.env` ou vaut `public_token`.
+
+Ordre de mise en place (sinon les appels sont muets entre deux étapes) :
+1. `openssl rand -hex 32` → `MOSHI_TTS_API_KEY=…` dans le `.env` local **et** celui du VPS ;
+2. sur le VPS : `docker compose up -d api` (l'app envoie déjà la nouvelle clé) ;
+3. en local : `modal deploy deploy/modal_moshi_server.py` — les appels reprennent au
+   premier conteneur démarré avec la clé ;
+4. `python scripts/test_moshi_server.py --url <URL> --api-key public_token` doit être
+   **refusé**, et `--api-key <clé>` accepté ; `/supervision` → « Jeton du serveur de voix » vert.
+
+Changer de clé plus tard : même ordre.
 
 ## 3. Vérifier
 

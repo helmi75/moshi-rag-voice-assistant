@@ -426,6 +426,15 @@ GARDE_FOUS = [
         k="mois",
         panne="le compteur de forfait additionnerait tous les mois : plafond atteint le 3, facture fausse",
     ),
+    GardeFou(
+        nom="La clé publique du serveur de voix est signalée",
+        fichier="api/app/supervision.py",
+        avant='    if cle and cle != "public_token":',
+        apres="    if True:  # mutation",
+        tests=["test_supervision.py"],
+        k="cle_publique",
+        panne="le GPU resterait ouvert à qui connaît l'URL Modal, supervision au vert",
+    ),
 ]
 
 
