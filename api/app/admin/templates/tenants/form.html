@@ -62,7 +62,11 @@
     </label>
     <label>Base de connaissances
       <small class="muted">(un bloc par section, commençant par <code>## Titre</code> — horaires, carte, consignes)</small>
-      <textarea name="knowledge_base" rows="12">{{ tenant.knowledge_base if tenant else '' }}</textarea>
+      <textarea name="knowledge_base" rows="12" maxlength="{{ KB_MAX }}">{{ tenant.knowledge_base if tenant else '' }}</textarea>
+      {# Jauge : relue à chaque phrase de l'appel, la base se paie en latence. #}
+      {% set kb_len = (tenant.knowledge_base or '')|length if tenant else 0 %}
+      <small class="muted">{{ "{:,}".format(kb_len).replace(",", " ") }} / {{ "{:,}".format(KB_MAX).replace(",", " ") }} caractères
+        — relue à chaque phrase de l'appel : plus elle est longue, plus l'assistante met à répondre.</small>
     </label>
     <button type="submit">Enregistrer</button>
   </form>

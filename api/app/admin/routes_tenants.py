@@ -1,6 +1,7 @@
 """CRUD des établissements (tenants) + comptes restaurateurs. Super-admin, sauf
 l'édition de SA fiche par le restaurateur."""
 import asyncio
+import re
 import sqlite3
 from typing import Optional
 
@@ -12,6 +13,41 @@ from ..users import User
 from . import deps
 
 router = APIRouter()
+
+# Le format exact que Twilio transmet dans `To` (E.164) : « +33 1 23… » ou « 0123… »
+# enregistrés tels quels ne correspondent à AUCUN appel, et l'établissement reste muet
+# sans que rien ne le signale. Les séparateurs usuels sont retirés avant de vérifier.
+_E164 = re.compile(r"^\+[1-9]\d{6,14}$")
+_SEPARATEURS = re.compile(r"[\s.\-()]")
+
+# La base de connaissances part dans le prompt À CHAQUE tour de parole : au-delà, le
+# modèle répond plus lentement (blanc ressenti) et plus cher, pour un texte qu'il suit
+# de moins en moins bien. 12 000 caractères ≈ 3 000 tokens ; la base démo en fait 600.
+KB_MAX = 12_000
+deps.templates.env.globals["KB_MAX"] = KB_MAX
+
+
+def _numero(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """(numéro normalisé, message d'erreur ou None)."""
+    numero = _SEPARATEURS.sub("", saisie or "")
+    if _E164.match(numero):
+        return numero, None
+    return None, (f"Le numéro « {saisie} » doit être au format international, par exemple "
+                  "+33612345678 : c'est la forme exacte que Twilio transmet, sinon aucun "
+                  "appel n'arriverait à cet établissement.")
+
+
+def _milliers(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
+
+
+def _base_trop_longue(texte: str) -> Optional[str]:
+    if len(texte) <= KB_MAX:
+        return None
+    return (f"La base de connaissances fait {_milliers(len(texte))} caractères, pour "
+            f"{_milliers(KB_MAX)} au plus : elle est relue à chaque phrase de l'appel, et "
+            "au-delà l'assistante répond plus lentement. Raccourcir les fiches les moins "
+            "utiles.")
 
 
 def _email_de_notification(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -57,6 +93,8 @@ async def tenant_create(
     notify_email: Optional[str] = Form(None),
 ):
     adresse, erreur = _email_de_notification(notify_email)
+    numero, erreur_numero = _numero(phone_number)
+    erreur = erreur_numero or erreur or _base_trop_longue(knowledge_base)
     if erreur:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
@@ -64,7 +102,7 @@ async def tenant_create(
         )
     try:
         tenant = tenants.create_tenant(
-            name.strip(), phone_number.strip(), business_type.strip(),
+            name.strip(), numero, business_type.strip(),
             language.strip(), greeting.strip() or None, knowledge_base,
         )
     except sqlite3.IntegrityError:
@@ -112,6 +150,12 @@ async def tenant_update(
 ):
     tenant = deps.resolve_tenant(tenant_id, user)
     adresse, erreur = _email_de_notification(notify_email)
+    # Le numéro n'est vérifié que s'il sera écrit : un restaurateur ne le modifie pas, et
+    # un champ ignoré ne doit pas pouvoir faire échouer son enregistrement.
+    numero, erreur_numero = (_numero(phone_number)
+                             if user.is_superadmin and phone_number is not None
+                             else (None, None))
+    erreur = erreur_numero or erreur or _base_trop_longue(knowledge_base)
     if erreur:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
@@ -126,8 +170,8 @@ async def tenant_update(
         "notify_email": adresse,
     }
     # Le numéro de téléphone (routage Twilio) est réservé au super-admin.
-    if user.is_superadmin and phone_number is not None:
-        fields["phone_number"] = phone_number.strip()
+    if numero is not None:
+        fields["phone_number"] = numero
     # La formule aussi : elle décide du plafond et de ce qui sera facturé. Un
     # restaurateur qui pourrait se l'attribuer choisirait son propre tarif.
     # `plans.get` rejette toute valeur hors catalogue — un formulaire forgé ne peut
