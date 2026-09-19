@@ -508,6 +508,9 @@ class TestTwilio:
         assert _controle("twilio")["niveau"] == supervision.ATTENTION
 
 
+ENTETE = {"X-Supervision-Token": "le-bon-jeton"}
+
+
 class TestSonde:
     """La sonde HTTP : c'est elle que le surveillant extérieur interroge, et son CODE
     HTTP — pas le corps de la réponse — décide de l'alerte."""
@@ -523,26 +526,29 @@ class TestSonde:
             assert client.get("/supervision").status_code == 401
             assert client.get("/supervision?token=faux").status_code == 401
 
-    def test_accepte_l_en_tete_et_la_requete(self, monkeypatch):
+    def test_accepte_l_en_tete(self, monkeypatch):
         monkeypatch.setenv("SUPERVISION_TOKEN", "le-bon-jeton")
         with TestClient(app) as client:
-            par_entete = client.get("/supervision",
-                                    headers={"X-Supervision-Token": "le-bon-jeton"})
-            par_url = client.get("/supervision?token=le-bon-jeton")
+            par_entete = client.get("/supervision", headers=ENTETE)
         assert par_entete.status_code in (200, 503)
-        assert par_url.status_code == par_entete.status_code
         assert par_entete.json()["niveau"] in ("ok", "attention", "panne")
+
+    def test_refuse_le_jeton_dans_l_url(self, monkeypatch):
+        """Un jeton dans l'URL finit dans les journaux du proxy : il n'est plus secret."""
+        monkeypatch.setenv("SUPERVISION_TOKEN", "le-bon-jeton")
+        with TestClient(app) as client:
+            assert client.get("/supervision?token=le-bon-jeton").status_code == 401
 
     def test_503_uniquement_en_panne(self, monkeypatch):
         monkeypatch.setenv("SUPERVISION_TOKEN", "le-bon-jeton")
         faux = {"niveau": "attention", "mesure_le": "", "fenetre_jours": 7, "controles": []}
         with patch.object(supervision, "etat", return_value=faux):
             with TestClient(app) as client:
-                assert client.get("/supervision?token=le-bon-jeton").status_code == 200
+                assert client.get("/supervision", headers=ENTETE).status_code == 200
         faux["niveau"] = "panne"
         with patch.object(supervision, "etat", return_value=faux):
             with TestClient(app) as client:
-                assert client.get("/supervision?token=le-bon-jeton").status_code == 503
+                assert client.get("/supervision", headers=ENTETE).status_code == 503
 
     def test_health_reste_une_sonde_de_vie(self, monkeypatch):
         """`/health` sert la porte de déploiement : une sauvegarde en retard ne doit

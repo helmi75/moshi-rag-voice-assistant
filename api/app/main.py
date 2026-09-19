@@ -188,7 +188,8 @@ async def supervision_probe(request: Request):
     `.github/workflows/supervision.yml`, qui tourne chez GitHub, qui décide d'alerter.
 
     Authentifiée : la réponse décrit l'infrastructure et le trafic. Comparaison à temps
-    constant, comme partout ailleurs dans ce projet.
+    constant, comme partout ailleurs dans ce projet. Jeton en EN-TÊTE uniquement : dans
+    l'URL (`?token=`), il finirait dans les journaux de Caddy et l'historique des shells.
 
     Codes : **200** si tout va bien ou si la pile est dégradée mais sert les appels,
     **503** si un appelant qui téléphone maintenant n'est pas correctement servi. C'est
@@ -202,8 +203,7 @@ async def supervision_probe(request: Request):
         # Pas de jeton configuré = pas de sonde ici. Répondre autre chose laisserait
         # croire qu'une supervision existe alors que rien ne la protège.
         raise HTTPException(status_code=404, detail="Not Found")
-    fourni = (request.headers.get("x-supervision-token")
-              or request.query_params.get("token") or "")
+    fourni = request.headers.get("x-supervision-token") or ""
     if not hmac.compare_digest(attendu, fourni):
         raise HTTPException(status_code=401, detail="Jeton de supervision invalide")
 
