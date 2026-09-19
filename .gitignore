@@ -69,7 +69,6 @@ logs/
 *.log.*
 
 # Docker
-.dockerignore
 docker-compose.override.yml
 
 # Caddy

@@ -1,0 +1,14 @@
+# Contexte de build de l'image `api` (docker-compose.yml : context ./api).
+# Versionné : ignoré par git, il n'existait sur aucune machine, et tout le dossier
+# partait dans le contexte — tests, caches, et un éventuel .env déposé ici par erreur.
+# Le Dockerfile ne copie que `app/` : ce fichier limite ce qui est ENVOYÉ au démon et
+# garantit qu'aucun secret ni cache ne se glisse dans une couche.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+tests/
+**/.env
+**/.env.*
+**/*.db
+**/*.db-*
+**/*.swp
