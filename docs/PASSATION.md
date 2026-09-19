@@ -205,8 +205,8 @@ curl -s localhost:8000/health
 /opt/backups/backup-db.sh                      # sauvegarde à la demande
 
 # En local
-cd api && python -m pytest tests/ -q            # 451 tests, aucun réseau
-python3 scripts/mutation_check.py               # 25 garde-fous : chacun doit MORDRE
+cd api && python -m pytest tests/ -q            # toute la suite, aucun réseau
+python3 scripts/mutation_check.py               # chaque garde-fou doit MORDRE
 modal deploy deploy/modal_moshi_server.py
 python scripts/test_moshi_server.py --url "$MOSHI_TTS_URL" --api-key "$MOSHI_TTS_API_KEY"
 
