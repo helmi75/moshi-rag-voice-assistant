@@ -38,6 +38,7 @@ démonstration, des sauvegardes restées sur la machine, et une disponibilité t
 - **Nom du dernier passage** proposé au lieu d'être redemandé.
 - **Copie des sauvegardes hors du serveur** (rclone), surveillée.
 - Sonde de vie Docker (`HEALTHCHECK`), index SQLite v13, `ruff` et `pip-audit` en CI.
+- **GPU chaud aux heures de service seulement** (`MOSHI_KEEPWARM_HEURES`), désactivé par défaut.
 
 ### Modifié
 - **Un seul chemin d'appel** : Media Streams + Pipecat + Deepgram + moshi-server. Retirés :
@@ -54,6 +55,8 @@ démonstration, des sauvegardes restées sur la machine, et une disponibilité t
 - Supprimer un établissement supprime aussi ses messages et ses enregistrements.
 - Le restaurant de démonstration n'est plus réaligné à chaque démarrage : l'admin fait
   foi (`SEED_DEMO`).
+- **23 réglages atteignent enfin le conteneur** (GPU chaud, coûts, fuseau, délais…) :
+  absents de `docker-compose.yml`, ils étaient sans effet même posés dans le `.env`.
 - Accès SQLite hors de la boucle d'événements (appel et admin) ; tâches de fond
   retenues ; `lifespan` ; journaux loguru partout.
 

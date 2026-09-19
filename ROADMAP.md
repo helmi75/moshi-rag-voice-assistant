@@ -33,7 +33,7 @@ l'ordre et l'état au 19/09/2026. L'historique de ce qui est livré est dans
 
 | Quoi | Pourquoi |
 |---|---|
-| #26 GPU chaud aux heures de service seulement | le premier appel après une pause attend le réveil du GPU (55-70 s couverts par l'accueil et la musique) ; à trancher au banc et à l'oreille |
+| #26 GPU chaud aux heures de service : **décider de l'activer** | le mécanisme existe (`MOSHI_KEEPWARM_HEURES`, ≈ 180 $/mois pour 7 h 30 par jour) ; reste à trancher, à l'oreille, si le démarrage à froid couvert par la musique suffit |
 | Qualité mesurée en continu | banc de conversation nocturne en CI avec un seuil ; score d'interaction par appel tiré du journal de bord ; A/B du délai de fin de tour |
 | #36 Facturation Stripe | le plafond compte déjà (`quotas`) ; il reste à encaisser |
 | Compte client multi-établissements | la formule Maison (5 établissements) n'est pas vendable sans lui : `quotas.groupement_manquant` |
