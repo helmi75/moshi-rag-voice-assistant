@@ -2,9 +2,9 @@
 # Généré par uv depuis requirements.txt (l'intention). Ne pas éditer à la main — régénérer :
 #   uv pip compile api/app/requirements.txt -o api/app/requirements.lock \
 #       --python-version 3.12 --python-platform linux --no-annotate --no-header [--upgrade]
+# puis suite de tests, construction de l'image et recette (docs/DEPLOY.md, « Dépendances figées »).
 # Versions alignées le 19/09/2026 sur celles qui tournaient en production (pip freeze du
 # conteneur, passé en `-c`) : déployer ce verrou ne change aucune version en service.
-# puis suite de tests, construction de l'image et recette (docs/DEPLOY.md, « Dépendances figées »).
 
 aiofiles==25.1.0
 aiohappyeyeballs==2.7.1
