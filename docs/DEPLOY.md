@@ -99,7 +99,11 @@ modal deploy deploy/modal_moshi_server.py
 **Cold start / GPU chaud** (`MODAL_MIN_CONTAINERS`, à décider selon le budget) :
 - **Scale-to-zero** (défaut, recommandé au lancement) : `0`. Gratuit à vide ; le 1er appel après
   une pause attend ~70 s, **couvert par l'accueil pré-enregistré + la musique d'attente**.
-- **GPU chaud** : `1` → 0 cold start, mais ~250-290 €/mois (L4 24/7). À activer quand un client
+- **GPU chaud aux heures de service** (côté application, sans redéployer Modal) :
+  `MOSHI_KEEPWARM_SECONDS=90` et `MOSHI_KEEPWARM_HEURES=11:30-14:30,18:30-23` dans le `.env`,
+  puis `docker compose up -d api`. ≈ 0,80 $ par heure chaude : 7 h 30 par jour ≈ 180 $/mois.
+  Le GPU s'éteint la nuit ; un appel hors plage retrouve le démarrage à froid couvert.
+- **GPU chaud 24/7** : `1` → 0 cold start, mais ~250-290 €/mois (L4 24/7). À activer quand un client
   payant le justifie : `MODAL_MIN_CONTAINERS=1 modal deploy deploy/modal_moshi_server.py`.
 
 ## Vérification (bout en bout)
