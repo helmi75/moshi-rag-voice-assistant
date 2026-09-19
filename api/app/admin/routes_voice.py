@@ -52,9 +52,8 @@ async def voice_update(
     tenant = deps.resolve_tenant(tenant_id, user)
     fields: dict = {}
     if greeting is not None:
-        # Un accueil non vide saisi par le restaurateur est marqué « personnalisé » :
-        # ainsi seed_demo_tenant ne le réécrasera jamais au redémarrage (cf. tenants.py).
-        # Le vider rend la main au défaut géré (greeting_customized=0).
+        # Un accueil non vide saisi par le restaurateur est marqué « personnalisé »
+        # (greeting_customized) ; le vider rend la main à l'accueil par défaut.
         g = greeting.strip() or None
         fields.update(greeting=g, greeting_customized=1 if g else 0)
     # Voix : on n'enregistre QUE ce qui est au catalogue. Une valeur forgée (formulaire

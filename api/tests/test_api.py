@@ -52,18 +52,32 @@ class TestTenantRouting:
         assert tenant is not None
         assert tenant.business_type == "restaurant"
 
-    def test_seed_realigns_demo_number_on_restart(self, monkeypatch):
-        # Un premier démarrage a pu figer un mauvais numéro dans le volume ;
-        # au redémarrage avec le bon TWILIO_NUMBER, le tenant démo doit suivre.
-        new_number = "+19998887777"
-        monkeypatch.setattr(tenants, "DEMO_TENANT_NUMBER", new_number)
-        tenants.seed_demo_tenant()
-        assert tenants.get_by_phone(new_number) is not None
-        # Restaure le numéro de démo pour ne pas perturber les autres tests.
-        monkeypatch.setattr(tenants, "DEMO_TENANT_NUMBER", DEMO_NUMBER)
-        tenants.seed_demo_tenant()
-        assert tenants.get_by_phone(DEMO_NUMBER) is not None
-        assert tenants.get_by_phone(new_number) is None
+    def test_un_redemarrage_ne_touche_plus_le_numero_change_dans_l_admin(self, monkeypatch):
+        """En production le tenant réel EST le tenant semé : un numéro changé dans
+        l'admin revenait à TWILIO_NUMBER au redémarrage, et les appels vers le nouveau
+        numéro tombaient sur « numéro non configuré »."""
+        demo = tenants.get_by_phone(DEMO_NUMBER)
+        nouveau = "+33970000001"
+        tenants.update_tenant(demo.id, phone_number=nouveau)
+        try:
+            monkeypatch.setattr(tenants, "DEMO_TENANT_NUMBER", DEMO_NUMBER)
+            tenants.seed_demo_tenant()  # simule un redémarrage
+            assert tenants.get_by_id(demo.id).phone_number == nouveau
+            assert tenants.get_by_phone(DEMO_NUMBER) is None
+        finally:
+            tenants.update_tenant(demo.id, phone_number=DEMO_NUMBER)
+
+    def test_la_base_vide_est_semee_sauf_si_seed_demo_vaut_0(self, monkeypatch, tmp_path):
+        from app import db
+
+        with patch.object(db, "DB_PATH", str(tmp_path / "vide.db")):
+            db.init_db()
+            monkeypatch.setenv("SEED_DEMO", "0")
+            tenants.seed_demo_tenant()
+            assert tenants.list_all() == []
+            monkeypatch.delenv("SEED_DEMO")
+            tenants.seed_demo_tenant()
+            assert [t.name for t in tenants.list_all()] == ["Le Fouquet's Paris"]
 
     def test_seed_preserves_customized_greeting(self):
         """Un accueil personnalisé (greeting_customized=1) ne doit JAMAIS être écrasé au
@@ -76,13 +90,15 @@ class TestTenantRouting:
         # Restaure l'état par défaut pour l'isolation des autres tests.
         tenants.update_tenant(demo.id, greeting=tenants._DEMO_GREETING, greeting_customized=0)
 
-    def test_seed_realigns_non_customized_greeting(self):
-        """Un accueil NON personnalisé (vieux défaut figé dans le volume) est bien réaligné
-        sur le défaut courant au redémarrage."""
+    def test_un_redemarrage_ne_reecrit_plus_l_accueil(self):
+        """L'admin fait foi, personnalisé ou non : un redémarrage n'écrit plus rien."""
         demo = tenants.get_by_phone(DEMO_NUMBER)
-        tenants.update_tenant(demo.id, greeting="Vieux défaut périmé.", greeting_customized=0)
-        tenants.seed_demo_tenant()
-        assert tenants.get_by_id(demo.id).greeting == tenants._DEMO_GREETING
+        tenants.update_tenant(demo.id, greeting="Accueil saisi.", greeting_customized=0)
+        try:
+            tenants.seed_demo_tenant()
+            assert tenants.get_by_id(demo.id).greeting == "Accueil saisi."
+        finally:
+            tenants.update_tenant(demo.id, greeting=tenants._DEMO_GREETING)
 
     def test_unknown_number_hangs_up(self):
         response = client.post(

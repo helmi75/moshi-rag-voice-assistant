@@ -22,6 +22,9 @@ services:
       TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
       TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
       TWILIO_NUMBER: "${TWILIO_NUMBER}"
+      # Restaurant de démonstration semé dans une base VIDE (numéro = TWILIO_NUMBER).
+      # Il n'est plus jamais réaligné ensuite : l'admin fait foi. 0 = ne rien semer.
+      SEED_DEMO: "${SEED_DEMO:-1}"
       # Signature des requêtes Twilio (X-Twilio-Signature). PUBLIC_URL = l'origine publique
       # exacte configurée dans la console (https://app.exemple.fr) ; vide, elle est dérivée
       # de PUBLIC_WS_URL. TWILIO_SIGNATURE : enforce (défaut dès qu'un jeton existe),

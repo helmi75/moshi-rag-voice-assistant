@@ -183,38 +183,21 @@ def delete_tenant(tenant_id: int) -> None:
 
 
 def seed_demo_tenant() -> None:
-    """Crée le restaurant de démonstration si absent, et garde son numéro aligné
-    sur TWILIO_NUMBER.
+    """Sème le restaurant de démonstration dans une base VIDE, et seulement là.
 
-    Le numéro est réaligné à chaque démarrage : sans ça, un premier démarrage avec
-    un mauvais TWILIO_NUMBER (ou le défaut) fige le numéro dans le volume Docker et
-    tous les appels tombent sur « numéro non configuré ». Pour ne pas écraser une
-    vraie prod, on ne sème rien si d'autres tenants existent déjà."""
+    Jusqu'au 19/09/2026, il réalignait aussi le numéro (sur TWILIO_NUMBER) et l'accueil
+    du tenant démo à chaque démarrage. Or en production le tenant réel EST le tenant
+    semé : un numéro changé dans l'admin — l'achat du numéro FR, par exemple — revenait
+    à l'ancien au redémarrage suivant, sans un mot, et les appels vers le nouveau numéro
+    tombaient sur « numéro non configuré ». L'admin est désormais la SEULE source du
+    numéro et de l'accueil d'un établissement existant.
+
+    SEED_DEMO=0 : ne rien semer du tout, même dans une base vide (installation neuve
+    pour un vrai client, qui n'a que faire d'un restaurant fictif)."""
+    if os.getenv("SEED_DEMO", "1").strip() == "0":
+        return
     with db.get_conn() as conn:
-        demo = conn.execute(
-            "SELECT id, phone_number, greeting, greeting_customized "
-            "FROM tenants WHERE name = ? AND business_type = ?",
-            ("Le Fouquet's Paris", "restaurant"),
-        ).fetchone()
-        if demo is not None:
-            if DEMO_TENANT_NUMBER and demo["phone_number"] != DEMO_TENANT_NUMBER:
-                conn.execute(
-                    "UPDATE tenants SET phone_number = ? WHERE id = ?",
-                    (DEMO_TENANT_NUMBER, demo["id"]),
-                )
-            # Réaligne l'accueil sur le texte par défaut courant (sinon un vieux défaut
-            # reste figé dans le volume Docker et ne finit pas par « un instant s'il vous
-            # plaît »). MAIS on ne touche JAMAIS un accueil personnalisé par le client :
-            # sans ce garde-fou, chaque redémarrage écraserait l'accueil qu'il a réglé.
-            if not demo["greeting_customized"] and demo["greeting"] != _DEMO_GREETING:
-                conn.execute(
-                    "UPDATE tenants SET greeting = ? WHERE id = ?",
-                    (_DEMO_GREETING, demo["id"]),
-                )
-            return
-        # Pas de tenant démo : ne semer que si la base est vide (jamais en prod).
-        count = conn.execute("SELECT COUNT(*) FROM tenants").fetchone()[0]
-        if count:
+        if conn.execute("SELECT COUNT(*) FROM tenants").fetchone()[0]:
             return
         conn.execute(
             """INSERT INTO tenants (name, business_type, phone_number, language, greeting, knowledge_base)
