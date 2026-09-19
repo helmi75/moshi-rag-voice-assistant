@@ -637,24 +637,32 @@ class TestCablage:
 
     @staticmethod
     def _variables_lues() -> set[str]:
+        """TOUTES les variables lues par l'application, pas une liste de préfixes : le
+        19/09/2026, 23 réglages (GPU chaud, coûts, fuseau…) documentés dans env.example
+        n'atteignaient pas le conteneur, parce que le test ne regardait que certains
+        modules."""
         import pathlib
         import re
 
         app = pathlib.Path(__file__).resolve().parents[1] / "app"
+        # Lecture directe, et lecture par les petits utilitaires `_entier`/`_jours` des
+        # modules de seuils, qui reçoivent le nom en paramètre.
+        motifs = (r'os\.(?:getenv|environ\.get)\(\s*["\']([A-Z0-9_]+)["\']',
+                  r'\b_(?:entier|jours)\(\s*["\']([A-Z0-9_]+)["\']')
         lues: set[str] = set()
-        sources = (app / "supervision.py", app / "main.py", app / "rgpd.py",
-                   app / "voice" / "enregistrement.py", app / "voice" / "journal.py",
-                   app / "twilio_signature.py", app / "notifications.py")
-        motif = (r'["\']((?:SUPERVISION|RETENTION|RGPD|ENREGISTREMENT|JOURNAL|SMTP)_[A-Z_]+'
-                 r'|TWILIO_SIGNATURE|PUBLIC_URL)["\']')
-        for source in sources:
-            lues |= set(re.findall(motif, source.read_text(encoding="utf-8")))
+        for source in app.rglob("*.py"):
+            texte = source.read_text(encoding="utf-8")
+            for motif in motifs:
+                lues |= set(re.findall(motif, texte))
         return lues
 
     def test_toutes_les_variables_lues_sont_transmises(self):
         compose = self._compose()
         lues = self._variables_lues()
-        assert lues, "aucune variable SUPERVISION_* trouvée : le test ne vérifie rien"
+        assert {"SUPERVISION_TOKEN", "SUPERVISION_FENETRE_JOURS",
+                "MOSHI_KEEPWARM_SECONDS"} <= lues, (
+            "la lecture des variables ne trouve plus ce qu'elle devrait : le test ne "
+            "vérifie rien")
         oubliees = sorted(v for v in lues if f"{v}:" not in compose)
         assert not oubliees, (
             "ces variables sont lues par l'application mais absentes de "

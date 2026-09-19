@@ -114,6 +114,38 @@ services:
       JOURNAL_MAX_EVENEMENTS: "${JOURNAL_MAX_EVENEMENTS:-400}"
       SUPERVISION_DISQUE_ATTENTION_MO: "${SUPERVISION_DISQUE_ATTENTION_MO:-10000}"
       SUPERVISION_DISQUE_PANNE_MO: "${SUPERVISION_DISQUE_PANNE_MO:-2000}"
+      # Réglages fins, transmis TELS QUELS : sans valeur ici, Compose prend celle du .env
+      # si elle y est, et sinon la variable n'existe pas dans le conteneur — c'est alors
+      # le défaut écrit dans le code qui s'applique, une seule source de vérité. Avant le
+      # 19/09/2026 ils n'étaient pas listés : posés dans le .env (env.example en documente
+      # plusieurs), ils n'avaient AUCUN effet. Un test exige que toute variable lue par
+      # l'application figure dans ce fichier (test_supervision.py::TestCablage).
+      #  - GPU chaud : MOSHI_KEEPWARM_SECONDS (90 = actif, ≈ 0,80 $/h de GPU) et
+      #    MOSHI_KEEPWARM_HEURES (« 11:30-14:30,18:30-23 », heure du restaurant).
+      MOSHI_KEEPWARM_SECONDS:
+      MOSHI_KEEPWARM_HEURES:
+      MOSHI_CHAUD_SECONDES:
+      MOSHI_HOLD_AFTER_SECONDS:
+      MOSHI_HOLD_MAX_SECONDS:
+      MOSHI_HOLD_MUSIC_PATH:
+      MOSHI_RESUME_TEXT:
+      MOSHI_RESUME_TEXT_CHAUD:
+      MOSHI_TTS_OPEN_TIMEOUT:
+      MOSHI_WARMUP_TEXT:
+      GREETING_CACHE_DIR:
+      HOLD_MUSIC_DIR:
+      REPONSE_ANTICIPEE:
+      USER_IDLE_TIMEOUT:
+      RESTAURANT_TIMEZONE:
+      OPENROUTER_APP_NAME:
+      OPENROUTER_SITE_URL:
+      COST_TWILIO_PER_MIN:
+      COST_DEEPGRAM_PER_MIN:
+      COST_MODAL_PER_MIN:
+      COST_LLM_PER_CALL:
+      LOGIN_MAX_ECHECS:
+      LOGIN_FENETRE_SECONDES:
+      DB_SYNCHRONOUS:
     volumes:
       - api_data:/app/data
 
