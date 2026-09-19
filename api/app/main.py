@@ -273,7 +273,7 @@ async def sms_webhook(
         text = "Ce numéro n'est pas encore configuré."
     else:
         try:
-            text, _ = await llm.respond(tenant, [], Body, From)
+            text, _ = await llm.respond(tenant, [], Body, calls.numero_appelant(From))
         except Exception as exc:
             logger.error(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
             text = "Désolé, une erreur s'est produite. Réessayez dans quelques instants."
@@ -343,7 +343,7 @@ async def voice_stream(websocket: WebSocket):
     call_sid = start.get("callSid")
     custom = start.get("customParameters") or {}
     to_number = custom.get("To")
-    from_number = custom.get("From")
+    from_number = calls.numero_appelant(custom.get("From"))
 
     tenant = await db.hors_boucle(tenants.get_by_phone, to_number)
     if tenant is None or not stream_sid:

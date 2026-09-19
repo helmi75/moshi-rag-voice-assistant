@@ -444,6 +444,15 @@ GARDE_FOUS = [
         k="sans_copie_distante",
         panne="un incident disque emporterait la base et toutes ses copies, supervision au vert",
     ),
+    GardeFou(
+        nom="Un appel masqué n'a pas de numéro",
+        fichier="api/app/calls.py",
+        avant="    if not _E164.fullmatch(numero) or numero in _NUMEROS_MASQUES:",
+        apres="    if not numero:  # mutation",
+        tests=["test_voice_stream.py"],
+        k="masque",
+        panne="tous les appels masqués partageraient un numéro : chacun verrait les réservations des autres",
+    ),
 ]
 
 

@@ -7,6 +7,7 @@ jamais bloquer l'event loop.
 """
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -29,6 +30,26 @@ _COST_TWILIO_PER_MIN = float(os.getenv("COST_TWILIO_PER_MIN", "0.0085"))
 _COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0092"))
 _COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
 _COST_LLM_PER_CALL = float(os.getenv("COST_LLM_PER_CALL", "0.0035"))
+
+
+# Ce que Twilio met dans `From` quand l'appelant masque son numéro : l'orthographe au
+# clavier de ANONYMOUS, RESTRICTED, BLOCKED, UNKNOWN et UNAVAILABLE. Pris pour de vrais
+# numéros, ils faisaient de TOUS les appels masqués un seul et même client : chacun
+# retrouvait, modifiait ou annulait les réservations des autres (find_reservation).
+_NUMEROS_MASQUES = {"+266696687", "+7378742833", "+2562533", "+8656696", "+86282452253"}
+_E164 = re.compile(r"\+[1-9]\d{6,14}")
+
+
+def numero_appelant(brut: Optional[str]) -> Optional[str]:
+    """Le numéro de l'appelant s'il identifie vraiment quelqu'un, sinon None.
+
+    None est la valeur que tout le chemin d'appel comprend déjà comme « appel masqué » :
+    réservation sans numéro, pas de recherche par numéro, message sans rappel possible.
+    Ce qui n'est pas un numéro E.164 (« anonymous » en SIP, chaîne vide) l'est aussi."""
+    numero = (brut or "").strip()
+    if not _E164.fullmatch(numero) or numero in _NUMEROS_MASQUES:
+        return None
+    return numero
 
 
 def estimate_call_cost(duration_seconds: float) -> float:

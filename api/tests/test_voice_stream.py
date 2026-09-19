@@ -33,7 +33,11 @@ def _attendre_le_bot(run_bot, delai: float = 2.0) -> None:
         time.sleep(0.01)
 
 
-def _twilio_start_message(to=DEMO_NUMBER, stream_sid="MZ123", call_sid="CA_stream_1"):
+def _twilio_start_message(to=DEMO_NUMBER, stream_sid="MZ123", call_sid="CA_stream_1",
+                          from_number=None):
+    custom = {"To": to, "CallSid": call_sid}
+    if from_number is not None:
+        custom["From"] = from_number
     return {
         "event": "start",
         "sequenceNumber": "1",
@@ -44,7 +48,7 @@ def _twilio_start_message(to=DEMO_NUMBER, stream_sid="MZ123", call_sid="CA_strea
             "callSid": call_sid,
             "tracks": ["inbound"],
             "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000, "channels": 1},
-            "customParameters": {"To": to, "CallSid": call_sid},
+            "customParameters": custom,
         },
     }
 
@@ -101,6 +105,23 @@ class TestVoiceWebSocket:
         assert stream_sid == "MZ123"
         assert call_sid == "CA_stream_1"
         assert tenant.phone_number == DEMO_NUMBER
+
+    @pytest.mark.parametrize("brut,attendu", [
+        ("+33612345678", "+33612345678"),
+        ("+266696687", None),      # ANONYMOUS au clavier : un appel masqué
+        ("+7378742833", None),     # RESTRICTED
+        ("anonymous", None),
+        ("", None),
+    ])
+    def test_un_appel_masque_arrive_sans_numero(self, brut, attendu):
+        """Les numéros de substitution de Twilio faisaient de tous les appels masqués un
+        seul client, qui retrouvait les réservations des autres."""
+        run_bot = AsyncMock()
+        with patch("app.main._get_bot_runner", return_value=run_bot):
+            with client.websocket_connect("/ws/voice") as ws:
+                ws.send_text(json.dumps(_twilio_start_message(from_number=brut)))
+                _attendre_le_bot(run_bot)
+        assert run_bot.await_args.kwargs["caller_number"] == attendu
 
     def test_unknown_tenant_closes_without_bot(self):
         run_bot = AsyncMock()
