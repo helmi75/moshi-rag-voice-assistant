@@ -22,7 +22,7 @@ admin_router = APIRouter(dependencies=[Depends(deps.current_user)])
 def _include_protected_routes() -> None:
     """Importe les modules de routes protégées (imports locaux : le paquet reste
     importable même si un module optionnel manque pendant le développement)."""
-    from . import routes_dashboard  # noqa: WPS433
+    from . import routes_dashboard
 
     admin_router.include_router(routes_dashboard.router)
     from . import routes_tenants

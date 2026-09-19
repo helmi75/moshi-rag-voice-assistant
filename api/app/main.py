@@ -47,8 +47,6 @@ users.seed_superadmin()
 # webhooks Twilio et /ws/voice ne traversent aucune logique d'auth. Le
 # SessionMiddleware est global mais inerte hors admin (cookie posé seulement si la
 # session est modifiée).
-from pathlib import Path as _Path
-
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 

@@ -15,7 +15,6 @@ le mois du RESTAURANT (horloge.debut_du_mois) : à 00 h 30 le 1er, heure de Pari
 en UTC croyait encore au mois précédent, et l'appel changeait de facture.
 """
 from dataclasses import dataclass
-from typing import Optional
 
 from . import db, horloge, plans
 

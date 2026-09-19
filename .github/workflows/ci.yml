@@ -32,6 +32,26 @@ jobs:
           # dernière version » de chaque paquet.
           pip install -r api/app/requirements.lock -r api/tests/requirements-test.txt
 
+      # Défauts que les tests ne voient que si la branche est empruntée : nom non défini,
+      # import inutile. Règles dans ruff.toml ; version figée, comme le reste.
+      - name: Analyse statique (ruff)
+        run: |
+          pip install ruff==0.13.0
+          ruff check api/app
+
+      # Vulnérabilités connues dans les versions VERROUILLÉES (ce qui part en production).
+      # Non bloquant pour l'instant : un avis publié un matin ne doit pas bloquer un
+      # correctif sans rapport ; l'avertissement reste visible dans le résumé du run.
+      # PYSEC-2026-3740 (nltk, sans correctif publié) : API de fichiers de modèles NLTK
+      # avec chemin fourni par l'appelant — l'application n'en passe jamais (nltk ne sert
+      # qu'au découpage des phrases de Pipecat).
+      - name: Audit des dépendances (pip-audit)
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r api/app/requirements.lock --no-deps --disable-pip \
+            --ignore-vuln PYSEC-2026-3740
+
       - name: Tests (aucun réseau, tout mocké)
         working-directory: api
         run: python -m pytest tests -q

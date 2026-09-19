@@ -218,10 +218,9 @@ class MoshiServerTTSService(TTSService):
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
         logger.debug(f"{self}: Génération TTS [{text}]")
-        # Imports paresseux : les tests les remplacent par des doublures, sans ouvrir de
-        # connexion, et l'import du module reste léger.
+        # Import paresseux : les tests le remplacent par une doublure, et l'import du module
+        # reste léger. (websockets est importé là où la connexion s'ouvre, _take_ws.)
         import msgpack
-        import websockets
 
         started = time.monotonic()
         first = True
