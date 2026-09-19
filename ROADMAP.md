@@ -1,99 +1,60 @@
-# Roadmap — SaaS d'accueil téléphonique IA
+# Roadmap
 
-**Objectif** : un SaaS qui répond au téléphone à la place des commerces débordés d'appels
-(restaurants d'abord, cabinets médicaux ensuite) : renseigner les clients, prendre des
-réservations et des rendez-vous, 24h/24, sans faire attendre personne.
+**Objectif** : une assistante qui décroche à la place de l'équipe des restaurants
+débordés d'appels — réserver, renseigner, prendre un message — vendue par abonnement.
 
-**Positionnement** : chaque client (« tenant ») a son numéro de téléphone, sa base de
-connaissances (horaires, menu, adresse, FAQ) et ses actions métier (réserver une table,
-prendre un RDV). L'onboarding doit prendre moins de 15 minutes.
+La source de vérité du travail est la liste des **issues GitHub** ; ce fichier en donne
+l'ordre et l'état au 19/09/2026. L'historique de ce qui est livré est dans
+[CHANGELOG.md](CHANGELOG.md).
 
----
+## Livré dans le code, issue encore ouverte
 
-## Phase 1 — Cerveau conversationnel multi-tenant ✅ (fait)
+À vérifier puis fermer sur GitHub :
 
-Le socle produit, testable immédiatement par téléphone :
+| Issue | Sujet | Où c'est |
+|---|---|---|
+| #22 | Obligations RGPD | `app/rgpd.py`, [docs/RGPD.md](docs/RGPD.md) |
+| #29 | Grille tarifaire | `app/plans.py`, [docs/TARIFS.md](docs/TARIFS.md) |
+| #31 | Compter les appels, plafond de la formule | `app/quotas.py` |
+| #33 | Modifier et annuler par téléphone | `llm.run_tool`, `app/reservations.py` |
+| #40 | Plafonner les GPU simultanés | `MODAL_MAX_CONTAINERS` (défaut 4) |
+| #88 | Enregistrer et journaliser les appels | `voice/enregistrement.py`, `voice/journal.py` |
+| #28 | Kyutai STT par défaut | **abandonné** : dérive vers l'anglais sur du μ-law 8 kHz bruité ; Deepgram reste |
 
-- [x] Routage multi-tenant par numéro appelé (champ Twilio `To` → tenant en base SQLite)
-- [x] LLM Claude avec function calling (`check_availability`, `create_reservation`)
-- [x] Base de connaissances par tenant injectée dans le prompt système
-- [x] Réservations persistées en SQLite, rattachées au tenant
-- [x] Mémoire de conversation par appel (`CallSid`)
-- [x] Boucle vocale Twilio Gather/Say (STT/TTS de Twilio) + webhook SMS
-- [x] Abandon de Moshi et du GPU : APIs cloud uniquement, un simple VPS suffit
-- [x] Tests unitaires (LLM mocké) + script e2e
+## 1. Avant le premier client
 
-**Limites assumées de cette phase** : latence de 2 à 4 s par tour (Gather/Say n'est pas
-du streaming), voix TTS Twilio standard, pas d'interruption possible (barge-in limité).
-C'est suffisant pour valider le produit avec un premier restaurant pilote.
+| Quoi | Pourquoi |
+|---|---|
+| Déployer la branche de l'audit (v1.1.0 du CHANGELOG), puis la [recette](docs/RECETTE.md) | signature Twilio, horaires, e-mails, clé Modal, copie distante des sauvegardes : rien de tout ça n'a encore entendu un vrai appel |
+| #30 Numéro de démonstration public (numéro FR, région EU) | un prospect doit pouvoir appeler avant de signer |
+| #32 Un restaurant pilote, deux semaines de vrais appels | seul juge de la qualité perçue |
 
-**Jalon de sortie** : 1 restaurant pilote qui reçoit de vrais appels pendant 2 semaines.
+## 2. Ensuite, par valeur
 
-## Phase 2 — Voix temps réel (streaming)
+| Quoi | Pourquoi |
+|---|---|
+| #26 GPU chaud aux heures de service seulement | le premier appel après une pause attend le réveil du GPU (55-70 s couverts par l'accueil et la musique) ; à trancher au banc et à l'oreille |
+| Qualité mesurée en continu | banc de conversation nocturne en CI avec un seuil ; score d'interaction par appel tiré du journal de bord ; A/B du délai de fin de tour |
+| #36 Facturation Stripe | le plafond compte déjà (`quotas`) ; il reste à encaisser |
+| Compte client multi-établissements | la formule Maison (5 établissements) n'est pas vendable sans lui : `quotas.groupement_manquant` |
+| #34 SMS de confirmation au client | l'e-mail au restaurateur est fait ; le client, lui, n'a qu'une confirmation orale |
+| #35 Transfert vers un humain | demande explicite, urgence |
+| #37 Achat du numéro en un clic depuis l'admin | onboarding sans intervention |
 
-Remplacer la boucle Gather/Say par un pipeline audio streaming, latence cible ~1-1,3 s.
-Stack arrêtée après étude de l'état de l'art open source — détail, comparatifs et
-sources dans **[docs/VOICE_STACK.md](docs/VOICE_STACK.md)** :
+## 3. Plus tard, sur déclencheur
 
-- [x] Twilio **Media Streams** (WebSocket audio bidirectionnel) — `VOICE_MODE=stream`
-- [x] Orchestration **Pipecat** (open source, Python, étages STT/LLM/TTS interchangeables)
-      — `api/app/voice/bot.py`
-- [x] STT streaming français : **Deepgram** (API, phase A) — bascule **Kyutai STT**
-      auto-hébergé prévue en phase B (interface Pipecat identique)
-- [x] TTS streaming français : **Kyutai Pocket TTS** (voix de la famille Unmute, CPU,
-      sans clé — `TTS_PROVIDER=pocket`, défaut) ou **Cartesia** (API) en alternative.
-      Montée vers **Kyutai TTS 1.6B** (GPU, voix exacte d'unmute.sh) prévue en phase B
-- [x] Barge-in et détection de fin de tour (VAD Silero + smart-turn v3, embarqués)
-- [x] LLM : via OpenRouter (function calling via Pipecat, mêmes outils/prompts)
-- Le module `llm.py` (tenant + outils) est réutilisé tel quel : seul le transport audio change.
+| Quoi | Déclencheur |
+|---|---|
+| #38 PostgreSQL | le jour où l'API doit tourner en plusieurs exemplaires ; SQLite (WAL, hors boucle) suffit pour une instance |
+| Documents volumineux (PDF, site) → embeddings | une fiche qui dépasse le plafond de 12 000 caractères |
+| Intégrations TheFork, Zenchef, agenda | des clients qui les utilisent déjà |
+| Verticale médicale | produit prouvé sur les restaurants ; exige un hébergement HDS |
 
-**Coût estimé par minute d'appel** (phase A, tout API) : STT ~0,005 $ + LLM ~0,01-0,03 $
-+ TTS ~0,02-0,05 $ + Twilio ~0,01 $ ≈ **0,05 à 0,10 $/min**. À 500 min/mois par client,
-marge confortable sur un abonnement à 99-199 €/mois. Référence latence : Unmute (Kyutai)
-prouve < 1 s avec ces mêmes briques.
+## Principes
 
-## Phase 3 — Couche SaaS
-
-Ce qui transforme le pipeline en produit vendable en self-service :
-
-- [ ] Dashboard web (Next.js) : onboarding d'un business, édition de la KB, achat du numéro
-      Twilio en un clic (API Twilio), transcripts et enregistrements des appels
-- [ ] Auth (Clerk/Auth0) + organisations
-- [ ] Passage de SQLite à PostgreSQL, conversations en Redis
-- [ ] Facturation Stripe : abonnement + dépassement à la minute
-- [ ] Notifications : SMS de confirmation de réservation au client final, email/SMS
-      récapitulatif au commerçant
-- [ ] Transfert d'appel vers un humain (mots-clés « urgence », demande explicite)
-- [ ] Observabilité : logs structurés, alerting, tableau de bord qualité (taux de
-      résolution sans humain, durée moyenne, sujets d'appel)
-
-**Jalon de sortie** : 10 clients payants onboardés sans intervention manuelle.
-
-## Phase 4 — Verticales et intégrations
-
-- [ ] **Verticale médecins** : prise de RDV, rappels, garde/urgences → exige RGPD strict,
-      hébergement HDS (OVHcloud/Scaleway certifiés), DPA, minimisation des données de
-      santé. À lancer seulement une fois le produit prouvé sur les restaurants.
-- [ ] Intégrations réservation : Google Calendar, TheFork/Zenchef (restaurants),
-      Doctolib n'ayant pas d'API publique → agenda propre + export iCal pour les médecins
-- [ ] Multi-langue par tenant (fr/en/ar…)
-- [ ] Base de connaissances enrichie : ingestion de documents (PDF menus, site web) avec
-      embeddings + vector store quand les KB dépassent la taille d'un prompt
-- [ ] Numéros et téléphonie locale (portabilité, SIP trunking pour réduire les coûts)
-- [ ] **Option 100 % local / souverain** : Kyutai STT + Kyutai TTS + Qwen3 8B quantisé
-      (AWQ, vLLM) tiennent ensemble sur **une RTX 4090 louée (~150-250 €/mois)** et
-      servent des dizaines d'appels simultanés. À déclencher quand : volume > ~2 000
-      min/mois, ou client santé (argument RGPD « aucune donnée ne sort du serveur »),
-      ou besoin de latence < 1 s. Grille de coûts et seuils dans docs/VOICE_STACK.md.
-
----
-
-## Principes techniques
-
-1. **Pas de GPU, pas de modèle auto-hébergé** tant que le volume ne le justifie pas :
-   tout en API (paiement à l'usage, coût nul sans trafic).
-2. **Le différenciateur est le cerveau métier multi-tenant**, pas le pipeline audio :
-   la logique tenant/outils/KB (`api/app/llm.py`, `tenants.py`) doit rester indépendante
-   du transport (webhook aujourd'hui, WebSocket demain).
-3. **Vendre avant de sur-construire** : chaque phase a un jalon commercial, pas seulement
-   technique.
+1. **Payer à l'usage** : GPU à la demande (scale-to-zero), APIs ; pas de coût fixe sans trafic.
+2. **Le différenciateur est le cerveau métier** (fiche, outils, refus côté serveur), pas
+   le pipeline audio : `llm.py` ignore le transport.
+3. **Aucun chiffre inventé, aucun feu vert décoratif** : ce qui est affiché est mesuré,
+   et chaque garde-fou a un test qui rougit quand on le retire.
+4. **Vendre avant de sur-construire** : chaque étape a un jalon commercial.
