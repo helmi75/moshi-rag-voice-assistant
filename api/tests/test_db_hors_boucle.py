@@ -11,6 +11,7 @@ import time
 from datetime import date, timedelta
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import db, llm, tenants
@@ -116,3 +117,33 @@ class TestPragmas:
         monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "wal.db"))
         db.init_db()
         assert db.get_conn().execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+class TestIndex:
+    """Les requêtes jouées PENDANT un appel passent par un index, pas par un parcours
+    de toutes les réservations de l'établissement."""
+
+    @pytest.fixture()
+    def conn(self, tmp_path):
+        with patch.object(db, "DB_PATH", str(tmp_path / "index.db")):
+            db.init_db()
+            with db.get_conn() as c:
+                yield c
+
+    @staticmethod
+    def _plan(conn, sql: str, params: tuple) -> str:
+        return " | ".join(row["detail"] for row in
+                          conn.execute(f"EXPLAIN QUERY PLAN {sql}", params).fetchall())
+
+    @pytest.mark.parametrize("sql,params,index", [
+        ("SELECT COALESCE(SUM(party_size), 0) FROM reservations "
+         "WHERE tenant_id = ? AND date = ? AND time = ? AND cancelled_at IS NULL",
+         (1, "2026-10-01", "20:00"), "idx_reservations_tenant_date"),
+        ("SELECT * FROM reservations WHERE tenant_id = ? AND customer_phone = ? "
+         "AND cancelled_at IS NULL AND date >= ?",
+         (1, "+33611111111", "2026-10-01"), "idx_reservations_appelant"),
+        ("SELECT id, tenant_id FROM calls WHERE caller_number = ?",
+         ("+33611111111",), "idx_calls_appelant"),
+    ])
+    def test_la_requete_utilise_son_index(self, conn, sql, params, index):
+        assert index in self._plan(conn, sql, params)

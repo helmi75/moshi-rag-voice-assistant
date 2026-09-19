@@ -182,6 +182,18 @@ ALTER TABLE tenants ADD COLUMN opening_hours TEXT;
     """
 ALTER TABLE tenants ADD COLUMN notify_email TEXT;
 """,
+    # v13 — index des chemins parcourus PENDANT un appel : le comptage des couverts d'une
+    # date (check_availability, salle de contrôle) et la recherche par numéro
+    # (find_reservation, nom du dernier passage). Sans eux, SQLite relit toutes les
+    # réservations de l'établissement à chaque outil. (tenant_id, date) rend l'ancien
+    # index (tenant_id) redondant. calls(caller_number) sert le droit à l'effacement.
+    """
+CREATE INDEX IF NOT EXISTS idx_reservations_tenant_date ON reservations(tenant_id, date);
+CREATE INDEX IF NOT EXISTS idx_reservations_appelant
+    ON reservations(tenant_id, customer_phone, date);
+CREATE INDEX IF NOT EXISTS idx_calls_appelant ON calls(caller_number);
+DROP INDEX IF EXISTS idx_reservations_tenant;
+""",
 ]
 
 
