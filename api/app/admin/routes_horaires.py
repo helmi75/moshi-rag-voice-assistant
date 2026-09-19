@@ -32,7 +32,7 @@ def _grille_saisie(form) -> list[dict]:
 
 
 @router.get("/admin/tenants/{tenant_id}/horaires")
-async def horaires_page(request: Request, tenant_id: int,
+def horaires_page(request: Request, tenant_id: int,
                         user: User = Depends(deps.current_user)):
     tenant = deps.resolve_tenant(tenant_id, user)
     deps.ensure_csrf(request)
@@ -47,7 +47,7 @@ async def horaires_page(request: Request, tenant_id: int,
 @router.post("/admin/tenants/{tenant_id}/horaires", dependencies=[Depends(deps.verify_csrf)])
 async def horaires_update(request: Request, tenant_id: int,
                           user: User = Depends(deps.current_user)):
-    tenant = deps.resolve_tenant(tenant_id, user)
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     form = await request.form()
     horaires, erreurs = disponibilite.depuis_formulaire(form)
     if erreurs:

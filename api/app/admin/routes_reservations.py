@@ -31,7 +31,7 @@ def _load_scoped(reservation_id: int, user: User) -> dict:
 
 
 @router.get("/admin/reservations")
-async def reservations_list(
+def reservations_list(
     request: Request,
     user: User = Depends(deps.current_user),
     tenant_id: Optional[int] = None,
@@ -68,14 +68,14 @@ async def reservations_list(
 
 
 @router.get("/admin/reservations/{reservation_id}/edit")
-async def reservation_edit(request: Request, reservation_id: int,
+def reservation_edit(request: Request, reservation_id: int,
                            user: User = Depends(deps.current_user)):
     resa = _load_scoped(reservation_id, user)
     return deps.templates.TemplateResponse(request, "reservations/_row_edit.html", {"r": resa})
 
 
 @router.get("/admin/reservations/{reservation_id}/row")
-async def reservation_row(request: Request, reservation_id: int,
+def reservation_row(request: Request, reservation_id: int,
                           user: User = Depends(deps.current_user)):
     resa = _load_scoped(reservation_id, user)
     return deps.templates.TemplateResponse(
@@ -109,7 +109,7 @@ def _saisie_invalide(customer_name: str, date: str, time: str, party_size: int) 
 
 
 @router.post("/admin/reservations/{reservation_id}", dependencies=[Depends(deps.verify_csrf)])
-async def reservation_update(
+def reservation_update(
     request: Request,
     reservation_id: int,
     user: User = Depends(deps.current_user),
@@ -145,7 +145,7 @@ async def reservation_update(
 
 @router.post("/admin/reservations/{reservation_id}/cancel",
              dependencies=[Depends(deps.verify_csrf)])
-async def reservation_cancel(request: Request, reservation_id: int,
+def reservation_cancel(request: Request, reservation_id: int,
                              user: User = Depends(deps.current_user)):
     """« Annuler » annule : la ligne reste, barrée et horodatée — comme une annulation
     faite au téléphone. Le lien s'appelait déjà « Annuler » mais EFFAÇAIT la ligne : le

@@ -147,3 +147,57 @@ class TestIndex:
     ])
     def test_la_requete_utilise_son_index(self, conn, sql, params, index):
         assert index in self._plan(conn, sql, params)
+
+
+def _dans_la_boucle() -> bool:
+    try:
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
+        return False
+
+
+class TestLAdminNeBloquePasLaBoucle:
+    """Une page d'admin ouverte pendant un appel ne doit pas faire attendre l'audio :
+    aucune ouverture de la base depuis la boucle d'événements. Les pages sans `await`
+    sont des `def` (pool de fils de FastAPI), les autres passent par db.hors_boucle."""
+
+    def test_aucune_page_n_ouvre_la_base_depuis_la_boucle(self, monkeypatch):
+        import traceback
+
+        essai = tenants.create_tenant("Hors boucle", "+33612349001")
+        client = TestClient(app)
+        try:
+            resp = client.post("/admin/login", data={"email": "admin@test.local",
+                                                     "password": "test-admin-pass"},
+                               follow_redirects=False)
+            assert resp.status_code == 303
+
+            fautifs: list[str] = []
+            originale = db.get_conn
+
+            def get_conn():
+                if _dans_la_boucle():
+                    fautifs.append(traceback.format_stack(limit=3)[0].strip())
+                return originale()
+
+            monkeypatch.setattr(db, "get_conn", get_conn)
+            t = essai.id
+            for page in ["/admin/", "/admin/health", "/admin/calls", "/admin/reservations",
+                         "/admin/tenants", f"/admin/tenants/{t}/edit",
+                         f"/admin/tenants/{t}/knowledge", f"/admin/tenants/{t}/voice",
+                         f"/admin/tenants/{t}/horaires", f"/admin/tenants/{t}/users",
+                         f"/admin/tenants/{t}/greeting/status"]:
+                assert client.get(page).status_code == 200, page
+            jeton = client.get("/admin/").text.split('"X-CSRF-Token": "')[1].split('"')[0]
+            entete = {"X-CSRF-Token": jeton}
+            assert client.post(f"/admin/tenants/{t}", headers=entete, follow_redirects=False,
+                               data={"name": "Hors boucle", "phone_number": essai.phone_number,
+                                     "knowledge_base": ""}).status_code == 303
+            assert client.post(f"/admin/tenants/{t}/voice", headers=entete,
+                               follow_redirects=False,
+                               data={"greeting": "Bonjour."}).status_code == 303
+            assert fautifs == [], "SQLite ouvert depuis la boucle :\n" + "\n".join(fautifs)
+        finally:
+            monkeypatch.undo()
+            tenants.delete_tenant(essai.id)

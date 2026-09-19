@@ -7,7 +7,7 @@ import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 
-from .. import taches, tenants
+from .. import db, taches, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from ..voice import voices
@@ -20,7 +20,7 @@ _TWILIO_RATE = 8000
 
 
 @router.get("/admin/tenants/{tenant_id}/voice")
-async def voice_settings(request: Request, tenant_id: int,
+def voice_settings(request: Request, tenant_id: int,
                          user: User = Depends(deps.current_user)):
     tenant = deps.resolve_tenant(tenant_id, user)
     deps.ensure_csrf(request)
@@ -49,7 +49,7 @@ async def voice_update(
 ):
     """Enregistre l'accueil et/ou la voix. Les deux cartes de l'écran postent ici,
     chacune avec son seul champ : un champ absent n'écrase pas le réglage en place."""
-    tenant = deps.resolve_tenant(tenant_id, user)
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     fields: dict = {}
     if greeting is not None:
         # Un accueil non vide saisi par le restaurateur est marqué « personnalisé »
@@ -64,8 +64,8 @@ async def voice_update(
     if chosen is not None:
         fields["voice"] = chosen.id
     if fields:
-        tenants.update_tenant(tenant.id, **fields)
-    refreshed = tenants.get_by_id(tenant.id)
+        await db.hors_boucle(tenants.update_tenant, tenant.id, **fields)
+    refreshed = await db.hors_boucle(tenants.get_by_id, tenant.id)
     if refreshed is not None and greeting_mod.is_moshi_server():
         # Re-rendu en tâche de fond (60-90 s si GPU froid) : jamais bloquant ici,
         # l'UI polle /greeting/status jusqu'à ce que le WAV soit prêt.
@@ -75,7 +75,7 @@ async def voice_update(
 
 
 @router.get("/admin/tenants/{tenant_id}/greeting.wav")
-async def greeting_wav(tenant_id: int, user: User = Depends(deps.current_user)):
+def greeting_wav(tenant_id: int, user: User = Depends(deps.current_user)):
     tenant = deps.resolve_tenant(tenant_id, user)
     path = greeting_mod.cached_greeting_path(tenant)
     if path is None:
@@ -84,7 +84,7 @@ async def greeting_wav(tenant_id: int, user: User = Depends(deps.current_user)):
 
 
 @router.get("/admin/tenants/{tenant_id}/greeting/status")
-async def greeting_status(request: Request, tenant_id: int,
+def greeting_status(request: Request, tenant_id: int,
                           user: User = Depends(deps.current_user)):
     tenant = deps.resolve_tenant(tenant_id, user)
     return deps.templates.TemplateResponse(
@@ -101,7 +101,7 @@ async def hold_music_upload(
     user: User = Depends(deps.current_user),
     file: UploadFile = File(...),
 ):
-    tenant = deps.resolve_tenant(tenant_id, user)
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     data = await file.read(_MAX_UPLOAD_BYTES + 1)
     if len(data) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Fichier trop grand (5 Mo max).")
@@ -127,7 +127,7 @@ async def hold_music_upload(
 
 @router.post("/admin/tenants/{tenant_id}/hold-music/delete",
              dependencies=[Depends(deps.verify_csrf)])
-async def hold_music_delete(tenant_id: int, user: User = Depends(deps.current_user)):
+def hold_music_delete(tenant_id: int, user: User = Depends(deps.current_user)):
     tenant = deps.resolve_tenant(tenant_id, user)
     path = greeting_mod.hold_music_dir() / f"tenant{tenant.id}.wav"
     path.unlink(missing_ok=True)

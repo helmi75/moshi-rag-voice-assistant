@@ -8,11 +8,16 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from .. import plans, taches, tenants, users
+from .. import db, plans, taches, tenants, users
 from ..users import User
 from . import deps
 
 router = APIRouter()
+
+# Accès SQLite : les pages sans `await` sont des `def`, que FastAPI exécute dans son
+# pool de fils ; celles qui restent `async` (formulaire lu, tâche de fond lancée)
+# passent par db.hors_boucle. Dans les deux cas, la boucle d'événements — celle qui
+# porte l'audio des appels en cours — n'attend jamais le disque.
 
 # Le format exact que Twilio transmet dans `To` (E.164) : « +33 1 23… » ou « 0123… »
 # enregistrés tels quels ne correspondent à AUCUN appel, et l'établissement reste muet
@@ -63,7 +68,7 @@ def _email_de_notification(saisie: Optional[str]) -> tuple[Optional[str], Option
 
 
 @router.get("/admin/tenants")
-async def tenants_list(request: Request, user: User = Depends(deps.require_superadmin)):
+def tenants_list(request: Request, user: User = Depends(deps.require_superadmin)):
     deps.ensure_csrf(request)
     return deps.templates.TemplateResponse(
         request, "tenants/list.html", {"tenants": tenants.list_all()}
@@ -71,7 +76,7 @@ async def tenants_list(request: Request, user: User = Depends(deps.require_super
 
 
 @router.get("/admin/tenants/new")
-async def tenant_new(request: Request, user: User = Depends(deps.require_superadmin)):
+def tenant_new(request: Request, user: User = Depends(deps.require_superadmin)):
     deps.ensure_csrf(request)
     return deps.templates.TemplateResponse(
         request, "tenants/form.html",
@@ -101,7 +106,8 @@ async def tenant_create(
             {"tenant": None, "error": erreur, "formules": plans.catalogue()}, status_code=422,
         )
     try:
-        tenant = tenants.create_tenant(
+        tenant = await db.hors_boucle(
+            tenants.create_tenant,
             name.strip(), numero, business_type.strip(),
             language.strip(), greeting.strip() or None, knowledge_base,
         )
@@ -116,15 +122,15 @@ async def tenant_create(
     # après, et seulement si elle appartient au catalogue. Sans ça, l'établissement
     # naîtrait sur la formule par défaut sans que personne ne l'ait décidé.
     if plans.get(plan) is not None:
-        tenants.update_tenant(tenant.id, plan=plan)
+        await db.hors_boucle(tenants.update_tenant, tenant.id, plan=plan)
     if adresse:
-        tenants.update_tenant(tenant.id, notify_email=adresse)
-    _prerender_greeting(tenant.id)
+        await db.hors_boucle(tenants.update_tenant, tenant.id, notify_email=adresse)
+    await _prerender_greeting(tenant.id)
     return RedirectResponse("/admin/tenants", status_code=303)
 
 
 @router.get("/admin/tenants/{tenant_id}/edit")
-async def tenant_edit(request: Request, tenant_id: int,
+def tenant_edit(request: Request, tenant_id: int,
                       user: User = Depends(deps.current_user)):
     tenant = deps.resolve_tenant(tenant_id, user)
     deps.ensure_csrf(request)
@@ -148,7 +154,7 @@ async def tenant_update(
     plan: Optional[str] = Form(None),
     notify_email: Optional[str] = Form(None),
 ):
-    tenant = deps.resolve_tenant(tenant_id, user)
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     adresse, erreur = _email_de_notification(notify_email)
     # Le numéro n'est vérifié que s'il sera écrit : un restaurateur ne le modifie pas, et
     # un champ ignoré ne doit pas pouvoir faire échouer son enregistrement.
@@ -180,7 +186,7 @@ async def tenant_update(
         fields["plan"] = plan
     greeting_changed = (greeting.strip() or None) != tenant.greeting
     try:
-        tenants.update_tenant(tenant.id, **fields)
+        await db.hors_boucle(tenants.update_tenant, tenant.id, **fields)
     except sqlite3.IntegrityError:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
@@ -189,13 +195,13 @@ async def tenant_update(
             status_code=409,
         )
     if greeting_changed:
-        _prerender_greeting(tenant.id)
+        await _prerender_greeting(tenant.id)
     back = "/admin/tenants" if user.is_superadmin else f"/admin/tenants/{tenant.id}/edit"
     return RedirectResponse(back, status_code=303)
 
 
 @router.get("/admin/tenants/{tenant_id}/knowledge")
-async def tenant_knowledge(request: Request, tenant_id: int,
+def tenant_knowledge(request: Request, tenant_id: int,
                            user: User = Depends(deps.current_user)):
     """« Ce que l'IA sait » : la base de connaissances en fiches (lecture).
 
@@ -211,7 +217,7 @@ async def tenant_knowledge(request: Request, tenant_id: int,
 
 
 @router.post("/admin/tenants/{tenant_id}/delete", dependencies=[Depends(deps.verify_csrf)])
-async def tenant_delete(tenant_id: int, user: User = Depends(deps.require_superadmin)):
+def tenant_delete(tenant_id: int, user: User = Depends(deps.require_superadmin)):
     if tenants.get_by_id(tenant_id) is None:
         raise HTTPException(status_code=404)
     tenants.delete_tenant(tenant_id)
@@ -222,7 +228,7 @@ async def tenant_delete(tenant_id: int, user: User = Depends(deps.require_supera
 # Comptes restaurateurs (super-admin)
 # ---------------------------------------------------------------------------
 @router.get("/admin/tenants/{tenant_id}/users")
-async def tenant_users(request: Request, tenant_id: int,
+def tenant_users(request: Request, tenant_id: int,
                        user: User = Depends(deps.require_superadmin)):
     tenant = deps.resolve_tenant(tenant_id, user)
     deps.ensure_csrf(request)
@@ -240,11 +246,11 @@ async def tenant_user_create(
     email: str = Form(...),
     password: str = Form(...),
 ):
-    tenant = deps.resolve_tenant(tenant_id, user)
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     if users.trop_court(password):
         return deps.templates.TemplateResponse(
             request, "tenants/users.html",
-            {"tenant": tenant, "accounts": users.list_users(tenant.id),
+            {"tenant": tenant, "accounts": await db.hors_boucle(users.list_users, tenant.id),
              "error": f"Mot de passe trop court : {users.MIN_MOT_DE_PASSE} "
                       f"caractères minimum."},
             status_code=400,
@@ -257,7 +263,7 @@ async def tenant_user_create(
     except sqlite3.IntegrityError:
         return deps.templates.TemplateResponse(
             request, "tenants/users.html",
-            {"tenant": tenant, "accounts": users.list_users(tenant.id),
+            {"tenant": tenant, "accounts": await db.hors_boucle(users.list_users, tenant.id),
              "error": f"L'email {email} est déjà utilisé."},
             status_code=409,
         )
@@ -265,7 +271,7 @@ async def tenant_user_create(
 
 
 @router.post("/admin/users/{user_id}/delete", dependencies=[Depends(deps.verify_csrf)])
-async def user_delete(user_id: int, user: User = Depends(deps.require_superadmin)):
+def user_delete(user_id: int, user: User = Depends(deps.require_superadmin)):
     target = users.get_by_id(user_id)
     if target is None:
         raise HTTPException(status_code=404)
@@ -282,7 +288,7 @@ async def user_password(
     user: User = Depends(deps.current_user),
     password: str = Form(...),
 ):
-    target = users.get_by_id(user_id)
+    target = await db.hors_boucle(users.get_by_id, user_id)
     if target is None:
         raise HTTPException(status_code=404)
     # Un restaurateur ne change que SON mot de passe ; le super-admin, tous.
@@ -302,12 +308,12 @@ async def user_password(
     return RedirectResponse(back, status_code=303)
 
 
-def _prerender_greeting(tenant_id: int) -> None:
+async def _prerender_greeting(tenant_id: int) -> None:
     """Re-rend le WAV d'accueil en tâche de fond (60-90 s si GPU froid) — jamais
     bloquant depuis une route. Best-effort : l'échec laisse le repli TTS live."""
     from ..voice import greeting as greeting_mod
 
-    tenant = tenants.get_by_id(tenant_id)
+    tenant = await db.hors_boucle(tenants.get_by_id, tenant_id)
     if tenant is not None and greeting_mod.is_moshi_server():
         taches.lancer(greeting_mod.ensure_greeting_wav(tenant),
                       nom=f"accueil de l'établissement {tenant.id}")

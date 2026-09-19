@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from .. import calls, messages, reservations, tenants
+from .. import calls, db, messages, reservations, tenants
 from ..users import User
 from . import deps, presenters
 
@@ -39,7 +39,7 @@ def _pane_context(request: Request, call: dict) -> dict:
 
 
 @router.get("/admin/calls")
-async def calls_list(
+def calls_list(
     request: Request,
     user: User = Depends(deps.current_user),
     tenant_id: Optional[int] = None,
@@ -97,11 +97,11 @@ async def message_traite(request: Request, message_id: int,
     établissement, même si la vérification préalable était contournée."""
     from fastapi.responses import RedirectResponse
 
-    message = messages.get_message(message_id)
+    message = await db.hors_boucle(messages.get_message, message_id)
     if message is None:
         raise HTTPException(status_code=404)
     deps.check_tenant_access(user, message["tenant_id"])
-    messages.marquer_traite(message_id, message["tenant_id"])
+    await db.hors_boucle(messages.marquer_traite, message_id, message["tenant_id"])
     retour = (await request.form()).get("retour") or "/admin/calls"
     # Jamais une URL fournie librement : seul un chemin interne est accepté, sinon on
     # offrirait une redirection ouverte depuis une page authentifiée.
@@ -111,7 +111,7 @@ async def message_traite(request: Request, message_id: int,
 
 
 @router.get("/admin/calls/{call_id}")
-async def call_detail(request: Request, call_id: int,
+def call_detail(request: Request, call_id: int,
                       user: User = Depends(deps.current_user)):
     """Page pleine : lien profond partageable, et repli si htmx n'est pas chargé."""
     deps.ensure_csrf(request)
@@ -155,7 +155,7 @@ def _pistes_presentes(call: dict) -> list[str]:
 
 
 @router.get("/admin/calls/{call_id}/diagnostic")
-async def call_diagnostic(request: Request, call_id: int,
+def call_diagnostic(request: Request, call_id: int,
                           user: User = Depends(deps.current_user)):
     """Réécouter un appel et lire sa chronologie, tour par tour."""
     call = _load_scoped(call_id, user)
