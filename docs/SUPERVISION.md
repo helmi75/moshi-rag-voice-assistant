@@ -36,19 +36,21 @@ appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles mor
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les douze contrôles
+## Les quatorze contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
 | Base de données | Volume plein ou en lecture seule. Il **écrit** vraiment : lire prouve que la base répond, pas qu'elle accepte encore une réservation | oui |
-| Configuration du chemin d'appel | Une variable manquante selon le mode en vigueur, ou une `PUBLIC_WS_URL` contenant une espace — l'appel raccroche alors sans un mot | oui |
+| Configuration du chemin d'appel | Une des quatre variables du chemin d'appel manque, ou `PUBLIC_WS_URL` contient une espace — l'appel raccroche alors sans un mot | oui |
+| Signature des requêtes Twilio | Jeton absent ou vérification coupée (attention) ; en `log`, des requêtes qui seraient refusées (attention : vérifier `PUBLIC_URL`) ; en `enforce`, **toutes** refusées = l'URL publique n'est plus celle que Twilio signe, plus un appel n'aboutit | oui, si tout est refusé |
+| Jeton du serveur de voix | `MOSHI_TTS_API_KEY` vide ou égale à `public_token`, la clé de démonstration connue de tous : qui trouve l'URL Modal fait tourner le GPU à nos frais | non |
 | Appels muets | Appel `completed`, plus de 15 s, **pas un tour** de l'assistante. La signature exacte du 30/07 | si majoritaire |
 | Appels en échec | Le pipeline a levé une erreur pendant l'appel | si majoritaire |
 | Appels jamais clôturés | `finish_call` n'a pas tourné : le worker est mort avec l'appel | si majoritaire |
 | Blanc ressenti | Dérive de la latence (mesuré en prod : 1,16 s ; attention à 2,5 s, panne à 4 s) | oui |
 | Alertes Twilio | Webhook injoignable, TwiML invalide — **invisible de l'intérieur** | non |
 | Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) | non |
-| Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité | oui à 72 h |
+| Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité ; copie hors du serveur absente ou arrêtée (attention) | oui à 72 h |
 | Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |
 | Espace disque | Un disque plein laisse passer les `SELECT` et fait échouer la seule chose qui compte : enregistrer une réservation | oui sous 2 Go |
 | Enregistrement des appels | Activé mais n'aboutit pas — « 0 sur 12 » est le cas qu'on veut voir | non |

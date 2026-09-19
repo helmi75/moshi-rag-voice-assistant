@@ -10,12 +10,13 @@ plafond compte, prévient et facture — il ne bloque pas. Ce module n'expose do
 fonction capable de refuser un appel : la tentation ne doit même pas exister dans l'API.
 
 Le mois est le mois **calendaire**, parce que c'est la maille de facturation. Un mois
-glissant donnerait un plafond que le client ne saurait pas lire sur sa facture.
+glissant donnerait un plafond que le client ne saurait pas lire sur sa facture. Et c'est
+le mois du RESTAURANT (horloge.debut_du_mois) : à 00 h 30 le 1er, heure de Paris, SQLite
+en UTC croyait encore au mois précédent, et l'appel changeait de facture.
 """
 from dataclasses import dataclass
-from typing import Optional
 
-from . import db, plans
+from . import db, horloge, plans
 
 OK = "ok"
 ALERTE = "alerte"
@@ -53,10 +54,8 @@ def _appels_du_mois(tenant_id: int) -> int:
     """
     with db.get_conn() as conn:
         return conn.execute(
-            """SELECT COUNT(*) FROM calls
-               WHERE tenant_id = ?
-                 AND strftime('%Y-%m', started_at) = strftime('%Y-%m', 'now')""",
-            (tenant_id,),
+            "SELECT COUNT(*) FROM calls WHERE tenant_id = ? AND started_at >= ?",
+            (tenant_id, horloge.debut_du_mois()),
         ).fetchone()[0]
 
 
@@ -94,9 +93,8 @@ def etat_par_tenant(tenants_liste) -> dict[int, Consommation]:
     """
     with db.get_conn() as conn:
         rows = conn.execute(
-            """SELECT tenant_id, COUNT(*) AS n FROM calls
-               WHERE strftime('%Y-%m', started_at) = strftime('%Y-%m', 'now')
-               GROUP BY tenant_id"""
+            "SELECT tenant_id, COUNT(*) AS n FROM calls WHERE started_at >= ? GROUP BY tenant_id",
+            (horloge.debut_du_mois(),),
         ).fetchall()
     par_id = {row["tenant_id"]: row["n"] for row in rows}
     return {

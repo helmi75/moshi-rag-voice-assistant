@@ -52,18 +52,32 @@ class TestTenantRouting:
         assert tenant is not None
         assert tenant.business_type == "restaurant"
 
-    def test_seed_realigns_demo_number_on_restart(self, monkeypatch):
-        # Un premier démarrage a pu figer un mauvais numéro dans le volume ;
-        # au redémarrage avec le bon TWILIO_NUMBER, le tenant démo doit suivre.
-        new_number = "+19998887777"
-        monkeypatch.setattr(tenants, "DEMO_TENANT_NUMBER", new_number)
-        tenants.seed_demo_tenant()
-        assert tenants.get_by_phone(new_number) is not None
-        # Restaure le numéro de démo pour ne pas perturber les autres tests.
-        monkeypatch.setattr(tenants, "DEMO_TENANT_NUMBER", DEMO_NUMBER)
-        tenants.seed_demo_tenant()
-        assert tenants.get_by_phone(DEMO_NUMBER) is not None
-        assert tenants.get_by_phone(new_number) is None
+    def test_un_redemarrage_ne_touche_plus_le_numero_change_dans_l_admin(self, monkeypatch):
+        """En production le tenant réel EST le tenant semé : un numéro changé dans
+        l'admin revenait à TWILIO_NUMBER au redémarrage, et les appels vers le nouveau
+        numéro tombaient sur « numéro non configuré »."""
+        demo = tenants.get_by_phone(DEMO_NUMBER)
+        nouveau = "+33970000001"
+        tenants.update_tenant(demo.id, phone_number=nouveau)
+        try:
+            monkeypatch.setattr(tenants, "DEMO_TENANT_NUMBER", DEMO_NUMBER)
+            tenants.seed_demo_tenant()  # simule un redémarrage
+            assert tenants.get_by_id(demo.id).phone_number == nouveau
+            assert tenants.get_by_phone(DEMO_NUMBER) is None
+        finally:
+            tenants.update_tenant(demo.id, phone_number=DEMO_NUMBER)
+
+    def test_la_base_vide_est_semee_sauf_si_seed_demo_vaut_0(self, monkeypatch, tmp_path):
+        from app import db
+
+        with patch.object(db, "DB_PATH", str(tmp_path / "vide.db")):
+            db.init_db()
+            monkeypatch.setenv("SEED_DEMO", "0")
+            tenants.seed_demo_tenant()
+            assert tenants.list_all() == []
+            monkeypatch.delenv("SEED_DEMO")
+            tenants.seed_demo_tenant()
+            assert [t.name for t in tenants.list_all()] == ["Le Fouquet's Paris"]
 
     def test_seed_preserves_customized_greeting(self):
         """Un accueil personnalisé (greeting_customized=1) ne doit JAMAIS être écrasé au
@@ -76,13 +90,15 @@ class TestTenantRouting:
         # Restaure l'état par défaut pour l'isolation des autres tests.
         tenants.update_tenant(demo.id, greeting=tenants._DEMO_GREETING, greeting_customized=0)
 
-    def test_seed_realigns_non_customized_greeting(self):
-        """Un accueil NON personnalisé (vieux défaut figé dans le volume) est bien réaligné
-        sur le défaut courant au redémarrage."""
+    def test_un_redemarrage_ne_reecrit_plus_l_accueil(self):
+        """L'admin fait foi, personnalisé ou non : un redémarrage n'écrit plus rien."""
         demo = tenants.get_by_phone(DEMO_NUMBER)
-        tenants.update_tenant(demo.id, greeting="Vieux défaut périmé.", greeting_customized=0)
-        tenants.seed_demo_tenant()
-        assert tenants.get_by_id(demo.id).greeting == tenants._DEMO_GREETING
+        tenants.update_tenant(demo.id, greeting="Accueil saisi.", greeting_customized=0)
+        try:
+            tenants.seed_demo_tenant()
+            assert tenants.get_by_id(demo.id).greeting == "Accueil saisi."
+        finally:
+            tenants.update_tenant(demo.id, greeting=tenants._DEMO_GREETING)
 
     def test_unknown_number_hangs_up(self):
         response = client.post(
@@ -90,7 +106,7 @@ class TestTenantRouting:
         )
         assert response.status_code == 200
         assert "<Hangup/>" in response.text
-        assert "<Gather" not in response.text
+        assert "<Connect>" not in response.text
 
     def test_missing_to_hangs_up(self):
         response = client.post("/twilio/voice", data={"CallSid": "CA1"})
@@ -109,92 +125,6 @@ class TestStreamWsUrl:
         from app import main
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://6e24.ngrok-free.app\xa0/ws/voice")
         assert main._stream_ws_url(None) == "wss://6e24.ngrok-free.app/ws/voice"
-
-
-class TestVoiceWebhook:
-    def test_initial_call_greets_and_gathers(self):
-        response = client.post(
-            "/twilio/voice", data={"CallSid": "CA100", "To": DEMO_NUMBER}
-        )
-        assert response.status_code == 200
-        assert "text/xml" in response.headers["content-type"]
-        assert "<Gather" in response.text
-        assert "Fouquet" in response.text
-        assert 'language="fr-FR"' in response.text
-
-    def test_greeting_uses_neural_voice_by_default(self):
-        # Par défaut, la voix neuronale Amazon Polly (Léa) est utilisée pour le <Say>.
-        response = client.post(
-            "/twilio/voice", data={"CallSid": "CA100b", "To": DEMO_NUMBER}
-        )
-        assert 'voice="Polly.Lea-Neural"' in response.text
-
-    def test_voice_is_configurable(self, monkeypatch):
-        monkeypatch.setenv("TWILIO_VOICE", "Polly.Remi-Neural")
-        response = client.post(
-            "/twilio/voice", data={"CallSid": "CA100c", "To": DEMO_NUMBER}
-        )
-        assert 'voice="Polly.Remi-Neural"' in response.text
-
-    def test_voice_can_fallback_to_standard(self, monkeypatch):
-        monkeypatch.setenv("TWILIO_VOICE", "")
-        response = client.post(
-            "/twilio/voice", data={"CallSid": "CA100d", "To": DEMO_NUMBER}
-        )
-        assert "voice=" not in response.text
-        assert 'language="fr-FR"' in response.text
-
-    def test_speech_result_calls_llm(self):
-        with patch.object(llm, "respond", new=AsyncMock(return_value=("Bien sûr !", []))) as mock:
-            response = client.post(
-                "/twilio/voice",
-                data={
-                    "CallSid": "CA101",
-                    "To": DEMO_NUMBER,
-                    "SpeechResult": "Quels sont vos horaires ?",
-                },
-            )
-        assert response.status_code == 200
-        assert "Bien sûr !" in response.text
-        assert "<Gather" in response.text
-        assert mock.await_args.args[2] == "Quels sont vos horaires ?"
-
-    def test_conversation_history_is_kept_per_call(self):
-        history_after_turn_1 = [{"role": "user", "content": "t1"},
-                                {"role": "assistant", "content": "r1"}]
-        with patch.object(
-            llm, "respond", new=AsyncMock(return_value=("ok", history_after_turn_1))
-        ):
-            client.post(
-                "/twilio/voice",
-                data={"CallSid": "CA102", "To": DEMO_NUMBER, "SpeechResult": "t1"},
-            )
-        with patch.object(llm, "respond", new=AsyncMock(return_value=("ok", []))) as mock2:
-            client.post(
-                "/twilio/voice",
-                data={"CallSid": "CA102", "To": DEMO_NUMBER, "SpeechResult": "t2"},
-            )
-        # le 2e tour reçoit l'historique sauvegardé au 1er tour
-        assert mock2.await_args.args[1] == history_after_turn_1
-
-    def test_llm_failure_returns_polite_error(self):
-        with patch.object(llm, "respond", new=AsyncMock(side_effect=RuntimeError("boom"))):
-            response = client.post(
-                "/twilio/voice",
-                data={"CallSid": "CA103", "To": DEMO_NUMBER, "SpeechResult": "Bonjour"},
-            )
-        assert response.status_code == 200
-        assert "problème technique" in response.text
-
-    def test_xml_is_escaped(self):
-        with patch.object(
-            llm, "respond", new=AsyncMock(return_value=("a < b & c", []))
-        ):
-            response = client.post(
-                "/twilio/voice",
-                data={"CallSid": "CA104", "To": DEMO_NUMBER, "SpeechResult": "test"},
-            )
-        assert "a &lt; b &amp; c" in response.text
 
 
 def _fake_openai_client(*responses):
@@ -294,7 +224,7 @@ class TestGenericWebhook:
             "/twilio/webhook", data={"CallSid": "CA200", "To": DEMO_NUMBER}
         )
         assert response.status_code == 200
-        assert "<Gather" in response.text
+        assert "<Connect>" in response.text
 
     def test_body_routes_to_sms(self):
         with patch.object(llm, "respond", new=AsyncMock(return_value=("OK", []))):
@@ -309,20 +239,9 @@ class TestGenericWebhook:
         assert "<Response></Response>" in response.text
 
 
-class TestReservationsEndpoint:
-    def test_list_reservations(self):
-        tenant = tenants.get_by_phone(DEMO_NUMBER)
-        reservations.create_reservation(
-            tenant_id=tenant.id,
-            customer_name="Martin",
-            date="2026-07-12",
-            time="19:30",
-            party_size=2,
-        )
-        response = client.get(f"/tenants/{tenant.id}/reservations")
-        assert response.status_code == 200
-        names = [r["customer_name"] for r in response.json()["reservations"]]
-        assert "Martin" in names
-
-    def test_unknown_tenant_404(self):
-        assert client.get("/tenants/9999/reservations").status_code == 404
+class TestAucuneRouteOuverteSurLesDonnees:
+    def test_les_reservations_ne_sont_pas_servies_sans_session(self):
+        """Cette route livrait nom, téléphone et notes de tous les clients d'un
+        établissement à quiconque devinait un identifiant. Elle n'existe plus : l'admin,
+        authentifié et cloisonné, est le seul chemin vers ces données."""
+        assert client.get("/tenants/1/reservations").status_code == 404

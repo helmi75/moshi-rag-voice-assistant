@@ -16,9 +16,9 @@
     {% else %}
     <a href="#" hx-get="/admin/reservations/{{ r.id }}/edit"
        hx-target="closest tr" hx-swap="outerHTML">Modifier</a> ·
-    <a href="#" hx-post="/admin/reservations/{{ r.id }}/delete"
+    <a href="#" hx-post="/admin/reservations/{{ r.id }}/cancel"
        hx-confirm="Annuler la réservation de {{ r.customer_name }} ?"
-       hx-target="closest tr" hx-swap="delete swap:0.2s">Annuler</a>
+       hx-target="closest tr" hx-swap="outerHTML">Annuler</a>
     {% endif %}
   </td>
 </tr>

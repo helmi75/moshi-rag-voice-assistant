@@ -45,17 +45,13 @@ nano .env
 
 `.env` de production — valeurs minimales :
 ```
-VOICE_MODE=stream
 SITE_ADDRESS=assistant.mondomaine.fr             # -> Caddy fait le HTTPS tout seul
 PUBLIC_WS_URL=wss://assistant.mondomaine.fr/ws/voice
-API_REQUIREMENTS=requirements-prod.txt           # image légère (sans torch)
 
-STT_PROVIDER=deepgram
 DEEPGRAM_API_KEY=<clé fraîche>
 
-TTS_PROVIDER=moshi_server
 MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run
-MOSHI_TTS_API_KEY=public_token
+MOSHI_TTS_API_KEY=<openssl rand -hex 32>       # même valeur que pour modal deploy (docs/MODAL.md)
 MOSHI_TTS_VOICE=unmute-prod-website/developpeuse-3.wav
 
 LLM_MODEL=google/gemini-2.5-flash
@@ -103,7 +99,11 @@ modal deploy deploy/modal_moshi_server.py
 **Cold start / GPU chaud** (`MODAL_MIN_CONTAINERS`, à décider selon le budget) :
 - **Scale-to-zero** (défaut, recommandé au lancement) : `0`. Gratuit à vide ; le 1er appel après
   une pause attend ~70 s, **couvert par l'accueil pré-enregistré + la musique d'attente**.
-- **GPU chaud** : `1` → 0 cold start, mais ~250-290 €/mois (L4 24/7). À activer quand un client
+- **GPU chaud aux heures de service** (côté application, sans redéployer Modal) :
+  `MOSHI_KEEPWARM_SECONDS=90` et `MOSHI_KEEPWARM_HEURES=11:30-14:30,18:30-23` dans le `.env`,
+  puis `docker compose up -d api`. ≈ 0,80 $ par heure chaude : 7 h 30 par jour ≈ 180 $/mois.
+  Le GPU s'éteint la nuit ; un appel hors plage retrouve le démarrage à froid couvert.
+- **GPU chaud 24/7** : `1` → 0 cold start, mais ~250-290 €/mois (L4 24/7). À activer quand un client
   payant le justifie : `MODAL_MIN_CONTAINERS=1 modal deploy deploy/modal_moshi_server.py`.
 
 ## Vérification (bout en bout)
@@ -131,6 +131,59 @@ modal deploy deploy/modal_moshi_server.py
   La règle « la production, c'est `main` après CI verte » ne tenait que par la discipline :
   c'est ainsi qu'on s'est retrouvé avec une production tournant sur une branche jamais
   fusionnée. Le script la rend mécanique.
+
+## Signature des requêtes Twilio
+
+Les webhooks (`/twilio/voice`, `/twilio/sms`, `/twilio/webhook`) et la poignée de main du
+flux (`/ws/voice`) vérifient `X-Twilio-Signature` (`api/app/twilio_signature.py`). Sans
+ça, le numéro d'un restaurant étant public, n'importe qui pouvait faire parler
+l'assistante et payer le LLM ou le GPU.
+
+Twilio signe l'URL **publique** ; derrière Caddy, l'application voit `http://api:8000/…`.
+D'où `PUBLIC_URL` — l'origine exacte configurée dans la console Twilio :
+
+1. dans le `.env` : `PUBLIC_URL=https://assistant.mondomaine.fr` et, pour la première
+   mise en service, `TWILIO_SIGNATURE=log` ;
+2. déployer, passer deux ou trois appels ;
+3. lire la sonde : contrôle « Signature des requêtes Twilio » — `acceptées > 0`,
+   `refusées = 0` (webhooks **et** poignée de main) ;
+4. après 48 h sans refus, retirer la ligne `TWILIO_SIGNATURE=log` et redéployer :
+   le défaut est `enforce` dès qu'un jeton existe.
+
+En `enforce`, « toutes les requêtes refusées » est une **panne** de la sonde : ce n'est
+pas une attaque, c'est l'URL reconstruite (ou le jeton) qui ne correspond plus à ce que
+Twilio signe — remettre `log` le temps de corriger. Le jeton doit être l'*Auth Token*
+courant du compte : un jeton renouvelé dans la console et pas dans le `.env` refuse tout.
+
+## Notifications au restaurateur
+
+Chaque réservation prise, modifiée ou annulée par téléphone, et chaque message pris,
+déclenche un e-mail (`api/app/notifications.py`) vers les comptes restaurateurs de
+l'établissement et l'adresse de notification de sa fiche. Cinq variables dans le `.env`
+(`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, plus `SMTP_SSL=1` pour
+un port 465), puis `docker compose up -d api`. L'envoi part en tâche de fond : un SMTP en
+panne se lit dans les journaux, jamais dans l'appel. Essai sans téléphoner :
+
+```bash
+docker compose exec api python -c "import asyncio; from app import notifications, tenants; \
+  print(asyncio.run(notifications.notifier(tenants.get_by_id(1), 'message_pris', \
+  {'subject': 'Essai SMTP', 'details': 'Si vous lisez ceci, ça marche.'})))"
+```
+
+## Dépendances figées (`api/app/requirements.lock`)
+
+L'image et la CI installent `requirements.lock`, la liste **exacte** des versions ;
+`requirements.txt` n'est que l'intention. Sans ce verrou, chaque `docker compose up --build`
+réinstallait « la dernière » version de FastAPI, Starlette, OpenAI, websockets… — la
+production pouvait casser sans un commit. Régénérer (avec [uv](https://docs.astral.sh/uv/)) :
+
+```bash
+uv pip compile api/app/requirements.txt -o api/app/requirements.lock \
+    --python-version 3.12 --python-platform linux --no-annotate --no-header --upgrade
+```
+(puis remettre l'en-tête de commentaire du fichier, qui documente cette commande).
+(`--upgrade-package pipecat-ai` pour ne monter qu'un paquet.) Puis : suite de tests,
+construction de l'image, et la recette (`docs/RECETTE.md`) avant de déployer.
 
 ## Sauvegardes
 
@@ -177,10 +230,37 @@ zcat /opt/backups/db/app-AAAAMMJJ-HHMM.db.gz \
 docker compose start api
 ```
 
-**Limite connue** : les copies restent sur la même machine. Un incident disque emporte
-l'original *et* les sauvegardes. Sortir les archives du serveur (rsync vers une autre
-machine, stockage objet, ou snapshots Hostinger) reste à faire — c'est le vrai objectif
-de résilience.
+### Copie hors du serveur
+
+Les copies locales protègent d'une erreur de manipulation, pas de la perte de la machine :
+un incident disque emporte l'original **et** les sauvegardes. Le script envoie donc aussi
+chaque archive vérifiée vers un stockage objet (UE) via `rclone`, dès que `RCLONE_REMOTE`
+est posé :
+
+```bash
+apt-get install -y rclone
+rclone config                       # créer le remote (ex. « sauvegardes », S3 Scaleway/OVH)
+cat > /opt/backups/backup.env <<'EOF'
+RCLONE_REMOTE=sauvegardes:helmane-db
+# RETENTION_DISTANTE_JOURS=30
+EOF
+chmod 600 /opt/backups/backup.env
+/opt/backups/backup-db.sh           # doit finir par « copie distante ok »
+rclone ls sauvegardes:helmane-db
+```
+
+`backup.env` reste sur la machine (jamais dans le dépôt). Les identifiants du stockage
+vivent dans `~/.config/rclone/rclone.conf` de root. Le script écrit un second jeton,
+`derniere-sauvegarde-distante`, **seulement** quand l'archive est confirmée sur le remote ;
+la supervision (contrôle « Sauvegarde ») passe en attention s'il manque ou vieillit.
+
+Restaurer depuis le stockage distant (machine perdue) :
+
+```bash
+rclone copy sauvegardes:helmane-db/app-AAAAMMJJ-HHMM.db.gz /tmp/
+zcat /tmp/app-AAAAMMJJ-HHMM.db.gz > /tmp/restore-test.db
+sqlite3 /tmp/restore-test.db "PRAGMA integrity_check;"
+```
 
 ## Rollback
 

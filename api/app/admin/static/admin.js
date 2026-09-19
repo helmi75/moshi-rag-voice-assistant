@@ -11,3 +11,13 @@ document.addEventListener("change", (event) => {
     champ.form?.submit();
   }
 });
+
+// Une saisie refusée (HTTP 422) revient avec le fragment et son message d'erreur : htmx
+// 1.9 n'affiche pas les réponses 4xx par défaut, et la ligne resterait figée sans dire
+// pourquoi l'enregistrement n'a pas eu lieu.
+document.addEventListener("htmx:beforeSwap", (event) => {
+  if (event.detail.xhr.status === 422) {
+    event.detail.shouldSwap = true;
+    event.detail.isError = false;
+  }
+});

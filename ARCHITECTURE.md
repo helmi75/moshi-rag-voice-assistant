@@ -1,116 +1,121 @@
 # Architecture
 
-## Vue d'ensemble (phase 1, actuelle)
+Ce document dit **pourquoi** le système est construit ainsi. Le « comment » est dans le
+code, dont les commentaires portent la raison de chaque garde-fou.
+
+## Vue d'ensemble
 
 ```
-Appel entrant
-     │
-     ▼
-┌─────────┐  webhook HTTP (To, CallSid, SpeechResult)   ┌──────────────────────────┐
-│ Twilio  │ ───────────────────────────────────────────▶│ FastAPI (api/app/main.py)│
-│ STT/TTS │ ◀─────────────────────────────────────────── │  ├─ tenants.py  (routage │
-└─────────┘        TwiML <Say> + <Gather>               │  │   par numéro appelé)  │
-                                                        │  ├─ llm.py (LLM via      │
-                                                        │  │   OpenRouter + outils)│
-                                                        │  └─ reservations.py      │
-                                                        └──────────┬───────────────┘
-                                                                   │
-                                                        ┌──────────▼───────────┐
-                                                        │ SQLite (data/app.db) │
-                                                        │ tenants, réservations│
-                                                        └──────────────────────┘
+                 ┌────────────────────────── VPS (Docker) ──────────────────────────┐
+Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.py                    │
+                 │                        ├─ /twilio/voice|sms|webhook  (signés)     │
+                 │                        ├─ /ws/voice ─▶ Pipecat  api/app/voice/    │
+                 │                        │     Deepgram ─▶ LLM (OpenRouter) ─▶ voix │──▶ Modal (GPU L4)
+                 │                        ├─ /admin      (Jinja2 + htmx)             │    moshi-server
+                 │                        └─ /health, /supervision                   │
+                 │                     SQLite (volume api_data) · enregistrements    │
+                 └───────────────────────────────────────────────────────────────────┘
+                   GitHub Actions ─▶ /supervision toutes les 15 min (alerte si 503)
 ```
 
-- **Un déploiement, N clients** : le numéro Twilio appelé (`To`) identifie le tenant.
-  Chaque tenant a sa base de connaissances, sa langue, son message d'accueil.
-- **Le LLM (via OpenRouter)** reçoit la KB du tenant en prompt système et expose
-  des outils métier (function calling) : `check_availability`, `create_reservation`.
-  La boucle d'outils est dans `api/app/llm.py`. OpenRouter donne accès à n'importe
-  quel modèle (Claude, GPT, Gemini, Llama, Mistral, DeepSeek...) derrière une seule
-  clé et une API OpenAI-compatible — le choix se fait via `LLM_MODEL`.
-- **La voix (phase 1)** est déléguée à Twilio : `<Gather input="speech">` pour le STT,
-  `<Say>` pour le TTS. Simple et sans infrastructure, au prix d'une latence de 2-4 s.
-  La phase 2 (voir ROADMAP.md) remplace ce transport par Twilio Media Streams + Pipecat
-  sans toucher au cerveau.
+- **Un déploiement, N établissements** : le numéro appelé (`To`) désigne l'établissement
+  (`tenants.get_by_phone`). Chacun a sa base de connaissances, ses horaires, sa voix, son
+  accueil, ses comptes et sa formule.
+- **Un seul chemin d'appel** (depuis le 18/09/2026) : Twilio Media Streams + Pipecat. La
+  boucle `<Gather>`/`<Say>` et les moteurs locaux (Pocket, Kyutai en PyTorch, Cartesia)
+  ont été retirés : deux chemins, c'était deux produits à tester, et le second n'était
+  plus ni journalisé ni compté au forfait. Code lisible au tag `archive/moteurs-locaux`.
 
-## Choix techniques et justifications
+## Le chemin d'un appel
 
-### Pourquoi Moshi a été retiré
+1. `POST /twilio/voice` — signature Twilio vérifiée, établissement résolu, TwiML
+   `<Connect><Stream>` avec le numéro appelant en paramètre.
+2. `WS /ws/voice` — signature de la poignée de main vérifiée **avant** `accept()` ; le
+   numéro appelant passe par `calls.numero_appelant` (un appel masqué n'a pas de numéro),
+   l'appel est ouvert en base, puis `voice/bot.run_bot`.
+3. Pipecat : VAD Silero + smart-turn (modèle partagé entre les appels) ; **Deepgram
+   nova-3** décroche en `multi` puis se fixe sur la langue de l'appel (`voice/langue.py`) ;
+   **LLM** via OpenRouter, raisonnement coupé (c'est du silence au téléphone) ; **voix**
+   servie par `moshi-server` sur Modal, clé privée (`voice/moshi_server_tts.py`).
+4. L'accueil est un WAV pré-rendu par établissement : l'appelant l'entend tout de suite,
+   même quand le GPU se réveille ; la musique d'attente meuble le réveil.
+5. À la fin : durée, transcription, latences par tour et journal de bord en base ;
+   enregistrement deux pistes si activé (`voice/enregistrement.py`).
 
-Le projet a démarré sur Moshi (Kyutai), un modèle speech-to-speech full-duplex. Retiré
-pour trois raisons :
+**Règle d'architecture** : le cerveau (`llm.py`, `reservations.py`, `messages.py`)
+ignore le transport. `llm.run_tool` est le seul point où un outil touche aux données,
+pour la voix comme pour le SMS.
 
-1. **Incontrôlable pour un assistant métier** : pas de function calling fiable, pas de
-   moyen robuste de le contraindre aux informations du commerce (horaires, menu) — or
-   c'est précisément le produit.
-2. **Coût fixe** : GPU 24 Go obligatoire 24h/24 (~200-400 €/mois) même sans un seul appel.
-3. **Intégration téléphonique complexe** : Moshi attend un flux audio full-duplex ;
-   le brancher sur Twilio aurait demandé tout le travail de la phase 2 sans les
-   bénéfices de contrôle du pipeline STT→LLM→TTS.
+## Les outils et ce que le serveur refuse
 
-L'historique reste dans git (`git log -- moshi/`).
+Le modèle propose, le serveur dispose. `llm.run_tool` refuse — avec un message que le
+modèle relit, jamais une exception — un créneau passé, illisible ou **hors des horaires
+d'ouverture** (`disponibilite.py` ; horaires non renseignés = aucun refus, et l'admin le
+signale). La modification et l'annulation ne touchent que les réservations **du numéro
+qui appelle**, jamais celles qu'un modèle aurait devinées.
 
-### Pourquoi pas de RAG vectoriel (pour l'instant)
+Après chaque écriture réussie, `notifications.planifier` envoie l'e-mail au restaurateur
+en tâche de fond : le résultat de l'outil revient au modèle sans attendre le SMTP.
 
-La base de connaissances d'un restaurant ou d'un cabinet tient en 1 à 5 K tokens : elle
-est injectée intégralement dans le prompt système (`llm.build_system_prompt`). C'est plus
-simple, plus fiable (pas de rappel manqué) et moins cher qu'un vector store — et certains
-modèles servis par OpenRouter (dont Claude) bénéficient nativement d'un cache de prompt
-côté fournisseur, sans rien à configurer côté application.
+Le nom de la dernière réservation du numéro est **proposé** dans le prompt
+(`reservations.dernier_nom`), jamais présumé, et seulement s'il ressemble à un nom.
 
-**Chemin d'upgrade** (phase 4) : quand un tenant aura des documents volumineux (menus PDF,
-sites web), on ajoutera une ingestion → chunking → embeddings → vector store (pgvector),
-et `build_system_prompt` injectera les passages récupérés au lieu de la KB brute.
-L'interface ne change pas.
+## Données
 
-### Stockage
+SQLite (`data/app.db`, volume `api_data`), migrations numérotées par `PRAGMA
+user_version` (`db._MIGRATIONS` ; une migration livrée ne se réécrit jamais).
 
-SQLite (`data/app.db`, stdlib `sqlite3`) : zéro dépendance, suffisant pour la phase pilote.
-Migration prévue vers PostgreSQL en phase 3 (les requêtes sont volontairement basiques).
-La mémoire de conversation par appel est en RAM (dict par `CallSid`, TTL 1 h) → Redis
-quand l'API sera répliquée.
+| Table | Contenu |
+|---|---|
+| `tenants` | établissements : numéro, fiche, accueil, voix, formule, horaires (JSON), e-mail de notification |
+| `reservations` | réservations ; une annulée **reste**, horodatée (`cancelled_at`) |
+| `calls` | journal des appels : durée, transcription, latences, journal de bord |
+| `messages` | messages pris pour l'équipe, à rappeler |
+| `users` | super-admin et restaurateurs (bcrypt) |
+| `supervision` | ardoise des mesures (relève Twilio, purge, sonde d'écriture) |
 
-### Modèle LLM
+- **Hors de la boucle d'événements** : la boucle porte l'audio de tous les appels en
+  cours. Tout accès SQLite du chemin d'appel et de l'admin passe par un fil
+  (`db.hors_boucle`, ou un gestionnaire `def` que FastAPI exécute dans son pool). WAL,
+  `synchronous=NORMAL`.
+- **Heure du restaurant** : stockage en UTC, mais toutes les bornes (« aujourd'hui »,
+  « ce mois-ci », « 30 derniers jours ») sont calculées à l'heure de Paris
+  (`horloge.py`). Un appel à 00 h 30 le 1er compte dans le bon mois.
+- **Tâches de fond** : toutes passent par `taches.lancer` (référence retenue, exception
+  journalisée, arrêt propre dans le `lifespan`).
 
-Le LLM passe par **OpenRouter** (`api/app/llm.py`, API OpenAI-compatible), ce qui
-permet de choisir librement le modèle via `LLM_MODEL` sans changer de code : un
-modèle gratuit par défaut (`openrouter/free`) pour démarrer sans dépenser, ou un
-modèle précis (`anthropic/claude-sonnet-5`, `openai/gpt-4o-mini`...) une fois le
-produit validé. Monter en gamme ou faire varier le modèle par tenant se fait par
-variable d'environnement, sans changement de code.
+### Pourquoi pas de RAG vectoriel
 
-## Phase 2 — transport streaming (implémenté, `VOICE_MODE=stream`)
+La fiche d'un restaurant tient en quelques milliers de caractères (plafond admin :
+12 000) : elle est injectée entière dans le prompt système. Plus simple, plus fiable (pas
+de passage manqué) et moins cher qu'un index vectoriel. Chemin d'upgrade le jour où un
+établissement aura des documents volumineux : ingestion → découpage → embeddings, et
+`build_system_prompt` injecte les passages retrouvés. L'interface ne change pas.
 
-La boucle Gather/Say (2-4 s de latence) est doublée d'un pipeline audio streaming
-(`api/app/voice/bot.py`). Stack arrêtée après étude comparative (détail et sources :
-[docs/VOICE_STACK.md](docs/VOICE_STACK.md)) :
+### Pourquoi Moshi « speech-to-speech » a été abandonné, et pas la voix Moshi
 
-```
-Appel ──▶ POST /twilio/voice ──▶ TwiML <Connect><Stream>   [VOICE_MODE=stream]
-Appel ──▶ WS /ws/voice (Twilio Media Streams)
-              │  (résolution du tenant via <Parameter To>)
-              ▼
-        ┌──────────────────── Pipecat ────────────────────┐
-        │  STT Deepgram fr (phase A) → Kyutai (phase B)   │
-        │        │   VAD Silero + smart-turn v3 (barge-in)│
-        │        ▼                                        │
-        │  LLM via OpenRouter + outils métier (mêmes      │
-        │  TOOLS, même prompt système qu'en mode gather)  │
-        │        │                                        │
-        │        ▼                                        │
-        │  TTS Cartesia fr (phase A) → Kyutai (phase B)   │
-        └─────────────────────────────────────────────────┘
-                       Latence cible ≈ 1,0-1,3 s
-```
+Le projet a démarré sur Moshi full-duplex : pas d'appel d'outil fiable, impossible à
+contraindre à la fiche du restaurant — or c'est le produit. On garde la **voix** Moshi
+1.6B de Kyutai, servie par `moshi-server` (le serveur de production d'unmute.sh), en
+simple étage TTS d'un pipeline STT → LLM → TTS qu'on contrôle.
 
-Règle d'architecture : **le cerveau (`llm.py`, `tenants.py`, `reservations.py`) ignore
-le transport**. Gather/Say aujourd'hui, Media Streams/Pipecat demain, 100 % local
-(Kyutai + Qwen3 8B quantisé sur une RTX 4090) après-demain — mêmes modules, seuls les
-étages audio de Pipecat changent. Chaque étage est interchangeable API ↔ auto-hébergé.
+## Sécurité
 
-## Sécurité / production (à traiter avant mise en production réelle)
+| Menace | Parade |
+|---|---|
+| Requête forgée sur les webhooks ou le flux | `X-Twilio-Signature` vérifiée (`twilio_signature.py`), URL publique reconstruite depuis `PUBLIC_URL` ; mode `log` pour observer avant `enforce` |
+| GPU utilisé par un tiers | clé privée `MOSHI_TTS_API_KEY` posée au démarrage du conteneur Modal |
+| Admin | session signée, CSRF, bcrypt, limitation des tentatives, cloisonnement par établissement (`deps.resolve_tenant`), CSP stricte (Caddy) |
+| Exposition réseau | API liée à `127.0.0.1`, seul Caddy est public ; pare-feu `ufw` |
+| Données personnelles | purges automatiques, droit à l'effacement, numéro tronqué dans les journaux |
+| Perte de la base | sauvegarde nocturne vérifiée + copie hors du serveur (rclone), surveillées |
 
-- Valider la signature des webhooks Twilio (`X-Twilio-Signature`)
-- HTTPS via Caddy (décommenter le bloc domaine dans `caddy/Caddyfile`)
-- Secrets hors du repo (`.env` non versionné)
-- Limitation de débit sur les webhooks
+## Exploitation
+
+- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 14
+  contrôles, une seule source pour l'écran « Santé & coûts » et la sonde `/supervision`.
+  « Pas de mesure » n'est jamais un feu vert.
+- **Garde-fous** : chaque protection critique a un test qui rougit quand on la retire
+  (`scripts/mutation_check.py`, joué en CI).
+- **Dépendances** : `requirements.lock` installé tel quel par l'image et la CI ;
+  `ruff` et `pip-audit` en CI.

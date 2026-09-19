@@ -1,0 +1,8 @@
+# Analyse statique en CI (`ruff check api/app`). Volontairement minimale : erreurs de
+# syntaxe (E9) et pyflakes (F) — nom non défini, import inutile, variable jamais lue.
+# Ce sont des défauts, pas des goûts : un nom non défini dans une branche rarement
+# empruntée (le repli d'un appel raté) ne se voit qu'en production. Rien de stylistique.
+target-version = "py312"
+
+[lint]
+select = ["E9", "F"]

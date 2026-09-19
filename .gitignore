@@ -28,6 +28,7 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 .tox/
@@ -69,7 +70,6 @@ logs/
 *.log.*
 
 # Docker
-.dockerignore
 docker-compose.override.yml
 
 # Caddy

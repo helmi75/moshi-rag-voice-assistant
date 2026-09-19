@@ -45,6 +45,11 @@ class Tenant:
     # Formule commerciale (#31). None = formule par défaut ; c'est app/plans.py:resolve
     # qui tranche, et qui ignore une valeur hors catalogue.
     plan: Optional[str] = None
+    # Horaires d'ouverture structurés (JSON, app/disponibilite.py). None = non renseigné :
+    # l'assistante ne refuse aucun créneau, comme avant.
+    opening_hours: Optional[str] = None
+    # Adresse de notification en plus des comptes restaurateurs (app/notifications.py).
+    notify_email: Optional[str] = None
 
 
 def _row_to_tenant(row) -> Tenant:
@@ -58,6 +63,8 @@ def _row_to_tenant(row) -> Tenant:
         knowledge_base=row["knowledge_base"],
         voice=row["voice"],
         plan=row["plan"],
+        opening_hours=row["opening_hours"],
+        notify_email=row["notify_email"],
     )
 
 
@@ -139,7 +146,8 @@ def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     greeting, knowledge_base, voice, plan). Lève sqlite3.IntegrityError si numéro en
     conflit."""
     allowed = {"name", "business_type", "phone_number", "language", "greeting",
-               "knowledge_base", "greeting_customized", "voice", "plan"}
+               "knowledge_base", "greeting_customized", "voice", "plan", "opening_hours",
+               "notify_email"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_by_id(tenant_id)
@@ -154,48 +162,42 @@ def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
 
 
 def delete_tenant(tenant_id: int) -> None:
-    """Supprime le tenant ET ses données (réservations, appels, comptes) en une
-    transaction — la FK reservations.tenant_id n'a pas de CASCADE (table historique)."""
+    """Supprime le tenant ET ses données (réservations, appels, messages, comptes) en une
+    transaction — la FK reservations.tenant_id n'a pas de CASCADE (table historique), et
+    `messages` n'a pas de FK du tout : oubliés, les numéros et noms des appelants
+    survivaient à l'établissement, hors de toute durée de conservation.
+
+    Les enregistrements audio partent aussi : ils sont rangés par `tenant<id>`, et un
+    établissement créé plus tard pourrait hériter du même identifiant."""
+    import shutil
+
+    from .voice import enregistrement
+
     with db.get_conn() as conn:
         conn.execute("DELETE FROM reservations WHERE tenant_id = ?", (tenant_id,))
         conn.execute("DELETE FROM calls WHERE tenant_id = ?", (tenant_id,))
+        conn.execute("DELETE FROM messages WHERE tenant_id = ?", (tenant_id,))
         conn.execute("DELETE FROM users WHERE tenant_id = ?", (tenant_id,))
         conn.execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
+    shutil.rmtree(enregistrement.dossier() / f"tenant{int(tenant_id)}", ignore_errors=True)
 
 
 def seed_demo_tenant() -> None:
-    """Crée le restaurant de démonstration si absent, et garde son numéro aligné
-    sur TWILIO_NUMBER.
+    """Sème le restaurant de démonstration dans une base VIDE, et seulement là.
 
-    Le numéro est réaligné à chaque démarrage : sans ça, un premier démarrage avec
-    un mauvais TWILIO_NUMBER (ou le défaut) fige le numéro dans le volume Docker et
-    tous les appels tombent sur « numéro non configuré ». Pour ne pas écraser une
-    vraie prod, on ne sème rien si d'autres tenants existent déjà."""
+    Jusqu'au 19/09/2026, il réalignait aussi le numéro (sur TWILIO_NUMBER) et l'accueil
+    du tenant démo à chaque démarrage. Or en production le tenant réel EST le tenant
+    semé : un numéro changé dans l'admin — l'achat du numéro FR, par exemple — revenait
+    à l'ancien au redémarrage suivant, sans un mot, et les appels vers le nouveau numéro
+    tombaient sur « numéro non configuré ». L'admin est désormais la SEULE source du
+    numéro et de l'accueil d'un établissement existant.
+
+    SEED_DEMO=0 : ne rien semer du tout, même dans une base vide (installation neuve
+    pour un vrai client, qui n'a que faire d'un restaurant fictif)."""
+    if os.getenv("SEED_DEMO", "1").strip() == "0":
+        return
     with db.get_conn() as conn:
-        demo = conn.execute(
-            "SELECT id, phone_number, greeting, greeting_customized "
-            "FROM tenants WHERE name = ? AND business_type = ?",
-            ("Le Fouquet's Paris", "restaurant"),
-        ).fetchone()
-        if demo is not None:
-            if DEMO_TENANT_NUMBER and demo["phone_number"] != DEMO_TENANT_NUMBER:
-                conn.execute(
-                    "UPDATE tenants SET phone_number = ? WHERE id = ?",
-                    (DEMO_TENANT_NUMBER, demo["id"]),
-                )
-            # Réaligne l'accueil sur le texte par défaut courant (sinon un vieux défaut
-            # reste figé dans le volume Docker et ne finit pas par « un instant s'il vous
-            # plaît »). MAIS on ne touche JAMAIS un accueil personnalisé par le client :
-            # sans ce garde-fou, chaque redémarrage écraserait l'accueil qu'il a réglé.
-            if not demo["greeting_customized"] and demo["greeting"] != _DEMO_GREETING:
-                conn.execute(
-                    "UPDATE tenants SET greeting = ? WHERE id = ?",
-                    (_DEMO_GREETING, demo["id"]),
-                )
-            return
-        # Pas de tenant démo : ne semer que si la base est vide (jamais en prod).
-        count = conn.execute("SELECT COUNT(*) FROM tenants").fetchone()[0]
-        if count:
+        if conn.execute("SELECT COUNT(*) FROM tenants").fetchone()[0]:
             return
         conn.execute(
             """INSERT INTO tenants (name, business_type, phone_number, language, greeting, knowledge_base)

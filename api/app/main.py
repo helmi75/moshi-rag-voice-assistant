@@ -1,16 +1,42 @@
-"""API du SaaS d'accueil téléphonique : webhooks Twilio multi-tenant + Claude."""
+"""API du SaaS d'accueil téléphonique : webhooks Twilio multi-tenant, flux média, admin.
+
+Un seul chemin d'appel : Twilio Media Streams → Pipecat (Deepgram, LLM via OpenRouter,
+voix Moshi servie par moshi-server). La boucle Gather/Say et les moteurs locaux (Pocket
+TTS, Kyutai en PyTorch) ont été retirés le 18/09/2026 : deux chemins, c'était deux
+produits à tester, et le second n'était plus ni journalisé ni compté au forfait. Le code
+reste lisible au tag `archive/moteurs-locaux`.
+"""
 import json
 import os
-import time
+from contextlib import asynccontextmanager
 from typing import Optional
 from xml.sax.saxutils import escape
 
-from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
+from loguru import logger
 
-from . import calls, db, llm, reservations, rgpd, supervision, tenants, users
+from . import calls, db, llm, supervision, taches, tenants, twilio_signature, users
 
-app = FastAPI(title="Voice Assistant SaaS")
+
+@asynccontextmanager
+async def _cycle_de_vie(_app: FastAPI):
+    """Démarrage puis arrêt, dans cet ordre et à un seul endroit.
+
+    Remplace les quatre `@app.on_event` (dépréciés par FastAPI) : l'ordre y dépendait de
+    l'ordre de déclaration dans le fichier, et rien ne garantissait que l'arrêt suive
+    un démarrage qui aurait échoué à mi-chemin. Ici `finally` arrête les tâches de fond
+    dans tous les cas."""
+    await _partager_le_modele_de_fin_de_tour()
+    await _prerender_greetings()
+    await _demarrer_taches_de_fond()
+    try:
+        yield
+    finally:
+        await _arreter_taches_de_fond()
+
+
+app = FastAPI(title="Voice Assistant SaaS", lifespan=_cycle_de_vie)
 
 db.init_db()
 tenants.seed_demo_tenant()
@@ -21,8 +47,6 @@ users.seed_superadmin()
 # webhooks Twilio et /ws/voice ne traversent aucune logique d'auth. Le
 # SessionMiddleware est global mais inerte hors admin (cookie posé seulement si la
 # session est modifiée).
-from pathlib import Path as _Path
-
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -33,7 +57,8 @@ if not _session_secret:
     import secrets as _secrets
 
     _session_secret = _secrets.token_hex(32)
-    print("[admin] SESSION_SECRET absent : secret aléatoire (sessions perdues au redémarrage).")
+    logger.warning("[admin] SESSION_SECRET absent : secret aléatoire (sessions perdues au "
+                   "redémarrage).")
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret,
@@ -45,7 +70,6 @@ app.include_router(admin_pkg.public_router)
 app.include_router(admin_pkg.admin_router)
 
 
-@app.on_event("startup")
 async def _partager_le_modele_de_fin_de_tour():
     """Charge le modèle smart-turn une seule fois pour tout le processus (#40).
 
@@ -59,41 +83,17 @@ async def _partager_le_modele_de_fin_de_tour():
     from .voice import modeles
 
     if modeles.partager_le_modele_de_fin_de_tour():
-        print("[voix] modèle de fin de tour : partagé entre les appels")
+        logger.info("[voix] modèle de fin de tour : partagé entre les appels")
 
 
-@app.on_event("startup")
-async def _preload_voice_model():
-    """Précharge le modèle TTS local au démarrage (mode stream + TTS_PROVIDER=pocket),
-    dans un thread, pour éviter un gel de 30-60 s au tout premier appel et pour que
-    les logs de démarrage confirment le bon chargement du modèle."""
-    if _voice_mode() != "stream" or os.getenv("TTS_PROVIDER", "pocket").lower() != "pocket":
-        return
-    import asyncio
-
-    async def _load():
-        try:
-            from .voice.pocket_tts import _load_model_and_state
-
-            await asyncio.to_thread(_load_model_and_state)
-            print("Modèle TTS Pocket TTS préchargé (prêt pour le premier appel).")
-        except Exception as exc:
-            print(f"Préchargement Pocket TTS échoué (sera retenté au 1er appel): {exc}")
-
-    asyncio.create_task(_load())
-
-
-@app.on_event("startup")
 async def _prerender_greetings():
     """Phase 3 : pré-rend les accueils (voix « Développeuse ») HORS du chemin d'appel,
     pour que le tout premier appelant entende un accueil instantané. Déclenche au
     passage un cold start du GPU une seule fois, au démarrage, plutôt qu'en appel.
     Active aussi le keep-warm périodique si MOSHI_KEEPWARM_SECONDS > 0."""
-    import asyncio
-
     from .voice import greeting as greeting_mod
 
-    if _voice_mode() != "stream" or not greeting_mod.is_moshi_server():
+    if not greeting_mod.is_moshi_server():
         return
 
     async def _prerender():
@@ -103,24 +103,12 @@ async def _prerender_greetings():
             for tenant in tenants.list_all():
                 await greeting_mod.ensure_greeting_wav(tenant)
         except Exception as exc:
-            print(f"Pré-rendu des accueils échoué (repli TTS live au 1er appel): {exc}")
+            logger.warning(f"Pré-rendu des accueils échoué (repli TTS live au 1er appel): {exc}")
 
-    asyncio.create_task(_prerender())
-    asyncio.create_task(greeting_mod.keep_warm_loop())
-
-
-# Tâches de fond permanentes, gardées en référence pour pouvoir les ARRÊTER : une
-# boucle infinie qu'on abandonne empêche la boucle d'événements de se fermer, et le
-# processus (ou un TestClient) attend indéfiniment. Vécu le 23/08 — le contrôle de
-# mutation s'est figé une demi-heure sur un test qui sortait en erreur d'un
-# `with TestClient(...)`, précisément à cause d'une tâche orpheline.
-#
-# Une LISTE plutôt qu'une variable par tâche : à la troisième, le motif copié-collé
-# finit par oublier un arrêt quelque part.
-_taches_de_fond: list = []
+    taches.lancer(_prerender(), nom="pré-rendu des accueils")
+    taches.lancer(greeting_mod.keep_warm_loop(), nom="keep-warm moshi-server")
 
 
-@app.on_event("startup")
 async def _demarrer_taches_de_fond():
     """Deux boucles permanentes, chacune hors du chemin d'appel :
 
@@ -128,50 +116,22 @@ async def _demarrer_taches_de_fond():
       contrôle qui exige un appel réseau et la sonde doit rester gratuite ;
     - **purge des données personnelles** (#22) : les durées de conservation ne valent
       rien tant que rien ne les APPLIQUE.
-    """
-    import asyncio
 
+    Retenues par le registre `taches`, comme tout ce qui tourne en fond : une boucle
+    infinie qu'on abandonne empêche la boucle d'événements de se fermer, et le processus
+    — ou un TestClient — attend indéfiniment. Vécu le 23/08.
+    """
     from . import rgpd
 
-    _taches_de_fond.extend([
-        asyncio.create_task(supervision.boucle_twilio()),
-        asyncio.create_task(rgpd.boucle()),
-    ])
+    taches.lancer(supervision.boucle_twilio(), nom="relève des alertes Twilio")
+    taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
 
 
-@app.on_event("shutdown")
 async def _arreter_taches_de_fond():
-    """Arrête proprement toutes les boucles. Sans ça, l'arrêt du service traîne — et un
-    service qui ne sait pas s'arrêter est un service qu'on finit par tuer au signal 9,
-    en pleine écriture SQLite."""
-    import asyncio
-    import contextlib
-
-    taches, _taches_de_fond[:] = list(_taches_de_fond), []
-    for tache in taches:
-        if not tache.done():
-            tache.cancel()
-    for tache in taches:
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await tache
-
-
-# Mémoire de conversation par appel (CallSid). Suffisant pour un seul process ;
-# à remplacer par Redis quand l'API sera répliquée (phase 3 de la roadmap).
-CONVERSATION_TTL_SECONDS = 3600
-_conversations: dict[str, dict] = {}
-
-
-def _get_history(call_sid: str) -> list:
-    now = time.time()
-    for sid in [s for s, c in _conversations.items() if now - c["ts"] > CONVERSATION_TTL_SECONDS]:
-        del _conversations[sid]
-    entry = _conversations.get(call_sid)
-    return entry["messages"] if entry else []
-
-
-def _save_history(call_sid: str, messages: list) -> None:
-    _conversations[call_sid] = {"messages": messages, "ts": time.time()}
+    """Arrête proprement toutes les tâches de fond. Sans ça, l'arrêt du service traîne —
+    et un service qui ne sait pas s'arrêter est un service qu'on finit par tuer au
+    signal 9, en pleine écriture SQLite."""
+    await taches.arreter_tout()
 
 
 def _twiml(inner: str) -> Response:
@@ -180,12 +140,6 @@ def _twiml(inner: str) -> Response:
         content=f'<?xml version="1.0" encoding="UTF-8"?>\n{body}',
         media_type="text/xml",
     )
-
-
-def _voice_mode() -> str:
-    """"gather" (défaut, boucle Say/Gather) ou "stream" (Media Streams + Pipecat).
-    Lu à chaque requête pour rester configurable sans redémarrage (et testable)."""
-    return os.getenv("VOICE_MODE", "gather").strip().lower()
 
 
 def _stream_ws_url(request: Request) -> str:
@@ -208,7 +162,12 @@ def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "
     ws_url = _stream_ws_url(request)
     # Log explicite : si Twilio ne joint pas cette URL (mauvais tunnel ngrok, http
     # au lieu de wss...), le flux média ne se connecte jamais et l'appel raccroche.
-    print(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, From={from_number}, CallSid={call_sid})")
+    # Le numéro de l'appelant est tronqué : les journaux Docker n'ont pas de durée de
+    # conservation, contrairement à la base (RETENTION_NUMERO_JOURS). Deux chiffres
+    # suffisent à reconnaître son propre appel de test.
+    appelant = f"…{from_number[-2:]}" if from_number else "masqué"
+    logger.info(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, From={appelant}, "
+                f"CallSid={call_sid})")
     return _twiml(
         "    <Connect>\n"
         f'        <Stream url="{escape(ws_url)}">\n'
@@ -220,30 +179,10 @@ def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "
     )
 
 
-def _say_voice() -> str:
-    """Voix du <Say> Twilio en mode gather. Défaut : voix neuronale Amazon Polly
-    française (Léa) — naturelle, incluse dans Twilio, latence nulle. Bien meilleure
-    que la voix standard robotique. Surchargeable via TWILIO_VOICE (ex. Polly.Remi-Neural,
-    voix masculine). Mettre TWILIO_VOICE="" pour revenir à la voix standard."""
-    return os.getenv("TWILIO_VOICE", "Polly.Lea-Neural")
-
-
-def _say(text: str, language: str) -> str:
-    """Balise <Say> : avec une voix Polly, la langue est portée par la voix ;
-    sinon on retombe sur l'attribut language standard."""
-    voice = _say_voice()
-    if voice:
-        return f'    <Say voice="{escape(voice)}">{escape(text)}</Say>'
-    return f'    <Say language="{language}">{escape(text)}</Say>'
-
-
-def _say_and_gather(text: str, language: str) -> Response:
-    return _twiml(
-        f"{_say(text, language)}\n"
-        f'    <Gather input="speech" language="{language}" timeout="5" speechTimeout="auto"'
-        f' action="/twilio/voice" method="POST"/>\n'
-        f'{_say("Merci pour votre appel. Au revoir.", language)}'
-    )
+def _raccrocher(texte: str) -> Response:
+    """TwiML qui dit une phrase puis raccroche : le seul cas où l'application parle
+    elle-même, sans le pipeline — un numéro que personne n'a configuré."""
+    return _twiml(f'    <Say language="fr-FR">{escape(texte)}</Say>\n    <Hangup/>')
 
 
 @app.get("/health")
@@ -256,7 +195,7 @@ async def health_check():
     mélanger coupleraient le déploiement à des verdicts sans rapport (une sauvegarde
     en retard n'a pas à empêcher de déployer un correctif).
     """
-    return {"status": "ok", "model": llm.MODEL, "voice_mode": _voice_mode()}
+    return {"status": "ok", "model": llm.MODEL}
 
 
 @app.get("/supervision")
@@ -269,7 +208,8 @@ async def supervision_probe(request: Request):
     `.github/workflows/supervision.yml`, qui tourne chez GitHub, qui décide d'alerter.
 
     Authentifiée : la réponse décrit l'infrastructure et le trafic. Comparaison à temps
-    constant, comme partout ailleurs dans ce projet.
+    constant, comme partout ailleurs dans ce projet. Jeton en EN-TÊTE uniquement : dans
+    l'URL (`?token=`), il finirait dans les journaux de Caddy et l'historique des shells.
 
     Codes : **200** si tout va bien ou si la pile est dégradée mais sert les appels,
     **503** si un appelant qui téléphone maintenant n'est pas correctement servi. C'est
@@ -283,8 +223,7 @@ async def supervision_probe(request: Request):
         # Pas de jeton configuré = pas de sonde ici. Répondre autre chose laisserait
         # croire qu'une supervision existe alors que rien ne la protège.
         raise HTTPException(status_code=404, detail="Not Found")
-    fourni = (request.headers.get("x-supervision-token")
-              or request.query_params.get("token") or "")
+    fourni = request.headers.get("x-supervision-token") or ""
     if not hmac.compare_digest(attendu, fourni):
         raise HTTPException(status_code=401, detail="Jeton de supervision invalide")
 
@@ -299,63 +238,48 @@ async def supervision_probe(request: Request):
     )
 
 
-@app.post("/twilio/voice")
+# Les trois webhooks exigent la signature de Twilio (twilio_signature.exiger) : le numéro
+# d'un restaurant est public, et sans elle n'importe qui ferait parler l'assistante — et
+# payer le LLM. L'appel interne de twilio_webhook vers voice_webhook ne repasse pas par
+# la dépendance : une seule vérification par requête.
+@app.post("/twilio/voice", dependencies=[Depends(twilio_signature.exiger)])
 async def voice_webhook(
     request: Request,
     CallSid: Optional[str] = Form(None),
     To: Optional[str] = Form(None),
     From: Optional[str] = Form(None),
-    SpeechResult: Optional[str] = Form(None),
 ):
-    """Webhook vocal Twilio : boucle Gather/Say pilotée par le LLM du tenant."""
-    tenant = tenants.get_by_phone(To)
+    """Webhook vocal Twilio : branche l'appel sur le pipeline Pipecat via Media Streams.
+
+    Le numéro appelé (`To`) désigne l'établissement ; un numéro que personne n'a
+    configuré est raccroché poliment plutôt que routé au hasard."""
+    tenant = await db.hors_boucle(tenants.get_by_phone, To)
     if tenant is None:
-        not_configured = _say("Ce numéro n'est pas encore configuré. Au revoir.", "fr-FR")
-        return _twiml(not_configured + "\n    <Hangup/>")
-
-    # Mode streaming : on branche l'appel sur le pipeline Pipecat via Media Streams
-    if _voice_mode() == "stream":
-        return _stream_twiml(request, To or "", CallSid or "", From or "")
-
-    # Premier tour : accueil sans appel LLM (latence nulle)
-    if not SpeechResult:
-        return _say_and_gather(rgpd.accueil(tenant), tenant.language)
-
-    try:
-        history = _get_history(CallSid or "")
-        text, messages = await llm.respond(tenant, history, SpeechResult, From)
-        if CallSid:
-            _save_history(CallSid, messages)
-        if not text:
-            text = "Je n'ai pas bien compris, pouvez-vous répéter ?"
-    except Exception as exc:
-        print(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
-        text = "Désolé, je rencontre un problème technique. Pouvez-vous rappeler dans quelques instants ?"
-
-    return _say_and_gather(text, tenant.language)
+        return _raccrocher("Ce numéro n'est pas encore configuré. Au revoir.")
+    return _stream_twiml(request, To or "", CallSid or "", From or "")
 
 
-@app.post("/twilio/sms")
+@app.post("/twilio/sms", dependencies=[Depends(twilio_signature.exiger)])
 async def sms_webhook(
     Body: str = Form(...),
     From: Optional[str] = Form(None),
     To: Optional[str] = Form(None),
 ):
     """Webhook SMS Twilio : réponse mono-tour via le LLM du tenant."""
-    tenant = tenants.get_by_phone(To)
+    tenant = await db.hors_boucle(tenants.get_by_phone, To)
     if tenant is None:
         text = "Ce numéro n'est pas encore configuré."
     else:
         try:
-            text, _ = await llm.respond(tenant, [], Body, From)
+            text, _ = await llm.respond(tenant, [], Body, calls.numero_appelant(From))
         except Exception as exc:
-            print(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
+            logger.error(f"Erreur LLM pour le tenant {tenant.id}: {exc}")
             text = "Désolé, une erreur s'est produite. Réessayez dans quelques instants."
 
     return _twiml(f"    <Message>{escape(text)}</Message>")
 
 
-@app.post("/twilio/webhook")
+@app.post("/twilio/webhook", dependencies=[Depends(twilio_signature.exiger)])
 async def twilio_webhook(request: Request):
     """Webhook générique : route vers voice ou sms selon la charge utile."""
     form_data = await request.form()
@@ -366,7 +290,6 @@ async def twilio_webhook(request: Request):
             CallSid=form_data.get("CallSid"),
             To=form_data.get("To"),
             From=form_data.get("From"),
-            SpeechResult=form_data.get("SpeechResult"),
         )
     if "Body" in form_data:
         return await sms_webhook(
@@ -377,15 +300,8 @@ async def twilio_webhook(request: Request):
     return _twiml("")
 
 
-@app.get("/tenants/{tenant_id}/reservations")
-async def tenant_reservations(tenant_id: int):
-    if tenants.get_by_id(tenant_id) is None:
-        raise HTTPException(status_code=404, detail="Tenant inconnu")
-    return {"reservations": reservations.list_reservations(tenant_id)}
-
-
 def _get_bot_runner():
-    """Import paresseux du bot Pipecat (mockable en test, extras optionnels en gather)."""
+    """Import paresseux du bot Pipecat (mockable en test)."""
     from .voice.bot import run_bot
 
     return run_bot
@@ -398,7 +314,12 @@ _WS_START_MAX_MESSAGES = 10
 @app.websocket("/ws/voice")
 async def voice_stream(websocket: WebSocket):
     """Point d'entrée Twilio Media Streams : poignée de main puis pipeline Pipecat."""
-    print("[stream] WebSocket /ws/voice : connexion entrante (Twilio a joint l'URL).")
+    logger.info("[stream] WebSocket /ws/voice : connexion entrante (Twilio a joint l'URL).")
+    # La signature de la poignée de main est vérifiée AVANT d'accepter : refuser ici
+    # coûte une réponse HTTP ; accepter puis fermer aurait déjà ouvert un flux.
+    if not twilio_signature.verifier_ws(websocket):
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
 
     start_data = None
@@ -420,11 +341,11 @@ async def voice_stream(websocket: WebSocket):
     call_sid = start.get("callSid")
     custom = start.get("customParameters") or {}
     to_number = custom.get("To")
-    from_number = custom.get("From")
+    from_number = calls.numero_appelant(custom.get("From"))
 
-    tenant = tenants.get_by_phone(to_number)
+    tenant = await db.hors_boucle(tenants.get_by_phone, to_number)
     if tenant is None or not stream_sid:
-        print(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
+        logger.warning(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
         await websocket.close(code=1008)  # policy violation
         return
 
@@ -433,16 +354,18 @@ async def voice_stream(websocket: WebSocket):
     # lieu normalement mais n'est pas enregistré — on n'invente pas de clé de fichier.
     call_id = None
     try:
-        call_id = calls.start_call(call_sid, tenant.id, from_number)
+        call_id = await db.hors_boucle(calls.start_call, call_sid, tenant.id, from_number)
     except Exception as exc:
-        print(f"[calls] start_call KO (sans conséquence): {exc}")
+        logger.warning(f"[calls] start_call KO (sans conséquence): {exc}")
 
     run_bot = _get_bot_runner()
     try:
         await run_bot(websocket, stream_sid, call_sid, tenant,
                       caller_number=from_number, call_id=call_id)
     except Exception as exc:
-        print(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
+        # Avec la pile d'appels : c'est l'erreur qu'on aura à diagnostiquer, et le
+        # message seul (« 'NoneType' object… ») ne dit jamais où.
+        logger.exception(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
         try:
             await websocket.close(code=1011)
         except RuntimeError:

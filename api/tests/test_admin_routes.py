@@ -87,10 +87,35 @@ class TestCsrf:
         _login(client)
         token = _csrf(client)
         resp = client.post(
-            f"/admin/reservations/{_seed_resa(tenant.id)}/delete",
+            f"/admin/reservations/{_seed_resa(tenant.id)}/cancel",
             headers={"X-CSRF-Token": token},
         )
         assert resp.status_code == 200
+
+
+class TestAnnulationDepuisLAdmin:
+    """« Annuler » annule : la ligne reste, barrée, horodatée — jamais effacée."""
+
+    def test_annuler_garde_la_ligne_et_la_barre(self, client, resto):
+        tenant, user = resto
+        rid = _seed_resa(tenant.id, name="Litige")
+        _login(client, user.email, "resto-pass")
+        resp = client.post(f"/admin/reservations/{rid}/cancel",
+                           headers={"X-CSRF-Token": _csrf(client)})
+        assert resp.status_code == 200
+        assert 'class="annulee"' in resp.text and "Annulée" in resp.text
+        assert "Litige" in resp.text
+        resa = reservations.get_reservation(rid)
+        assert resa is not None and resa["cancelled_at"]
+
+    def test_la_route_d_effacement_n_existe_plus(self, client, resto):
+        tenant, user = resto
+        rid = _seed_resa(tenant.id)
+        _login(client, user.email, "resto-pass")
+        resp = client.post(f"/admin/reservations/{rid}/delete",
+                           headers={"X-CSRF-Token": _csrf(client)})
+        assert resp.status_code in (404, 405)
+        assert reservations.get_reservation(rid) is not None
 
 
 class TestTwilioUntouched:
@@ -104,9 +129,12 @@ class TestTwilioUntouched:
         assert resp.status_code == 200
         assert "<?xml" in resp.text
 
-    def test_reservations_api_open(self, client):
+    def test_reservations_api_removed(self, client):
+        """L'inverse d'avant : cette route servait nom, téléphone et notes de tous les
+        clients d'un établissement SANS session. Elle n'existe plus (18/09/2026) ; la
+        seule lecture des réservations passe par l'admin, authentifié et cloisonné."""
         demo = tenants.get_by_phone("+33100000000")
-        assert client.get(f"/tenants/{demo.id}/reservations").status_code == 200
+        assert client.get(f"/tenants/{demo.id}/reservations").status_code == 404
 
 
 class TestTenantsCrud:
@@ -173,9 +201,10 @@ class TestRestaurateurScoping:
             rid = _seed_resa(other.id)
             _login(client, user.email, "resto-pass")
             token = _csrf(client)
-            resp = client.post(f"/admin/reservations/{rid}/delete",
+            resp = client.post(f"/admin/reservations/{rid}/cancel",
                                headers={"X-CSRF-Token": token})
             assert resp.status_code == 403
+            assert reservations.get_reservation(rid)["cancelled_at"] is None
         finally:
             tenants.delete_tenant(other.id)
 
@@ -224,6 +253,68 @@ class TestReservationsInline:
         )
         assert resp.status_code == 200 and "Marcel" in resp.text
         assert reservations.get_reservation(rid)["party_size"] == 4
+
+
+class TestValidationDesSaisies:
+    """Ce que le navigateur ne vérifie pas : une requête forgée ou une saisie approximative
+    qui, enregistrée, casserait le routage des appels ou le tri des réservations."""
+
+    def _creer(self, client, **champs):
+        _login(client)
+        data = {"name": "Validation", "csrf_token": _csrf(client), **champs}
+        return client.post("/admin/tenants", data=data, follow_redirects=False)
+
+    def test_numero_hors_format_international_refuse(self, client):
+        avant = len(tenants.list_all())
+        resp = self._creer(client, phone_number="01 23 45 67 89")
+        assert resp.status_code == 422
+        assert "format international" in resp.text
+        assert len(tenants.list_all()) == avant
+
+    def test_numero_avec_espaces_est_normalise(self, client):
+        resp = self._creer(client, phone_number="+33 6 12 34 00 09")
+        assert resp.status_code == 303
+        tenant = tenants.get_by_phone("+33612340009")
+        assert tenant is not None
+        tenants.delete_tenant(tenant.id)
+
+    def test_base_de_connaissances_trop_longue_refusee(self, client):
+        from app.admin.routes_tenants import KB_MAX
+
+        resp = self._creer(client, phone_number="+33612340010",
+                           knowledge_base="x" * (KB_MAX + 1))
+        assert resp.status_code == 422
+        assert tenants.get_by_phone("+33612340010") is None
+
+    def test_le_restaurateur_n_est_pas_bloque_par_un_numero_qu_il_ne_modifie_pas(
+            self, client, resto):
+        tenant, user = resto
+        _login(client, user.email, "resto-pass")
+        resp = client.post(
+            f"/admin/tenants/{tenant.id}",
+            data={"name": "Toujours là", "phone_number": "pas un numéro",
+                  "knowledge_base": "", "csrf_token": _csrf(client)},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert tenants.get_by_id(tenant.id).phone_number == tenant.phone_number
+
+    @pytest.mark.parametrize("champ,valeur", [
+        ("party_size", "0"), ("date", "2026-13-45"), ("date", "demain"),
+        ("time", "25:00"), ("customer_name", "  "),
+    ])
+    def test_reservation_invalide_refusee_sans_rien_ecrire(self, client, resto, champ, valeur):
+        tenant, _ = resto
+        rid = _seed_resa(tenant.id, name="Intacte")
+        _login(client)
+        data = {"customer_name": "Marcel", "customer_phone": "", "date": "2026-08-01",
+                "time": "19:30", "party_size": "4", "notes": "", champ: valeur}
+        resp = client.post(f"/admin/reservations/{rid}", data=data,
+                           headers={"X-CSRF-Token": _csrf(client)})
+        assert resp.status_code == 422
+        assert 'role="alert"' in resp.text and "<form" in resp.text
+        resa = reservations.get_reservation(rid)
+        assert resa["customer_name"] == "Intacte" and resa["party_size"] == 2
 
 
 class TestCallsViews:

@@ -112,3 +112,16 @@ class TestBuildSystemPrompt:
         chacune corrigeant une faute entendue. Environ 200 jetons de plus. Le plafond
         reste là pour que la prochaine règle se paie par une autre qu'on retire."""
         assert len(llm.build_system_prompt(_tenant())) < 7000
+
+
+class TestAppelantConnu:
+    """Le nom du dernier passage est PROPOSÉ, jamais présumé."""
+
+    def test_sans_nom_pas_de_section(self):
+        assert "# Appelant" not in llm.build_system_prompt(_tenant())
+
+    def test_le_nom_est_propose_avant_la_prise_de_reservation(self):
+        prompt = llm.build_system_prompt(_tenant(), appelant="Durand")
+        assert "« Durand »" in prompt
+        assert "PROPOSE" in prompt and "Ne le présume" in prompt
+        assert prompt.index("# Appelant") < prompt.index("# Réservation")

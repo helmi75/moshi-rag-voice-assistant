@@ -7,6 +7,7 @@ import wave
 
 import pytest
 
+from app import horloge
 from app.tenants import Tenant
 from app.voice import greeting as g
 
@@ -93,9 +94,12 @@ def test_load_greeting_frames_chunks_20ms(_cache_dir):
 
 
 def test_is_moshi_server(monkeypatch):
-    monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+    """La garde de tout ce qui parle : un serveur de voix configuré, ou rien."""
+    monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
     assert g.is_moshi_server() is True
-    monkeypatch.setenv("TTS_PROVIDER", "pocket")
+    monkeypatch.setenv("MOSHI_TTS_URL", "   ")
+    assert g.is_moshi_server() is False
+    monkeypatch.delenv("MOSHI_TTS_URL", raising=False)
     assert g.is_moshi_server() is False
 
 
@@ -134,7 +138,7 @@ def _intro(monkeypatch, chaud, secondes_accueil=0.5):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+    monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
     reveils, attentes = [], []
 
     async def faux_reveil():
@@ -175,3 +179,56 @@ def test_intro_gpu_froid_reveille_et_remercie(monkeypatch):
     reveils, textes, _, _ = _intro(monkeypatch, chaud=False)
     assert reveils == [1]
     assert textes == ["Merci d'avoir patienté, je vous écoute."]
+
+
+class TestKeepWarmAuxHeuresDeService:
+    """Le GPU chaud coûte ≈ 0,80 $/h : on ne le garde chaud qu'aux heures où l'on appelle."""
+
+    @staticmethod
+    def _a(heure, minute=0):
+        from datetime import datetime
+
+        return datetime(2026, 9, 19, heure, minute, tzinfo=horloge.FUSEAU)
+
+    def test_lecture_des_plages(self):
+        assert g.plages_keepwarm("11:30-14:30, 18h30-23") == [(690, 870), (1110, 1380)]
+        assert g.plages_keepwarm("") is None
+
+    @pytest.mark.parametrize("brut", ["midi-14", "11-11", "25-26", "11-14;18-23"])
+    def test_une_plage_illisible_garde_chaud_toute_la_journee(self, brut):
+        assert g.plages_keepwarm(brut) is None
+
+    def test_dedans_et_dehors(self):
+        plages = g.plages_keepwarm("11:30-14:30,18:30-23")
+        assert g.keepwarm_maintenant(plages, self._a(12))
+        assert not g.keepwarm_maintenant(plages, self._a(16))
+        assert not g.keepwarm_maintenant(plages, self._a(14, 30))  # fin exclue
+        assert g.keepwarm_maintenant(None, self._a(4))            # pas de plage : toujours
+
+    def test_une_plage_qui_passe_minuit(self):
+        plages = g.plages_keepwarm("22-2")
+        assert g.keepwarm_maintenant(plages, self._a(23))
+        assert g.keepwarm_maintenant(plages, self._a(1, 59))
+        assert not g.keepwarm_maintenant(plages, self._a(2))
+
+    @pytest.mark.parametrize("heure,reveils", [(12, 1), (16, 0)])
+    def test_la_boucle_ne_reveille_le_gpu_que_dans_la_fenetre(self, monkeypatch, heure, reveils):
+        import asyncio
+
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        monkeypatch.setenv("MOSHI_KEEPWARM_SECONDS", "90")
+        monkeypatch.setenv("MOSHI_KEEPWARM_HEURES", "11:30-14:30")
+        monkeypatch.setattr(horloge, "maintenant", lambda: self._a(heure))
+        appels = []
+
+        async def reveil():
+            appels.append(1)
+
+        async def dormir(_secondes):
+            raise asyncio.CancelledError  # un seul tour de boucle
+
+        monkeypatch.setattr(g, "warmup_moshi_server", reveil)
+        monkeypatch.setattr(g.asyncio, "sleep", dormir)
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(g.keep_warm_loop())
+        assert len(appels) == reveils

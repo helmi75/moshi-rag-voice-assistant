@@ -14,6 +14,7 @@ fichier est rendu et l'ancien est ignoré — pas de resynchronisation manuelle.
 import asyncio
 import hashlib
 import os
+import re
 import time
 import wave
 from pathlib import Path
@@ -23,6 +24,7 @@ from urllib.parse import quote
 import numpy as np
 from loguru import logger
 
+from .. import horloge
 from ..tenants import Tenant
 from . import voices
 from .moshi_server_tts import _DEFAULT_HOLD_MUSIC, _NATIVE_RATE, _ws_base, gpu_chaud, noter_son
@@ -51,7 +53,11 @@ TWILIO_RATE = 8000
 
 
 def is_moshi_server() -> bool:
-    return os.getenv("TTS_PROVIDER", "").strip().lower() == "moshi_server"
+    """Un serveur de voix est-il configuré ? C'est la garde de tout ce qui parle : accueil
+    pré-rendu, réveil du GPU, musique d'attente. Depuis le 18/09/2026 il n'y a plus qu'un
+    moteur, donc plus de TTS_PROVIDER : l'URL suffit, et son absence est une panne que la
+    supervision signale (_configuration_requise)."""
+    return bool(os.getenv("MOSHI_TTS_URL", "").strip())
 
 
 def _texte(tenant: Tenant) -> str:
@@ -337,17 +343,59 @@ async def run_switchboard_intro(
         await task.queue_frames([STTMuteFrame(mute=False)])
 
 
+_PLAGE = re.compile(r"\s*(\d{1,2})(?:[:h](\d{2}))?\s*-\s*(\d{1,2})(?:[:h](\d{2}))?\s*")
+
+
+def plages_keepwarm(brut: Optional[str] = None) -> Optional[list[tuple[int, int]]]:
+    """Fenêtres du keep-warm, en minutes depuis minuit à l'heure du restaurant.
+
+    `MOSHI_KEEPWARM_HEURES="11:30-14:30,18:30-23"` : le GPU n'est gardé chaud que
+    pendant ces plages (une plage qui finit avant de commencer passe minuit). None =
+    toute la journée : variable vide, ou illisible — dans ce cas on le DIT, et on garde
+    chaud plutôt que de laisser un appelant subir un démarrage à froid qu'on croyait
+    évité : MOSHI_KEEPWARM_SECONDS posé exprime déjà ce choix."""
+    brut = (os.getenv("MOSHI_KEEPWARM_HEURES", "") if brut is None else brut).strip()
+    if not brut:
+        return None
+    plages = []
+    for morceau in brut.split(","):
+        m = _PLAGE.fullmatch(morceau)
+        debut = int(m[1]) * 60 + int(m[2] or 0) if m else -1
+        fin = int(m[3]) * 60 + int(m[4] or 0) if m else -1
+        if not m or not 0 <= debut < 1440 or not 0 < fin <= 1440 or debut == fin:
+            logger.warning(f"MOSHI_KEEPWARM_HEURES illisible (« {brut} ») : keep-warm "
+                           "toute la journée. Format : 11:30-14:30,18:30-23.")
+            return None
+        plages.append((debut, fin))
+    return plages
+
+
+def keepwarm_maintenant(plages: Optional[list[tuple[int, int]]], instant=None) -> bool:
+    """Vrai si le GPU doit être gardé chaud à cet instant (heure du restaurant)."""
+    if plages is None:
+        return True
+    instant = instant or horloge.maintenant()
+    minute = instant.hour * 60 + instant.minute
+    return any(debut <= minute < fin if debut < fin else (minute >= debut or minute < fin)
+               for debut, fin in plages)
+
+
 async def keep_warm_loop() -> None:
     """Boucle de préchauffage périodique (opt-in via MOSHI_KEEPWARM_SECONDS > 0).
 
     Le cold start (55-70 s) est plus long que tout accueil : seul un GPU maintenu
-    chaud le supprime vraiment. Utile pour une démo à faible trafic. ⚠️ COÛTE de
-    l'argent (empêche le scale-to-zero du GPU). Régler l'intervalle sous le
-    scaledown Modal (défaut 120 s) — p. ex. 90 s."""
+    chaud le supprime vraiment. ⚠️ COÛTE de l'argent (≈ 0,80 $ par heure chaude sur une
+    L4) : d'où MOSHI_KEEPWARM_HEURES, qui limite la chaleur aux heures où l'on appelle
+    vraiment, et laisse le GPU s'éteindre la nuit. Régler l'intervalle sous le
+    scaledown Modal (120 s) — p. ex. 90 s."""
     interval = float(os.getenv("MOSHI_KEEPWARM_SECONDS", "0") or "0")
     if interval <= 0 or not is_moshi_server():
         return
-    logger.info(f"keep-warm moshi-server activé (toutes les {interval:.0f}s).")
+    plages = plages_keepwarm()
+    fenetre = (os.getenv("MOSHI_KEEPWARM_HEURES", "").strip() + ", heure du restaurant"
+               if plages else "toute la journée")
+    logger.info(f"keep-warm moshi-server activé (toutes les {interval:.0f}s, {fenetre}).")
     while True:
-        await warmup_moshi_server()
+        if keepwarm_maintenant(plages):
+            await warmup_moshi_server()
         await asyncio.sleep(interval)

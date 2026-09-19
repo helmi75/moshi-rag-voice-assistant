@@ -22,7 +22,22 @@ client = TestClient(app)
 DEMO_NUMBER = "+33100000000"
 
 
-def _twilio_start_message(to=DEMO_NUMBER, stream_sid="MZ123", call_sid="CA_stream_1"):
+def _attendre_le_bot(run_bot, delai: float = 2.0) -> None:
+    """Le gestionnaire /ws/voice se suspend le temps des accès SQLite en thread
+    (db.hors_boucle) : le client de test doit lui laisser lancer le bot avant de fermer
+    la session, sinon il l'annule en plein milieu — et croit qu'il n'a rien fait."""
+    import time
+
+    fin = time.monotonic() + delai
+    while run_bot.await_count == 0 and time.monotonic() < fin:
+        time.sleep(0.01)
+
+
+def _twilio_start_message(to=DEMO_NUMBER, stream_sid="MZ123", call_sid="CA_stream_1",
+                          from_number=None):
+    custom = {"To": to, "CallSid": call_sid}
+    if from_number is not None:
+        custom["From"] = from_number
     return {
         "event": "start",
         "sequenceNumber": "1",
@@ -33,16 +48,15 @@ def _twilio_start_message(to=DEMO_NUMBER, stream_sid="MZ123", call_sid="CA_strea
             "callSid": call_sid,
             "tracks": ["inbound"],
             "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000, "channels": 1},
-            "customParameters": {"To": to, "CallSid": call_sid},
+            "customParameters": custom,
         },
     }
 
 
 class TestStreamTwiML:
-    """TwiML renvoyé par /twilio/voice en mode stream."""
+    """TwiML renvoyé par /twilio/voice : toujours un <Connect><Stream>."""
 
     def test_stream_mode_returns_connect_stream(self, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://assistant.example.com/ws/voice")
         response = client.post(
             "/twilio/voice", data={"CallSid": "CA1", "To": DEMO_NUMBER}
@@ -53,10 +67,8 @@ class TestStreamTwiML:
         assert '<Stream url="wss://assistant.example.com/ws/voice">' in body
         assert f'<Parameter name="To" value="{DEMO_NUMBER}"/>' in body
         assert '<Parameter name="CallSid" value="CA1"/>' in body
-        assert "<Gather" not in body
 
     def test_stream_mode_unknown_tenant_hangs_up(self, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
         response = client.post(
             "/twilio/voice", data={"CallSid": "CA1", "To": "+19999999999"}
         )
@@ -64,23 +76,13 @@ class TestStreamTwiML:
         assert "<Connect>" not in response.text
 
     def test_stream_url_falls_back_to_request_host(self, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
         monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
         response = client.post(
             "/twilio/voice", data={"CallSid": "CA1", "To": DEMO_NUMBER}
         )
         assert 'url="wss://testserver/ws/voice"' in response.text
 
-    def test_default_mode_is_still_gather(self, monkeypatch):
-        monkeypatch.delenv("VOICE_MODE", raising=False)
-        response = client.post(
-            "/twilio/voice", data={"CallSid": "CA1", "To": DEMO_NUMBER}
-        )
-        assert "<Gather" in response.text
-        assert "<Connect>" not in response.text
-
     def test_stream_mode_applies_to_generic_webhook_too(self, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://assistant.example.com/ws/voice")
         response = client.post(
             "/twilio/webhook", data={"CallSid": "CA1", "To": DEMO_NUMBER}
@@ -97,11 +99,29 @@ class TestVoiceWebSocket:
             with client.websocket_connect("/ws/voice") as ws:
                 ws.send_text(json.dumps({"event": "connected", "protocol": "Call"}))
                 ws.send_text(json.dumps(_twilio_start_message()))
+                _attendre_le_bot(run_bot)
         assert run_bot.await_count == 1
         _ws, stream_sid, call_sid, tenant = run_bot.await_args.args
         assert stream_sid == "MZ123"
         assert call_sid == "CA_stream_1"
         assert tenant.phone_number == DEMO_NUMBER
+
+    @pytest.mark.parametrize("brut,attendu", [
+        ("+33612345678", "+33612345678"),
+        ("+266696687", None),      # ANONYMOUS au clavier : un appel masqué
+        ("+7378742833", None),     # RESTRICTED
+        ("anonymous", None),
+        ("", None),
+    ])
+    def test_un_appel_masque_arrive_sans_numero(self, brut, attendu):
+        """Les numéros de substitution de Twilio faisaient de tous les appels masqués un
+        seul client, qui retrouvait les réservations des autres."""
+        run_bot = AsyncMock()
+        with patch("app.main._get_bot_runner", return_value=run_bot):
+            with client.websocket_connect("/ws/voice") as ws:
+                ws.send_text(json.dumps(_twilio_start_message(from_number=brut)))
+                _attendre_le_bot(run_bot)
+        assert run_bot.await_args.kwargs["caller_number"] == attendu
 
     def test_unknown_tenant_closes_without_bot(self):
         run_bot = AsyncMock()
@@ -612,7 +632,7 @@ class TestDetectionDeLangue:
     """Décroché bilingue (voice/langue.py) : seulement là où il est mesuré."""
 
     def _env(self, monkeypatch, **env):
-        for cle in ("STT_PROVIDER", "DEEPGRAM_MODEL", "DEEPGRAM_LANGUAGE"):
+        for cle in ("DEEPGRAM_MODEL", "DEEPGRAM_LANGUAGE"):
             monkeypatch.delenv(cle, raising=False)
         for cle, valeur in env.items():
             monkeypatch.setenv(cle, valeur)
@@ -631,7 +651,3 @@ class TestDetectionDeLangue:
         self._env(monkeypatch, DEEPGRAM_MODEL="nova-2")
         assert not bot.detection_de_langue()
         assert bot.langue_de_depart("fr") == "fr"
-
-    def test_pas_de_detection_avec_kyutai(self, monkeypatch):
-        self._env(monkeypatch, STT_PROVIDER="kyutai")
-        assert not bot.detection_de_langue()

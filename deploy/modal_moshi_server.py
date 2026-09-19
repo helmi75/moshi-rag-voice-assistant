@@ -21,13 +21,17 @@ Une commande :
 Recette calquée sur la Dockerfile publique d'unmute (services/moshi-server) :
   - base CUDA devel + Rust + `cargo install --features cuda moshi-server@0.6.4` (au build) ;
   - config TTS publique (configs/config-tts.toml de delayed-streams-modeling) + blocs ASR
-    de config-stt-en_fr-hf.toml concaténés au build, token `public_token` ;
+    de config-stt-en_fr-hf.toml concaténés au build ;
+  - le jeton d'accès (`authorized_ids`) est remplacé AU DÉMARRAGE par MOSHI_TTS_API_KEY,
+    lue dans le .env (voir « Jeton » plus bas) — plus jamais `public_token` ;
   - les modèles (TTS 1.6B, STT 1B) sont téléchargés au 1er démarrage dans un volume
     persistant (HF cache) ;
   - le serveur écoute sur 8080, exposé en HTTPS/WSS par Modal (@modal.web_server).
 
 Prérequis : accepter la licence sur huggingface.co/kyutai/tts-1.6b-en_fr et fournir un
 token HF (secret Modal `huggingface` avec HF_TOKEN, ou .env via Secret.from_dotenv).
+Et poser MOSHI_TTS_API_KEY dans le .env (`openssl rand -hex 32`) : le déploiement refuse
+de partir sans elle, et le .env du VPS doit porter EXACTEMENT la même valeur.
 
 ⚠️ 1er déploiement : surveiller les logs de build (cargo install ~10-15 min la 1re fois)
 puis de démarrage.
@@ -43,6 +47,8 @@ puis de démarrage.
 """
 import json
 import os
+import re
+from pathlib import Path
 
 import modal
 
@@ -85,6 +91,57 @@ CONFIG_STT_URL = (
     "https://raw.githubusercontent.com/kyutai-labs/delayed-streams-modeling/"
     "main/configs/config-stt-en_fr-hf.toml"
 )
+
+# --- Jeton ---------------------------------------------------------------------
+# La config publique de Kyutai autorise `public_token`, une valeur que tout le monde
+# connaît : quiconque trouve l'URL Modal (elle a traîné dans la documentation) peut faire
+# parler le GPU — à nos frais, et en le saturant pendant les vrais appels. On remplace
+# donc `authorized_ids` par MOSHI_TTS_API_KEY au DÉMARRAGE du conteneur, depuis le secret
+# (le .env) : la clé n'est jamais écrite dans une couche d'image, et changer de clé ne
+# demande pas de reconstruire l'image.
+CONFIG_PATH = "/root/configs/config-tts.toml"
+CLES_REFUSEES = {"", "public_token"}
+
+
+def _cle_du_dotenv() -> str:
+    """MOSHI_TTS_API_KEY telle que `Secret.from_dotenv` l'enverra au conteneur : le
+    premier .env trouvé en remontant depuis le dossier courant. On ne lit PAS
+    l'environnement du shell : le conteneur ne le reçoit pas, et vérifier une valeur
+    qui ne sera pas celle du serveur ne prouverait rien."""
+    dossier = Path.cwd()
+    for candidat in (dossier, *dossier.parents):
+        fichier = candidat / ".env"
+        if fichier.is_file():
+            for ligne in fichier.read_text(encoding="utf-8").splitlines():
+                nom, egal, valeur = ligne.partition("=")
+                if egal and nom.strip() == "MOSHI_TTS_API_KEY":
+                    return valeur.split(" #")[0].strip().strip("'\"")
+            return ""
+    return ""
+
+
+def poser_cle(texte: str, cle: str) -> str:
+    """Remplace la ligne `authorized_ids = [...]` de la config par la seule clé donnée.
+
+    Lève si la ligne n'existe pas : une config amont qui l'aurait renommée laisserait
+    sinon le serveur ouvert à `public_token` sans que rien ne le signale."""
+    if cle in CLES_REFUSEES:
+        raise RuntimeError("MOSHI_TTS_API_KEY vide ou égale à public_token : refusé.")
+    nouveau, n = re.subn(r"(?m)^authorized_ids\s*=.*$",
+                         f"authorized_ids = [{json.dumps(cle)}]", texte)
+    if n != 1:
+        raise RuntimeError(f"authorized_ids trouvé {n} fois dans la config : attendu 1.")
+    return nouveau
+
+
+# Refus AU DÉPLOIEMENT, avant que Modal ne remplace le conteneur qui tourne : un serveur
+# qui refuserait de démarrer faute de clé rendrait tous les appels muets.
+if modal.is_local() and _cle_du_dotenv() in CLES_REFUSEES:
+    raise SystemExit(
+        "MOSHI_TTS_API_KEY absente du .env, ou égale à public_token. Générer une clé "
+        "(openssl rand -hex 32), la poser dans le .env local ET dans celui du VPS, puis "
+        "relancer `modal deploy`."
+    )
 
 # Cache persistant des poids Hugging Face (évite un re-téléchargement à chaque cold start).
 hf_cache = modal.Volume.from_name("moshi-server-hf-cache", create_if_missing=True)
@@ -163,6 +220,9 @@ image = (
         _CLEAN_HF_CACHE,
         f"sed -i 's#^voice_folder = .*#voice_folder = \"{VOICES_DIR}\"#' "
         "/root/configs/config-tts.toml",
+        # La clé est posée au démarrage (poser_cle) : si l'amont renommait cette ligne,
+        # on veut un build en échec, pas un serveur resté sur public_token.
+        "grep -q '^authorized_ids *=' /root/configs/config-tts.toml",
         # Garde-fou : une voix absente du dossier ne provoque AUCUNE erreur côté serveur,
         # elle retombe silencieusement sur default_voice (que Kyutai a choisie volontairement
         # étrange). Si ce fichier manquait, tous les appels sonneraient faux sans un log.
@@ -226,11 +286,17 @@ def tts_server():
     if env.get("HF_TOKEN") and not env.get("HUGGING_FACE_HUB_TOKEN"):
         env["HUGGING_FACE_HUB_TOKEN"] = env["HF_TOKEN"]
 
+    config = Path(CONFIG_PATH)
+    config.write_text(
+        poser_cle(config.read_text(encoding="utf-8"), env.get("MOSHI_TTS_API_KEY", "").strip()),
+        encoding="utf-8",
+    )
+
     subprocess.Popen(
         [
             "/root/.cargo/bin/moshi-server",
             "worker",
-            "--config", "/root/configs/config-tts.toml",
+            "--config", CONFIG_PATH,
             "--port", str(PORT),
         ],
         env=env,

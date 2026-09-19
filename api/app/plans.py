@@ -18,7 +18,7 @@ pour le raisonnement, les comparables et — surtout — le risque assumé.
 from dataclasses import dataclass
 from typing import Optional
 
-# Prix d'un appel au-delà du plafond, en euros. 60 % de marge au coût mesuré.
+# Prix d'un appel au-delà du plafond, en euros. 58 % de marge au coût mesuré.
 #
 # ⚠️ Choix commercial assumé : ce tarif est INFÉRIEUR au tarif implicite d'Essentiel
 # (0,59 €/appel). Un client Essentiel a donc intérêt à déborder plutôt qu'à passer en

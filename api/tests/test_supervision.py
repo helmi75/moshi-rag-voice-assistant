@@ -80,9 +80,9 @@ class TestEnumeration:
     """Filet de sécurité : un contrôle supprimé par mégarde ferait passer la sonde au
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
-    ATTENDUS = ["base", "configuration", "appels_muets", "appels_echoues",
-                "appels_inacheves", "latence", "twilio", "accueils", "sauvegarde",
-                "purge", "disque", "enregistrements"]
+    ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
+                "appels_echoues", "appels_inacheves", "latence", "twilio", "accueils",
+                "sauvegarde", "purge", "disque", "enregistrements"]
 
     def test_tous_les_controles_sont_presents(self, base):
         assert [c["cle"] for c in supervision.etat(force=True)["controles"]] == self.ATTENDUS
@@ -159,10 +159,10 @@ class TestConfiguration:
         assert controle["niveau"] == supervision.PANNE
         assert "OPENROUTER_API_KEY" in controle["resume"]
 
-    def test_le_mode_stream_exige_davantage(self, base, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
-        monkeypatch.setenv("STT_PROVIDER", "deepgram")
-        monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
+    def test_le_chemin_d_appel_exige_ses_quatre_variables(self, base, monkeypatch):
+        """Un seul chemin d'appel (flux média, Deepgram, moshi-server) : les quatre
+        variables sont exigées sans condition. L'exigence dépendait autrefois d'un mode
+        `gather` qui n'existe plus."""
         monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
         monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
         monkeypatch.delenv("MOSHI_TTS_URL", raising=False)
@@ -171,33 +171,21 @@ class TestConfiguration:
         assert set(controle["mesure"]["manquantes"]) == {
             "PUBLIC_WS_URL", "DEEPGRAM_API_KEY", "MOSHI_TTS_URL"}
 
-    def test_le_mode_gather_n_exige_pas_le_flux(self, base, monkeypatch):
-        """Les exigences suivent la configuration réelle : réclamer PUBLIC_WS_URL en
-        mode gather ferait crier la supervision pour rien, donc on cesserait de l'écouter."""
-        monkeypatch.setenv("VOICE_MODE", "gather")
-        monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
-        assert _controle("configuration")["niveau"] == supervision.OK
-
     @pytest.mark.parametrize("url", ["wss://exemple.fr/ws voice",
                                      "wss://exemple.fr/ws\xa0",
                                      "https://exemple.fr/ws"])
     def test_une_url_de_flux_malformee_est_une_panne(self, base, monkeypatch, url):
         """Une seule espace insécable collée depuis un navigateur, et Twilio ne joint
         jamais le flux : l'appel raccroche sans un mot. Vécu."""
-        monkeypatch.setenv("VOICE_MODE", "stream")
-        monkeypatch.setenv("STT_PROVIDER", "deepgram")
         monkeypatch.setenv("DEEPGRAM_API_KEY", "x")
-        monkeypatch.setenv("TTS_PROVIDER", "pocket")
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
         monkeypatch.setenv("PUBLIC_WS_URL", url)
         controle = _controle("configuration")
         assert controle["niveau"] == supervision.PANNE
         assert "PUBLIC_WS_URL" in controle["resume"]
 
     def test_ok_quand_tout_est_la(self, base, monkeypatch):
-        monkeypatch.setenv("VOICE_MODE", "stream")
-        monkeypatch.setenv("STT_PROVIDER", "deepgram")
         monkeypatch.setenv("DEEPGRAM_API_KEY", "x")
-        monkeypatch.setenv("TTS_PROVIDER", "moshi_server")
         monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://app.exemple.fr/ws/voice")
         assert _controle("configuration")["niveau"] == supervision.OK
@@ -295,16 +283,55 @@ class TestLatence:
         assert _controle("latence")["niveau"] == supervision.PANNE
 
 
+class TestJetonVoix:
+    """La clé de démonstration de Kyutai ouvre le GPU à qui connaît l'URL."""
+
+    @pytest.mark.parametrize("valeur", ["", "public_token", "  public_token  "])
+    def test_cle_publique_ou_absente_est_signalee(self, base, monkeypatch, valeur):
+        monkeypatch.setenv("MOSHI_TTS_API_KEY", valeur)
+        controle = _controle("jeton_voix")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert controle["mesure"]["cle_privee"] is False
+
+    def test_cle_privee_est_verte(self, base, monkeypatch):
+        monkeypatch.setenv("MOSHI_TTS_API_KEY", "0f" * 32)
+        controle = _controle("jeton_voix")
+        assert controle["niveau"] == supervision.OK
+        # La valeur de la clé n'apparaît nulle part dans la sonde, qui sort du serveur.
+        assert "0f" * 32 not in json.dumps(controle)
+
+
 class TestSauvegarde:
     def test_sans_jeton_on_ne_pretend_pas_que_tout_va_bien(self, base, monkeypatch, tmp_path):
         monkeypatch.setenv("SUPERVISION_BACKUP_STAMP", str(tmp_path / "absent"))
         assert _controle("sauvegarde")["niveau"] == supervision.ATTENTION
 
-    def test_un_jeton_frais_est_vert(self, base, monkeypatch, tmp_path):
+    def test_un_jeton_frais_et_sa_copie_distante_sont_verts(self, base, monkeypatch, tmp_path):
+        jeton = tmp_path / "derniere-sauvegarde"
+        jeton.write_text(_il_y_a(60), encoding="utf-8")
+        (tmp_path / "derniere-sauvegarde-distante").write_text(_il_y_a(58), encoding="utf-8")
+        monkeypatch.setenv("SUPERVISION_BACKUP_STAMP", str(jeton))
+        assert _controle("sauvegarde")["niveau"] == supervision.OK
+
+    def test_sans_copie_distante_on_le_dit(self, base, monkeypatch, tmp_path):
+        """Des copies sur la même machine ne survivent pas à un incident disque."""
         jeton = tmp_path / "derniere-sauvegarde"
         jeton.write_text(_il_y_a(60), encoding="utf-8")
         monkeypatch.setenv("SUPERVISION_BACKUP_STAMP", str(jeton))
-        assert _controle("sauvegarde")["niveau"] == supervision.OK
+        controle = _controle("sauvegarde")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "hors du serveur" in controle["resume"]
+        assert controle["mesure"]["distante"] is False
+
+    def test_copie_distante_arretee_est_signalee(self, base, monkeypatch, tmp_path):
+        jeton = tmp_path / "derniere-sauvegarde"
+        jeton.write_text(_il_y_a(60), encoding="utf-8")
+        (tmp_path / "derniere-sauvegarde-distante").write_text(_il_y_a(60 * 50),
+                                                                 encoding="utf-8")
+        monkeypatch.setenv("SUPERVISION_BACKUP_STAMP", str(jeton))
+        controle = _controle("sauvegarde")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert controle["mesure"]["age_distante_heures"] >= 49
 
     def test_deux_nuits_manquees_sont_une_panne(self, base, monkeypatch, tmp_path):
         jeton = tmp_path / "derniere-sauvegarde"
@@ -453,20 +480,24 @@ class TestTwilio:
 
         monkeypatch.setenv("RETENTION_INTERVALLE_SECONDES", "3600")
 
+        from app import taches as registre
+
         async def scenario():
             await main_mod._demarrer_taches_de_fond()
-            taches = list(main_mod._taches_de_fond)
-            assert taches, "aucune tâche de fond démarrée : le test ne vérifie rien"
-            assert all(not t.done() for t in taches)
+            boucles = [t for t in registre.retenues()
+                       if t.get_name() in ("relève des alertes Twilio",
+                                           "purge des données personnelles")]
+            assert len(boucles) == 2, "les deux boucles doivent être retenues par le registre"
+            assert all(not t.done() for t in boucles)
             await asyncio.sleep(0)
             await main_mod._arreter_taches_de_fond()
-            return taches
+            return boucles
 
-        taches = asyncio.run(scenario())
+        boucles = asyncio.run(scenario())
         # TOUTES doivent être arrêtées, pas seulement la première : c'est précisément
         # ce qu'un motif copié-collé par tâche finit par oublier.
-        assert all(t.done() for t in taches)
-        assert main_mod._taches_de_fond == []
+        assert all(t.done() for t in boucles)
+        assert registre.en_cours() == 0
 
     def test_sans_identifiants_la_releve_se_declare_impossible(self, base, monkeypatch):
         import asyncio
@@ -475,6 +506,9 @@ class TestTwilio:
         monkeypatch.setenv("TWILIO_AUTH_TOKEN", "")
         asyncio.run(supervision.rafraichir_twilio())
         assert _controle("twilio")["niveau"] == supervision.ATTENTION
+
+
+ENTETE = {"X-Supervision-Token": "le-bon-jeton"}
 
 
 class TestSonde:
@@ -492,26 +526,29 @@ class TestSonde:
             assert client.get("/supervision").status_code == 401
             assert client.get("/supervision?token=faux").status_code == 401
 
-    def test_accepte_l_en_tete_et_la_requete(self, monkeypatch):
+    def test_accepte_l_en_tete(self, monkeypatch):
         monkeypatch.setenv("SUPERVISION_TOKEN", "le-bon-jeton")
         with TestClient(app) as client:
-            par_entete = client.get("/supervision",
-                                    headers={"X-Supervision-Token": "le-bon-jeton"})
-            par_url = client.get("/supervision?token=le-bon-jeton")
+            par_entete = client.get("/supervision", headers=ENTETE)
         assert par_entete.status_code in (200, 503)
-        assert par_url.status_code == par_entete.status_code
         assert par_entete.json()["niveau"] in ("ok", "attention", "panne")
+
+    def test_refuse_le_jeton_dans_l_url(self, monkeypatch):
+        """Un jeton dans l'URL finit dans les journaux du proxy : il n'est plus secret."""
+        monkeypatch.setenv("SUPERVISION_TOKEN", "le-bon-jeton")
+        with TestClient(app) as client:
+            assert client.get("/supervision?token=le-bon-jeton").status_code == 401
 
     def test_503_uniquement_en_panne(self, monkeypatch):
         monkeypatch.setenv("SUPERVISION_TOKEN", "le-bon-jeton")
         faux = {"niveau": "attention", "mesure_le": "", "fenetre_jours": 7, "controles": []}
         with patch.object(supervision, "etat", return_value=faux):
             with TestClient(app) as client:
-                assert client.get("/supervision?token=le-bon-jeton").status_code == 200
+                assert client.get("/supervision", headers=ENTETE).status_code == 200
         faux["niveau"] = "panne"
         with patch.object(supervision, "etat", return_value=faux):
             with TestClient(app) as client:
-                assert client.get("/supervision?token=le-bon-jeton").status_code == 503
+                assert client.get("/supervision", headers=ENTETE).status_code == 503
 
     def test_health_reste_une_sonde_de_vie(self, monkeypatch):
         """`/health` sert la porte de déploiement : une sauvegarde en retard ne doit
@@ -600,22 +637,32 @@ class TestCablage:
 
     @staticmethod
     def _variables_lues() -> set[str]:
+        """TOUTES les variables lues par l'application, pas une liste de préfixes : le
+        19/09/2026, 23 réglages (GPU chaud, coûts, fuseau…) documentés dans env.example
+        n'atteignaient pas le conteneur, parce que le test ne regardait que certains
+        modules."""
         import pathlib
         import re
 
         app = pathlib.Path(__file__).resolve().parents[1] / "app"
+        # Lecture directe, et lecture par les petits utilitaires `_entier`/`_jours` des
+        # modules de seuils, qui reçoivent le nom en paramètre.
+        motifs = (r'os\.(?:getenv|environ\.get)\(\s*["\']([A-Z0-9_]+)["\']',
+                  r'\b_(?:entier|jours)\(\s*["\']([A-Z0-9_]+)["\']')
         lues: set[str] = set()
-        sources = (app / "supervision.py", app / "main.py", app / "rgpd.py",
-                   app / "voice" / "enregistrement.py", app / "voice" / "journal.py")
-        motif = r'["\']((?:SUPERVISION|RETENTION|RGPD|ENREGISTREMENT|JOURNAL)_[A-Z_]+)["\']'
-        for source in sources:
-            lues |= set(re.findall(motif, source.read_text(encoding="utf-8")))
+        for source in app.rglob("*.py"):
+            texte = source.read_text(encoding="utf-8")
+            for motif in motifs:
+                lues |= set(re.findall(motif, texte))
         return lues
 
     def test_toutes_les_variables_lues_sont_transmises(self):
         compose = self._compose()
         lues = self._variables_lues()
-        assert lues, "aucune variable SUPERVISION_* trouvée : le test ne vérifie rien"
+        assert {"SUPERVISION_TOKEN", "SUPERVISION_FENETRE_JOURS",
+                "MOSHI_KEEPWARM_SECONDS"} <= lues, (
+            "la lecture des variables ne trouve plus ce qu'elle devrait : le test ne "
+            "vérifie rien")
         oubliees = sorted(v for v in lues if f"{v}:" not in compose)
         assert not oubliees, (
             "ces variables sont lues par l'application mais absentes de "

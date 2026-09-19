@@ -29,7 +29,7 @@ from typing import Optional
 
 from pathlib import Path as _Path
 
-from . import calls, db, tenants
+from . import calls, db, horloge, tenants
 
 # --- Niveaux -----------------------------------------------------------------
 # Ordonnés : `pire()` prend le maximum. « attention » = dégradé mais le standard
@@ -110,21 +110,6 @@ def _maintenant() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _lire_horodatage(brut: Optional[str]) -> Optional[datetime]:
-    """Les dates en base sont écrites par SQLite au format `%Y-%m-%dT%H:%M:%SZ` (UTC).
-    Tolérant : une date illisible vaut « inconnue », jamais une exception dans la sonde."""
-    if not brut:
-        return None
-    texte = str(brut).strip().replace(" ", "T")
-    if texte.endswith("Z"):
-        texte = texte[:-1] + "+00:00"
-    try:
-        date = datetime.fromisoformat(texte)
-    except ValueError:
-        return None
-    return date if date.tzinfo else date.replace(tzinfo=timezone.utc)
-
-
 # --- Mémo de supervision -----------------------------------------------------
 # Table clé/valeur (migration v6) : sert d'ardoise aux contrôles qui ne peuvent pas
 # être calculés dans la sonde elle-même (l'état Twilio, rafraîchi en tâche de fond).
@@ -153,7 +138,7 @@ def relire(cle: str) -> Optional[tuple[dict, Optional[datetime]]]:
         valeur = json.loads(row["valeur"])
     except (TypeError, ValueError):
         return None
-    return valeur, _lire_horodatage(row["maj_le"])
+    return valeur, horloge.lire_utc(row["maj_le"])
 
 
 # --- Contrôles ---------------------------------------------------------------
@@ -184,21 +169,18 @@ def _controle_base() -> Controle:
     )
 
 
-# Ce dont le chemin d'appel a RÉELLEMENT besoin, selon la configuration en vigueur.
-# Chaque entrée vient d'une panne possible et silencieuse : la variable manque, le
-# service démarre quand même, et l'appelant tombe sur un blanc.
+# Ce dont le chemin d'appel a RÉELLEMENT besoin. Il n'y a plus qu'un chemin — Media
+# Streams, Deepgram, moshi-server — donc plus de « selon le mode » : les quatre sont
+# toujours exigées. Chaque entrée vient d'une panne possible et silencieuse : la variable
+# manque, le service démarre quand même, et l'appelant tombe sur un blanc.
 def _configuration_requise() -> list[tuple[str, str]]:
-    mode = os.getenv("VOICE_MODE", "gather").strip().lower()
-    requis = [("OPENROUTER_API_KEY", "sans clé LLM, l'assistante ne comprend rien")]
-    if mode != "stream":
-        return requis
-    requis.append(("PUBLIC_WS_URL",
-                   "Twilio ne saurait pas où brancher le flux audio : l'appel raccroche"))
-    if os.getenv("STT_PROVIDER", "deepgram").strip().lower() == "deepgram":
-        requis.append(("DEEPGRAM_API_KEY", "sans transcription, l'assistante n'entend rien"))
-    if os.getenv("TTS_PROVIDER", "pocket").strip().lower() == "moshi_server":
-        requis.append(("MOSHI_TTS_URL", "sans serveur de voix, l'assistante ne parle pas"))
-    return requis
+    return [
+        ("OPENROUTER_API_KEY", "sans clé LLM, l'assistante ne comprend rien"),
+        ("PUBLIC_WS_URL",
+         "Twilio ne saurait pas où brancher le flux audio : l'appel raccroche"),
+        ("DEEPGRAM_API_KEY", "sans transcription, l'assistante n'entend rien"),
+        ("MOSHI_TTS_URL", "sans serveur de voix, l'assistante ne parle pas"),
+    ]
 
 
 def _controle_configuration() -> Controle:
@@ -235,6 +217,107 @@ def _controle_configuration() -> Controle:
     )
 
 
+def _controle_signatures() -> Controle:
+    """Les requêtes Twilio sont-elles authentifiées, et l'URL publique est-elle la bonne ?
+
+    Les compteurs vivent en mémoire depuis le démarrage : après un redéploiement on
+    repart de zéro, et « aucune requête » n'est pas « tout va bien », c'est « pas de
+    mesure ». Le cas dangereux est `enforce` avec des refus et AUCUNE acceptation : ce
+    n'est pas une attaque, c'est l'URL publique mal reconstruite — et plus un seul appel
+    n'aboutit. C'est LE risque de cette vérification, et c'est ici qu'il se voit."""
+    from . import twilio_signature
+
+    titre = "Signature des requêtes Twilio"
+    jeton = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    mode = twilio_signature.mode()
+    compteurs = twilio_signature.compteurs()
+    mesure = {"mode": mode, **compteurs}
+    if not jeton:
+        return Controle(
+            "signatures", titre, ATTENTION,
+            "Aucun jeton Twilio : les webhooks ne sont pas authentifiés.",
+            "Sans TWILIO_AUTH_TOKEN, impossible de vérifier que c'est Twilio qui appelle : "
+            "n'importe qui peut faire parler l'assistante. Poser le jeton dans le .env.",
+            mesure=mesure,
+        )
+    if mode == "off":
+        return Controle(
+            "signatures", titre, ATTENTION,
+            "Vérification coupée (TWILIO_SIGNATURE=off).",
+            "Acceptable en développement, jamais en production : les webhooks acceptent "
+            "n'importe quelle requête.",
+            mesure=mesure,
+        )
+    total = compteurs["acceptees"] + compteurs["refusees"]
+    if total == 0:
+        return Controle(
+            "signatures", titre, OK,
+            f"Aucune requête Twilio depuis le démarrage (mode {mode}) : pas de mesure.",
+            mesure=mesure,
+        )
+    if mode == "log":
+        if compteurs["refusees"]:
+            return Controle(
+                "signatures", titre, ATTENTION,
+                f"{compteurs['refusees']} requête(s) sur {total} seraient refusées en mode "
+                "enforce.",
+                "Vérifier PUBLIC_URL (et PUBLIC_WS_URL pour le flux) : l'URL reconstruite doit "
+                "être exactement celle configurée dans la console Twilio, et le jeton celui "
+                "du compte. Tant que ce compteur bouge, ne pas passer en enforce.",
+                mesure=mesure,
+            )
+        return Controle(
+            "signatures", titre, OK,
+            f"Observation : {compteurs['acceptees']} requête(s) correctement signées, "
+            "aucune refusée — prêt pour enforce.",
+            mesure=mesure,
+        )
+    if compteurs["refusees"] and not compteurs["acceptees"]:
+        return Controle(
+            "signatures", titre, PANNE,
+            f"Toutes les requêtes Twilio sont refusées ({compteurs['refusees']}).",
+            "Aucune signature n'est acceptée : l'URL publique reconstruite n'est pas celle "
+            "que Twilio signe (PUBLIC_URL / PUBLIC_WS_URL), ou le jeton n'est plus le bon. "
+            "Plus aucun appel n'aboutit. Passer TWILIO_SIGNATURE=log le temps de corriger.",
+            mesure=mesure,
+        )
+    if compteurs["refusees"]:
+        return Controle(
+            "signatures", titre, ATTENTION,
+            f"{compteurs['refusees']} requête(s) refusée(s) sur {total}.",
+            "Des requêtes sans signature valide arrivent — sondes automatisées, ou un "
+            "webhook secondaire mal configuré. Les appels légitimes passent.",
+            mesure=mesure,
+        )
+    return Controle(
+        "signatures", titre, OK,
+        f"{compteurs['acceptees']} requête(s) signées, aucune refusée.",
+        mesure=mesure,
+    )
+
+
+def _controle_jeton_voix() -> Controle:
+    """Le serveur de voix est-il fermé par une clé privée ?
+
+    `public_token` est la clé de démonstration de Kyutai, connue de tous : avec l'URL
+    Modal, n'importe qui peut faire parler le GPU à nos frais, et l'occuper pendant les
+    vrais appels. Les appels passent quand même : c'est une ATTENTION, pas une panne.
+    Une clé vide revient au même, l'application retombant alors sur `public_token`."""
+    titre = "Jeton du serveur de voix"
+    cle = os.getenv("MOSHI_TTS_API_KEY", "").strip()
+    if cle and cle != "public_token":
+        return Controle("jeton_voix", titre, OK, "Clé privée posée.",
+                        mesure={"cle_privee": True})
+    return Controle(
+        "jeton_voix", titre, ATTENTION,
+        "Le serveur de voix accepte la clé publique `public_token`.",
+        "Quiconque connaît l'URL Modal peut faire tourner le GPU à nos frais. Générer une "
+        "clé (`openssl rand -hex 32`), la poser dans le .env du VPS et dans le .env local, "
+        "puis `modal deploy` : voir docs/MODAL.md, section Jeton.",
+        mesure={"cle_privee": False},
+    )
+
+
 # Nombre d'appels relus au maximum par la sonde. Au trafic actuel (24 appels en 30
 # jours) la fenêtre entière tient largement dedans ; la borne existe pour que la sonde
 # reste à coût constant le jour où le parc grossit.
@@ -242,11 +325,11 @@ _MAX_APPELS = 500
 
 
 def _appels_fenetre() -> list[dict]:
-    depuis = f"-{fenetre_jours()} days"
+    depuis = horloge.il_y_a(fenetre_jours())
     with db.get_conn() as conn:
         rows = conn.execute(
             """SELECT started_at, ended_at, duration_seconds, status, transcript
-               FROM calls WHERE started_at >= datetime('now', ?)
+               FROM calls WHERE started_at >= ?
                ORDER BY started_at DESC LIMIT ?""",
             (depuis, _MAX_APPELS),
         ).fetchall()
@@ -334,7 +417,7 @@ def _controle_appels_inacheves(appels: list[dict]) -> Controle:
     """
     limite = _maintenant() - timedelta(minutes=inacheve_minutes())
     concernes = [a for a in appels
-                 if (_lire_horodatage(a["started_at"]) or _maintenant()) < limite]
+                 if (horloge.lire_utc(a["started_at"]) or _maintenant()) < limite]
     inacheves = [a for a in concernes if not a["ended_at"]]
     if not concernes:
         return Controle(
@@ -406,21 +489,27 @@ def _controle_accueils() -> Controle:
     )
 
 
+def _lire_jeton(chemin: str) -> Optional[datetime]:
+    try:
+        with open(chemin, "r", encoding="utf-8") as fichier:
+            return horloge.lire_utc(fichier.read().strip().splitlines()[0])
+    except (OSError, IndexError):
+        return None
+
+
 def _controle_sauvegarde() -> Controle:
-    """Fraîcheur de la dernière sauvegarde réussie.
+    """Fraîcheur de la dernière sauvegarde réussie, et de sa copie hors du serveur.
 
     Le cron tourne sur l'hôte, hors du conteneur : l'app ne peut pas voir
     `/opt/backups`. `scripts/backup-db.sh` dépose donc un jeton dans le volume de
     données APRÈS le contrôle d'intégrité — un jeton frais prouve une sauvegarde
-    restaurable, pas seulement un cron qui s'est exécuté.
+    restaurable, pas seulement un cron qui s'est exécuté. Un second jeton (même nom
+    + « -distante ») n'est écrit qu'une fois l'archive confirmée sur le stockage
+    distant : sans lui, un incident disque emporterait la base ET ses copies.
     """
     chemin = os.getenv("SUPERVISION_BACKUP_STAMP", "/app/data/derniere-sauvegarde")
     attention_h, panne_h = sauvegarde_seuils_heures()
-    try:
-        with open(chemin, "r", encoding="utf-8") as fichier:
-            date = _lire_horodatage(fichier.read().strip().splitlines()[0])
-    except (OSError, IndexError):
-        date = None
+    date = _lire_jeton(chemin)
     if date is None:
         return Controle(
             "sauvegarde", "Sauvegarde de la base", ATTENTION,
@@ -432,12 +521,34 @@ def _controle_sauvegarde() -> Controle:
         )
     ages_h = (_maintenant() - date).total_seconds() / 3600
     niveau = PANNE if ages_h >= panne_h else ATTENTION if ages_h >= attention_h else OK
+    details = [f"Le cron passe à 04h00 ; au-delà de {panne_h} h, deux nuits ont été "
+               "manquées."] if niveau != OK else []
+
+    # La copie distante ne va jamais au-delà d'ATTENTION : la copie locale existe, un
+    # appelant n'est pas concerné, et la perte ne survient qu'avec un incident disque.
+    distante = _lire_jeton(chemin + "-distante")
+    if distante is None:
+        age_distant_h = None
+        resume_distant = "aucune copie hors du serveur"
+        niveau = pire(niveau, ATTENTION)
+        details.append("Les archives restent sur la machine : un incident disque emporterait "
+                       "la base et ses sauvegardes. Poser RCLONE_REMOTE (docs/DEPLOY.md, "
+                       "Sauvegardes).")
+    else:
+        age_distant_h = (_maintenant() - distante).total_seconds() / 3600
+        resume_distant = f"copie distante il y a {age_distant_h:.0f} h"
+        if age_distant_h >= attention_h:
+            niveau = pire(niveau, ATTENTION)
+            details.append("La copie distante ne se fait plus : voir "
+                           "/var/log/helmane-backup.log (remote rclone, identifiants).")
     return Controle(
         "sauvegarde", "Sauvegarde de la base", niveau,
-        f"Dernière sauvegarde il y a {ages_h:.0f} h.",
-        f"Le cron passe à 04h00 ; au-delà de {panne_h} h, deux nuits ont été manquées."
-        if niveau != OK else "",
-        mesure={"jeton": True, "age_heures": round(ages_h, 1)},
+        f"Dernière sauvegarde il y a {ages_h:.0f} h · {resume_distant}.",
+        " ".join(details),
+        mesure={"jeton": True, "age_heures": round(ages_h, 1),
+                "distante": distante is not None,
+                "age_distante_heures": round(age_distant_h, 1) if age_distant_h is not None
+                else None},
     )
 
 
@@ -680,6 +791,8 @@ def controles() -> list[Controle]:
     fabriques = [
         ("base", _controle_base),
         ("configuration", _controle_configuration),
+        ("signatures", _controle_signatures),
+        ("jeton_voix", _controle_jeton_voix),
         ("appels_muets", _sur_appels(_controle_appels_muets)),
         ("appels_echoues", _sur_appels(_controle_appels_echoues)),
         ("appels_inacheves", _sur_appels(_controle_appels_inacheves)),
@@ -764,7 +877,7 @@ async def rafraichir_twilio() -> None:
     sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
     token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
     if not sid or not token:
-        noter("twilio", {"erreur": "identifiants Twilio absents"})
+        await db.hors_boucle(noter, "twilio", {"erreur": "identifiants Twilio absents"})
         return
     depuis = (_maintenant() - timedelta(days=fenetre_jours())).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
@@ -780,10 +893,10 @@ async def rafraichir_twilio() -> None:
         # Twilio A répondu, et son code dit quoi faire : 401 = identifiants à renouveler,
         # 429 = trop de relèves, 5xx = panne chez eux. « L'API n'a pas répondu » aurait
         # envoyé chercher un problème de réseau là où il n'y en a pas.
-        noter("twilio", {"erreur": f"HTTP {exc.response.status_code}"})
+        await db.hors_boucle(noter, "twilio", {"erreur": f"HTTP {exc.response.status_code}"})
         return
     except Exception as exc:
-        noter("twilio", {"erreur": type(exc).__name__})
+        await db.hors_boucle(noter, "twilio", {"erreur": type(exc).__name__})
         return
     # `error_code` est renseigné pour les erreurs (11200 webhook injoignable, 12100
     # TwiML invalide, 31920 flux média refusé…) ; les alertes de niveau `notice` ne
@@ -793,7 +906,7 @@ async def rafraichir_twilio() -> None:
     for alerte in erreurs:
         code = str(alerte["error_code"])
         codes[code] = codes.get(code, 0) + 1
-    noter("twilio", {"erreurs": len(erreurs), "codes": codes})
+    await db.hors_boucle(noter, "twilio", {"erreurs": len(erreurs), "codes": codes})
 
 
 async def boucle_twilio() -> None:

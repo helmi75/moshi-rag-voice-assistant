@@ -1,20 +1,23 @@
+# L'INTENTION : ce dont l'application a besoin, sans versions. Les versions exactes vivent
+# dans requirements.lock (généré par `uv pip compile`, voir docs/DEPLOY.md) — c'est LUI
+# que l'image Docker et la CI installent. Ajouter un paquet ici, puis régénérer le verrou.
 fastapi
 uvicorn[standard]
 openai
 httpx
-python-dotenv
 pydantic
 python-multipart
-# Pipeline vocal streaming (mode VOICE_MODE=stream)
-pipecat-ai[openai,cartesia,deepgram,silero]~=1.5.0
-# TTS Kyutai Pocket TTS (voix de la famille Unmute, CPU) — TTS_PROVIDER=pocket
-# [audio] tire soundfile (chargement des voix ; nécessite libsndfile1, cf. Dockerfile)
-pocket-tts[audio]
-# Client du serveur Rust moshi-server (voix Moshi 1.6B) — TTS_PROVIDER=moshi_server.
-# Léger : l'app est simple cliente websocket (aucun modèle en local).
+# Pipeline vocal streaming : transport Twilio, Deepgram, LLM OpenAI-compatible (OpenRouter),
+# VAD Silero et smart-turn (onnxruntime inclus par l'extra silero).
+pipecat-ai[openai,deepgram,silero]~=1.5.0
+# Client websocket du serveur Rust moshi-server (voix Moshi 1.6B) : aucun modèle en local.
 websockets
 msgpack
-# Plateforme admin (dashboard server-rendered) : templates, sessions signées, mots de passe
+# Importés directement (accueil pré-rendu, µ-law, journaux) : nommés, pas seulement
+# hérités d'un autre paquet.
+numpy
+loguru
+# Plateforme admin (dashboard server-rendered) : gabarits, sessions signées, mots de passe.
 jinja2
 itsdangerous
 bcrypt

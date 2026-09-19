@@ -7,9 +7,11 @@ jamais bloquer l'event loop.
 """
 import json
 import os
+import re
+from datetime import datetime, timezone
 from typing import Optional
 
-from . import db
+from . import db, horloge
 
 # Tarifs pour le coût ESTIMÉ par appel (affichage admin). Calés sur les mesures réelles
 # de scripts/cost_report.py (18/07/2026) : L4 ~2 ct/min (helmi), Twilio entrant
@@ -18,15 +20,36 @@ from . import db
 #
 # Deepgram corrigé le 30/08/2026 : 0,0058 était le tarif **nova-2**, alors que la
 # production tourne en **nova-3** (DEEPGRAM_MODEL) depuis le réglage de naturalité.
-# Tarif nova-3 streaming, à la carte, monolingue : 0,0077 $/min (deepgram.com/pricing).
-# ⚠️ Le multilingue est à 0,0092 : passer DEEPGRAM_LANGUAGE=multi change ce coût, et
-# il faudra alors ajuster COST_DEEPGRAM_PER_MIN — sinon l'admin sous-estime en silence.
-# L'écart n'était pas cosmétique : +33 % sur la ligne transcription, et c'est sur ces
-# chiffres qu'on arrête une grille tarifaire (#29).
+# Tarif nova-3 streaming, à la carte : 0,0077 $/min monolingue, 0,0092 $/min en `multi`
+# (deepgram.com/pricing). Depuis le 10/09/2026 on DÉCROCHE en `multi` (voice/langue.py)
+# avant de se fixer sur une langue : la part réellement facturée en multi n'est pas
+# mesurée, donc on retient la borne HAUTE. Un coût surestimé d'un demi-centime se voit ;
+# un coût sous-estimé ne se voit qu'à la facture, et c'est sur ces chiffres qu'on arrête
+# une grille tarifaire (#29).
 _COST_TWILIO_PER_MIN = float(os.getenv("COST_TWILIO_PER_MIN", "0.0085"))
-_COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0077"))
+_COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0092"))
 _COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
 _COST_LLM_PER_CALL = float(os.getenv("COST_LLM_PER_CALL", "0.0035"))
+
+
+# Ce que Twilio met dans `From` quand l'appelant masque son numéro : l'orthographe au
+# clavier de ANONYMOUS, RESTRICTED, BLOCKED, UNKNOWN et UNAVAILABLE. Pris pour de vrais
+# numéros, ils faisaient de TOUS les appels masqués un seul et même client : chacun
+# retrouvait, modifiait ou annulait les réservations des autres (find_reservation).
+_NUMEROS_MASQUES = {"+266696687", "+7378742833", "+2562533", "+8656696", "+86282452253"}
+_E164 = re.compile(r"\+[1-9]\d{6,14}")
+
+
+def numero_appelant(brut: Optional[str]) -> Optional[str]:
+    """Le numéro de l'appelant s'il identifie vraiment quelqu'un, sinon None.
+
+    None est la valeur que tout le chemin d'appel comprend déjà comme « appel masqué » :
+    réservation sans numéro, pas de recherche par numéro, message sans rappel possible.
+    Ce qui n'est pas un numéro E.164 (« anonymous » en SIP, chaîne vide) l'est aussi."""
+    numero = (brut or "").strip()
+    if not _E164.fullmatch(numero) or numero in _NUMEROS_MASQUES:
+        return None
+    return numero
 
 
 def estimate_call_cost(duration_seconds: float) -> float:
@@ -106,10 +129,9 @@ def finish_call(
         ).fetchone()
         if row is None:
             return  # start_call a échoué/absent : ne rien inventer
-        duration = conn.execute(
-            "SELECT (julianday('now') - julianday(?)) * 86400.0", (row["started_at"],)
-        ).fetchone()[0]
-        duration = max(0.0, float(duration or 0.0))
+        debut = horloge.lire_utc(row["started_at"])
+        duration = (datetime.now(timezone.utc) - debut).total_seconds() if debut else 0.0
+        duration = max(0.0, duration)
         conn.execute(
             """UPDATE calls SET ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                    duration_seconds = ?, status = ?, transcript = ?,
@@ -180,10 +202,13 @@ def get_call(call_id: int) -> Optional[dict]:
 def stats_daily(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
     """Agrégats par jour (appels, appels avec résa, coût) + résas/jour, sur `days` jours.
     Renvoie une ligne par jour AYANT de l'activité (les jours vides sont comblés par l'UI)."""
-    where_calls = "WHERE started_at >= date('now', ?)"
-    where_resas = "WHERE created_at >= date('now', ?)"
-    params_calls: list = [f"-{int(days)} days"]
-    params_resas: list = [f"-{int(days)} days"]
+    # Le JOUR est celui du restaurant, pas celui d'UTC : un appel à 00 h 30 à Paris le 1er
+    # appartient au 1er. SQLite ne connaît pas le fuseau, donc le regroupement se fait ici,
+    # sur des lignes déjà bornées (quelques centaines par mois au plus).
+    borne = horloge.il_y_a_jours(days)
+    where_calls, where_resas = "WHERE started_at >= ?", "WHERE created_at >= ?"
+    params_calls: list = [borne]
+    params_resas: list = [borne]
     if tenant_id is not None:
         where_calls += " AND tenant_id = ?"
         where_resas += " AND tenant_id = ?"
@@ -191,46 +216,50 @@ def stats_daily(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
         params_resas.append(tenant_id)
     with db.get_conn() as conn:
         calls_rows = conn.execute(
-            f"""SELECT date(started_at) AS day,
-                       COUNT(*) AS n_calls,
-                       SUM(CASE WHEN reservation_id IS NOT NULL THEN 1 ELSE 0 END) AS n_with_reservation,
-                       COALESCE(SUM(estimated_cost), 0) AS total_cost
-                FROM calls {where_calls} GROUP BY day""",
+            f"SELECT started_at, reservation_id, estimated_cost FROM calls {where_calls}",
             params_calls,
         ).fetchall()
         resa_rows = conn.execute(
-            f"""SELECT date(created_at) AS day, COUNT(*) AS n_reservations
-                FROM reservations {where_resas} GROUP BY day""",
-            params_resas,
+            f"SELECT created_at FROM reservations {where_resas}", params_resas,
         ).fetchall()
     merged: dict[str, dict] = {}
+
+    def _entree(jour: str) -> dict:
+        return merged.setdefault(jour, {"day": jour, "n_calls": 0, "n_with_reservation": 0,
+                                        "total_cost": 0.0, "n_reservations": 0})
+
     for row in calls_rows:
-        merged[row["day"]] = {
-            "day": row["day"],
-            "n_calls": row["n_calls"],
-            "n_with_reservation": row["n_with_reservation"] or 0,
-            "total_cost": row["total_cost"] or 0.0,
-            "n_reservations": 0,
-        }
+        jour = jour_local(row["started_at"])
+        if jour is None:
+            continue
+        entree = _entree(jour)
+        entree["n_calls"] += 1
+        entree["n_with_reservation"] += 1 if row["reservation_id"] is not None else 0
+        entree["total_cost"] += row["estimated_cost"] or 0.0
     for row in resa_rows:
-        entry = merged.setdefault(
-            row["day"],
-            {"day": row["day"], "n_calls": 0, "n_with_reservation": 0,
-             "total_cost": 0.0, "n_reservations": 0},
-        )
-        entry["n_reservations"] = row["n_reservations"]
+        jour = jour_local(row["created_at"])
+        if jour is not None:
+            _entree(jour)["n_reservations"] += 1
     return sorted(merged.values(), key=lambda e: e["day"])
+
+
+def jour_local(brut) -> Optional[str]:
+    """La date (AAAA-MM-JJ) au fuseau du restaurant d'un horodatage SQLite (UTC)."""
+    instant = horloge.lire_utc(brut)
+    return instant.astimezone(horloge.FUSEAU).date().isoformat() if instant else None
 
 
 def _window(days: int, offset_days: int) -> tuple[str, list]:
     """Fragment SQL d'une fenêtre glissante de `days` jours, décalée de `offset_days`
-    vers le passé. Sans décalage il n'y a PAS de borne haute : sinon la journée en
-    cours (date('now') = minuit) tomberait hors de la fenêtre."""
-    clause = "{col} >= date('now', ?)"
-    params: list = [f"-{int(days) + int(offset_days)} days"]
+    vers le passé. Les bornes sont des MINUITS du restaurant (horloge.il_y_a_jours),
+    convertis en UTC : « les 30 derniers jours » commence à minuit à Paris, pas à minuit
+    UTC. Sans décalage il n'y a PAS de borne haute : sinon la journée en cours tomberait
+    hors de la fenêtre."""
+    clause = "{col} >= ?"
+    params: list = [horloge.il_y_a_jours(int(days) + int(offset_days))]
     if offset_days > 0:
-        clause += " AND {col} < date('now', ?)"
-        params.append(f"-{int(offset_days)} days")
+        clause += " AND {col} < ?"
+        params.append(horloge.il_y_a_jours(int(offset_days)))
     return clause, params
 
 
@@ -421,8 +450,8 @@ def appels_avec_enregistrement(avant_jours: int) -> list[dict]:
     with db.get_conn() as conn:
         rows = conn.execute(
             """SELECT id, tenant_id FROM calls
-               WHERE recording_bytes IS NOT NULL AND started_at < datetime('now', ?)""",
-            (f"-{int(avant_jours)} days",),
+               WHERE recording_bytes IS NOT NULL AND started_at < ?""",
+            (horloge.il_y_a(int(avant_jours)),),
         ).fetchall()
     return [dict(r) for r in rows]
 

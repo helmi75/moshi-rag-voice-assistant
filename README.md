@@ -1,178 +1,123 @@
-# Assistant téléphonique IA pour commerces (SaaS)
+# Helmane — l'assistante téléphonique des restaurants
 
-Un assistant qui répond au téléphone à la place des commerces débordés d'appels —
-restaurants, cabinets médicaux, artisans : renseigner les clients (horaires, menu,
-adresse), prendre des réservations, 24h/24.
+Une assistante vocale qui décroche à la place de l'équipe, en salle : elle prend les
+réservations (et les modifie ou les annule au téléphone), répond aux questions pratiques
+à partir de la fiche de l'établissement, et prend un message quand elle ne peut pas
+traiter la demande. Le restaurateur est prévenu par e-mail et retrouve tout dans l'admin.
 
-**Multi-tenant dès le départ** : un seul déploiement sert plusieurs commerces, chacun
-identifié par son numéro de téléphone Twilio, avec sa propre base de connaissances et
-ses réservations.
+**Un déploiement, plusieurs établissements** : chacun est identifié par son numéro
+Twilio, avec sa voix, son accueil, sa base de connaissances, ses horaires et ses comptes.
 
-📍 Voir [ROADMAP.md](ROADMAP.md) pour le plan produit et [ARCHITECTURE.md](ARCHITECTURE.md)
-pour les choix techniques (dont l'abandon de Moshi/GPU).
+## Le chemin d'un appel
 
-## 🚀 Fonctionnement
+Il n'y en a qu'un depuis le 18/09/2026 (l'ancienne boucle Gather/Say et les moteurs
+locaux restent lisibles au tag `archive/moteurs-locaux`) :
 
-Deux modes vocaux, même cerveau (`VOICE_MODE`) :
-
-**Mode `gather` (défaut — zéro clé supplémentaire, latence 2-4 s)**
 ```
-Appel → Twilio (STT) → FastAPI → tenant (par numéro appelé) → LLM + outils métier
-      ← Twilio (TTS) ←         ← réponse + réservation en base
-```
-
-**Mode `stream` (temps réel — latence ~1 s, barge-in)**
-```
-Appel → Twilio Media Streams (WebSocket audio) → Pipecat
-        → STT Deepgram (fr) → LLM + outils → TTS Kyutai/Pocket (fr, CPU) → audio
+Appel ─▶ Twilio ─▶ POST /twilio/voice (signé) ─▶ TwiML <Connect><Stream>
+       ─▶ WS /ws/voice (μ-law 8 kHz, poignée de main signée) ─▶ Pipecat
+            ├─ Deepgram nova-3 : transcription (décroche en multilingue, se fixe sur une langue)
+            ├─ LLM via OpenRouter : conversation + outils (disponibilité, réservation,
+            │    modification, annulation, message) — refus côté serveur hors horaires
+            └─ moshi-server sur Modal (GPU L4) : voix Moshi 1.6B, clé privée
+       ◀─ audio vers l'appelant (accueil pré-rendu, musique d'attente pendant un réveil GPU)
 ```
 
-- **FastAPI** : webhooks Twilio voix/SMS, WebSocket Media Streams, routage multi-tenant
-- **Pipecat** : orchestration temps réel (VAD Silero + smart-turn, interruptions)
-- **LLM via OpenRouter** : conversation + function calling (`create_reservation`,
-  `check_availability`), base de connaissances du commerce en prompt système — le
-  modèle se choisit librement (Claude, GPT, Gemini, Llama...), y compris un modèle
-  gratuit par défaut
-- **SQLite** : tenants et réservations (`data/app.db`)
-- **Caddy** : reverse proxy TLS (WebSockets inclus)
-- **Aucun GPU requis** : tout fonctionne sur un petit VPS
+Détail des choix : [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## 📋 Prérequis
+## Ce que fait le produit
 
-- Docker et Docker Compose (ou Python 3.11+ en local)
-- Une clé API OpenRouter ([openrouter.ai/keys](https://openrouter.ai/keys)) —
-  un modèle gratuit est disponible par défaut, aucun paiement requis pour démarrer
-- Un compte Twilio avec un numéro de téléphone
+| Fonction | Où |
+|---|---|
+| Réservation, modification, annulation au téléphone (par le numéro qui appelle) | `app/llm.py`, `app/reservations.py` |
+| Horaires d'ouverture appliqués par le serveur, fermetures exceptionnelles | `app/disponibilite.py`, admin « Horaires d'ouverture » |
+| Nom du dernier passage proposé au lieu d'être redemandé | `reservations.dernier_nom` |
+| Messages pris pour l'équipe, rappels à faire | `app/messages.py` |
+| E-mail au restaurateur à chaque réservation, modification, annulation, message | `app/notifications.py` (SMTP) |
+| Admin : parc, salle de contrôle, journal des appels (transcription, écoute), réservations, voix, fiche, comptes | `app/admin/` — `/admin` |
+| Supervision : 14 contrôles, sonde `/supervision`, alerte GitHub Actions | `app/supervision.py` |
+| RGPD : purges automatiques, droit à l'effacement | `app/rgpd.py`, [docs/RGPD.md](docs/RGPD.md) |
+| Formules et plafond mensuel (compte, prévient, ne coupe jamais la ligne) | `app/plans.py`, `app/quotas.py` |
 
-## 🛠️ Installation
+## Démarrer
 
-### 1. Cloner et configurer
+Prérequis : Docker ; des clés OpenRouter, Deepgram et Twilio ; moshi-server déployé sur
+Modal ([docs/MODAL.md](docs/MODAL.md)).
 
 ```bash
-git clone https://github.com/helmi75/moshi-rag-voice-assistant.git
-cd moshi-rag-voice-assistant
-cp env.example .env
-# Éditez .env : OPENROUTER_API_KEY + identifiants Twilio
-```
-
-### 2. Démarrer
-
-```bash
+cp env.example .env      # OPENROUTER_API_KEY, DEEPGRAM_API_KEY, TWILIO_*, MOSHI_TTS_URL,
+                         # MOSHI_TTS_API_KEY, PUBLIC_WS_URL, ADMIN_EMAIL, ADMIN_PASSWORD…
 docker compose up -d --build
-docker compose logs -f api
+curl -s localhost:8000/health
 ```
 
-Ou en local sans Docker :
+Dans une base vide, un restaurant de démonstration est semé sur le numéro `TWILIO_NUMBER`
+(`SEED_DEMO=0` pour ne rien semer). Ensuite, les établissements se gèrent dans `/admin`.
+Pour recevoir de vrais appels, Twilio doit joindre l'application en HTTPS : voir
+[docs/TWILIO_SETUP.md](docs/TWILIO_SETUP.md).
+
+**Production** : VPS + Caddy + `scripts/deploy.sh`, tout est dans
+[docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Tests
 
 ```bash
 cd api
-pip install -r app/requirements.txt
-uvicorn app.main:app --reload
+pip install -r app/requirements.lock -r tests/requirements-test.txt
+python -m pytest tests -q                  # aucun réseau, tout est mocké
+cd .. && python3 scripts/mutation_check.py # chaque garde-fou critique doit faire rougir un test
 ```
 
-Au premier démarrage, un restaurant de démonstration est créé, rattaché au numéro
-`TWILIO_NUMBER` de votre `.env`.
+La CI (`.github/workflows/ci.yml`) joue aussi `ruff check api/app` et `pip-audit` sur le
+verrou. Un appel réel se vérifie avec [docs/RECETTE.md](docs/RECETTE.md).
 
-### 3. Connecter Twilio
-
-Pointez le webhook vocal de votre numéro Twilio sur `https://VOTRE_DOMAINE/twilio/webhook`
-(guide : [TWILIO_SETUP.md](TWILIO_SETUP.md), ou script automatique `python setup_twilio.py`).
-
-Appelez votre numéro : l'assistant décroche, renseigne et prend des réservations.
-
-### 4. (Optionnel) Activer la voix temps réel (belle voix Kyutai)
-
-La voix robotique du mode `gather` laisse place à la voix **Kyutai Pocket TTS** (la
-famille de voix d'Unmute), qui tourne en local sur CPU — aucune clé TTS requise.
-Dans `.env` :
-
-```bash
-VOICE_MODE=stream
-PUBLIC_WS_URL=wss://VOTRE_DOMAINE/ws/voice   # en test : wss://xxxx.ngrok-free.app/ws/voice
-DEEPGRAM_API_KEY=...      # STT français streaming (deepgram.com, crédits gratuits)
-# TTS_PROVIDER=pocket (défaut) — voix Kyutai sur CPU, rien d'autre à configurer
-```
-
-Puis `docker compose up -d --build`. La latence passe de 2-4 s à ~1 s, la voix devient
-naturelle, et l'appelant peut couper la parole à l'assistant. **Premier appel** :
-~30-60 s de préchauffage (téléchargement du modèle Pocket TTS, mis en cache ensuite).
-Repasser à `VOICE_MODE=gather` ramène au mode sans clé.
-
-- **Cloner une voix** : `POCKET_TTS_VOICE=/chemin/extrait.wav` (ou une URL `hf://`) —
-  Pocket TTS imite la voix de l'échantillon.
-- **Autre voix française prête** : `POCKET_TTS_VOICE=estelle` (défaut).
-- **Alternative TTS payante** (API Cartesia) : `TTS_PROVIDER=cartesia` +
-  `CARTESIA_API_KEY` / `CARTESIA_VOICE_ID`.
-
-La montée en qualité vers le TTS Kyutai 1.6B (GPU, la voix exacte d'unmute.sh) reste
-prévue en phase B — voir [docs/VOICE_STACK.md](docs/VOICE_STACK.md).
-
-## 🧪 Tests
-
-```bash
-# Tests unitaires (LLM mocké, aucun appel réseau)
-cd api && pip install -r tests/requirements-test.txt && pytest tests/ -v
-
-# Test de bout en bout contre une instance qui tourne
-./tests/test_e2e.sh localhost +33100000000
-
-# Simuler un tour de conversation à la main
-curl -X POST http://localhost:8000/twilio/voice \
-  --data-urlencode "CallSid=CA_test" \
-  --data-urlencode "To=+33100000000" \
-  --data-urlencode "SpeechResult=Je voudrais réserver pour 4 personnes demain à 20h, au nom de Durand"
-
-# Voir les réservations du tenant 1
-curl http://localhost:8000/tenants/1/reservations
-```
-
-## 📁 Structure du projet
+## Structure
 
 ```
-├── api/
-│   ├── app/
-│   │   ├── main.py          # Webhooks Twilio (voix, SMS), routage tenant
-│   │   ├── llm.py           # LLM (OpenRouter) + outils métier (function calling)
-│   │   ├── tenants.py       # Tenants et résolution par numéro appelé
-│   │   ├── reservations.py  # Réservations (SQLite)
-│   │   └── db.py            # Connexion et schéma SQLite
-│   ├── tests/               # Tests pytest (LLM mocké)
-│   └── Dockerfile
-├── caddy/Caddyfile          # Reverse proxy
-├── docker-compose.yml
-├── ROADMAP.md               # Plan produit (phases 1 → 4)
-├── ARCHITECTURE.md          # Choix techniques
-└── env.example
+api/
+  app/
+    main.py              webhooks Twilio, flux média, sondes /health et /supervision
+    llm.py               prompt système + outils métier (partagés voix et SMS)
+    voice/               pipeline Pipecat, voix moshi-server, accueil, langue, journal
+    admin/               plateforme admin (Jinja2 + htmx, rendue côté serveur)
+    tenants.py reservations.py messages.py calls.py users.py   données (SQLite)
+    disponibilite.py horloge.py notifications.py twilio_signature.py
+    supervision.py rgpd.py quotas.py plans.py taches.py db.py
+    requirements.txt     l'intention ; requirements.lock : les versions exactes installées
+  tests/
+deploy/modal_moshi_server.py   le serveur de voix sur Modal
+scripts/                       déploiement, sauvegarde, bancs d'essai, contrôle de mutation
+caddy/Caddyfile                TLS, en-têtes de sécurité (CSP)
+docs/                          déploiement, recette, supervision, RGPD, tarifs, passation
 ```
 
-## 🔧 Variables d'environnement
+## Variables essentielles
 
-| Variable | Description |
+La liste complète, commentée, est dans [env.example](env.example). Une variable posée
+dans `.env` n'atteint le conteneur que si `docker-compose.yml` la liste.
+
+| Variable | Rôle |
 |---|---|
-| `OPENROUTER_API_KEY` | Clé API OpenRouter (obligatoire) |
-| `LLM_MODEL` | Modèle utilisé (défaut : `openrouter/free`) — catalogue complet sur [openrouter.ai/models](https://openrouter.ai/models) |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | Identifiants Twilio |
-| `TWILIO_NUMBER` | Numéro du tenant de démo (E.164) |
-| `DB_PATH` | Chemin SQLite (défaut : `./data/app.db`) |
+| `OPENROUTER_API_KEY`, `LLM_MODEL` | LLM (production : `google/gemini-2.5-flash`) |
+| `DEEPGRAM_API_KEY` | transcription |
+| `MOSHI_TTS_URL`, `MOSHI_TTS_API_KEY` | serveur de voix et sa clé privée (même valeur qu'au `modal deploy`) |
+| `PUBLIC_WS_URL`, `PUBLIC_URL` | URL publiques : flux média, et base de la signature Twilio |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SIGNATURE` | compte Twilio ; vérification des signatures (`enforce` par défaut) |
+| `TWILIO_NUMBER`, `SEED_DEMO` | restaurant de démonstration d'une base vide |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SESSION_SECRET` | premier super-admin, sessions |
+| `SUPERVISION_TOKEN` | jeton de la sonde (en-tête `X-Supervision-Token`) |
+| `SMTP_HOST`, `SMTP_FROM`, `SMTP_*` | e-mails au restaurateur |
 
-## ➕ Ajouter un commerce (tenant)
+## Documentation
 
-Pour l'instant directement en base (le dashboard arrive en phase 3, voir ROADMAP.md) :
-
-```bash
-sqlite3 data/app.db "INSERT INTO tenants (name, business_type, phone_number, language, greeting, knowledge_base)
-VALUES ('Pizzeria Bella', 'restaurant', '+33187654321', 'fr-FR',
-        'Bonjour, Pizzeria Bella, que puis-je faire pour vous ?',
-        '## Horaires\nOuvert du mardi au dimanche, 12h-14h30 et 19h-23h. ...');"
-```
-
-Chaque numéro Twilio supplémentaire pointe vers le même webhook : le routage se fait
-automatiquement par le champ `To`.
-
-## 📄 Licence
-
-Voir le fichier LICENSE.
-
-## 👤 Auteur
-
-**helmi75**
+| Document | Pour |
+|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | les choix techniques, et pourquoi |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | mettre en production, sauvegarder, restaurer |
+| [docs/MODAL.md](docs/MODAL.md) | le serveur de voix et sa clé |
+| [docs/TWILIO_SETUP.md](docs/TWILIO_SETUP.md) | brancher un numéro |
+| [docs/SUPERVISION.md](docs/SUPERVISION.md) | les contrôles et l'alerte |
+| [docs/RECETTE.md](docs/RECETTE.md) | ce qu'on vérifie sur un vrai appel |
+| [docs/RGPD.md](docs/RGPD.md) · [docs/TARIFS.md](docs/TARIFS.md) | données personnelles · grille tarifaire |
+| [docs/PASSATION.md](docs/PASSATION.md) | l'état de la production et ses accès |
+| [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) | la suite · l'historique |

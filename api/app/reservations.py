@@ -8,9 +8,10 @@ conséquences à ne jamais perdre de vue :
 2. l'admin, lui, les montre : un restaurateur qui voit « annulée à 15h32 » peut
    reproposer le créneau, et retrouver la preuve si le client conteste.
 """
+import re
 from typing import Optional
 
-from . import db
+from . import db, horloge
 
 # Fragment SQL partagé par tout ce qui compte des couverts. Écrit UNE fois : une
 # annulation oubliée dans une requête de comptage est invisible à la lecture et se
@@ -74,11 +75,6 @@ def update_reservation(reservation_id: int, **fields) -> Optional[dict]:
             "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
         ).fetchone()
     return dict(row) if row else None
-
-
-def delete_reservation(reservation_id: int) -> None:
-    with db.get_conn() as conn:
-        conn.execute("DELETE FROM reservations WHERE id = ?", (reservation_id,))
 
 
 def list_filtered(
@@ -161,11 +157,42 @@ def find_by_phone(tenant_id: int, phone: str, *, a_partir_de: Optional[str] = No
         rows = conn.execute(
             f"""SELECT * FROM reservations
                 WHERE tenant_id = ? AND customer_phone = ? AND {ACTIVES}
-                  AND date >= COALESCE(?, date('now'))
+                  AND date >= ?
                 ORDER BY date, time""",
-            (tenant_id, phone, a_partir_de),
+            (tenant_id, phone, a_partir_de or horloge.aujourd_hui().isoformat()),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# Le nom relu dans le prompt système vient d'une transcription : seul ce qui RESSEMBLE à
+# un nom passe (lettres, au plus quatre mots séparés par espace, apostrophe ou tiret).
+# Sans ce filtre, une phrase dictée comme « nom » lors d'un appel deviendrait du texte
+# libre dans les consignes de l'appel suivant.
+_NOM_PLAUSIBLE = re.compile(r"[^\W\d_]+(?:[ '’-][^\W\d_]+){0,3}")
+
+
+def dernier_nom(tenant_id: int, phone: Optional[str]) -> Optional[str]:
+    """Le nom de la dernière réservation faite depuis ce numéro chez cet établissement.
+
+    Sert à PROPOSER le nom au lieu de le redemander — c'est l'étape qui échoue le plus
+    au téléphone (nom mal entendu sur du 8 kHz, épellation). Annulées comprises : le nom
+    reste celui de l'appelant. Rien pour un appel masqué, ni après la purge RGPD du
+    numéro : la recherche se fait par numéro, elle suit donc la même durée de conservation.
+    """
+    phone = (phone or "").strip()
+    if not phone:
+        return None
+    with db.get_conn() as conn:
+        row = conn.execute(
+            """SELECT customer_name FROM reservations
+               WHERE tenant_id = ? AND customer_phone = ?
+               ORDER BY id DESC LIMIT 1""",
+            (tenant_id, phone),
+        ).fetchone()
+    nom = " ".join((row["customer_name"] or "").split()) if row else ""
+    if not nom or len(nom) > 40 or not _NOM_PLAUSIBLE.fullmatch(nom):
+        return None
+    return nom
 
 
 def get_for_caller(reservation_id: int, tenant_id: int, phone: str) -> Optional[dict]:

@@ -21,12 +21,12 @@ ni pour le restaurateur ni pour la statistique.
 """
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from loguru import logger
 
-from . import db
+from . import db, horloge
 
 
 # --- Mention d'information au décroché ---------------------------------------
@@ -142,21 +142,21 @@ def purger() -> Purge:
     with db.get_conn() as conn:
         transcripts = conn.execute(
             """UPDATE calls SET transcript = NULL, summary = NULL, journal = NULL
-               WHERE started_at < datetime('now', ?)
+               WHERE started_at < ?
                  AND (transcript IS NOT NULL OR summary IS NOT NULL
                       OR journal IS NOT NULL)""",
-            (f"-{jours_transcript()} days",),
+            (horloge.il_y_a(jours_transcript()),),
         ).rowcount
         numeros = conn.execute(
             """UPDATE calls SET caller_number = NULL
-               WHERE started_at < datetime('now', ?) AND caller_number IS NOT NULL""",
-            (f"-{jours_numero()} days",),
+               WHERE started_at < ? AND caller_number IS NOT NULL""",
+            (horloge.il_y_a(jours_numero()),),
         ).rowcount
         # Sur la DATE de la réservation, pas sa création : une table réservée six mois
         # à l'avance ne doit pas être effacée avant d'avoir eu lieu.
         reservations = conn.execute(
-            "DELETE FROM reservations WHERE date < date('now', ?)",
-            (f"-{jours_reservation()} days",),
+            "DELETE FROM reservations WHERE date < ?",
+            ((horloge.aujourd_hui() - timedelta(days=jours_reservation())).isoformat(),),
         ).rowcount
         # Un message contient le NOM et la DEMANDE de l'appelant, donc de la donnée
         # personnelle en clair — parfois plus parlante qu'un transcript, puisqu'elle est
@@ -166,13 +166,13 @@ def purger() -> Purge:
         messages_vides = conn.execute(
             """UPDATE messages SET subject = 'Message effacé (durée de conservation)',
                    details = NULL, customer_name = NULL
-               WHERE created_at < datetime('now', ?) AND details IS NOT NULL""",
-            (f"-{jours_transcript()} days",),
+               WHERE created_at < ? AND details IS NOT NULL""",
+            (horloge.il_y_a(jours_transcript()),),
         ).rowcount
         conn.execute(
             """UPDATE messages SET caller_number = NULL
-               WHERE created_at < datetime('now', ?) AND caller_number IS NOT NULL""",
-            (f"-{jours_numero()} days",),
+               WHERE created_at < ? AND caller_number IS NOT NULL""",
+            (horloge.il_y_a(jours_numero()),),
         )
     resultat = Purge(
         transcripts=max(0, transcripts),

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from loguru import logger
 
-from .. import users
+from .. import db, users
 from . import deps, throttle
 
 router = APIRouter()
@@ -36,7 +36,7 @@ async def login_submit(request: Request, email: str = Form(...), password: str =
             status_code=429, headers={"Retry-After": str(attente)},
         )
 
-    user = users.get_by_email(email)
+    user = await db.hors_boucle(users.get_by_email, email)
     # bcrypt ≈ 100-200 ms : en thread pour ne pas geler l'event loop (appels vocaux).
     ok = user is not None and await asyncio.to_thread(
         users.verify_password, password, user.password_hash

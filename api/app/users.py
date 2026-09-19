@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import bcrypt
+from loguru import logger
 
 from . import db
 
@@ -132,11 +133,11 @@ def seed_superadmin() -> None:
         return
     password = os.getenv("ADMIN_PASSWORD", "")
     if not password:
-        print(
+        logger.warning(
             "[admin] Pas de super-admin et ADMIN_PASSWORD absent : "
             "la plateforme admin restera inaccessible (l'app vocale n'est pas affectée)."
         )
         return
     email = os.getenv("ADMIN_EMAIL", "admin@local")
     create_user(email, password, ROLE_SUPERADMIN)
-    print(f"[admin] Super-admin créé : {email} (mot de passe : ADMIN_PASSWORD).")
+    logger.info(f"[admin] Super-admin créé : {email} (mot de passe : ADMIN_PASSWORD).")

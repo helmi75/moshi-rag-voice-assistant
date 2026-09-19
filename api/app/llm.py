@@ -11,46 +11,38 @@ vectoriel n'apporterait rien à cette échelle (voir ARCHITECTURE.md).
 """
 import json
 import os
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
 
-from . import messages, reservations
+from . import db, disponibilite, horloge, messages, notifications, reservations
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 MAX_TOOL_ROUNDS = 5
 
-# L'heure qui compte est celle du RESTAURANT, pas celle du serveur (UTC) : `date.today()`
-# se trompait de jour entre minuit et deux heures du matin, heure de Paris.
-FUSEAU = ZoneInfo(os.getenv("RESTAURANT_TIMEZONE", "Europe/Paris"))
+# L'heure qui compte est celle du RESTAURANT, pas celle du serveur (UTC) : voir
+# horloge.py, la seule source. `maintenant` garde son nom ici : les tests le fixent pour
+# figer le prompt et les outils d'un même geste.
+FUSEAU = horloge.FUSEAU
 
 
 def maintenant() -> datetime:
     """L'instant présent, au fuseau du restaurant. Point unique, pour que les tests
     puissent le fixer et que le prompt et les outils ne divergent jamais."""
-    return datetime.now(FUSEAU)
-
-# Jours et mois en toutes lettres : le modèle doit résoudre « vendredi prochain » sans
-# rien deviner, et l'ISO seul ne dit pas quel jour de la semaine on est. Table figée
-# plutôt que `locale` : les locales fr_FR ne sont pas installées dans l'image Docker.
-_JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
-_MOIS = (
-    "janvier", "février", "mars", "avril", "mai", "juin",
-    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
-)
+    return horloge.maintenant()
 
 
-def _date_en_toutes_lettres(jour: date) -> str:
-    return f"{_JOURS[jour.weekday()]} {jour.day} {_MOIS[jour.month - 1]} {jour.year}"
+_date_en_toutes_lettres = horloge.en_toutes_lettres
 
-# ⚠️ Le prompt affirme qu'aucun SMS n'est envoyé. C'est vrai AUJOURD'HUI et c'est un fait
-# sur notre propre produit, pas une politique du restaurant — d'où l'exception à la règle
-# « n'invente pas ce que le restaurant ne fait pas ». Le jour où #34 livre les SMS de
-# confirmation, cette phrase devient un mensonge : la changer fait partie de ce lot-là.
+# ⚠️ Le prompt affirme que l'assistante n'envoie ni SMS ni e-mail AU CLIENT. C'est vrai, et
+# c'est un fait sur notre propre produit, pas une politique du restaurant — d'où l'exception
+# à la règle « n'invente pas ce que le restaurant ne fait pas ». Les e-mails qui partent
+# vers le RESTAURATEUR (notifications.py, depuis le 19/09/2026) n'y changent rien : le
+# client, lui, ne reçoit toujours rien. Le jour où #34 livre les SMS de confirmation, cette
+# phrase devient un mensonge : la changer fait partie de ce lot-là.
 TOOLS = [
     {
         "name": "check_availability",
@@ -216,12 +208,29 @@ def get_client() -> AsyncOpenAI:
     return _client
 
 
-def build_system_prompt(tenant: Tenant) -> str:
+def _section_appelant(nom: Optional[str]) -> str:
+    """Le nom du dernier passage, à PROPOSER : on réserve parfois pour quelqu'un d'autre,
+    et un téléphone se partage. Proposer évite l'étape qui échoue le plus au téléphone —
+    le nom mal entendu —, présumer ferait réserver au mauvais nom."""
+    if not nom:
+        return ""
+    return f"""# Appelant
+Ce numéro a déjà réservé au nom de « {nom} ». Pour une réservation, PROPOSE ce nom au
+lieu de le demander : « C'est au nom de {nom}, comme la dernière fois ? ». Ne le présume
+pas : si le client en donne un autre, c'est celui-là. N'en parle pas hors réservation.
+
+"""
+
+
+def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None) -> str:
     """Prompt système de l'assistante téléphonique.
 
     Il est ré-envoyé à CHAQUE tour : chaque phrase ajoutée se paie en latence et en
     jetons sur toute la conversation. On garde donc des règles courtes, impératives,
     et uniquement celles qui corrigent un comportement réellement observé au téléphone.
+
+    `appelant` : le nom de la dernière réservation faite depuis ce numéro
+    (reservations.dernier_nom), ou None.
     """
     instant = maintenant()
     aujourdhui = instant.date()
@@ -264,7 +273,7 @@ Un jour déjà passé désigne le prochain à venir. Une heure d'aujourd'hui dé
 se réserve pas : propose la suivante. Si la date reste ambiguë, fais préciser : « Samedi
 quinze août, c'est bien ça ? ».
 
-# Réservation — dans l'ordre
+{disponibilite.section_prompt(getattr(tenant, 'opening_hours', None))}{_section_appelant(appelant)}# Réservation — dans l'ordre
 1. Il te faut QUATRE informations : nom, date, heure, nombre de personnes. Demande
    celles qui manquent, une par une, jamais une déjà donnée.
 2. Le NOM : demande-le une seule fois. S'il est ÉPELÉ — lettres, ou « H comme Henri,
@@ -348,13 +357,16 @@ def _refus(message: str) -> str:
     return json.dumps({"error": message}, ensure_ascii=False)
 
 
-def _creneau_refuse(date_iso, heure) -> Optional[str]:
-    """Le motif de refus si le créneau est illisible ou déjà passé, sinon None.
+def _creneau_refuse(tenant: Tenant, date_iso, heure) -> Optional[str]:
+    """Le motif de refus si le créneau est illisible, déjà passé, ou hors des horaires
+    d'ouverture de l'établissement ; None s'il est réservable.
 
     Relevé le 10/09/2026 sur un vrai appel (104) : l'assistante a proposé une table
     « aujourd'hui à treize heures » alors qu'il était quinze heures — elle ne
     connaissait que la date. Le prompt lui donne désormais l'heure, mais une règle
-    écrite ne remplace pas une vérification : c'est le serveur qui tranche."""
+    écrite ne remplace pas une vérification : c'est le serveur qui tranche. Même
+    logique pour les horaires (18/09/2026) : le prompt les cite, le serveur les applique.
+    Sans horaires renseignés, rien n'est refusé — comme avant."""
     try:
         creneau = datetime.strptime(f"{date_iso} {heure}", "%Y-%m-%d %H:%M").replace(tzinfo=FUSEAU)
     except (TypeError, ValueError):
@@ -363,6 +375,10 @@ def _creneau_refuse(date_iso, heure) -> Optional[str]:
     if creneau < instant:
         return (f"Ce créneau est déjà passé : il est {instant:%H:%M}. "
                 "Propose au client un horaire à venir.")
+    horaires = disponibilite.charger(getattr(tenant, "opening_hours", None))
+    fermeture = disponibilite.motif_de_fermeture(horaires, creneau)
+    if fermeture:
+        return fermeture
     return None
 
 
@@ -379,6 +395,10 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
     `call_id` rattache un message pris à l'appel qui l'a produit, pour que le
     restaurateur puisse réécouter ce qui a été dit. Absent, le message est quand même
     enregistré : une trace incomplète vaut mieux qu'une promesse perdue.
+
+    Chaque accès à la base passe par `db.hors_boucle` : cette fonction s'exécute dans la
+    boucle d'événements qui sert TOUS les appels en cours, et un verrou SQLite attendu
+    ici ferait bégayer leur voix.
     """
     # Garde unique pour les trois outils qui touchent à une réservation existante.
     # Placée AVANT le routage : ajouter un quatrième outil à OUTILS_APPELANT suffit à
@@ -390,7 +410,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         )
 
     if name == "find_reservation":
-        trouvees = reservations.find_by_phone(
+        trouvees = await db.hors_boucle(
+            reservations.find_by_phone,
             tenant.id, caller_number, a_partir_de=tool_input.get("date"))
         return json.dumps(
             {"reservations": [
@@ -408,14 +429,17 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         except (TypeError, ValueError):
             return _refus("Identifiant de réservation manquant : appelle d'abord find_reservation.")
         # LA porte : rien n'est chargé sans le tenant ET le numéro appelant.
-        existante = reservations.get_for_caller(reservation_id, tenant.id, caller_number)
+        existante = await db.hors_boucle(
+            reservations.get_for_caller, reservation_id, tenant.id, caller_number)
         if existante is None:
             return _refus(
                 "Aucune réservation à venir ne correspond à ce numéro. Ne prétends pas "
                 "l'avoir trouvée ; propose de prendre le message."
             )
         if name == "cancel_reservation":
-            reservations.cancel_reservation(reservation_id)
+            await db.hors_boucle(reservations.cancel_reservation, reservation_id)
+            notifications.planifier(tenant, "reservation_annulee",
+                                    {"reservation": existante, "appel_id": call_id})
             return json.dumps(
                 {"status": "cancelled", "reservation_id": reservation_id,
                  "date": existante["date"], "time": existante["time"]},
@@ -424,11 +448,13 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
                   if tool_input.get(k) not in (None, "")}
         if not champs:
             return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
-        refus = _creneau_refuse(champs.get("date", existante["date"]),
+        refus = _creneau_refuse(tenant, champs.get("date", existante["date"]),
                                 champs.get("time", existante["time"]))
         if refus:
             return _refus(refus)
-        modifiee = reservations.update_reservation(reservation_id, **champs)
+        modifiee = await db.hors_boucle(reservations.update_reservation, reservation_id, **champs)
+        notifications.planifier(tenant, "reservation_modifiee",
+                                {"avant": existante, "reservation": modifiee, "appel_id": call_id})
         return json.dumps(
             {"status": "modified", "reservation_id": reservation_id,
              "date": modifiee["date"], "time": modifiee["time"],
@@ -440,7 +466,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         # un message, c'est même le cas où il en a le plus besoin — il ne peut ni
         # réserver ni retrouver quoi que ce soit. On enregistre alors sans numéro, et le
         # restaurateur voit qu'il n'y a pas de quoi rappeler.
-        identifiant = messages.create_message(
+        identifiant = await db.hors_boucle(
+            messages.create_message,
             tenant_id=tenant.id,
             subject=tool_input.get("subject") or "",
             details=tool_input.get("details"),
@@ -453,17 +480,22 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
                 "Message non enregistré : il manque l'objet. Demande à l'appelant ce "
                 "qu'il veut transmettre, puis rappelle cet outil."
             )
+        notifications.planifier(tenant, "message_pris", {
+            "message_id": identifiant, "appel_id": call_id,
+            "subject": tool_input.get("subject") or "", "details": tool_input.get("details"),
+            "customer_name": tool_input.get("customer_name"),
+            "caller_number": (caller_number or "").strip() or None})
         return json.dumps(
             {"status": "recorded", "message_id": identifiant,
              "rappel_possible": bool((caller_number or "").strip())},
             ensure_ascii=False)
 
     if name == "check_availability":
-        refus = _creneau_refuse(tool_input.get("date"), tool_input.get("time"))
+        refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
         if refus:
             return _refus(refus)
-        booked = reservations.count_for_slot(
-            tenant.id, tool_input["date"], tool_input["time"]
+        booked = await db.hors_boucle(
+            reservations.count_for_slot, tenant.id, tool_input["date"], tool_input["time"]
         )
         return json.dumps(
             {"available": True, "covers_already_booked": booked},
@@ -475,14 +507,15 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         # modification et l'annulation (#33). Laisser le modèle le proposer reviendrait à
         # accepter que l'appelant décide de qui il est. Un appel masqué donne None : la
         # réservation existe, mais elle ne sera pas modifiable au téléphone.
-        refus = _creneau_refuse(tool_input.get("date"), tool_input.get("time"))
+        refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
         if refus:
             return _refus(refus)
         # Relevé au banc le 10/09/2026 : récapitulatif « …au nom de. C'est bien ça ? »,
         # « Très bien merci », et une table enregistrée SANS NOM — introuvable en salle.
         if not str(tool_input.get("customer_name") or "").strip():
             return _refus("Nom manquant : demande le nom du client avant d'enregistrer.")
-        row = reservations.create_reservation(
+        row = await db.hors_boucle(
+            reservations.create_reservation,
             tenant_id=tenant.id,
             customer_name=tool_input["customer_name"],
             date=tool_input["date"],
@@ -491,6 +524,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
             customer_phone=(caller_number or "").strip() or None,
             notes=tool_input.get("notes"),
         )
+        notifications.planifier(tenant, "reservation_creee", {"reservation": row, "appel_id": call_id})
         return json.dumps({"status": "confirmed", "reservation_id": row["id"]}, ensure_ascii=False)
     return json.dumps({"error": f"outil inconnu: {name}"}, ensure_ascii=False)
 
@@ -506,8 +540,10 @@ async def respond(tenant: Tenant, history: list, user_text: str,
     donc jamais de message système, quel que soit le nombre de tours.
     """
     client = get_client()
+    nom = (await db.hors_boucle(reservations.dernier_nom, tenant.id, caller_number)
+           if caller_number else None)
     api_messages = (
-        [{"role": "system", "content": build_system_prompt(tenant)}]
+        [{"role": "system", "content": build_system_prompt(tenant, appelant=nom)}]
         + history
         + [{"role": "user", "content": user_text}]
     )

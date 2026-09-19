@@ -70,9 +70,9 @@ GARDE_FOUS = [
     GardeFou(
         nom="`keyterm` (et non `keywords`) pour nova-3",
         fichier="api/app/voice/bot.py",
-        avant='        if model.startswith("nova-3"):',
-        apres='        if False:  # mutation',
-        tests=["test_kyutai_stt.py"],
+        avant='    if model.startswith("nova-3"):',
+        apres='    if False:  # mutation',
+        tests=["test_deepgram_stt.py"],
         k="nova3 or nova2 or default_model or keyword",
         panne="HTTP 400 de Deepgram → le STT ne démarre pas, tous les appels muets",
     ),
@@ -227,8 +227,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Une promesse de rappel laisse toujours une trace",
         fichier="api/app/llm.py",
-        avant="        identifiant = messages.create_message(",
-        apres="        identifiant = 1 if True else messages.create_message(  # mutation",
+        avant="            messages.create_message,",
+        apres="            (lambda **champs: 1),  # mutation",
         tests=["test_messages.py"],
         k="enregistre or masque or trace",
         panne="l'assistante annoncerait un rappel que personne n'aurait noté — le "
@@ -237,8 +237,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Les messages tombent sous la purge comme le reste",
         fichier="api/app/rgpd.py",
-        avant="               WHERE created_at < datetime('now', ?) AND details IS NOT NULL\"\"\",",
-        apres="               WHERE 0 AND created_at < datetime('now', ?) AND details IS NOT NULL\"\"\",",
+        avant="               WHERE created_at < ? AND details IS NOT NULL\"\"\",",
+        apres="               WHERE 0 AND created_at < ? AND details IS NOT NULL\"\"\",",
         tests=["test_messages.py"],
         k="purge",
         panne="le nom et la demande d'un appelant resteraient en base sans limite de "
@@ -349,10 +349,118 @@ GARDE_FOUS = [
         fichier="api/app/voice/bot.py",
         avant='    return "multi" if detection_de_langue() else language',
         apres="    return language  # mutation",
-        tests=["test_voice_stream.py", "test_kyutai_stt.py"],
+        tests=["test_voice_stream.py", "test_deepgram_stt.py"],
         k="bilingue",
         panne="Deepgram en `fr` perd l'anglais : « Yes, hello, my name is Helmi… » n'a "
               "rien produit du tout sur l'appel 101",
+    ),
+    GardeFou(
+        nom="Le chemin d'appel ne touche pas SQLite depuis la boucle d'événements",
+        fichier="api/app/db.py",
+        avant="    return await asyncio.to_thread(fn, *args, **kwargs)",
+        apres="    return fn(*args, **kwargs)  # mutation",
+        tests=["test_db_hors_boucle.py"],
+        k="fil or boucle",
+        panne="un verrou SQLite attendu depuis la boucle ferait bégayer la voix de TOUS les appels en cours",
+    ),
+    GardeFou(
+        nom="Une tâche de fond qui meurt est journalisée, et retenue jusque-là",
+        fichier="api/app/taches.py",
+        avant="    tache.add_done_callback(_terminee)",
+        apres="    pass  # mutation",
+        tests=["test_taches.py"],
+        k="journalisee or liberee",
+        panne="un rendu d'accueil échouerait en silence, sans une ligne de journal — comme avant",
+    ),
+    GardeFou(
+        nom="Une signature Twilio forgée est refusée",
+        fichier="api/app/twilio_signature.py",
+        avant="        if hmac.compare_digest(signature_attendue(jeton, candidate, params), fournie):",
+        apres="        if True:  # mutation",
+        tests=["test_twilio_signature.py"],
+        k="forgee",
+        panne="n'importe qui ferait parler l'assistante, payer le LLM et réveiller le GPU",
+    ),
+    GardeFou(
+        nom="La vérification est exigée par défaut dès qu'un jeton existe",
+        fichier="api/app/twilio_signature.py",
+        avant='    return "enforce" if jeton else "log"',
+        apres='    return "log"  # mutation',
+        tests=["test_twilio_signature.py"],
+        k="defaut",
+        panne="la vérification serait décorative par défaut : tout passerait, compté mais accepté",
+    ),
+    GardeFou(
+        nom="Un créneau hors des horaires d'ouverture est refusé",
+        fichier="api/app/llm.py",
+        avant="    fermeture = disponibilite.motif_de_fermeture(horaires, creneau)",
+        apres="    fermeture = None  # mutation",
+        tests=["test_horaires.py"],
+        k="ferme",
+        panne="l'assistante enregistrerait une table un lundi de fermeture, et le client se présenterait devant une porte close",
+    ),
+    GardeFou(
+        nom="Une réservation prise prévient le restaurateur",
+        fichier="api/app/llm.py",
+        avant='        notifications.planifier(tenant, "reservation_creee", {"reservation": row, "appel_id": call_id})',
+        apres="        pass  # mutation",
+        tests=["test_notifications.py"],
+        k="creee",
+        panne="une table prise au téléphone ne serait vue par personne en salle avant l'heure du service",
+    ),
+    GardeFou(
+        nom="Un SMTP en panne ne remonte jamais jusqu'à l'appel",
+        fichier="api/app/notifications.py",
+        avant="    except Exception as exc:\n        logger.warning(f\"notification {evenement} non envoyée",
+        apres="    except ZeroDivisionError as exc:  # mutation\n        logger.warning(f\"notification {evenement} non envoyée",
+        tests=["test_notifications.py"],
+        k="casse or leve",
+        panne="un SMTP en panne ferait échouer l'outil : l'assistante s'excuserait d'un problème technique et la réservation ne serait pas prise",
+    ),
+    GardeFou(
+        nom="Le forfait compte le mois du restaurant, pas celui d'UTC",
+        fichier="api/app/quotas.py",
+        avant="            (tenant_id, horloge.debut_du_mois()),",
+        apres='            (tenant_id, "1970-01-01"),  # mutation',
+        tests=["test_horloge.py"],
+        k="mois",
+        panne="le compteur de forfait additionnerait tous les mois : plafond atteint le 3, facture fausse",
+    ),
+    GardeFou(
+        nom="La clé publique du serveur de voix est signalée",
+        fichier="api/app/supervision.py",
+        avant='    if cle and cle != "public_token":',
+        apres="    if True:  # mutation",
+        tests=["test_supervision.py"],
+        k="cle_publique",
+        panne="le GPU resterait ouvert à qui connaît l'URL Modal, supervision au vert",
+    ),
+    GardeFou(
+        nom="Une sauvegarde restée sur la machine n'est pas verte",
+        fichier="api/app/supervision.py",
+        avant='        resume_distant = "aucune copie hors du serveur"\n        niveau = pire(niveau, ATTENTION)',
+        apres='        resume_distant = "aucune copie hors du serveur"\n        pass  # mutation',
+        tests=["test_supervision.py"],
+        k="sans_copie_distante",
+        panne="un incident disque emporterait la base et toutes ses copies, supervision au vert",
+    ),
+    GardeFou(
+        nom="Un appel masqué n'a pas de numéro",
+        fichier="api/app/calls.py",
+        avant="    if not _E164.fullmatch(numero) or numero in _NUMEROS_MASQUES:",
+        apres="    if not numero:  # mutation",
+        tests=["test_voice_stream.py"],
+        k="masque",
+        panne="tous les appels masqués partageraient un numéro : chacun verrait les réservations des autres",
+    ),
+    GardeFou(
+        nom="Seul un nom plausible entre dans le prompt",
+        fichier="api/app/reservations.py",
+        avant="    if not nom or len(nom) > 40 or not _NOM_PLAUSIBLE.fullmatch(nom):",
+        apres="    if not nom:  # mutation",
+        tests=["test_caller_phone.py"],
+        k="ressemble",
+        panne="une phrase dictée comme nom deviendrait du texte libre dans les consignes de l'appel suivant",
     ),
 ]
 
@@ -379,7 +487,6 @@ def lancer_tests(garde: GardeFou, runner: str) -> int:
         cmd = [sys.executable, "-m", "pytest", *cible, "-k", garde.k, "-q",
                "--no-header", "-p", "no:cacheprovider"]
         return subprocess.run(cmd, cwd=RACINE / "api",
-                              env={**os.environ, "VOICE_MODE": "gather"},
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
 
     cible = " ".join(f"/app/tests/{t}" for t in garde.tests)
@@ -387,7 +494,7 @@ def lancer_tests(garde: GardeFou, runner: str) -> int:
         "pip install -q -r /app/tests/requirements-test.txt >/dev/null 2>&1; "
         f"python -m pytest {cible} -k \"{garde.k}\" -q --no-header -p no:cacheprovider"
     )
-    cmd = ["docker", "compose", "run", "--rm", "-e", "VOICE_MODE=gather",
+    cmd = ["docker", "compose", "run", "--rm",
            "-v", f"{RACINE}/api/tests:/app/tests", "-v", f"{RACINE}/api/app:/app/app",
            "api", "sh", "-c", interne]
     return subprocess.run(cmd, cwd=RACINE,

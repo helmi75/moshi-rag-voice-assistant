@@ -20,7 +20,7 @@ Médecins envisagés ensuite.
 ```
 Twilio ──webhook + media stream──► APP FastAPI + Pipecat
                                     VPS Hostinger, Paris, app.helmane.fr
-                                    • STT Deepgram (ou Kyutai) + LLM OpenRouter
+                                    • STT Deepgram nova-3 + LLM OpenRouter
                                       (google/gemini-2.5-flash)
                                     • SQLite (réservations) + admin Jinja2/htmx
                                          │ websocket TTS
@@ -40,7 +40,7 @@ Plus de ngrok, plus de PC allumé : l'app tourne 24/7 sur le VPS derrière Caddy
 | Base de production | `/var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db` |
 | Sauvegardes | `/opt/backups/db/app-*.db.gz`, cron `0 4 * * *` |
 | Admin | https://app.helmane.fr/admin |
-| TTS Modal | `wss://helmi75--moshi-server-tts-server.modal.run` |
+| TTS Modal | `MOSHI_TTS_URL` du `.env` du VPS (URL non publiée ici : le GPU se paie à l'usage) |
 | Dépôt | https://github.com/helmi75/moshi-rag-voice-assistant |
 
 ## 4. ✅ Régression de sécurité — refermée durablement le 23/08
@@ -205,10 +205,10 @@ curl -s localhost:8000/health
 /opt/backups/backup-db.sh                      # sauvegarde à la demande
 
 # En local
-cd api && python -m pytest tests/ -q            # 451 tests, aucun réseau
-python3 scripts/mutation_check.py               # 25 garde-fous : chacun doit MORDRE
+cd api && python -m pytest tests/ -q            # toute la suite, aucun réseau
+python3 scripts/mutation_check.py               # chaque garde-fou doit MORDRE
 modal deploy deploy/modal_moshi_server.py
-python scripts/test_moshi_server.py --url https://helmi75--moshi-server-tts-server.modal.run
+python scripts/test_moshi_server.py --url "$MOSHI_TTS_URL" --api-key "$MOSHI_TTS_API_KEY"
 
 # Garde-fou après chaque déploiement — à lancer depuis le WSL, pas depuis le VPS :
 # ce qui compte est ce qu'un tiers voit, pas ce que la machine croit exposer.

@@ -6,12 +6,12 @@ viennent de `calls`/`reservations`, les états viennent du cache de voix et de l
 configuration réelle — aucune métrique de latence n'existe, donc aucune n'est montrée.
 """
 import os
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, plans, quotas, reservations, supervision, tenants
+from .. import calls, db, disponibilite, horloge, plans, quotas, reservations, supervision, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from . import charts, deps, presenters
@@ -61,7 +61,7 @@ def _fill_days(stats: list[dict], days: int, key: str) -> list[tuple[str, float]
     """Série jour par jour, trous compris — `stats_daily` ne renvoie que les jours
     actifs, et un graphique à trous mentirait sur le rythme réel."""
     by_day = {s["day"]: s for s in stats}
-    today = date.today()
+    today = horloge.aujourd_hui()
     points = []
     for offset in range(days - 1, -1, -1):
         day = today - timedelta(days=offset)
@@ -91,6 +91,8 @@ def _venue_rows(days: int = _WINDOW_DAYS) -> list[dict]:
             "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None,
             "sections": sections,
             "gaps": [s for s in sections if not s["filled"]],
+            "horaires_ok": disponibilite.est_configure(
+                disponibilite.charger(tenant.opening_hours)),
             "quota": conso[tenant.id],
         })
     return rows
@@ -121,6 +123,12 @@ def _alerts(rows: list[dict]) -> list[dict]:
                 "title": f"{name} · {len(row['gaps'])} fiche(s) sans contenu",
                 "detail": f"Sections vides : {titles}.",
             })
+        if not row["horaires_ok"]:
+            alerts.append({
+                "level": "warn", "title": f"{name} · horaires d'ouverture non renseignés",
+                "detail": "L'assistante ne refusera aucun créneau fermé : elle peut enregistrer "
+                          "une table un jour de fermeture. Ouvrez « Horaires d'ouverture ».",
+            })
         if not row["stats"]["n_calls"]:
             alerts.append({
                 "level": "info", "title": f"{name} · aucun appel sur 30 jours",
@@ -136,9 +144,11 @@ def _alerts(rows: list[dict]) -> list[dict]:
 async def home(request: Request, tenant_id: Optional[int] = None,
                user: User = Depends(deps.current_user)):
     deps.ensure_csrf(request)
+    # Rendu dans un thread : une dizaine de requêtes SQLite par page, et l'admin tourne
+    # dans le même processus que les appels en cours (voir db.hors_boucle).
     if user.is_superadmin and tenant_id is None:
-        return _park(request)
-    return _control_room(request, _scope(user, tenant_id))
+        return await db.hors_boucle(_park, request)
+    return await db.hors_boucle(_control_room, request, _scope(user, tenant_id))
 
 
 def _park(request: Request):
@@ -175,7 +185,7 @@ def _park(request: Request):
 def _control_room(request: Request, tenant_id: Optional[int]):
     now = calls.totals(tenant_id, days=_WINDOW_DAYS)
     before = calls.totals(tenant_id, days=_WINDOW_DAYS, offset_days=_WINDOW_DAYS)
-    today = date.today().isoformat()
+    today = horloge.aujourd_hui().isoformat()
     recent = [presenters.call_view(c) for c in calls.list_calls(tenant_id, limit=5)]
     upcoming = reservations.list_filtered(
         tenant_id=tenant_id, date_from=today, limit=6,
@@ -209,6 +219,8 @@ def _control_room(request: Request, tenant_id: Optional[int]):
             "quota": conso,
             "depassement_eur": plans.DEPASSEMENT_EUR,
             "tenant_id": tenant_id,
+            "horaires_ok": tenant is None or disponibilite.est_configure(
+                disponibilite.charger(tenant.opening_hours)),
             "days": _WINDOW_DAYS,
         },
     )
@@ -216,6 +228,10 @@ def _control_room(request: Request, tenant_id: Optional[int]):
 
 @router.get("/admin/health", dependencies=[Depends(deps.require_superadmin)])
 async def health(request: Request):
+    return await db.hors_boucle(_health, request)
+
+
+def _health(request: Request):
     deps.ensure_csrf(request)
     now = calls.totals(None, days=_WINDOW_DAYS)
     rows = _venue_rows()
@@ -225,11 +241,11 @@ async def health(request: Request):
     # une colonne « latence » figurerait ici si elle était mesurée — elle ne l'est pas.
     modal_url = os.getenv("MOSHI_TTS_URL", "")
     stack = [
-        {"name": "Transcription (STT)", "detail": os.getenv("STT_PROVIDER", "deepgram"),
-         "metric": os.getenv("DEEPGRAM_MODEL", "nova-2")},
+        {"name": "Transcription (STT)", "detail": "Deepgram",
+         "metric": os.getenv("DEEPGRAM_MODEL", "nova-3")},
         {"name": "Compréhension (LLM)", "detail": "OpenRouter",
          "metric": os.getenv("LLM_MODEL", "google/gemini-2.5-flash")},
-        {"name": "Voix de synthèse (TTS)", "detail": os.getenv("TTS_PROVIDER", "moshi_server"),
+        {"name": "Voix de synthèse (TTS)", "detail": "moshi-server (voix Moshi)",
          "metric": modal_url.split("//")[-1] or "non configuré"},
         {"name": "Téléphonie", "detail": "Twilio Media Streams",
          "metric": f"{len(rows)} numéro(s) routé(s)"},
@@ -264,7 +280,10 @@ async def health(request: Request):
 @router.get("/admin/stats/charts")
 async def stats_charts(request: Request, tenant_id: Optional[int] = None, days: int = 30,
                        user: User = Depends(deps.current_user)):
-    scope = _scope(user, tenant_id)
+    return await db.hors_boucle(_stats_charts, request, _scope(user, tenant_id), days)
+
+
+def _stats_charts(request: Request, scope: Optional[int], days: int):
     days = min(days, 90)
     stats = calls.stats_daily(scope, days=days)
     calls_svg = charts.bar_chart(

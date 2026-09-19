@@ -18,17 +18,39 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            api/app/requirements.txt
+            api/app/requirements.lock
             api/tests/requirements-test.txt
 
-      # libsndfile1 : requis par soundfile (pocket-tts[audio]) ; libgomp1 : onnxruntime.
+      # libgomp1 : onnxruntime (VAD Silero / smart-turn).
       - name: Dépendances système
-        run: sudo apt-get update -q && sudo apt-get install -y -q libsndfile1 libgomp1
+        run: sudo apt-get update -q && sudo apt-get install -y -q libgomp1
 
       - name: Dépendances Python
         run: |
           pip install --upgrade pip
-          pip install -r api/app/requirements.txt -r api/tests/requirements-test.txt
+          # Le VERROU, comme l'image Docker : la CI teste ce qui sera déployé, pas « la
+          # dernière version » de chaque paquet.
+          pip install -r api/app/requirements.lock -r api/tests/requirements-test.txt
+
+      # Défauts que les tests ne voient que si la branche est empruntée : nom non défini,
+      # import inutile. Règles dans ruff.toml ; version figée, comme le reste.
+      - name: Analyse statique (ruff)
+        run: |
+          pip install ruff==0.13.0
+          ruff check api/app
+
+      # Vulnérabilités connues dans les versions VERROUILLÉES (ce qui part en production).
+      # Non bloquant pour l'instant : un avis publié un matin ne doit pas bloquer un
+      # correctif sans rapport ; l'avertissement reste visible dans le résumé du run.
+      # PYSEC-2026-3740 (nltk, sans correctif publié) : API de fichiers de modèles NLTK
+      # avec chemin fourni par l'appelant — l'application n'en passe jamais (nltk ne sert
+      # qu'au découpage des phrases de Pipecat).
+      - name: Audit des dépendances (pip-audit)
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r api/app/requirements.lock --no-deps --disable-pip \
+            --ignore-vuln PYSEC-2026-3740
 
       - name: Tests (aucun réseau, tout mocké)
         working-directory: api

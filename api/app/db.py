@@ -4,6 +4,7 @@ Migrations : `PRAGMA user_version` sert de compteur ; chaque script de _MIGRATIO
 appliqué une seule fois, dans l'ordre, et reste idempotent (IF NOT EXISTS) en double
 sécurité — une base déjà migrée à la main ne casse pas.
 """
+import asyncio
 import os
 import sqlite3
 
@@ -163,7 +164,50 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id, handled_at);
 CREATE INDEX IF NOT EXISTS idx_messages_call ON messages(call_id);
 """,
+    # v11 — opening_hours : les horaires d'ouverture structurés (JSON, app/disponibilite.py).
+    #
+    # Jusqu'ici check_availability répondait TOUJOURS « disponible » : ni jour de fermeture
+    # ni heure de service, seulement la fiche « Horaires » en texte libre relue par le
+    # modèle à chaque tour. Une table un lundi de fermeture était possible — promise au
+    # client, impossible à honorer. NULL = non renseigné : aucun refus, comme avant, et
+    # l'alerte du parc le signale ; c'est ce qui laisse le parc existant fonctionner sans
+    # qu'on ait à saisir des horaires avant de déployer.
+    """
+ALTER TABLE tenants ADD COLUMN opening_hours TEXT;
+""",
+    # v12 — notify_email : une adresse de notification en plus des comptes restaurateurs
+    # (app/notifications.py). Les comptes ont déjà un e-mail ; ce champ sert au gérant qui
+    # veut aussi une boîte partagée (salle@…) sans créer un compte pour elle. NULL = rien
+    # en plus. Migration séparée de v11 : une migration livrée ne se réécrit pas.
+    """
+ALTER TABLE tenants ADD COLUMN notify_email TEXT;
+""",
+    # v13 — index des chemins parcourus PENDANT un appel : le comptage des couverts d'une
+    # date (check_availability, salle de contrôle) et la recherche par numéro
+    # (find_reservation, nom du dernier passage). Sans eux, SQLite relit toutes les
+    # réservations de l'établissement à chaque outil. (tenant_id, date) rend l'ancien
+    # index (tenant_id) redondant. calls(caller_number) sert le droit à l'effacement.
+    """
+CREATE INDEX IF NOT EXISTS idx_reservations_tenant_date ON reservations(tenant_id, date);
+CREATE INDEX IF NOT EXISTS idx_reservations_appelant
+    ON reservations(tenant_id, customer_phone, date);
+CREATE INDEX IF NOT EXISTS idx_calls_appelant ON calls(caller_number);
+DROP INDEX IF EXISTS idx_reservations_tenant;
+""",
 ]
+
+
+# Durabilité des écritures. En mode WAL, `NORMAL` garantit la cohérence de la base
+# après un crash du processus ; seule une coupure de courant peut perdre les dernières
+# transactions validées. `FULL` (défaut SQLite) impose un fsync par transaction, et
+# c'est ce qui coûtait 5 s de préparation à chaque test (12 commits de migrations sur
+# un disque Docker). `OFF` n'a de sens que sous pytest, sur une base jetable.
+_SYNCHRONOUS_ADMIS = ("OFF", "NORMAL", "FULL", "EXTRA")
+
+
+def _synchronous() -> str:
+    valeur = os.getenv("DB_SYNCHRONOUS", "NORMAL").strip().upper()
+    return valeur if valeur in _SYNCHRONOUS_ADMIS else "NORMAL"
 
 
 def get_conn() -> sqlite3.Connection:
@@ -173,15 +217,30 @@ def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    # WAL + busy_timeout : le dashboard admin lit pendant qu'un appel écrit — sans
-    # ça, SQLite renvoie « database is locked » sous accès concurrent.
-    conn.execute("PRAGMA journal_mode = WAL")
+    # busy_timeout : le dashboard admin lit pendant qu'un appel écrit — sans ça, SQLite
+    # renvoie « database is locked » sous accès concurrent. Le mode WAL, lui, est une
+    # propriété du FICHIER, posée une fois par init_db().
     conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute(f"PRAGMA synchronous = {_synchronous()}")
     return conn
+
+
+async def hors_boucle(fn, *args, **kwargs):
+    """Exécute un accès SQLite dans un thread, hors de la boucle d'événements.
+
+    L'admin, la purge et les appels tournent dans le MÊME processus ; Twilio attend une
+    trame audio toutes les 20 ms. Un accès qui attend un verrou (`busy_timeout` : jusqu'à
+    5 s) depuis la boucle ferait bégayer la voix de tous les appels en cours. Les modules
+    d'accès restent synchrones (simples à lire, à tester) ; c'est le site d'appel, quand
+    il est dans une coroutine, qui les enveloppe ici."""
+    return await asyncio.to_thread(fn, *args, **kwargs)
 
 
 def init_db() -> None:
     with get_conn() as conn:
+        # WAL est persistant dans le fichier : une seule fois suffit, ici. Lecteurs et
+        # rédacteur ne se bloquent plus mutuellement.
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(_SCHEMA)
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         for i, script in enumerate(_MIGRATIONS[version:], start=version + 1):

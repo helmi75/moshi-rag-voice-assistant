@@ -1,5 +1,11 @@
 # Stack voix : état de l'art open source (recherche juillet 2026)
 
+> **Document d'étude, conservé pour son raisonnement.** Plusieurs choix d'ici n'ont pas
+> tenu à l'épreuve du téléphone : Kyutai STT dérivait vers l'anglais sur du μ-law 8 kHz
+> bruité (Deepgram nova-3 est resté), et Pocket TTS, Cartesia et le mode Gather/Say ont été
+> retirés le 18/09/2026. La pile en service est décrite dans
+> [ARCHITECTURE.md](../ARCHITECTURE.md).
+
 Objectif : pipeline **STT → CAG/RAG → LLM → TTS** en français, latence minimale,
 open source de préférence, budget de départ quasi nul, avec un chemin clair vers le
 100 % local. Ce document arrête les choix de la phase 2 (voir ROADMAP.md).

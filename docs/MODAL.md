@@ -1,129 +1,71 @@
-# Déploiement serverless GPU sur Modal — voix Moshi 1.6B (celle d'unmute.sh)
+# Le serveur de voix sur Modal — `moshi-server` (voix Moshi 1.6B, celle d'unmute.sh)
 
-## ⭐ Voie recommandée : serveur Rust `moshi-server` (voix fluide)
+Seul le **serveur de voix** tourne sur Modal (GPU L4, région EU, scale-to-zero). L'application
+— webhooks Twilio, Pipecat, base, admin — tourne sur le VPS et n'est que cliente websocket de
+ce serveur (`api/app/voice/moshi_server_tts.py`). Le serveur Rust de Kyutai tient le temps
+réel (CUDA graphs + batching) là où le chemin PyTorch, essayé en 2026, saccadait.
 
-Le chemin PyTorch décrit plus bas (`TTS_PROVIDER=kyutai`, tout dans un conteneur) **reste
-sous le temps réel sur L4/T4 → voix saccadée**. La voie de production de Kyutai est le
-**serveur Rust `moshi-server`** (CUDA graphs + batching, fluide). L'app devient simple
-cliente websocket (`TTS_PROVIDER=moshi_server`).
+> L'ancien déploiement de **toute** l'application sur Modal (`deploy/modal_app.py`, voix
+> Kyutai en PyTorch) a été retiré le 18/09/2026 — retrouvable au tag `archive/moteurs-locaux`.
 
-**1. Déployer le serveur TTS sur Modal :**
+## 1. Déployer le serveur
+
 ```bash
 modal deploy deploy/modal_moshi_server.py
 ```
-La 1re construction compile le binaire Rust (`cargo install moshi-server@0.6.4`, ~10-15 min).
-Modal affiche ensuite l'URL publique du serveur, ex. :
-`https://<vous>--moshi-server-tts-server.modal.run`
-(Prérequis : licence acceptée sur huggingface.co/kyutai/tts-1.6b-en_fr + `HF_TOKEN` dans le `.env`.)
+La première construction compile le binaire Rust (`cargo install moshi-server@0.6.4`,
+~10-15 min) puis embarque le catalogue de voix (`VOICE_FOLDERS`). Modal affiche l'URL
+publique, du type `https://<vous>--moshi-server-tts-server.modal.run`.
+Prérequis : licence acceptée sur huggingface.co/kyutai/tts-1.6b-en_fr et `HF_TOKEN` dans le
+`.env` local (envoyé au conteneur par `Secret.from_dotenv`).
 
-**2. Pointer l'app dessus** — dans le `.env` du serveur applicatif :
+Options, lues au moment du `modal deploy` :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `MODAL_GPU` | `L4` | GPU (A10G plus rapide, plus cher) — la compute capability CUDA suit |
+| `MODAL_REGION` | `eu` | Région ; vide = laisser Modal choisir |
+| `MODAL_MIN_CONTAINERS` | `0` | `1` = un GPU toujours chaud (≈ 0,80 $/h), plus de démarrage à froid |
+| `MODAL_MAX_CONTAINERS` | `4` | Plafond de GPU simultanés : garde-fou de facture |
+
+## 2. Pointer l'application dessus
+
+Dans le `.env` du VPS :
 ```
-TTS_PROVIDER=moshi_server
-MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run   # l'URL ci-dessus (https ok)
-MOSHI_TTS_API_KEY=public_token
-MOSHI_TTS_VOICE=unmute-prod-website/ex04_narration_longform_00001.wav
+MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run   # https:// accepté aussi
+MOSHI_TTS_API_KEY=<openssl rand -hex 32>   # la MÊME valeur que le .env du modal deploy
+MOSHI_TTS_VOICE=unmute-prod-website/developpeuse-3.wav
 ```
+Puis `docker compose up -d api`. La supervision (`/supervision`, contrôle « Configuration du
+chemin d'appel ») exige `MOSHI_TTS_URL`.
 
-**3. Vérifier** : dans les logs de l'app, `moshi-server : … (xF.FF temps réel)` avec **F ≥ 1**
-= voix fluide. Le serveur scale-to-zero (payé seulement pendant les appels).
+## Jeton
 
-> Architecture cible (voir `docs/ARCHI.md`) : l'app (webhooks + BDD + orchestration) tourne
-> sur un serveur CPU 24/7 ; SEUL ce `moshi-server` est sur Modal GPU.
+La config publique de Kyutai accepte `public_token`, une clé que tout le monde connaît :
+qui trouve l'URL Modal peut faire parler le GPU à nos frais. `deploy/modal_moshi_server.py`
+remplace donc `authorized_ids` **au démarrage du conteneur** par `MOSHI_TTS_API_KEY`, lue
+dans le `.env` (via `Secret.from_dotenv`) — jamais écrite dans l'image. `modal deploy`
+**refuse de partir** si la clé est absente du `.env` ou vaut `public_token`.
 
----
+Ordre de mise en place (sinon les appels sont muets entre deux étapes) :
+1. `openssl rand -hex 32` → `MOSHI_TTS_API_KEY=…` dans le `.env` local **et** celui du VPS ;
+2. sur le VPS : `docker compose up -d api` (l'app envoie déjà la nouvelle clé) ;
+3. en local : `modal deploy deploy/modal_moshi_server.py` — les appels reprennent au
+   premier conteneur démarré avec la clé ;
+4. `python scripts/test_moshi_server.py --url <URL> --api-key public_token` doit être
+   **refusé**, et `--api-key <clé>` accepté ; `/supervision` → « Jeton du serveur de voix » vert.
 
-## (Historique) Voix Kyutai 1.6B en PyTorch dans l'app
+Changer de clé plus tard : même ordre.
 
-Ce guide déploie **toute l'appli** (webhook Twilio + WebSocket Media Streams + cerveau
-LLM/réservations) sur **Modal**, avec le TTS **Kyutai 1.6B** (`kyutai/tts-1.6b-en_fr`)
-sur GPU serverless. Modal fournit l'URL publique → **pas de ngrok**, scale-to-zero,
-facturation à la seconde.
+## 3. Vérifier
 
-## Pourquoi Modal plutôt que Vast.ai
-- **Une commande** : `modal deploy` construit l'image, envoie le `.env`, expose une URL
-  publique HTTPS/WSS stable.
-- **Scale-to-zero** : vous ne payez le GPU que quand ça tourne.
-- **Pas de ngrok** : Twilio appelle directement l'URL `…modal.run`.
+Dans les journaux de l'app, à chaque phrase : `moshi-server : … (xF.FF temps réel)` avec
+**F ≥ 1**. Le premier appel après 120 s d'inactivité réveille le GPU (55-70 s) : l'accueil
+pré-rendu et la musique d'attente couvrent ce délai (`api/app/voice/greeting.py`).
 
-## Prérequis (une seule fois)
-1. **Compte Modal** + CLI :
-   ```bash
-   pip install modal python-dotenv   # python-dotenv : requis pour envoyer le .env
-   modal setup                       # ouvre le navigateur pour authentifier
-   ```
-   > Si le navigateur ne s'ouvre pas (WSL/serveur), `modal setup` affiche une URL à
-   > ouvrir manuellement, puis écrit le token dans `~/.modal.toml`. C'est normal.
-2. **`.env` à la racine** (copié de `env.example`, rempli). Doivent y figurer au moins :
-   ```
-   OPENROUTER_API_KEY=...
-   DEEPGRAM_API_KEY=...
-   TWILIO_ACCOUNT_SID=...
-   TWILIO_AUTH_TOKEN=...
-   TWILIO_NUMBER=+1...
-   # HF_TOKEN=...   # si le modèle Kyutai est sous conditions (voir point 3)
-   ```
-   Pas besoin d'y mettre `VOICE_MODE`, `TTS_PROVIDER`, `KYUTAI_TTS_DEVICE`, `HF_HOME`,
-   `DB_PATH` : ils sont forcés côté serveur par `deploy/modal_app.py`.
-3. **Licence du modèle** : ouvrez [huggingface.co/kyutai/tts-1.6b-en_fr](https://huggingface.co/kyutai/tts-1.6b-en_fr),
-   acceptez les conditions si demandé, créez un token HF (*Settings → Access Tokens*) et
-   mettez `HF_TOKEN=hf_...` dans le `.env`.
+## Voix
 
-## Déploiement (la commande)
-```bash
-./deploy/deploy_modal.sh
-# équivaut à : modal deploy deploy/modal_app.py
-```
-La première construction d'image prend quelques minutes (torch CUDA + `moshi`). Modal
-affiche ensuite l'**URL publique**, du type :
-`https://<vous>--moshi-voice-assistant-voiceassistant-web.modal.run`
-
-## Brancher Twilio
-```bash
-python3 scripts/twilio_setup_number.py --webhook https://VOTRE-URL.modal.run/twilio/webhook
-```
-La WebSocket est déduite automatiquement (`wss://VOTRE-URL.modal.run/ws/voice`). Si un
-appel n'a pas de son, fixez explicitement dans le `.env` puis redéployez :
-`PUBLIC_WS_URL=wss://VOTRE-URL.modal.run/ws/voice`.
-
-## Suivre / gérer
-```bash
-modal app logs moshi-voice-assistant       # logs en direct (voir « Kyutai 1.6B : ... temps réel »)
-modal app stop moshi-voice-assistant       # tout arrêter
-```
-
-## Coût : chaud vs scale-to-zero
-- Par défaut **`min_containers=1`** : une box GPU reste chaude → **aucun cold start**
-  pendant un appel, mais vous payez le GPU tant qu'elle est chaude.
-- Pour **couper la nuit** (scale-to-zero total) :
-  ```bash
-  MODAL_MIN_CONTAINERS=0 ./deploy/deploy_modal.sh
-  ```
-  ⚠️ Le **premier appel** après une période d'inactivité subira alors le chargement du
-  modèle (~10-40 s) → Twilio risque de raccrocher. Idéal : garder chaud aux heures
-  d'ouverture, couper la nuit (planifiable côté Modal).
-
-## Choisir le GPU
-Défaut A10G (24 Go, confortable). Alternatives au déploiement :
-```bash
-MODAL_GPU=L4 ./deploy/deploy_modal.sh      # moins cher
-MODAL_GPU=A100 ./deploy/deploy_modal.sh    # plus rapide
-```
-
-## Voix française
-Le 1.6B est **en + fr**. La voix par défaut est un timbre du corpus *expresso*
-(accent possible). Pour une voix française native, choisissez un fichier du dépôt
-[kyutai/tts-voices](https://huggingface.co/kyutai/tts-voices) et mettez dans le `.env` :
-```
-KYUTAI_TTS_VOICE=<chemin/dans/le/dépôt/voix.wav>
-```
-
-## Attendu
-Sur GPU, le 1.6B tourne **≥ temps réel** (~220 ms de latence) → voix fluide, sans
-saccade, la vraie voix d'unmute.sh. Vérifiez dans les logs :
-`Kyutai 1.6B : … (xN.NN temps réel)` avec un facteur **> 1**.
-
-> ⚠️ Non validé en conditions réelles depuis cet environnement (pas de GPU/compte Modal
-> ici). Le service TTS suit fidèlement l'API PyTorch officielle de Kyutai
-> (`scripts/tts_pytorch_streaming.py`). Au premier déploiement, surveillez les logs :
-> si l'API `script_to_entries` / `TTSGen` diffère de la version installée de `moshi`,
-> l'ajustement est localisé dans `api/app/voice/kyutai_tts.py`.
+Le catalogue servi est fermé (`api/app/voice/voices.py`) et doit correspondre aux dossiers
+embarqués dans l'image (`VOICE_FOLDERS` de `deploy/modal_moshi_server.py`) : moshi-server
+remplace en silence une voix inconnue par sa voix de repli. Ajouter une voix = les deux
+fichiers, puis redéployer.

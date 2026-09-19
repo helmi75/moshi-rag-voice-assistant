@@ -66,9 +66,9 @@ class TestCoherenceDeLaGrille:
         assert compares >= 1, "aucune paire comparable : le test ne vérifie rien"
 
     def test_le_depassement_est_rentable(self):
-        """Le coût mesuré d'un appel est de 12,1 c€ à 3,5 min (docs/TARIFS.md).
+        """Le coût d'un appel est de 12,5 c€ à 3,5 min (docs/TARIFS.md, borne haute).
         Facturer en dessous reviendrait à payer pour servir."""
-        cout_mesure_eur = 0.121
+        cout_mesure_eur = 0.125
         assert plans.DEPASSEMENT_EUR > cout_mesure_eur * 2, (
             "moins de 50 % de marge sur le dépassement : une pointe d'activité "
             "coûterait plus cher qu'elle ne rapporte")
