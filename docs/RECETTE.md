@@ -117,6 +117,26 @@ Après les appels du bloc D, ouvrir **Journal des appels → un appel → Diagno
 **H3 est le test qui justifie tout le chantier.** Avant, un blanc de 3 s ne disait rien.
 Maintenant il dit lequel des quatre maillons l'a produit.
 
+## I. Ce que l'audit du 18/09 a changé (v1.1.0)
+
+| # | Test | Attendu | ✅/❌ |
+|---|---|---|---|
+| S1 | Après deux ou trois appels, sonde → « Signature des requêtes Twilio » | Acceptées > 0, **refusées = 0** (webhooks et flux) ; console Twilio → *Monitor* : aucune erreur 11200 ni 403 | |
+| S2 | 48 h plus tard : retirer `TWILIO_SIGNATURE=log`, redéployer, rappeler | Ça décroche toujours (mode `enforce`) | |
+| O1 | Saisir les horaires dans l'admin (fermé le lundi), puis « une table lundi à 20h » | Refus poli **avec** une alternative ouverte ; **rien** en base | |
+| O2 | « Mardi à 20h » (jour ouvert) | Acceptée | |
+| N1 | Réserver (B1) | E-mail reçu : date en toutes lettres, couverts, numéro de l'appelant | |
+| N2 | Laisser un message (« rappelez-moi pour un groupe ») | E-mail « message pris » reçu | |
+| N3 | Modifier puis annuler (C1, C3) | Deux e-mails : modifiée, annulée | |
+| P1 | Rappeler du même numéro après B1 et demander une table | Elle **propose** « au nom de Martin ? » au lieu de le demander ; un autre nom donné est celui retenu | |
+| K1 | `python scripts/test_moshi_server.py --url "$MOSHI_TTS_URL" --api-key public_token` | **Refusé** ; avec la vraie clé, accepté ; sonde « Jeton du serveur de voix » verte | |
+| R1 | Lancer `/opt/backups/backup-db.sh` à la main | Finit par « copie distante ok » ; `rclone ls` montre l'archive ; sonde « Sauvegarde » verte | |
+| C7 | Admin → Réservations → « Annuler » | Ligne **barrée**, toujours là : l'admin n'efface plus | |
+
+**O1 est le défaut critique de l'audit** : la disponibilité répondait toujours oui, et
+« lundi 20 h » était pris un jour de fermeture. **S1 conditionne S2** : tant qu'une seule
+requête est refusée en `log`, ne pas passer en `enforce` — ce serait couper la ligne.
+
 ## G. Le test qu'on oublie toujours
 
 | # | Test | Attendu | ✅/❌ |
