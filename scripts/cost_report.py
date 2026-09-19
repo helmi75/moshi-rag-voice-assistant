@@ -27,11 +27,11 @@ SNAP_FILE = os.path.expanduser(
     os.getenv("COST_SNAPSHOT_FILE", "~/moshi-rag-voice-assistant/.cost_snapshot.json")
 )
 MODAL_BIN = os.path.expanduser("~/moshi-rag-voice-assistant/.modal-venv/bin/modal")
-# Tarif Deepgram nova-3 streaming, à la carte, monolingue — CONFIRMÉ le 30/08/2026 sur
-# deepgram.com/pricing. C'est le seul chiffre non récupérable en API (la clé n'a pas le
-# scope billing). Le multilingue est à 0,0092 $/min : si DEEPGRAM_LANGUAGE=multi, régler
-# DEEPGRAM_RATE_PER_MIN en conséquence.
-DEEPGRAM_RATE_PER_MIN = float(os.getenv("DEEPGRAM_RATE_PER_MIN", "0.0077"))
+# Tarif Deepgram nova-3 streaming, à la carte — CONFIRMÉ le 30/08/2026 sur
+# deepgram.com/pricing : 0,0077 $/min monolingue, 0,0092 $/min en `multi`. C'est le seul
+# chiffre non récupérable en API (la clé n'a pas le scope billing). Les appels décrochent
+# en `multi` (voice/langue.py) : on retient la borne haute, comme api/app/calls.py.
+DEEPGRAM_RATE_PER_MIN = float(os.getenv("DEEPGRAM_RATE_PER_MIN", "0.0092"))
 APP_NAME = "moshi-server"
 
 

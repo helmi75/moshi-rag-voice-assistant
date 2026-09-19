@@ -21,7 +21,7 @@ par mois de manger la marge GPU de tous les autres.
 | Poste | Tarif | Source |
 |---|---|---|
 | Twilio (entrant) | 0,0085 $/min | mesuré, `scripts/cost_report.py` |
-| Deepgram nova-3 streaming, monolingue | 0,0077 $/min | [deepgram.com/pricing](https://deepgram.com/pricing), vérifié le 30/08/2026 |
+| Deepgram nova-3 streaming, `multi` | 0,0092 $/min | [deepgram.com/pricing](https://deepgram.com/pricing), vérifié le 30/08/2026 (monolingue : 0,0077) |
 | Modal GPU L4 (voix Moshi) | 0,020 $/min | mesuré |
 | LLM (gemini-flash via OpenRouter) | 0,0035 $/appel | mesuré |
 | Numéro FR | 1,35 $/mois | console Twilio |
@@ -32,14 +32,19 @@ ligne transcription. Repasser `DEEPGRAM_LANGUAGE=multi` ferait remonter le tarif
 0,0092 $/min — il faudrait alors ajuster `COST_DEEPGRAM_PER_MIN`, sinon l'admin
 sous-estime en silence.
 
+**Mise à jour du 19/09/2026** : depuis le 10/09, l'appel **décroche en `multi`** puis se
+fixe sur une langue (`voice/langue.py`). La part facturée en multi n'étant pas mesurée,
+le code retient la **borne haute, 0,0092 $/min**. Les tableaux ci-dessous sont recalculés
+avec ce tarif (+0,4 c€ par appel moyen) : c'est un plafond, pas une mesure.
+
 ### Coût d'un appel selon sa durée
 
 | Durée | Coût |
 |---|---|
-| 1,5 min | 5,4 c€ |
-| 2 min | 7,0 c€ |
-| **3,5 min** (moyenne mesurée) | **12,1 c€** |
-| 5 min | 17,1 c€ |
+| 1,5 min | 5,6 c€ |
+| 2 min | 7,3 c€ |
+| **3,5 min** (moyenne mesurée) | **12,5 c€** |
+| 5 min | 17,8 c€ |
 
 *Taux retenu pour la conversion : 1 € = 1,08 $. Il dérive — le recalculer avant toute
 décision qui en dépend, plutôt que de le figer dans le code.*
@@ -50,9 +55,9 @@ décision qui en dépend, plutôt que de le figer dans le code.*
 
 | Formule | Prix | Coût mensuel | Marge | Tarif implicite |
 |---|---|---|---|---|
-| Essentiel | 89 € | 19 € | **70 € · 78 %** | 0,59 €/appel |
-| Service | 149 € | 49 € | **100 € · 67 %** | 0,37 €/appel |
-| Maison | 349 € | 97 € | **252 € · 72 %** | 0,47 €/appel |
+| Essentiel | 89 € | 20 € | **69 € · 77 %** | 0,59 €/appel |
+| Service | 149 € | 51 € | **98 € · 65 %** | 0,37 €/appel |
+| Maison | 349 € | 100 € | **249 € · 71 %** | 0,47 €/appel |
 
 ### Ce qui a été corrigé par rapport à la proposition initiale
 
@@ -62,12 +67,12 @@ La formule Maison était proposée à **249 € pour 1 200 appels** : 151 € de
 
 ## Le dépassement, et son incitation à l'envers
 
-**0,30 €/appel = 60 % de marge** au coût mesuré. Mais c'est **moins** que le tarif
+**0,30 €/appel = 58 % de marge** au coût mesuré. Mais c'est **moins** que le tarif
 implicite d'Essentiel (0,59 €). Conséquence assumée : un client Essentiel a intérêt à
 déborder plutôt qu'à passer en Service.
 
 - à 300 appels sur Essentiel : 89 € + 45 € = **134 €**, contre 149 € en Service ;
-- la marge tient quand même — **72 %** dans ce cas.
+- la marge tient quand même — **71 %** dans ce cas.
 
 **On perd de l'upsell, pas de la marge.** Passer le dépassement à 0,50 € inverserait
 l'incitation (monter de formule redeviendrait toujours moins cher) au prix d'une facture

@@ -38,8 +38,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-# nova-3 streaming, à la carte, monolingue (deepgram.com/pricing) — identique à calls.py.
-TARIF_DEEPGRAM_PAR_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0077"))
+# nova-3 streaming, à la carte, `multi` = borne haute (deepgram.com/pricing) — identique à
+# calls.py, qui explique pourquoi.
+TARIF_DEEPGRAM_PAR_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0092"))
 # Relevé par l'API Twilio sur les huit derniers vrais appels : facturé à la minute entamée.
 TARIF_TWILIO_PAR_MIN_ENTAMEE = float(os.getenv("COST_TWILIO_PER_MIN", "0.0085"))
 

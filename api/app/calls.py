@@ -19,13 +19,14 @@ from . import db, horloge
 #
 # Deepgram corrigé le 30/08/2026 : 0,0058 était le tarif **nova-2**, alors que la
 # production tourne en **nova-3** (DEEPGRAM_MODEL) depuis le réglage de naturalité.
-# Tarif nova-3 streaming, à la carte, monolingue : 0,0077 $/min (deepgram.com/pricing).
-# ⚠️ Le multilingue est à 0,0092 : passer DEEPGRAM_LANGUAGE=multi change ce coût, et
-# il faudra alors ajuster COST_DEEPGRAM_PER_MIN — sinon l'admin sous-estime en silence.
-# L'écart n'était pas cosmétique : +33 % sur la ligne transcription, et c'est sur ces
-# chiffres qu'on arrête une grille tarifaire (#29).
+# Tarif nova-3 streaming, à la carte : 0,0077 $/min monolingue, 0,0092 $/min en `multi`
+# (deepgram.com/pricing). Depuis le 10/09/2026 on DÉCROCHE en `multi` (voice/langue.py)
+# avant de se fixer sur une langue : la part réellement facturée en multi n'est pas
+# mesurée, donc on retient la borne HAUTE. Un coût surestimé d'un demi-centime se voit ;
+# un coût sous-estimé ne se voit qu'à la facture, et c'est sur ces chiffres qu'on arrête
+# une grille tarifaire (#29).
 _COST_TWILIO_PER_MIN = float(os.getenv("COST_TWILIO_PER_MIN", "0.0085"))
-_COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0077"))
+_COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0092"))
 _COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
 _COST_LLM_PER_CALL = float(os.getenv("COST_LLM_PER_CALL", "0.0035"))
 
