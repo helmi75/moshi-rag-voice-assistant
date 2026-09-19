@@ -1,146 +1,82 @@
-# Guide de configuration Twilio
+# Brancher un numéro Twilio
 
-Ce guide vous explique comment connecter votre numéro Twilio à l'application.
+Un numéro Twilio = un établissement. Twilio appelle l'application à chaque appel entrant ;
+l'application reconnaît l'établissement au numéro appelé (`To`) et ouvre le flux audio.
 
-## 📋 Prérequis
+## Prérequis
 
-1. Un compte Twilio actif
-2. Un numéro de téléphone Twilio (acheté ou d'essai)
-3. L'application déployée et accessible publiquement (via Vast.ai ou un tunnel)
+- un compte Twilio **actif** et un numéro ;
+- l'application joignable en **HTTPS** : en production derrière Caddy
+  ([DEPLOY.md](DEPLOY.md)), en essai via un tunnel (plus bas).
 
-## 🔧 Configuration
+## 1. Identifiants
 
-### Étape 1 : Obtenir vos identifiants Twilio
+Console Twilio → *Account info* : **Account SID** (public) et **Auth Token** (le secret),
+dans le `.env` : `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`. Le jeton sert à vérifier la
+signature de chaque requête Twilio : **un jeton renouvelé dans la console doit être
+reporté dans le `.env`**, sinon toutes les requêtes sont refusées.
 
-1. Connectez-vous à votre [Console Twilio](https://console.twilio.com/)
-2. Sur le tableau de bord, vous trouverez :
-   - **Account SID** : Votre identifiant de compte
-   - **Auth Token** : Votre token d'authentification (cliquez sur "view" pour le voir)
-3. Copiez ces valeurs dans votre fichier `.env`
+## 2. Pointer le numéro sur l'application
 
-### Étape 2 : Configurer votre numéro Twilio
+Console → *Phone Numbers → Active numbers* → le numéro :
 
-1. Allez dans [Phone Numbers > Manage > Active numbers](https://console.twilio.com/us1/develop/phone-numbers/manage/incoming)
-2. Cliquez sur votre numéro de téléphone
-3. Dans la section **Messaging**, configurez :
-   - **A MESSAGE COMES IN** : 
-     - Méthode : `HTTP POST`
-     - URL : `https://VOTRE_DOMAINE_OU_IP/twilio/webhook`
-     - Exemple : `https://votre-domaine.com/twilio/webhook` ou `http://VOTRE_IP:8000/twilio/webhook`
-   
-4. Dans la section **Voice & Fax**, configurez :
-   - **A CALL COMES IN** :
-     - Méthode : `HTTP POST`
-     - URL : `https://VOTRE_DOMAINE_OU_IP/twilio/webhook`
-     - Exemple : `https://votre-domaine.com/twilio/webhook` ou `http://VOTRE_IP:8000/twilio/webhook`
+| Réglage | Valeur |
+|---|---|
+| Voice → *A call comes in* → Webhook, `HTTP POST` | `https://DOMAINE/twilio/voice` |
+| Messaging → *A message comes in* (facultatif) | `https://DOMAINE/twilio/sms` |
 
-5. Cliquez sur **Save** pour enregistrer les modifications
+Ou en une commande (même effet, `/twilio/webhook` aiguille voix et SMS) :
+`python3 scripts/twilio_setup_number.py --webhook https://DOMAINE/twilio/webhook`.
 
-### Étape 3 : Rendre votre application accessible
+## 3. Déclarer le numéro sur l'établissement
 
-#### Option A : Avec un domaine (recommandé pour production)
+Admin → *Enseignes* → la fiche → **Numéro Twilio**, au format international sans espace
+(`+33612345678`) : c'est la forme exacte que Twilio transmet. Un numéro qui ne correspond
+à aucun établissement entend « Ce numéro n'est pas encore configuré. Au revoir. »
 
-1. Configurez votre domaine pour pointer vers l'IP de votre instance Vast.ai
-2. Configurez Caddy pour HTTPS (voir `caddy/Caddyfile`)
-3. Utilisez `https://77.104.167.149:53007/twilio/webhook` comme URL webhook
+## 4. URL publiques et signature
 
-#### Option B : Avec ngrok (pour les tests)
+Dans le `.env` :
 
-1. Installez ngrok : `https://ngrok.com/download`
-2. Démarrez un tunnel :
-   ```bash
-   ngrok http 8000
-   ```
-3. Copiez l'URL HTTPS fournie (ex: `https://abc123.ngrok.io`)
-4. Utilisez `https://abc123.ngrok.io/twilio/webhook` comme URL webhook dans Twilio
-
-#### Option C : IP publique directe (si accessible)
-
-Si votre instance Vast.ai a une IP publique accessible :
-- Utilisez `http://VOTRE_IP:8000/twilio/webhook`
-- **Note** : Twilio préfère HTTPS, donc cette option n'est recommandée que pour les tests
-
-### Étape 4 : Tester la configuration
-
-#### Test SMS
-
-1. Envoyez un SMS à votre numéro Twilio depuis votre téléphone
-2. Vous devriez recevoir une réponse automatique
-3. Vérifiez les logs :
-   ```bash
-   docker compose logs -f api
-   ```
-
-#### Test Appel vocal
-
-1. Appelez votre numéro Twilio
-2. Parlez à l'assistant
-3. Vérifiez les logs pour voir les transcriptions
-
-## 🔍 Vérification
-
-### Vérifier que le webhook fonctionne
-
-1. Testez l'endpoint directement :
-   ```bash
-   curl -X POST http://localhost:8000/twilio/webhook \
-     -d "MessageSid=test123" \
-     -d "From=+1234567890" \
-     -d "Body=Bonjour"
-   ```
-
-2. Vous devriez recevoir du XML TwiML en réponse
-
-### Vérifier les logs
-
-```bash
-# Logs de l'API
-docker compose logs -f api
-
-# Logs de Moshi
-docker compose logs -f moshi
-
-# Tous les logs
-docker compose logs -f
+```
+PUBLIC_URL=https://DOMAINE                 # l'origine EXACTE saisie dans la console
+PUBLIC_WS_URL=wss://DOMAINE/ws/voice       # où Twilio branche le flux audio
+TWILIO_SIGNATURE=log                       # 48 h d'observation, puis retirer la ligne
 ```
 
-## 🐛 Dépannage
+Twilio signe l'URL qu'il appelle ; derrière Caddy l'application voit `http://api:8000/…`,
+d'où `PUBLIC_URL`. Mise en service pas à pas : [DEPLOY.md](DEPLOY.md), section
+« Signature des requêtes Twilio ».
 
-### Le webhook ne reçoit pas les messages
+## 5. Vérifier
 
-1. **Vérifiez l'URL** : Assurez-vous que l'URL est accessible publiquement
-2. **Vérifiez HTTPS** : Twilio préfère HTTPS, utilisez ngrok ou un domaine avec certificat
-3. **Vérifiez les logs Twilio** : Allez dans [Monitor > Logs](https://console.twilio.com/monitor/logs) pour voir les erreurs
-4. **Vérifiez les logs de l'API** : `docker compose logs api`
+1. Appeler le numéro : l'accueil de l'établissement, puis une conversation.
+2. Sonde `/supervision` (ou admin → *Santé & coûts*) : « Signature des requêtes Twilio »
+   avec des requêtes acceptées et **aucune refusée**, « Configuration du chemin
+   d'appel » au vert.
+3. Console Twilio → *Monitor → Alerts* : aucune erreur.
 
-### Erreur 11200 (Connection Timeout)
+## Essai sans domaine (tunnel)
 
-- Votre serveur n'est pas accessible depuis Internet
-- Vérifiez que le port 8000 (ou 80/443) est ouvert
-- Utilisez ngrok pour tester
+```bash
+ngrok http 8000
+# puis dans le .env, avec l'URL donnée par ngrok :
+#   PUBLIC_URL=https://xxxx.ngrok-free.app
+#   PUBLIC_WS_URL=wss://xxxx.ngrok-free.app/ws/voice
+docker compose up -d api
+```
 
-### Erreur 11205 (HTTP Retrieval Failure)
+et le webhook du numéro sur `https://xxxx.ngrok-free.app/twilio/voice`. L'URL change à
+chaque lancement de ngrok : console et `.env` avec.
 
-- L'URL du webhook est incorrecte
-- Vérifiez que l'URL est accessible
-- Vérifiez que l'endpoint retourne du TwiML valide
+## Dépannage
 
-### Les messages ne sont pas traités
+| Symptôme | Cause probable |
+|---|---|
+| Erreur 11200 / 11205 dans *Monitor* | l'application n'est pas joignable à cette URL (DNS, Caddy, tunnel arrêté) |
+| Réponse 403, sonde « toutes les requêtes refusées » | `PUBLIC_URL` ne correspond pas à l'URL de la console, ou jeton Twilio périmé : remettre `TWILIO_SIGNATURE=log` le temps de corriger |
+| « Ce numéro n'est pas encore configuré » | le numéro n'est déclaré sur aucun établissement, ou pas au format `+33…` |
+| L'appel décroche puis raccroche sans un mot | `PUBLIC_WS_URL` absente ou malformée (la sonde passe en panne « Configuration ») |
+| La sonde « Alertes Twilio » dit « HTTP 401 » | jeton du `.env` refusé par Twilio : il a été renouvelé dans la console |
 
-1. Vérifiez que Moshi est démarré : `docker compose ps`
-2. Vérifiez les logs de Moshi : `docker compose logs moshi`
-3. Testez l'endpoint de santé : `curl http://localhost:8000/health/moshi`
-
-## 📝 Notes importantes
-
-- **SMS** : Le webhook reçoit le texte directement dans le champ `Body`
-- **Appels vocaux** : Twilio transcrit la voix en texte et l'envoie dans `SpeechResult`
-- **TwiML** : Toutes les réponses doivent être en format TwiML (XML)
-- **HTTPS** : Twilio recommande fortement HTTPS pour les webhooks en production
-
-## 🔗 Ressources
-
-- [Documentation Twilio Webhooks](https://www.twilio.com/docs/usage/webhooks)
-- [TwiML Reference](https://www.twilio.com/docs/voice/twiml)
-- [Twilio Console](https://console.twilio.com/)
-
+Journaux en direct : `docker compose logs -f --tail=50 api`.
