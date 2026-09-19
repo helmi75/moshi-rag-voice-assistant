@@ -134,7 +134,7 @@ qu'il dit est traité. Le détail (durées, droits, contact) relève d'une infor
 second niveau, à publier sur le site.
 
 Aucun chemin de décroché ne peut sauter cette mention : elle est composée dans
-`rgpd.accueil()`, utilisée par le TTS pré-rendu, le repli live et le mode `gather`, et
+`rgpd.accueil()`, seul texte d'accueil de `voice/greeting.py` (pré-rendu comme en direct), et
 **un test échoue si un nouveau chemin prononce l'accueil sans elle**.
 
 Désactivable par `RGPD_MENTION=0` — c'est une décision juridique, pas un réglage de

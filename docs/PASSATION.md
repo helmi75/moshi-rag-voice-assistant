@@ -20,7 +20,7 @@ Médecins envisagés ensuite.
 ```
 Twilio ──webhook + media stream──► APP FastAPI + Pipecat
                                     VPS Hostinger, Paris, app.helmane.fr
-                                    • STT Deepgram (ou Kyutai) + LLM OpenRouter
+                                    • STT Deepgram nova-3 + LLM OpenRouter
                                       (google/gemini-2.5-flash)
                                     • SQLite (réservations) + admin Jinja2/htmx
                                          │ websocket TTS
