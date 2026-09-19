@@ -435,6 +435,15 @@ GARDE_FOUS = [
         k="cle_publique",
         panne="le GPU resterait ouvert à qui connaît l'URL Modal, supervision au vert",
     ),
+    GardeFou(
+        nom="Une sauvegarde restée sur la machine n'est pas verte",
+        fichier="api/app/supervision.py",
+        avant='        resume_distant = "aucune copie hors du serveur"\n        niveau = pire(niveau, ATTENTION)',
+        apres='        resume_distant = "aucune copie hors du serveur"\n        pass  # mutation',
+        tests=["test_supervision.py"],
+        k="sans_copie_distante",
+        panne="un incident disque emporterait la base et toutes ses copies, supervision au vert",
+    ),
 ]
 
 

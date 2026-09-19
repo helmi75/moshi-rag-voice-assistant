@@ -19,6 +19,11 @@
 #
 # Restauration : voir docs/DEPLOY.md, section Sauvegardes.
 #
+# Copie HORS du serveur : si RCLONE_REMOTE est posé (dans /opt/backups/backup.env, lu
+# ci-dessous), l'archive vérifiée part aussi vers ce remote rclone (stockage objet EU).
+# Sans elle, un incident disque emporte l'original ET les sauvegardes : les copies
+# locales protègent d'une erreur de manipulation, pas de la perte de la machine.
+#
 # ⚠️ CE SCRIPT NE SAUVEGARDE QUE `app.db`, et c'est délibéré pour les enregistrements
 # d'appels (#88). Les dupliquer dans des archives à rétention 14 jours étendrait
 # l'exposition sur la donnée la plus sensible du produit — la voix — sans rien apporter :
@@ -26,6 +31,13 @@
 # `rgpd.effacer_appelant()` est COMPLET sur l'audio, ce qu'il n'est pas sur le transcript.
 
 set -euo pipefail
+
+# Réglages propres à la machine (RCLONE_REMOTE…), gardés hors du dépôt et hors du cron.
+CONFIG="${CONFIG:-/opt/backups/backup.env}"
+if [ -f "$CONFIG" ]; then
+  # shellcheck disable=SC1090
+  . "$CONFIG"
+fi
 
 DB="${DB:-/var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db}"
 DEST="${DEST:-/opt/backups/db}"
@@ -36,6 +48,11 @@ RETENTION_JOURS="${RETENTION_JOURS:-14}"
 # donc un jeton frais atteste d'une sauvegarde restaurable — pas d'un cron qui a
 # simplement démarré.
 JETON="${JETON:-$(dirname "$DB")/derniere-sauvegarde}"
+# Second jeton, écrit seulement quand la copie distante est confirmée. La supervision
+# le cherche à côté du premier (même nom + « -distante »).
+JETON_DISTANT="${JETON_DISTANT:-$JETON-distante}"
+RCLONE_REMOTE="${RCLONE_REMOTE:-}"
+RETENTION_DISTANTE_JOURS="${RETENTION_DISTANTE_JOURS:-30}"
 
 horodate() { date -Is; }
 
@@ -74,3 +91,28 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$JETON" || \
   echo "$(horodate) AVERTISSEMENT : jeton de supervision non écrit ($JETON)" >&2
 
 echo "$(horodate) ok — $TAILLE, $RESAS réservations, $TENANTS établissements"
+
+if [ -z "$RCLONE_REMOTE" ]; then
+  echo "$(horodate) AVERTISSEMENT : aucune copie hors du serveur (RCLONE_REMOTE vide)" >&2
+  exit 0
+fi
+
+ARCHIVE="app-$STAMP.db.gz"
+# `rclone copy` compare taille et somme de contrôle après l'envoi ; la relecture de la
+# liste distante prouve en plus que l'archive est visible là où on ira la chercher.
+if rclone copy "$DEST/$ARCHIVE" "$RCLONE_REMOTE" \
+   && rclone lsf "$RCLONE_REMOTE" --include "$ARCHIVE" | grep -qx "$ARCHIVE"; then
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$JETON_DISTANT" || \
+    echo "$(horodate) AVERTISSEMENT : jeton distant non écrit ($JETON_DISTANT)" >&2
+  echo "$(horodate) copie distante ok — $RCLONE_REMOTE/$ARCHIVE"
+else
+  # La sauvegarde locale est bonne ; seule la copie distante manque. Code d'erreur
+  # quand même, pour que le journal du cron le montre, et le jeton distant vieillit :
+  # la supervision passe en attention sans qu'on ait à lire ce journal.
+  echo "$(horodate) ÉCHEC : copie distante impossible vers $RCLONE_REMOTE" >&2
+  exit 1
+fi
+
+rclone delete "$RCLONE_REMOTE" --min-age "${RETENTION_DISTANTE_JOURS}d" \
+  --include 'app-*.db.gz' || \
+  echo "$(horodate) AVERTISSEMENT : purge distante impossible (rétention non appliquée)" >&2

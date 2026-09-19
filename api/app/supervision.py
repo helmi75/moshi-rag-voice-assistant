@@ -489,21 +489,27 @@ def _controle_accueils() -> Controle:
     )
 
 
+def _lire_jeton(chemin: str) -> Optional[datetime]:
+    try:
+        with open(chemin, "r", encoding="utf-8") as fichier:
+            return horloge.lire_utc(fichier.read().strip().splitlines()[0])
+    except (OSError, IndexError):
+        return None
+
+
 def _controle_sauvegarde() -> Controle:
-    """Fraîcheur de la dernière sauvegarde réussie.
+    """Fraîcheur de la dernière sauvegarde réussie, et de sa copie hors du serveur.
 
     Le cron tourne sur l'hôte, hors du conteneur : l'app ne peut pas voir
     `/opt/backups`. `scripts/backup-db.sh` dépose donc un jeton dans le volume de
     données APRÈS le contrôle d'intégrité — un jeton frais prouve une sauvegarde
-    restaurable, pas seulement un cron qui s'est exécuté.
+    restaurable, pas seulement un cron qui s'est exécuté. Un second jeton (même nom
+    + « -distante ») n'est écrit qu'une fois l'archive confirmée sur le stockage
+    distant : sans lui, un incident disque emporterait la base ET ses copies.
     """
     chemin = os.getenv("SUPERVISION_BACKUP_STAMP", "/app/data/derniere-sauvegarde")
     attention_h, panne_h = sauvegarde_seuils_heures()
-    try:
-        with open(chemin, "r", encoding="utf-8") as fichier:
-            date = horloge.lire_utc(fichier.read().strip().splitlines()[0])
-    except (OSError, IndexError):
-        date = None
+    date = _lire_jeton(chemin)
     if date is None:
         return Controle(
             "sauvegarde", "Sauvegarde de la base", ATTENTION,
@@ -515,12 +521,34 @@ def _controle_sauvegarde() -> Controle:
         )
     ages_h = (_maintenant() - date).total_seconds() / 3600
     niveau = PANNE if ages_h >= panne_h else ATTENTION if ages_h >= attention_h else OK
+    details = [f"Le cron passe à 04h00 ; au-delà de {panne_h} h, deux nuits ont été "
+               "manquées."] if niveau != OK else []
+
+    # La copie distante ne va jamais au-delà d'ATTENTION : la copie locale existe, un
+    # appelant n'est pas concerné, et la perte ne survient qu'avec un incident disque.
+    distante = _lire_jeton(chemin + "-distante")
+    if distante is None:
+        age_distant_h = None
+        resume_distant = "aucune copie hors du serveur"
+        niveau = pire(niveau, ATTENTION)
+        details.append("Les archives restent sur la machine : un incident disque emporterait "
+                       "la base et ses sauvegardes. Poser RCLONE_REMOTE (docs/DEPLOY.md, "
+                       "Sauvegardes).")
+    else:
+        age_distant_h = (_maintenant() - distante).total_seconds() / 3600
+        resume_distant = f"copie distante il y a {age_distant_h:.0f} h"
+        if age_distant_h >= attention_h:
+            niveau = pire(niveau, ATTENTION)
+            details.append("La copie distante ne se fait plus : voir "
+                           "/var/log/helmane-backup.log (remote rclone, identifiants).")
     return Controle(
         "sauvegarde", "Sauvegarde de la base", niveau,
-        f"Dernière sauvegarde il y a {ages_h:.0f} h.",
-        f"Le cron passe à 04h00 ; au-delà de {panne_h} h, deux nuits ont été manquées."
-        if niveau != OK else "",
-        mesure={"jeton": True, "age_heures": round(ages_h, 1)},
+        f"Dernière sauvegarde il y a {ages_h:.0f} h · {resume_distant}.",
+        " ".join(details),
+        mesure={"jeton": True, "age_heures": round(ages_h, 1),
+                "distante": distante is not None,
+                "age_distante_heures": round(age_distant_h, 1) if age_distant_h is not None
+                else None},
     )
 
 

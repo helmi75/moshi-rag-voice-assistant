@@ -226,10 +226,37 @@ zcat /opt/backups/db/app-AAAAMMJJ-HHMM.db.gz \
 docker compose start api
 ```
 
-**Limite connue** : les copies restent sur la même machine. Un incident disque emporte
-l'original *et* les sauvegardes. Sortir les archives du serveur (rsync vers une autre
-machine, stockage objet, ou snapshots Hostinger) reste à faire — c'est le vrai objectif
-de résilience.
+### Copie hors du serveur
+
+Les copies locales protègent d'une erreur de manipulation, pas de la perte de la machine :
+un incident disque emporte l'original **et** les sauvegardes. Le script envoie donc aussi
+chaque archive vérifiée vers un stockage objet (UE) via `rclone`, dès que `RCLONE_REMOTE`
+est posé :
+
+```bash
+apt-get install -y rclone
+rclone config                       # créer le remote (ex. « sauvegardes », S3 Scaleway/OVH)
+cat > /opt/backups/backup.env <<'EOF'
+RCLONE_REMOTE=sauvegardes:helmane-db
+# RETENTION_DISTANTE_JOURS=30
+EOF
+chmod 600 /opt/backups/backup.env
+/opt/backups/backup-db.sh           # doit finir par « copie distante ok »
+rclone ls sauvegardes:helmane-db
+```
+
+`backup.env` reste sur la machine (jamais dans le dépôt). Les identifiants du stockage
+vivent dans `~/.config/rclone/rclone.conf` de root. Le script écrit un second jeton,
+`derniere-sauvegarde-distante`, **seulement** quand l'archive est confirmée sur le remote ;
+la supervision (contrôle « Sauvegarde ») passe en attention s'il manque ou vieillit.
+
+Restaurer depuis le stockage distant (machine perdue) :
+
+```bash
+rclone copy sauvegardes:helmane-db/app-AAAAMMJJ-HHMM.db.gz /tmp/
+zcat /tmp/app-AAAAMMJJ-HHMM.db.gz > /tmp/restore-test.db
+sqlite3 /tmp/restore-test.db "PRAGMA integrity_check;"
+```
 
 ## Rollback
 

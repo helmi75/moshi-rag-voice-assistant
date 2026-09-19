@@ -306,11 +306,32 @@ class TestSauvegarde:
         monkeypatch.setenv("SUPERVISION_BACKUP_STAMP", str(tmp_path / "absent"))
         assert _controle("sauvegarde")["niveau"] == supervision.ATTENTION
 
-    def test_un_jeton_frais_est_vert(self, base, monkeypatch, tmp_path):
+    def test_un_jeton_frais_et_sa_copie_distante_sont_verts(self, base, monkeypatch, tmp_path):
+        jeton = tmp_path / "derniere-sauvegarde"
+        jeton.write_text(_il_y_a(60), encoding="utf-8")
+        (tmp_path / "derniere-sauvegarde-distante").write_text(_il_y_a(58), encoding="utf-8")
+        monkeypatch.setenv("SUPERVISION_BACKUP_STAMP", str(jeton))
+        assert _controle("sauvegarde")["niveau"] == supervision.OK
+
+    def test_sans_copie_distante_on_le_dit(self, base, monkeypatch, tmp_path):
+        """Des copies sur la même machine ne survivent pas à un incident disque."""
         jeton = tmp_path / "derniere-sauvegarde"
         jeton.write_text(_il_y_a(60), encoding="utf-8")
         monkeypatch.setenv("SUPERVISION_BACKUP_STAMP", str(jeton))
-        assert _controle("sauvegarde")["niveau"] == supervision.OK
+        controle = _controle("sauvegarde")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "hors du serveur" in controle["resume"]
+        assert controle["mesure"]["distante"] is False
+
+    def test_copie_distante_arretee_est_signalee(self, base, monkeypatch, tmp_path):
+        jeton = tmp_path / "derniere-sauvegarde"
+        jeton.write_text(_il_y_a(60), encoding="utf-8")
+        (tmp_path / "derniere-sauvegarde-distante").write_text(_il_y_a(60 * 50),
+                                                                 encoding="utf-8")
+        monkeypatch.setenv("SUPERVISION_BACKUP_STAMP", str(jeton))
+        controle = _controle("sauvegarde")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert controle["mesure"]["age_distante_heures"] >= 49
 
     def test_deux_nuits_manquees_sont_une_panne(self, base, monkeypatch, tmp_path):
         jeton = tmp_path / "derniere-sauvegarde"
