@@ -1,5 +1,6 @@
 <tr id="resa-{{ r.id }}">
   <td colspan="8">
+    {% if error %}<p role="alert">{{ error }}</p>{% endif %}
     <form hx-post="/admin/reservations/{{ r.id }}" hx-target="closest tr" hx-swap="outerHTML"
           class="grid" style="align-items: end; margin: 0">
       <label>Client <input name="customer_name" required value="{{ r.customer_name }}"></label>
