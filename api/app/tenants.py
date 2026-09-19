@@ -162,13 +162,24 @@ def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
 
 
 def delete_tenant(tenant_id: int) -> None:
-    """Supprime le tenant ET ses données (réservations, appels, comptes) en une
-    transaction — la FK reservations.tenant_id n'a pas de CASCADE (table historique)."""
+    """Supprime le tenant ET ses données (réservations, appels, messages, comptes) en une
+    transaction — la FK reservations.tenant_id n'a pas de CASCADE (table historique), et
+    `messages` n'a pas de FK du tout : oubliés, les numéros et noms des appelants
+    survivaient à l'établissement, hors de toute durée de conservation.
+
+    Les enregistrements audio partent aussi : ils sont rangés par `tenant<id>`, et un
+    établissement créé plus tard pourrait hériter du même identifiant."""
+    import shutil
+
+    from .voice import enregistrement
+
     with db.get_conn() as conn:
         conn.execute("DELETE FROM reservations WHERE tenant_id = ?", (tenant_id,))
         conn.execute("DELETE FROM calls WHERE tenant_id = ?", (tenant_id,))
+        conn.execute("DELETE FROM messages WHERE tenant_id = ?", (tenant_id,))
         conn.execute("DELETE FROM users WHERE tenant_id = ?", (tenant_id,))
         conn.execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
+    shutil.rmtree(enregistrement.dossier() / f"tenant{int(tenant_id)}", ignore_errors=True)
 
 
 def seed_demo_tenant() -> None:

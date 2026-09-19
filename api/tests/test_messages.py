@@ -168,6 +168,25 @@ class TestRGPD:
         assert resultat.messages == 1
         assert messages.count_pending(etablissement.id) == 0
 
+    def test_supprimer_l_etablissement_supprime_ses_messages(self, etablissement, tmp_path,
+                                                             monkeypatch):
+        """Sans FK sur `messages`, les numéros et noms survivaient à l'établissement."""
+        monkeypatch.setenv("ENREGISTREMENT_DIR", str(tmp_path / "audio"))
+        audio = tmp_path / "audio" / f"tenant{etablissement.id}"
+        audio.mkdir(parents=True)
+        (audio / "appel1-appelant.ulaw").write_bytes(b"\x00")
+        voisin = tenants.create_tenant("Voisin", "+33199000112")
+        messages.create_message(etablissement.id, subject="Rappel",
+                                caller_number="+33612345678")
+        messages.create_message(voisin.id, subject="Autre", caller_number="+33699999999")
+
+        tenants.delete_tenant(etablissement.id)
+
+        with db.get_conn() as conn:
+            restants = conn.execute("SELECT tenant_id FROM messages").fetchall()
+        assert [r["tenant_id"] for r in restants] == [voisin.id]
+        assert not audio.exists()
+
     def test_l_effacement_ne_touche_pas_les_autres_numeros(self, etablissement):
         messages.create_message(etablissement.id, subject="A", caller_number="+33611111111")
         messages.create_message(etablissement.id, subject="B", caller_number="+33622222222")
