@@ -52,7 +52,12 @@ from pathlib import Path
 
 import modal
 
-APP_NAME = "moshi-server"
+# Nom de l'application Modal. Surchargeable pour déployer un serveur d'ESSAI À CÔTÉ de
+# celui qui prend les appels : comparer deux GPU, ou éprouver une version du serveur, sans
+# remplacer la production. Ex. :
+#   MODAL_APP_NAME=moshi-server-t4 MODAL_GPU=T4 modal deploy deploy/modal_moshi_server.py
+# puis, l'essai terminé : modal app stop moshi-server-t4
+APP_NAME = os.environ.get("MODAL_APP_NAME", "moshi-server").strip() or "moshi-server"
 PORT = 8080
 
 # L4 : fluide en Rust d'après Kyutai. Surchargeable via MODAL_GPU (A10G plus rapide).
