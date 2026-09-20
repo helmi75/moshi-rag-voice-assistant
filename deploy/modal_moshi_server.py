@@ -3,16 +3,17 @@
 C'est LE serveur de production de Kyutai (celui d'unmute.sh) : voix Moshi 1.6B servie en
 temps réel (CUDA graphs + batching), fluide là où le chemin PyTorch sacade. L'application
 (sur le serveur 24/7) s'y connecte en simple cliente websocket via `MOSHI_TTS_URL` (TTS)
-et `MOSHI_STT_URL` (STT, défaut = même serveur).
+Un seul module servi : TTS ([modules.tts_py] -> /api/tts_streaming, voix Moshi 1.6B).
 
-Le même process moshi-server sert DEUX modules sur deux routes (le serveur Rust accepte
-une `HashMap` de modules dans un seul config.toml — commentaire officiel de config-tts.toml :
-« the server can run STT at the same time ») :
-  - TTS : [modules.tts_py] type="Py"      -> /api/tts_streaming   (voix Moshi 1.6B)
-  - STT : [modules.asr]   type="BatchedAsr" -> /api/asr-streaming (kyutai/stt-1b-en_fr)
-Les deux modèles coexistent en VRAM sur la L4 (24 Go) ; le batch ASR est ramené 64->8
-pour tenir avec le TTS (batch 8). Si un cold start manque de VRAM (logs Modal), baisser
-encore le batch ASR ou passer audio_codebooks 32->20 (réglage prod d'unmute).
+Le module ASR de Kyutai a été retiré le 20/09/2026. Il était chargé en VRAM à chaque
+démarrage alors que plus rien ne l'appelait : la transcription se fait chez Deepgram
+depuis l'abandon de Kyutai STT au téléphone (dérive vers l'anglais sur du µ-law 8 kHz
+bruité). Le récupérer = remettre les blocs `[modules.asr]` de config-stt-en_fr-hf.toml,
+lisibles dans l'historique git de ce fichier.
+
+⚠️ GPU : les noyaux CUDA de moshi-server utilisent des fragments WMMA en **bf16**, qui
+n'existent qu'à partir de sm_80 (Ampere). Une T4 (sm_75) ne COMPILE pas — essayé le
+20/09/2026. La L4 est donc le GPU le moins cher qui fasse tourner ce serveur sur Modal.
 
 Une commande :
 
@@ -20,11 +21,10 @@ Une commande :
 
 Recette calquée sur la Dockerfile publique d'unmute (services/moshi-server) :
   - base CUDA devel + Rust + `cargo install --features cuda moshi-server@0.6.4` (au build) ;
-  - config TTS publique (configs/config-tts.toml de delayed-streams-modeling) + blocs ASR
-    de config-stt-en_fr-hf.toml concaténés au build ;
+  - config TTS publique (configs/config-tts.toml de delayed-streams-modeling) ;
   - le jeton d'accès (`authorized_ids`) est remplacé AU DÉMARRAGE par MOSHI_TTS_API_KEY,
     lue dans le .env (voir « Jeton » plus bas) — plus jamais `public_token` ;
-  - les modèles (TTS 1.6B, STT 1B) sont téléchargés au 1er démarrage dans un volume
+  - le modèle (TTS 1.6B) est téléchargé au 1er démarrage dans un volume
     persistant (HF cache) ;
   - le serveur écoute sur 8080, exposé en HTTPS/WSS par Modal (@modal.web_server).
 
@@ -89,14 +89,6 @@ CONFIG_URL = (
     "https://raw.githubusercontent.com/kyutai-labs/delayed-streams-modeling/"
     "main/configs/config-tts.toml"
 )
-# Config STT publique (kyutai/stt-1b-en_fr, français natif + VAD sémantique). On n'en
-# garde que les blocs [modules.asr]* (les clés top-level static_dir/authorized_ids/... sont
-# déjà dans config-tts.toml) qu'on concatène au config TTS au build.
-CONFIG_STT_URL = (
-    "https://raw.githubusercontent.com/kyutai-labs/delayed-streams-modeling/"
-    "main/configs/config-stt-en_fr-hf.toml"
-)
-
 # --- Jeton ---------------------------------------------------------------------
 # La config publique de Kyutai autorise `public_token`, une valeur que tout le monde
 # connaît : quiconque trouve l'URL Modal (elle a traîné dans la documentation) peut faire
@@ -233,17 +225,10 @@ image = (
         # étrange). Si ce fichier manquait, tous les appels sonneraient faux sans un log.
         # (glob sur le suffixe : son hash change à chaque version d'embedding amont)
         f"ls {VOICES_DIR}/unmute-prod-website/default_voice.wav.*.safetensors > /dev/null",
-        # Ajoute le module STT (ASR) au MÊME config : on télécharge config-stt-en_fr-hf.toml
-        # et on n'en garde que les tables [modules.asr]* (à partir de la 1re), que l'on
-        # concatène. Les clés top-level (static_dir, authorized_ids...) sont identiques et
-        # déjà présentes -> ne pas les redupliquer.
-        f"wget -qO /root/configs/config-stt.toml {CONFIG_STT_URL}",
-        "printf '\\n' >> /root/configs/config-tts.toml",
-        r"sed -n '/^\[modules\.asr\]/,$p' /root/configs/config-stt.toml "
-        ">> /root/configs/config-tts.toml",
-        # VRAM L4 partagée avec le TTS (batch 8) : on ramène le batch ASR 64 -> 8. Le TTS
-        # a déjà batch_size = 8, donc ce remplacement ne touche QUE la ligne ASR (64).
-        "sed -i 's/^batch_size = 64$/batch_size = 8/' /root/configs/config-tts.toml",
+        # Un seul module, TTS : plus de bloc [modules.asr] concaténé ici (voir l'en-tête).
+        # Garde-fou : si l'amont ajoutait un module, on le saurait au build plutôt qu'en
+        # voyant la VRAM et le démarrage à froid grossir sans explication.
+        "test $(grep -c '^\\[modules\\.' /root/configs/config-tts.toml) -eq 1",
     )
 )
 
@@ -264,7 +249,10 @@ app = modal.App(APP_NAME)
     min_containers=int(os.environ.get("MODAL_MIN_CONTAINERS", "0")),
     # Plafond de GPU simultanés : garde-fou de facture. Sans plafond, un pic d'appels
     # (ou une boucle de reconnexion) peut allumer des dizaines de L4 à la fois.
-    max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", "4")),
+    # 2 (au lieu de 4) : un conteneur sert déjà 4 appels téléphoniques, donc 2 GPU au
+    # plus = 8 appels simultanés, soit largement au-delà du trafic d'un restaurant. Le
+    # pire cas facturable est ainsi borné à ~1,6 $/h.
+    max_containers=int(os.environ.get("MODAL_MAX_CONTAINERS", "2")),
     scaledown_window=120,
     timeout=3600,
 )
@@ -272,10 +260,20 @@ app = modal.App(APP_NAME)
 # @modal.concurrent, Modal n'envoie qu'un input par conteneur — le 2e appel simultané
 # allumerait donc un 2e GPU (et son cold start) alors que le batching interne de
 # moshi-server (batch_size = 8) attend justement plusieurs flux sur le MÊME process.
-# On aligne donc max_inputs sur batch_size. target_inputs plus bas laisse l'autoscaler
-# préparer un conteneur avant la saturation, tout en autorisant le dépassement
-# jusqu'à 8 le temps qu'il démarre.
-@modal.concurrent(max_inputs=8, target_inputs=6)
+# On aligne donc max_inputs sur batch_size.
+#
+# ⚠️ UN APPEL TÉLÉPHONIQUE = DEUX INPUTS, pas un : le client pré-ouvre la connexion de la
+# phrase suivante pendant que la courante se génère (moshi_server_tts._ensure_preconnect),
+# ce qui supprime le blanc entre deux phrases. Mesuré le 05/09/2026 : 7 appels réels →
+# 14 inputs simultanés. Un conteneur sert donc 4 appels, pas 8.
+#
+# target_inputs = max_inputs (et non 6) : avec 6, trois appels (6 inputs) déclenchaient
+# déjà un 2e GPU — c'est ainsi que le banc à 7 appels a allumé 3 L4 pour une charge que
+# le batching absorbe sans broncher. Mesuré le 20/09/2026 sur une L4 chaude : 1, 3 puis
+# 6 flux simultanés donnent le MÊME débit (x1,8 temps réel) et 19 % d'utilisation GPU.
+# Le prix d'un scale-out tardif est un démarrage à froid, couvert par l'accueil
+# pré-rendu et la musique d'attente ; le prix d'un scale-out hâtif est un GPU entier.
+@modal.concurrent(max_inputs=8, target_inputs=8)
 @modal.web_server(PORT, startup_timeout=900)
 def tts_server():
     """Démarre moshi-server (non bloquant) ; Modal proxifie le port en HTTPS/WSS."""

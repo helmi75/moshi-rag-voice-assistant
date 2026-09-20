@@ -23,10 +23,39 @@ Options, lues au moment du `modal deploy` :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `MODAL_GPU` | `L4` | GPU (A10G plus rapide, plus cher) — la compute capability CUDA suit |
+| `MODAL_GPU` | `L4` | GPU — la compute capability CUDA suit. **Ne pas descendre sous la L4** : voir « Quel GPU » |
 | `MODAL_REGION` | `eu` | Région ; vide = laisser Modal choisir |
 | `MODAL_MIN_CONTAINERS` | `0` | `1` = un GPU toujours chaud (≈ 0,80 $/h), plus de démarrage à froid |
-| `MODAL_MAX_CONTAINERS` | `4` | Plafond de GPU simultanés : garde-fou de facture |
+| `MODAL_MAX_CONTAINERS` | `2` | Plafond de GPU simultanés : garde-fou de facture (2 GPU = 8 appels) |
+| `MODAL_APP_NAME` | `moshi-server` | Déployer un serveur d'ESSAI à côté de la production, sans la remplacer |
+
+## Quel GPU, et combien d'appels par GPU
+
+**La L4 est le GPU le moins cher qui fasse tourner ce serveur.** Essayé le 20/09/2026 :
+une T4 ne compile même pas — les noyaux CUDA de moshi-server utilisent des fragments
+WMMA en `bf16`, qui n'existent qu'à partir de sm_80 (Ampere), et la T4 est en sm_75
+(`nvcc --gpu-architecture=sm_75` → 12 erreurs sur `nv_bfloat16`). Les GPU compatibles
+(A10G, A100, L40S, H100…) sont tous plus chers.
+
+Mesuré sur une L4 chaude, avec le banc `scripts/test_moshi_server.py` lancé en parallèle :
+
+| Flux simultanés | Débit par flux | 1er son |
+|---|---|---|
+| 1 | ×1,77 temps réel | — |
+| 3 | ×1,75 à 1,85 | 1,6-1,8 s |
+| 6 | ×1,76 à 1,84 | 1,3-1,6 s |
+
+Le débit **ne bouge pas** de 1 à 6 flux (19 % d'utilisation GPU, 8,7 Gio de VRAM sur 24) :
+le groupage absorbe la charge. D'où `target_inputs = max_inputs = 8`.
+
+⚠️ **Un appel téléphonique compte pour DEUX inputs** : le client pré-ouvre la connexion de
+la phrase suivante pour supprimer le blanc entre deux phrases (mesuré le 05/09/2026 :
+7 appels réels → 14 inputs). Un conteneur sert donc **4 appels**, et le plafond de 2
+conteneurs borne la facture à ~1,6 $/h pour 8 appels simultanés.
+
+Le module de transcription de Kyutai a été retiré de la config le 20/09/2026 : il était
+chargé en VRAM à chaque démarrage sans que rien ne l'appelle (la transcription se fait
+chez Deepgram).
 
 ## 2. Pointer l'application dessus
 
