@@ -227,8 +227,10 @@ image = (
         f"ls {VOICES_DIR}/unmute-prod-website/default_voice.wav.*.safetensors > /dev/null",
         # Un seul module, TTS : plus de bloc [modules.asr] concaténé ici (voir l'en-tête).
         # Garde-fou : si l'amont ajoutait un module, on le saurait au build plutôt qu'en
-        # voyant la VRAM et le démarrage à froid grossir sans explication.
-        "test $(grep -c '^\\[modules\\.' /root/configs/config-tts.toml) -eq 1",
+        # voyant la VRAM et le démarrage à froid grossir sans explication. On ne compte
+        # que les modules DÉCLARÉS — `[modules.tts_py]` — et pas leurs sous-tables, du
+        # type `[modules.tts_py.py]`, qui commencent elles aussi par « [modules. ».
+        "test $(grep -cE '^\\[modules\\.[A-Za-z0-9_]+\\]$' /root/configs/config-tts.toml) -eq 1",
     )
 )
 
