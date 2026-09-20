@@ -31,7 +31,7 @@ ssh root@187.77.172.87 "docker compose -f /opt/moshi-rag-voice-assistant/docker-
 |---|---|---|---|
 | A1 | Appeler le numéro | Ça décroche | |
 | A2 | Écouter le tout début | L'accueil du restaurant, **puis** « Cet accueil est assuré par un assistant vocal ; votre appel est traité pour votre réservation » | |
-| A3 | Chronométrer le blanc avant la 1ʳᵉ réponse | < 2 s si le GPU est chaud ; 55-70 s au tout premier appel de la journée, couvert par la musique d'attente | |
+| A3 | Chronométrer le blanc avant la 1ʳᵉ réponse | < 2 s si le GPU est chaud ; ≈ 46 s au tout premier appel de la journée, couvert par la musique d'attente | |
 | A4 | Vérifier le journal | `POST /twilio/webhook` puis `WebSocket /ws/voice [accepted]` | |
 
 **A2 est le test de #22.** Si la mention manque, la migration n'est pas passée ou

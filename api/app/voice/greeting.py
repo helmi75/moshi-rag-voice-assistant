@@ -2,7 +2,7 @@
 
 Au décroché, le client doit entendre du son IMMÉDIATEMENT. Si le message d'accueil
 passait par le TTS live alors que le GPU Modal a scale-to-zero, le client subirait
-le blanc du cold start (30-70 s). On rend donc l'accueil UNE fois, hors du chemin
+le blanc du cold start (≈ 46 s). On rend donc l'accueil UNE fois, hors du chemin
 d'appel, dans la voix « Développeuse », on le met en cache sur le volume persistant
 (/app/data), et on le rejoue en frames audio brutes (latence 0). En parallèle un
 ping de warmup réveille le serveur, pour que la 1re réponse live tombe sur un GPU
@@ -383,7 +383,7 @@ def keepwarm_maintenant(plages: Optional[list[tuple[int, int]]], instant=None) -
 async def keep_warm_loop() -> None:
     """Boucle de préchauffage périodique (opt-in via MOSHI_KEEPWARM_SECONDS > 0).
 
-    Le cold start (55-70 s) est plus long que tout accueil : seul un GPU maintenu
+    Le cold start (≈ 46 s) est plus long que tout accueil : seul un GPU maintenu
     chaud le supprime vraiment. ⚠️ COÛTE de l'argent (≈ 0,80 $ par heure chaude sur une
     L4) : d'où MOSHI_KEEPWARM_HEURES, qui limite la chaleur aux heures où l'on appelle
     vraiment, et laisse le GPU s'éteindre la nuit. Régler l'intervalle sous le
