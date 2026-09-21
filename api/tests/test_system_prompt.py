@@ -125,3 +125,10 @@ class TestAppelantConnu:
         assert "« Durand »" in prompt
         assert "PROPOSE" in prompt and "Ne le présume" in prompt
         assert prompt.index("# Appelant") < prompt.index("# Réservation")
+
+    def test_un_nom_connu_se_prononce_il_ne_s_epelle_pas(self):
+        """La règle d'épellation vise le nom qu'on vient d'entendre épeler, pas celui
+        qu'on relit du dernier passage : « Is it H E L M I, like last time? » (appel 140
+        du 20/09/2026) n'est pas une question, c'est un bug."""
+        prompt = llm.build_system_prompt(_tenant(), appelant="Durand")
+        assert "PRONONCE-le" in prompt and "ne l'épelle jamais" in prompt

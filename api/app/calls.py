@@ -118,11 +118,14 @@ def finish_call(
     turn_latencies: Optional[list[int]] = None,
     journal: Optional[dict] = None,
     recording_bytes: Optional[int] = None,
-) -> None:
+) -> Optional[int]:
     """Clôt l'appel : durée depuis started_at, statut, transcript JSON, coût estimé.
 
     `turn_latencies` = les blancs ressentis tour par tour, en millisecondes (cf.
-    voice/latency.py). Stockés tels quels : c'est la matière première du diagnostic."""
+    voice/latency.py). Stockés tels quels : c'est la matière première du diagnostic.
+
+    Renvoie l'identifiant de l'appel clôturé — c'est lui qui permet d'enchaîner sur le
+    résumé (`resume.planifier`) sans relire la base — ou None si l'appel est inconnu."""
     with db.get_conn() as conn:
         row = conn.execute(
             "SELECT id, started_at FROM calls WHERE call_sid = ?", (call_sid,)
@@ -150,6 +153,7 @@ def finish_call(
                 row["id"],
             ),
         )
+    return row["id"]
 
 
 # Issues filtrables depuis l'admin. Elles décrivent l'état RÉEL des colonnes ; il n'y

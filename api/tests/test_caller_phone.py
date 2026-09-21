@@ -146,3 +146,42 @@ class TestNomDuDernierPassage:
             asyncio.run(llm.respond(resto, [], "Une table demain ?", self.NUMERO))
         systeme = client.chat.completions.create.await_args.kwargs["messages"][0]["content"]
         assert "« Durand »" in systeme
+
+
+class TestNomLisible:
+    """Un nom épelé au téléphone arrive en capitales, et l'assistante le RE-ÉPELLE à
+    l'appel suivant — « Is it H E L M I, like last time? », appel 140 du 20/09/2026."""
+
+    NUMERO = "+33611111111"
+
+    @pytest.mark.parametrize("brut,attendu", [
+        ("HELMI", "Helmi"),
+        ("JEAN-PIERRE", "Jean-Pierre"),
+        ("O'BRIEN", "O'Brien"),
+        ("  MARIE   CURIE  ", "Marie Curie"),
+    ])
+    def test_les_capitales_sont_remises_en_casse_de_titre(self, brut, attendu):
+        assert reservations.nom_lisible(brut) == attendu
+
+    @pytest.mark.parametrize("nom", ["van der Berg", "McDonald", "Jean-Pierre", "Ada"])
+    def test_une_casse_mixte_a_ete_voulue_par_quelqu_un(self, nom):
+        assert reservations.nom_lisible(nom) == nom
+
+    def test_le_nom_est_normalise_a_l_ecriture(self, resto):
+        resa = reservations.create_reservation(resto.id, "HELMI", "2026-10-01", "20:00", 2,
+                                               customer_phone=self.NUMERO)
+        assert resa["customer_name"] == "Helmi"
+        modifiee = reservations.update_reservation(resa["id"], customer_name="DUPONT")
+        assert modifiee["customer_name"] == "Dupont"
+
+    def test_un_nom_deja_en_base_est_proposé_lisible(self, resto):
+        """Les réservations d'avant le correctif restent en capitales en base : c'est à
+        la lecture qu'on les rend prononçables, sans migration."""
+        with db.get_conn() as conn:
+            conn.execute(
+                """INSERT INTO reservations
+                   (tenant_id, customer_name, customer_phone, date, time, party_size)
+                   VALUES (?, 'HELMI', ?, '2026-10-01', '20:00', 2)""",
+                (resto.id, self.NUMERO),
+            )
+        assert reservations.dernier_nom(resto.id, self.NUMERO) == "Helmi"

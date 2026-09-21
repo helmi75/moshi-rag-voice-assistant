@@ -7,11 +7,36 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
-## v1.1.0 — non publiée — l'audit du 18/09/2026
+## Non publiée — ce que quatre vrais appels ont montré (20/09/2026)
 
-Sur la branche `claude/moshi-rag-voice-assistant-0w8lsv`, **ni fusionnée ni déployée**.
-Pour déployer : `.env` du VPS complété (voir « À poser au déploiement »), fusion dans
-`main`, `scripts/deploy.sh`, puis la recette (`docs/RECETTE.md`).
+Quatre appels passés le 20/09 au soir, réécoutés et relus en base (appels 138 à 141).
+Rien ici ne vient d'une revue de code : ce sont quatre défauts qu'on entend.
+
+### Corrigé
+- **L'appelant qui changeait de langue n'était plus entendu du tout.** Une conversation
+  commencée en français puis basculée en anglais rendait l'assistante sourde : la langue
+  était tranchée une fois pour toutes et le STT verrouillé sur `fr`, où l'anglais ne
+  produit rien. La langue se re-décide désormais en continu, et deux tours de parole sans
+  la moindre transcription font revenir au bilingue — c'est le seul symptôme qui survive
+  au verrou, puisque Deepgram verrouillé n'étiquette plus les langues.
+- **L'accueil figurait deux fois** dans le contexte du modèle et dans la transcription
+  rendue au restaurateur : la phrase de reprise était à la fois pré-inscrite et inscrite
+  par l'agrégateur. Règle posée : on ne pré-inscrit que ce qui ne traverse pas le pipeline.
+- **Un nom connu était épelé** au lieu d'être prononcé (« Is it H E L M I, like last
+  time? ») : les noms tout en capitales sont remis en casse de titre, à l'écriture comme
+  à la lecture, et le prompt le dit.
+- **Résumé d'appel** : la colonne `calls.summary` n'avait jamais été écrite. Une phrase
+  est produite après le raccroché, en tâche de fond, et remplace l'extrait brut dans la
+  liste des appels et le tableau de bord. `RESUME_APPELS=0` coupe la fonction.
+
+### À poser au déploiement
+Rien d'obligatoire. `RESUME_APPELS` et `RESUME_MODEL` sont facultatifs (défauts : actif,
+modèle de la conversation).
+
+## v1.1.0 — déployée le 19/09/2026 — l'audit du 18/09/2026
+
+Fusionnée dans `main` par la PR #96 et déployée sur le VPS le 19/09 (`scripts/deploy.sh`,
+base migrée en v13).
 
 ### Pourquoi cette version
 L'audit du 18/09 a relevé cinq défauts critiques : webhooks Twilio non authentifiés,

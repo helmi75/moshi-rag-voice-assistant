@@ -79,7 +79,9 @@ def call_view(call: dict) -> dict:
         "chip_class": chip,
         "dot_class": dot,
         "caller": call.get("caller_number") or "Numéro inconnu",
-        "snippet": first_customer_line(transcript),
+        # Le résumé d'appel s'il a pu être produit, sinon la première phrase de
+        # l'appelant : mieux vaut un extrait brut qu'une ligne vide.
+        "snippet": (call.get("summary") or "").strip() or first_customer_line(transcript),
         "transcript": transcript,
         "duration_label": format_duration(call.get("duration_seconds")),
         "date_label": started[:10],

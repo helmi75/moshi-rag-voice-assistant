@@ -9,7 +9,12 @@ from collections import Counter
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from pipecat.frames.frames import InterimTranscriptionFrame, TranscriptionFrame
+from pipecat.frames.frames import (
+    InterimTranscriptionFrame,
+    TranscriptionFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
+)
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transcriptions.language import Language
 
@@ -130,11 +135,21 @@ class TestDetecteur:
         assert d.langue == "fr"
         assert _reglages(poussees) == [("reglage", "fr")]
 
-    def test_une_seule_decision_par_appel(self):
+    def test_la_langue_se_redecide_quand_l_appelant_change(self):
+        """Le défaut du 20/09/2026 : la première décision valait pour tout l'appel, et
+        un appelant qui passait à l'anglais n'était plus transcrit du tout."""
         d, poussees, notees = _detecteur()
         _entendre(d, _finale("Je voudrais faire une réservation", "fr"),
                   _finale("Do you speak English please", "en"))
-        assert d.langue == "fr"
+        assert d.langue == "en"
+        assert _reglages(poussees) == [("reglage", "fr"), ("reglage", "multi")]
+        assert notees == ["fr", "en"]
+
+    def test_la_meme_langue_ne_repousse_pas_de_reglage(self):
+        """Reconnecter le STT à chaque phrase coûterait un blanc à chaque phrase."""
+        d, poussees, notees = _detecteur()
+        _entendre(d, _finale("Je voudrais faire une réservation", "fr"),
+                  _finale("C'est pour demain soir vers vingt heures", "fr"))
         assert _reglages(poussees) == [("reglage", "fr")]
         assert notees == ["fr"]
 
@@ -154,3 +169,104 @@ class TestDetecteur:
         _entendre(d, phrase)
         assert poussees == [(phrase, FrameDirection.DOWNSTREAM)]
         assert d.langue is None
+
+
+class _Horloge:
+    """Le temps, contrôlé : c'est la DURÉE d'un tour de parole qui décide s'il compte."""
+
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+    def avancer(self, secondes):
+        self.t += secondes
+
+
+def _ouvrir_la_bouche(d):
+    """Le VAD signale un début de parole, rien de plus : c'est à cet instant que le
+    tour PRÉCÉDENT est jugé. L'isoler ainsi est ce qui distingue la surveillance de la
+    surdité de la re-décision ordinaire — sans quoi le test passerait même sans elle."""
+    asyncio.run(d.process_frame(UserStartedSpeakingFrame(), FrameDirection.DOWNSTREAM))
+
+
+def _parler(d, horloge, duree=2.0, texte=None, langues="fr"):
+    """Un tour de parole vu par le pipeline : le VAD l'ouvre, la transcription arrive
+    s'il y en a une, le VAD le referme."""
+    async def scenario():
+        await d.process_frame(UserStartedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+        horloge.avancer(duree)
+        if texte is not None:
+            await d.process_frame(_finale(texte, langues), FrameDirection.DOWNSTREAM)
+        await d.process_frame(UserStoppedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+    asyncio.run(scenario())
+
+
+class TestOnNeResteJamaisSourd:
+    """Une fois le STT fixé sur le français, l'anglais ne produit PLUS RIEN : ni texte,
+    ni étiquette de langue. Le seul symptôme qui reste, c'est le silence — le VAD entend
+    parler, le STT ne rend rien. C'est lui qu'on surveille (appels 138 à 141 du
+    20/09/2026 : l'assistante relançait « Vous êtes toujours là ? » dans le vide)."""
+
+    def _verrouille(self, monkeypatch):
+        horloge = _Horloge()
+        monkeypatch.setattr(L.time, "monotonic", horloge)
+        d, poussees, notees = _detecteur()
+        _parler(d, horloge, texte="Je voudrais faire une réservation s'il vous plaît")
+        assert _reglages(poussees) == [("reglage", "fr")]
+        return d, poussees, notees, horloge
+
+    def test_deux_tours_sans_transcription_rendent_le_bilingue(self, monkeypatch):
+        d, poussees, _, horloge = self._verrouille(monkeypatch)
+        _parler(d, horloge)  # « Hello, do you speak English? » — rien ne sort
+        _parler(d, horloge)  # « Hello? Can you hear me? » — rien non plus
+        # Il reprend la parole une troisième fois : le deuxième tour muet est acquis.
+        # AUCUNE transcription n'est fournie ici, exprès : le retour au bilingue ne
+        # peut venir que de la surveillance de la surdité.
+        _ouvrir_la_bouche(d)
+        assert _reglages(poussees) == [("reglage", "fr"), ("reglage", "multi")]
+
+    def test_un_seul_tour_muet_ne_suffit_pas(self, monkeypatch):
+        d, poussees, _, horloge = self._verrouille(monkeypatch)
+        _parler(d, horloge)
+        _parler(d, horloge, texte="Oui pardon je disais demain soir")
+        assert _reglages(poussees) == [("reglage", "fr")]
+
+    def test_une_toux_ne_compte_pas_pour_un_tour(self, monkeypatch):
+        """Un bruit court pris pour de la parole ne doit pas coûter la précision du
+        français pour tout le reste de l'appel."""
+        d, poussees, _, horloge = self._verrouille(monkeypatch)
+        for _ in range(4):
+            _parler(d, horloge, duree=0.3)
+        assert _reglages(poussees) == [("reglage", "fr")]
+
+    def test_une_transcription_remet_le_compteur_a_zero(self, monkeypatch):
+        d, poussees, _, horloge = self._verrouille(monkeypatch)
+        _parler(d, horloge)
+        _parler(d, horloge, texte="Oui c'est bien ça merci beaucoup")
+        _parler(d, horloge)
+        _parler(d, horloge, texte="Très bien alors à demain")
+        assert _reglages(poussees) == [("reglage", "fr")]
+
+    def test_en_bilingue_le_silence_ne_prouve_rien(self, monkeypatch):
+        """Tant que le STT est bilingue, un tour sans transcription est du bruit : il
+        n'y a pas de verrou à lever."""
+        horloge = _Horloge()
+        monkeypatch.setattr(L.time, "monotonic", horloge)
+        d, poussees, _ = _detecteur()
+        for _ in range(4):
+            _parler(d, horloge)
+        assert _reglages(poussees) == []
+
+    def test_apres_une_surdite_on_ne_reverrouille_plus(self, monkeypatch):
+        """L'appelant a prouvé qu'il change de langue : un deuxième verrou le rendrait
+        sourd une deuxième fois. On paie un peu de précision, pas un appel."""
+        d, poussees, _, horloge = self._verrouille(monkeypatch)
+        _parler(d, horloge)
+        _parler(d, horloge)
+        _ouvrir_la_bouche(d)
+        assert _reglages(poussees)[-1] == ("reglage", "multi")
+        _parler(d, horloge, texte="Bon d'accord je reprends en français alors")
+        assert d.langue == "fr"
+        assert _reglages(poussees)[-1] == ("reglage", "multi")

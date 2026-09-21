@@ -34,13 +34,19 @@ Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.p
    numéro appelant passe par `calls.numero_appelant` (un appel masqué n'a pas de numéro),
    l'appel est ouvert en base, puis `voice/bot.run_bot`.
 3. Pipecat : VAD Silero + smart-turn (modèle partagé entre les appels) ; **Deepgram
-   nova-3** décroche en `multi` puis se fixe sur la langue de l'appel (`voice/langue.py`) ;
-   **LLM** via OpenRouter, raisonnement coupé (c'est du silence au téléphone) ; **voix**
-   servie par `moshi-server` sur Modal, clé privée (`voice/moshi_server_tts.py`).
+   nova-3** décroche en `multi` puis SUIT la langue de l'appel (`voice/langue.py`) — il
+   se fixe sur celle de l'établissement quand elle est avérée, et redevient bilingue dès
+   qu'on constate qu'on n'entend plus l'appelant ; **LLM** via OpenRouter, raisonnement
+   coupé (c'est du silence au téléphone) ; **voix** servie par `moshi-server` sur Modal,
+   clé privée (`voice/moshi_server_tts.py`).
 4. L'accueil est un WAV pré-rendu par établissement : l'appelant l'entend tout de suite,
-   même quand le GPU se réveille ; la musique d'attente meuble le réveil.
+   même quand le GPU se réveille ; la musique d'attente meuble le réveil. Il est
+   pré-inscrit au contexte du modèle **parce qu'il ne traverse pas le pipeline** ; tout
+   ce que dit le TTS du pipeline, l'agrégateur l'inscrit seul (`bot.amorce_assistante`).
 5. À la fin : durée, transcription, latences par tour et journal de bord en base ;
-   enregistrement deux pistes si activé (`voice/enregistrement.py`).
+   enregistrement deux pistes si activé (`voice/enregistrement.py`) ; puis, hors du
+   chemin d'appel, une phrase de résumé (`resume.py`) qui remplace l'extrait brut dans
+   la liste des appels.
 
 **Règle d'architecture** : le cerveau (`llm.py`, `reservations.py`, `messages.py`)
 ignore le transport. `llm.run_tool` est le seul point où un outil touche aux données,

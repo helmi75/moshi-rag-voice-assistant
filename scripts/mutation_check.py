@@ -337,12 +337,23 @@ GARDE_FOUS = [
     GardeFou(
         nom="Un appel français quitte le bilingue",
         fichier="api/app/voice/langue.py",
-        avant="        if langue == self._lieu:",
-        apres="        if False:  # mutation",
+        avant="        cible = langue if langue == self._lieu and not self._sourd_une_fois else None",
+        apres="        cible = None  # mutation",
         tests=["test_langue.py"],
-        k="francais or cumul or decision",
+        k="francais or cumul or redecide",
         panne="un Français resterait en `multi` : « C'est ça » transcrit « Yes, sir. », "
               "et le modèle lui répondrait en anglais",
+    ),
+    GardeFou(
+        nom="On ne reste pas sourd quand l'appelant change de langue",
+        fichier="api/app/voice/langue.py",
+        avant="        await self._regler(None)",
+        apres="        return  # mutation",
+        tests=["test_langue.py"],
+        k="bilingue or surdite",
+        panne="fixé sur `fr`, Deepgram ne rend RIEN sur de l'anglais : l'appelant qui "
+              "change de langue n'est plus transcrit du tout jusqu'à la fin de l'appel, "
+              "et l'assistante relance « Vous êtes toujours là ? » dans le vide",
     ),
     GardeFou(
         nom="Un anglophone est compris dès le décroché",

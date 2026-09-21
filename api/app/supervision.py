@@ -465,7 +465,7 @@ def _controle_accueils() -> Controle:
     """Le WAV d'accueil de chaque établissement est-il en cache ?
 
     Sans lui, le décroché passe par un TTS live — donc par un éventuel démarrage à
-    froid du GPU (55 à 70 s mesurées). L'appel n'échoue pas : il commence par un
+    froid du GPU (≈ 46 s mesurées). L'appel n'échoue pas : il commence par un
     très long silence, ce que l'appelant lit comme « ça ne marche pas ».
     """
     # Import local : `voice.greeting` tire la pile audio (numpy, client websocket).

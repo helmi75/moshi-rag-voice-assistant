@@ -31,11 +31,20 @@ ssh root@187.77.172.87 "docker compose -f /opt/moshi-rag-voice-assistant/docker-
 |---|---|---|---|
 | A1 | Appeler le numéro | Ça décroche | |
 | A2 | Écouter le tout début | L'accueil du restaurant, **puis** « Cet accueil est assuré par un assistant vocal ; votre appel est traité pour votre réservation » | |
-| A3 | Chronométrer le blanc avant la 1ʳᵉ réponse | < 2 s si le GPU est chaud ; 55-70 s au tout premier appel de la journée, couvert par la musique d'attente | |
+| A3 | Chronométrer le blanc avant la 1ʳᵉ réponse | < 2 s si le GPU est chaud ; ≈ 46 s au tout premier appel de la journée, couvert par la musique d'attente | |
 | A4 | Vérifier le journal | `POST /twilio/webhook` puis `WebSocket /ws/voice [accepted]` | |
+| A5 | **Commencer en français**, échanger deux phrases, **puis passer à l'anglais** | Elle répond en anglais. Elle peut manquer UN tour le temps de rouvrir l'oreille — pas plus, et surtout pas jusqu'à la fin de l'appel | |
+| A6 | Dans le même appel, revenir au français | Elle suit, sans qu'on ait à répéter trois fois | |
+| A7 | Relire la transcription dans l'admin | L'accueil apparaît **une seule fois** ; un nom déjà connu est écrit « Helmi », pas « HELMI » | |
+| A8 | Liste des appels, quelques minutes après | Une phrase de résumé (« Réservation pour deux… »), pas « Bonjour, restaurant… » | |
 
 **A2 est le test de #22.** Si la mention manque, la migration n'est pas passée ou
 `RGPD_MENTION` est à 0.
+
+**A5 est le test du 21/09.** C'est le défaut le plus coûteux qu'on ait entendu :
+l'assistante devenait sourde pour tout le reste de l'appel. Le journal le dit en toutes
+lettres — `langue de l'appel : 2 tours de parole sans aucune transcription … retour au
+bilingue`.
 
 ## B. Prendre une réservation — la fonction historique
 
