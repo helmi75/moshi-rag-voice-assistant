@@ -184,6 +184,13 @@ class _Horloge:
         self.t += secondes
 
 
+def _ouvrir_la_bouche(d):
+    """Le VAD signale un début de parole, rien de plus : c'est à cet instant que le
+    tour PRÉCÉDENT est jugé. L'isoler ainsi est ce qui distingue la surveillance de la
+    surdité de la re-décision ordinaire — sans quoi le test passerait même sans elle."""
+    asyncio.run(d.process_frame(UserStartedSpeakingFrame(), FrameDirection.DOWNSTREAM))
+
+
 def _parler(d, horloge, duree=2.0, texte=None, langues="fr"):
     """Un tour de parole vu par le pipeline : le VAD l'ouvre, la transcription arrive
     s'il y en a une, le VAD le referme."""
@@ -214,10 +221,11 @@ class TestOnNeResteJamaisSourd:
         d, poussees, _, horloge = self._verrouille(monkeypatch)
         _parler(d, horloge)  # « Hello, do you speak English? » — rien ne sort
         _parler(d, horloge)  # « Hello? Can you hear me? » — rien non plus
-        # Le tour précédent est jugé à l'ouverture du suivant : il faut un troisième
-        # début de parole pour que le deuxième tour muet soit acquis.
-        _parler(d, horloge, texte="Hello can you hear me now", langues="en")
-        assert _reglages(poussees)[-1] == ("reglage", "multi")
+        # Il reprend la parole une troisième fois : le deuxième tour muet est acquis.
+        # AUCUNE transcription n'est fournie ici, exprès : le retour au bilingue ne
+        # peut venir que de la surveillance de la surdité.
+        _ouvrir_la_bouche(d)
+        assert _reglages(poussees) == [("reglage", "fr"), ("reglage", "multi")]
 
     def test_un_seul_tour_muet_ne_suffit_pas(self, monkeypatch):
         d, poussees, _, horloge = self._verrouille(monkeypatch)
@@ -257,7 +265,7 @@ class TestOnNeResteJamaisSourd:
         d, poussees, _, horloge = self._verrouille(monkeypatch)
         _parler(d, horloge)
         _parler(d, horloge)
-        _parler(d, horloge, texte="Hello can you hear me now", langues="en")
+        _ouvrir_la_bouche(d)
         assert _reglages(poussees)[-1] == ("reglage", "multi")
         _parler(d, horloge, texte="Bon d'accord je reprends en français alors")
         assert d.langue == "fr"
