@@ -216,8 +216,9 @@ def _section_appelant(nom: Optional[str]) -> str:
         return ""
     return f"""# Appelant
 Ce numéro a déjà réservé au nom de « {nom} ». Pour une réservation, PROPOSE ce nom au
-lieu de le demander : « C'est au nom de {nom}, comme la dernière fois ? ». Ne le présume
-pas : si le client en donne un autre, c'est celui-là. N'en parle pas hors réservation.
+lieu de le demander : « C'est au nom de {nom}, comme la dernière fois ? » — PRONONCE-le,
+ne l'épelle jamais. Ne le présume pas : si le client en donne un autre, c'est celui-là.
+N'en parle pas hors réservation.
 
 """
 

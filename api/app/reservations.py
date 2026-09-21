@@ -19,6 +19,22 @@ from . import db, horloge
 ACTIVES = "cancelled_at IS NULL"
 
 
+def nom_lisible(nom: str) -> str:
+    """Un nom écrit TOUT en capitales remis en casse de titre.
+
+    Une réservation prise sur un nom épelé arrive en capitales — c'est ce que produit
+    la consigne de reconstitution du prompt (« H comme Henri, E comme Émilie… »). Ça
+    reste ensuite en base, et l'assistante RE-ÉPELLE ce nom aux appels suivants :
+    « Is it H E L M I, like last time? », entendu sur l'appel 140 du 20/09/2026. Le
+    restaurateur, lui, voyait « HELMI » crié dans toutes ses listes.
+
+    On ne touche qu'aux noms entièrement en capitales : une casse mixte a été voulue
+    par quelqu'un (« van der Berg », « McDonald ») et lui passer `.title()` dessus
+    l'abîmerait."""
+    nom = " ".join((nom or "").split())
+    return nom.title() if nom.isupper() else nom
+
+
 def create_reservation(
     tenant_id: int,
     customer_name: str,
@@ -28,6 +44,7 @@ def create_reservation(
     customer_phone: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> dict:
+    customer_name = nom_lisible(customer_name)
     with db.get_conn() as conn:
         cur = conn.execute(
             """INSERT INTO reservations
@@ -63,6 +80,8 @@ def update_reservation(reservation_id: int, **fields) -> Optional[dict]:
     party_size, notes)."""
     allowed = {"customer_name", "customer_phone", "date", "time", "party_size", "notes"}
     updates = {k: v for k, v in fields.items() if k in allowed}
+    if "customer_name" in updates:
+        updates["customer_name"] = nom_lisible(updates["customer_name"])
     if not updates:
         return get_reservation(reservation_id)
     assignments = ", ".join(f"{k} = ?" for k in updates)
@@ -189,7 +208,7 @@ def dernier_nom(tenant_id: int, phone: Optional[str]) -> Optional[str]:
                ORDER BY id DESC LIMIT 1""",
             (tenant_id, phone),
         ).fetchone()
-    nom = " ".join((row["customer_name"] or "").split()) if row else ""
+    nom = nom_lisible(row["customer_name"] or "") if row else ""
     if not nom or len(nom) > 40 or not _NOM_PLAUSIBLE.fullmatch(nom):
         return None
     return nom
