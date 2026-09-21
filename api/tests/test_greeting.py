@@ -232,3 +232,47 @@ class TestKeepWarmAuxHeuresDeService:
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(g.keep_warm_loop())
         assert len(appels) == reveils
+
+
+class TestAmorceDuContexte:
+    """Ce que le modèle croit avoir déjà dit au décroché.
+
+    Défaut du 20/09/2026 : la phrase de reprise figurait DEUX fois dans le contexte et
+    dans la transcription — une fois pré-inscrite, une fois par l'agrégateur, puisqu'elle
+    passe par le TTS du pipeline. Le restaurateur lisait une transcription fausse."""
+
+    def test_l_accueil_pre_rendu_est_inscrit_une_fois(self, monkeypatch):
+        from app.voice import bot
+
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        tenant = _tenant()
+        _write_wav(g._cache_path(tenant))
+        amorce = bot.amorce_assistante(tenant)
+        assert amorce == [{"role": "assistant", "content": tenant.greeting}]
+
+    def test_la_phrase_de_reprise_n_est_jamais_pre_inscrite(self, monkeypatch):
+        """Elle est dite par le TTS du pipeline : l'agrégateur s'en charge."""
+        from app.voice import bot
+
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        tenant = _tenant()
+        _write_wav(g._cache_path(tenant))
+        amorce = " ".join(m["content"] for m in bot.amorce_assistante(tenant))
+        assert g.texte_de_reprise(True) not in amorce
+        assert g.texte_de_reprise(False) not in amorce
+
+    def test_sans_wav_en_cache_on_n_inscrit_rien(self, monkeypatch):
+        """L'accueil repasse alors par le pipeline (repli TTS) : l'inscrire ici le
+        dupliquerait à son tour."""
+        from app.voice import bot
+
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        assert bot.amorce_assistante(_tenant()) == []
+
+    def test_sans_serveur_de_voix_on_n_inscrit_rien(self, monkeypatch):
+        from app.voice import bot
+
+        monkeypatch.delenv("MOSHI_TTS_URL", raising=False)
+        tenant = _tenant()
+        _write_wav(g._cache_path(tenant))
+        assert bot.amorce_assistante(tenant) == []

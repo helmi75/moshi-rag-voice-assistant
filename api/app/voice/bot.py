@@ -155,6 +155,31 @@ def build_stt(tenant: Tenant, language: str):
     )
 
 
+def amorce_assistante(tenant: Tenant) -> list[dict]:
+    """Ce que l'assistante a DÉJÀ dit et que le pipeline n'inscrira pas tout seul.
+
+    Règle : on pré-inscrit au contexte **uniquement ce qui ne traverse pas le
+    pipeline**. L'accueil pré-rendu part par `output_transport.send_audio()` droit vers
+    Twilio — aucun processeur ne le voit passer, c'est donc à nous de l'inscrire, sinon
+    le modèle re-salue un client déjà salué.
+
+    La phrase de reprise (« Merci d'avoir patienté, je vous écoute »), elle, est dite
+    par le TTS DU pipeline : l'agrégateur assistant l'inscrit tout seul. L'inscrire ici
+    aussi la faisait figurer DEUX fois — dans le contexte du modèle et dans la
+    transcription rendue au restaurateur (appels 138, 140 et 141 du 20/09/2026).
+
+    Sans WAV en cache, l'accueil passe lui aussi par le pipeline (repli TTS de
+    `jouer_intro`) : on n'inscrit alors rien du tout.
+    """
+    from . import greeting
+
+    if not greeting.is_moshi_server() or not (tenant.greeting or "").strip():
+        return []
+    if greeting.cached_greeting_path(tenant) is None:
+        return []
+    return [{"role": "assistant", "content": tenant.greeting}]
+
+
 # Formules par lesquelles l'assistante prend congé (registre imposé par le prompt
 # système). Servent à reconnaître une fin de conversation, jamais à en produire une.
 _FORMULES_DE_CONGE = (
@@ -469,15 +494,9 @@ async def run_bot(
         from .moshi_server_tts import gpu_chaud
 
         # Décidé UNE fois ici et transmis à l'intro : la phrase de reprise dépend de
-        # l'état du GPU, et le contexte doit contenir celle qui sera réellement dite.
+        # l'état du GPU, et la voix doit dire ce que le contexte contient.
         chaud = gpu_chaud()
-        # Le flux « standardiste » a déjà salué et mis en relation (accueil pré-rendu +
-        # reprise) : on l'inscrit au contexte pour que le modèle enchaîne directement sur
-        # la demande du client, sans re-saluer.
-        messages.append(
-            {"role": "assistant",
-             "content": f"{tenant.greeting} {greeting_mod.texte_de_reprise(chaud)}"}
-        )
+    messages += amorce_assistante(tenant)
     context = LLMContext(
         messages=messages,
         tools=build_function_schemas(),
