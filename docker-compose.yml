@@ -146,6 +146,8 @@ services:
       LOGIN_MAX_ECHECS:
       LOGIN_FENETRE_SECONDES:
       DB_SYNCHRONOUS:
+      RESUME_APPELS:
+      RESUME_MODEL:
     volumes:
       - api_data:/app/data
 

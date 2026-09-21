@@ -716,7 +716,7 @@ async def run_bot(
             try:
                 from .. import calls as calls_mod
 
-                await asyncio.to_thread(
+                call_id = await asyncio.to_thread(
                     calls_mod.finish_call,
                     call_sid,
                     status,
@@ -726,6 +726,12 @@ async def run_bot(
                     bord.journal(etat_enregistrement),
                     _octets_enregistres(etat_enregistrement),
                 )
+                # Le résumé part APRÈS la clôture, en tâche de fond : l'appelant a
+                # raccroché, personne n'attend, et un modèle indisponible ne doit pas
+                # faire rater la dernière écriture de l'appel.
+                from .. import resume
+
+                resume.planifier(call_id)
             except Exception as exc:
                 logger.warning(f"[calls] finish_call KO (sans conséquence): {exc}")
 
