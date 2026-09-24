@@ -74,6 +74,8 @@ def _controle(cle: str) -> dict:
 DIALOGUE = [{"role": "user", "content": "bonjour"},
             {"role": "assistant", "content": "Bonjour, Chez Test j'écoute."}]
 MONOLOGUE = [{"role": "user", "content": "bonjour ?"}]
+# L'accueil pré-rendu, tel qu'il est inscrit en tête de transcription : il part SANS GPU.
+ACCUEIL = {"role": "assistant", "content": "Bonjour, Chez Test, un instant s'il vous plaît."}
 
 
 class TestEnumeration:
@@ -210,7 +212,7 @@ class TestAppelsMuets:
         _appel(etablissement.id, "CA-ok2", transcript=DIALOGUE)
         controle = _controle("appels_muets")
         assert controle["niveau"] == supervision.ATTENTION
-        assert controle["mesure"] == {"candidats": 3, "muets": 1}
+        assert controle["mesure"] == {"candidats": 3, "muets": 1, "d_affilee": False}
 
     def test_une_majorite_d_appels_muets_est_une_panne(self, etablissement):
         for i in range(3):
@@ -229,6 +231,88 @@ class TestAppelsMuets:
         monkeypatch.setenv("SUPERVISION_FENETRE_JOURS", "7")
         _appel(etablissement.id, "CA-vieux", minutes=60 * 24 * 30, transcript=None)
         assert _controle("appels_muets")["niveau"] == supervision.OK
+
+
+class TestLesDeuxPannesQueLeControleNAvaitPasVues:
+    """Le contrôle comptait n'importe quel tour de l'assistante. Deux pannes réelles
+    lui ont échappé, parce que le « décor » — ce que l'assistante dit sans le modèle —
+    remplissait la transcription à la place d'une vraie réponse."""
+
+    def test_l_accueil_seul_n_est_pas_une_reponse(self, etablissement):
+        """23/09/2026 : plus de GPU L4 en Europe. L'accueil, un WAV pré-rendu joué sans
+        GPU, était la SEULE ligne de l'assistante — et le voyant restait vert. Cinq
+        appels perdus, dont personne n'aurait rien su."""
+        _appel(etablissement.id, "CA-gpu", transcript=[ACCUEIL])
+        assert _controle("appels_muets")["mesure"]["muets"] == 1
+
+    def test_la_reprise_et_les_relances_ne_sont_pas_des_reponses(self, etablissement):
+        """30/07/2026 : le modèle levait à chaque tour. La reprise et les relances,
+        dites sans lui, faisaient croire qu'il parlait."""
+        from app.voice import bot, greeting
+
+        _appel(etablissement.id, "CA-llm", transcript=[
+            ACCUEIL,
+            {"role": "assistant", "content": greeting.texte_de_reprise(False)},
+            {"role": "user", "content": "Je voudrais réserver une table"},
+            {"role": "assistant", "content": bot.relance(1, "fr")[0]},
+            {"role": "user", "content": "Allô ?"},
+            {"role": "assistant", "content": bot.relance(2, "fr")[0]},
+        ])
+        assert _controle("appels_muets")["mesure"]["muets"] == 1
+
+    def test_des_relances_fusionnees_en_un_seul_tour_restent_du_decor(self, etablissement):
+        """L'agrégateur fusionne les sorties consécutives : l'appel 138 portait les trois
+        relances bout à bout dans UN tour. Une comparaison exacte l'aurait pris pour une
+        vraie réponse."""
+        from app.voice import bot
+
+        fusion = " ".join(bot.relance(n, "fr")[0] for n in (1, 2, 3))
+        _appel(etablissement.id, "CA-fusion", transcript=[
+            ACCUEIL, {"role": "user", "content": "…"},
+            {"role": "assistant", "content": fusion}])
+        assert _controle("appels_muets")["mesure"]["muets"] == 1
+
+    def test_une_vraie_reponse_collee_a_une_relance_compte(self, etablissement):
+        """Le retrait est chirurgical : il ôte le décor, pas le tour qui le contient."""
+        from app.voice import bot
+
+        tour = bot.relance(1, "fr")[0] + " Oui, nous avons une table à vingt heures."
+        _appel(etablissement.id, "CA-mixte", transcript=[
+            ACCUEIL, {"role": "user", "content": "Une table ce soir ?"},
+            {"role": "assistant", "content": tour}])
+        assert _controle("appels_muets")["mesure"]["muets"] == 0
+
+    def test_les_relances_anglaises_sont_aussi_du_decor(self, etablissement):
+        from app.voice import bot
+
+        _appel(etablissement.id, "CA-en", transcript=[
+            ACCUEIL, {"role": "user", "content": "Hello?"},
+            {"role": "assistant", "content": bot.relance(1, "en")[0]}])
+        assert _controle("appels_muets")["mesure"]["muets"] == 1
+
+    def test_trois_appels_muets_d_affilee_sont_une_panne_meme_dilues(self, etablissement):
+        """Le 23/09, cinq appels perdus pesaient 5 sur 20 dans la semaine : la proportion
+        disait « attention ». Mais les derniers appels n'obtenaient plus RIEN : la ligne
+        était muette à cet instant, et c'est une panne."""
+        for i in range(10):
+            _appel(etablissement.id, f"CA-ok{i}", minutes=600 + i, transcript=DIALOGUE)
+        for i in range(3):
+            _appel(etablissement.id, f"CA-gpu{i}", minutes=10 + i, transcript=[ACCUEIL])
+        controle = _controle("appels_muets")
+        assert controle["niveau"] == supervision.PANNE
+        assert controle["mesure"]["d_affilee"] is True
+        assert "AUCUNE réponse" in controle["resume"]
+
+    def test_une_panne_terminee_ne_hurle_plus(self, etablissement):
+        """Trois appels perdus, puis la ligne répond de nouveau. La proportion garde la
+        trace de l'incident (attention), mais ce n'est plus une panne en cours."""
+        for i in range(3):
+            _appel(etablissement.id, f"CA-gpu{i}", minutes=60 + i, transcript=[ACCUEIL])
+        for i in range(7):
+            _appel(etablissement.id, f"CA-ok{i}", minutes=10 + i, transcript=DIALOGUE)
+        controle = _controle("appels_muets")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert controle["mesure"]["d_affilee"] is False
 
 
 class TestAppelsEchoues:

@@ -82,6 +82,10 @@ def fenetre_jours() -> int:
 
 # Un appel « muet » : l'assistante n'a pas produit UN tour, alors que l'appelant est
 # resté en ligne. En dessous de ce seuil c'est un raccroché immédiat, pas une panne.
+# Autant d'appels consécutifs sans réponse = la ligne est muette en ce moment.
+APPELS_MUETS_D_AFFILEE = 3
+
+
 def muet_secondes() -> int:
     return _entier("SUPERVISION_MUET_SECONDES", 15)
 
@@ -336,16 +340,51 @@ def _appels_fenetre() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def _a_parle(transcript: Optional[str]) -> bool:
-    """L'assistante a-t-elle produit au moins un tour ? Lu depuis le JSON, pas par
-    `LIKE` : le format exact de sérialisation n'a pas à devenir un contrat."""
+# La ponctuation qui reste quand on a retiré d'un tour toutes les phrases toutes faites.
+_RESIDU = " .,;:!?…—–-«»\"'\n\t"
+
+
+def _sans_decor(texte: str, decor: frozenset) -> str:
+    """Ce qui reste d'un tour une fois retirées les phrases dites sans le modèle.
+
+    Retrait par sous-chaîne, et non comparaison exacte : l'agrégateur FUSIONNE les
+    sorties consécutives de l'assistante. L'appel 138 a produit un seul tour contenant
+    les trois relances bout à bout — « Vous êtes toujours là ? Je ne vous entends
+    plus… Au revoir. » — qu'une comparaison exacte aurait pris pour une vraie réponse."""
+    texte = " ".join((texte or "").split())
+    for phrase in sorted(decor, key=len, reverse=True):
+        texte = texte.replace(phrase, " ")
+    return texte.strip(_RESIDU)
+
+
+def _a_repondu(transcript: Optional[str]) -> bool:
+    """L'assistante a-t-elle dit au moins UNE phrase venue du modèle ?
+
+    Deux pannes ont eu exactement la même allure — l'appel se termine « normalement »,
+    l'appelant n'a rien obtenu — et ce contrôle n'en a vu AUCUNE tant qu'il comptait
+    n'importe quel tour de l'assistante :
+
+    - 30/07/2026 : le LLM levait à chaque tour. Mais la reprise (« je vous écoute ») et
+      les relances, dites sans lui, remplissaient la transcription ;
+    - 23/09/2026 : Modal n'avait plus de GPU en Europe. Mais l'accueil, un WAV pré-rendu
+      joué sans GPU, figurait en tête de transcription. Cinq appels perdus, contrôle vert.
+
+    On écarte donc l'accueil d'ouverture et les phrases toutes faites du pipeline. Ce qui
+    reste ne peut venir que du modèle — donc d'une chaîne complète qui fonctionne.
+    Lu depuis le JSON, pas par `LIKE` : le format de sérialisation n'est pas un contrat."""
     if not transcript:
         return False
     try:
-        tours = json.loads(transcript)
+        tours = [t for t in json.loads(transcript) if isinstance(t, dict)]
     except (TypeError, ValueError):
         return False
-    return any(isinstance(t, dict) and t.get("role") == "assistant" for t in tours)
+    if tours and tours[0].get("role") == "assistant":
+        tours = tours[1:]  # l'accueil d'ouverture : il part même serveur de voix mort
+    from .voice.bot import phrases_du_pipeline
+
+    decor = phrases_du_pipeline()
+    return any(t.get("role") == "assistant" and _sans_decor(t.get("content"), decor)
+               for t in tours)
 
 
 def _verdict_proportion(anormaux: int, total: int) -> str:
@@ -369,7 +408,7 @@ def _controle_appels_muets(appels: list[dict]) -> Controle:
     seuil = muet_secondes()
     candidats = [a for a in appels
                  if a["status"] == "completed" and (a["duration_seconds"] or 0) >= seuil]
-    muets = [a for a in candidats if not _a_parle(a["transcript"])]
+    muets = [a for a in candidats if not _a_repondu(a["transcript"])]
     if not candidats:
         return Controle(
             "appels_muets", "Appels muets", OK,
@@ -379,14 +418,29 @@ def _controle_appels_muets(appels: list[dict]) -> Controle:
             mesure={"candidats": 0, "muets": 0},
         )
     niveau = _verdict_proportion(len(muets), len(candidats))
+    # Une proportion sur la semaine DILUE une panne en cours : le 23/09, cinq appels
+    # perdus d'affilée pesaient 5 sur 20, soit « attention ». Or si les derniers appels
+    # n'ont tous rien obtenu, la ligne est muette MAINTENANT — c'est une panne, quelle
+    # que soit la semaine qui précède. `appels` arrive trié du plus récent au plus ancien.
+    derniers = candidats[:APPELS_MUETS_D_AFFILEE]
+    d_affilee = (len(derniers) == APPELS_MUETS_D_AFFILEE
+                 and all(not _a_repondu(a["transcript"]) for a in derniers))
+    if d_affilee:
+        niveau = PANNE
     return Controle(
         "appels_muets", "Appels muets", niveau,
-        f"{len(muets)} appel(s) sans un mot de l'assistante sur {len(candidats)} "
-        f"appel(s) de plus de {seuil} s.",
-        "L'appelant est resté en ligne et n'a reçu aucune réponse. Regarder les "
-        "journaux du conteneur et le fournisseur LLM." if muets else
+        (f"Les {APPELS_MUETS_D_AFFILEE} derniers appels n'ont obtenu AUCUNE réponse — "
+         f"{len(muets)} sur {len(candidats)} appel(s) de plus de {seuil} s."
+         if d_affilee else
+         f"{len(muets)} appel(s) sans réponse de l'assistante sur {len(candidats)} "
+         f"appel(s) de plus de {seuil} s."),
+        "L'appelant n'a entendu que l'accueil, la musique ou des relances : rien n'est "
+        "venu du modèle. Vérifier dans l'ordre le serveur de voix (`modal app logs "
+        "moshi-server` : « waiting to be scheduled » = plus de GPU disponible) puis le "
+        "fournisseur LLM." if muets else
         "L'assistante a répondu sur tous les appels de la période.",
-        mesure={"candidats": len(candidats), "muets": len(muets)},
+        mesure={"candidats": len(candidats), "muets": len(muets),
+                "d_affilee": d_affilee},
     )
 
 
