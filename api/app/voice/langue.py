@@ -36,6 +36,14 @@ Deux mécanismes répondent à ça :
    on tient la preuve que l'appelant change de langue, et rester bilingue coûte un peu
    de précision là où rester sourd coûte l'appel.
 
+⚠️ « Aucune transcription » ne suffisait pas (appel 156, 24/09/2026). Fixé sur `fr`,
+l'anglais ne produit pas toujours RIEN : il produit aussi des mots français fantômes —
+« alors », « allô » — un seul mot pour sept secondes de parole, à faible confiance. Et
+ces fantômes arrivent souvent JUSTE APRÈS la fin du tour. La première version effaçait
+la surdité en attente dès qu'un texte arrivait : chaque fantôme remettait le compteur à
+zéro, et la garde n'a jamais mordu. On juge donc chaque tour sur TOUT ce qu'il a produit,
+texte tardif compris, et seul un tour vraiment compris remet le compteur à zéro.
+
 La reconnexion ne perd rien : Pipecat la diffère tant que l'appelant parle, et met
 l'audio en tampon le temps qu'elle a lieu (`STTService._request_reconnect`).
 """
@@ -52,6 +60,8 @@ from pipecat.frames.frames import (
     UserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+
+from .journal import _confiance as confiance_de
 
 # Ce qu'on demande à Deepgram pour qu'il étiquette chaque mot au lieu de se fixer.
 BILINGUE = "multi"
@@ -77,6 +87,20 @@ TOURS_SOURDS_MAX = 2
 # En dessous, ce n'est pas une phrase : une toux, un choc, un « mmh ». On ne compte pas
 # un tour aussi court comme la preuve qu'on est devenu sourd.
 DUREE_MIN_TOUR = 0.8
+
+# Un tour LONG qui ne produit presque rien, et peu sûr, est un tour qu'on n'entend pas.
+# Mesuré le 24/09/2026 sur les 298 tours de plus de deux secondes des 124 appels
+# journalisés : l'anglais transcrit en `fr` donne 0,1 à 0,5 mot/s à 0,28-0,77 de
+# confiance ; le français compris, 1,6 à 5,9 mots/s. Le débit SEUL ne suffit pas — un
+# « Bonjour » d'un mot étalé sur 2,6 s est courant, mais à 0,99 de confiance. Les deux
+# critères ensemble, rejoués sur les 33 appels fixés en français : aucune bascule de plus
+# que la règle précédente, et l'appel 156 détecté à 56 s au lieu de jamais.
+DUREE_MIN_JUGEMENT = 2.0
+MOTS_PAR_SECONDE_MIN = 0.8
+CONFIANCE_MIN = 0.8
+
+# Verdicts d'un tour de parole.
+COMPRIS, SOURD, NEUTRE = "compris", "sourd", "neutre"
 
 
 def trancher(mots: Counter, mots_min: int = MOTS_MIN_PHRASE,
@@ -139,9 +163,10 @@ class DetecteurDeLangue(FrameProcessor):
         # Une fois sourd, plus jamais de verrou : l'appelant a prouvé qu'il change de
         # langue, et un deuxième verrou le rendrait sourd une deuxième fois.
         self._sourd_une_fois = False
-        self._debut_parole: Optional[float] = None
-        self._transcrite = False
-        self._tour_en_attente = False
+        # Le tour de parole en cours : quand il a commencé, combien de temps il a duré,
+        # et ce qu'il a produit. Il reste ouvert jusqu'au tour suivant, pour recueillir
+        # aussi la transcription qui arrive APRÈS la fin de la parole.
+        self._tour: Optional[dict] = None
         self._tours_sourds = 0
 
     def decider(self, mots: Counter) -> Optional[str]:
@@ -169,39 +194,65 @@ class DetecteurDeLangue(FrameProcessor):
             # Le tour précédent est jugé ICI, pas à sa fin : entre deux tours il y a la
             # réponse de l'assistante, donc tout le temps qu'il faut à Deepgram pour
             # rendre sa transcription finale. La juger plus tôt inventerait des sourds.
-            await self._cloturer_tour()
-            self._debut_parole = time.monotonic()
-            self._transcrite = False
+            await self._juger_le_tour_precedent()
+            self._tour = {"debut": time.monotonic(), "duree": None, "mots": 0,
+                          "confiances": []}
             return
         if isinstance(frame, UserStoppedSpeakingFrame):
-            debut = self._debut_parole
-            self._debut_parole = None
-            assez_long = debut is not None and time.monotonic() - debut >= DUREE_MIN_TOUR
-            self._tour_en_attente = assez_long and not self._transcrite
+            if self._tour is not None and self._tour["duree"] is None:
+                self._tour["duree"] = time.monotonic() - self._tour["debut"]
             return
         if isinstance(frame, TranscriptionFrame) and not isinstance(frame, InterimTranscriptionFrame):
-            if (getattr(frame, "text", "") or "").strip():
-                # On entend : ce tour n'est pas sourd, et le compteur repart de zéro.
-                self._transcrite = True
-                self._tour_en_attente = False
-                self._tours_sourds = 0
+            texte = (getattr(frame, "text", "") or "").strip()
+            if texte and self._tour is not None:
+                # Versé au tour en cours, même s'il est déjà terminé : c'est justement le
+                # fantôme en retard qui effaçait la surdité.
+                self._tour["mots"] += len(texte.split())
+                confiance = confiance_de(frame)
+                if confiance is not None:
+                    self._tour["confiances"].append(confiance)
             await self._entendre(frame)
 
-    async def _cloturer_tour(self) -> None:
-        """Un tour de parole s'est terminé sans transcription : est-on devenu sourd ?"""
-        if not self._tour_en_attente:
+    @staticmethod
+    def verdict(tour: dict) -> str:
+        """Ce tour prouve-t-il qu'on entend l'appelant, qu'on ne l'entend pas, ou rien ?"""
+        duree = tour.get("duree")
+        if duree is None:
+            return NEUTRE  # jamais refermé : pas de quoi juger
+        mots = tour.get("mots") or 0
+        if mots == 0:
+            return SOURD if duree >= DUREE_MIN_TOUR else NEUTRE
+        confiances = tour.get("confiances") or []
+        if not confiances:
+            # Pas de mesure de confiance : comme avant, un texte vaut preuve d'écoute.
+            return COMPRIS
+        confiance = sum(confiances) / len(confiances)
+        if (duree >= DUREE_MIN_JUGEMENT and mots / duree < MOTS_PAR_SECONDE_MIN
+                and confiance < CONFIANCE_MIN):
+            return SOURD
+        # Un fragment incertain (« alors » en 0,1 s) ne prouve rien, ni dans un sens ni
+        # dans l'autre : il ne doit surtout pas effacer la surdité déjà constatée.
+        return COMPRIS if confiance >= CONFIANCE_MIN else NEUTRE
+
+    async def _juger_le_tour_precedent(self) -> None:
+        """Un tour vient de se terminer pour de bon : est-on devenu sourd ?"""
+        tour, self._tour = self._tour, None
+        if tour is None or self._fixee is None:
+            # Bilingue : un tour mal entendu est du bruit, pas une surdité.
             return
-        self._tour_en_attente = False
-        if self._fixee is None:
-            # Bilingue : un tour sans transcription est du bruit, pas une surdité.
+        verdict = self.verdict(tour)
+        if verdict == COMPRIS:
+            self._tours_sourds = 0
+            return
+        if verdict == NEUTRE:
             return
         self._tours_sourds += 1
         if self._tours_sourds < TOURS_SOURDS_MAX:
             return
         logger.warning(
-            f"langue de l'appel : {self._tours_sourds} tours de parole sans aucune "
-            f"transcription alors que le STT est fixé sur {self._fixee} — "
-            f"l'appelant a probablement changé de langue, retour au bilingue")
+            f"langue de l'appel : {self._tours_sourds} tours de parole que le STT fixé sur "
+            f"{self._fixee} ne comprend pas (rien, ou des mots fantômes à faible "
+            f"confiance) — l'appelant a probablement changé de langue, retour au bilingue")
         self._tours_sourds = 0
         self._sourd_une_fois = True
         self._fenetre.clear()

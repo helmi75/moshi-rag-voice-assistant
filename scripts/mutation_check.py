@@ -515,6 +515,17 @@ GARDE_FOUS = [
         panne="l'assistante prend un message pour l'équipe au lieu d'une réservation, et "
               "ni le restaurateur ni un rejeu ne peuvent le voir",
     ),
+    GardeFou(
+        nom="Des mots fantômes ne masquent pas la surdité",
+        fichier="api/app/voice/langue.py",
+        avant="                and confiance < CONFIANCE_MIN):",
+        apres="                and False):  # mutation",
+        tests=["test_langue.py"],
+        k="156 or fantome or sourd",
+        panne="appel 156 : fixé sur `fr`, l'anglais produisait « alors », « allô » — un mot "
+              "pour sept secondes, à faible confiance — et la garde, qui ne cherchait que "
+              "l'absence de texte, n'a jamais mordu : l'appelant anglophone a renoncé",
+    ),
 ]
 
 
