@@ -11,6 +11,7 @@ Les imports Pipecat sont faits à l'intérieur des fonctions : ils sont lourds, 
 qui ne construisent pas de pipeline n'ont pas à les payer.
 """
 import asyncio
+import json
 import os
 from typing import Optional
 
@@ -769,9 +770,31 @@ def _octets_enregistres(etat: dict) -> int | None:
     return etat.get("octets")
 
 
+def _decrire_outil(appel) -> str | None:
+    """Un appel d'outil tel qu'un humain le relit : son nom et ce que le modèle y a écrit."""
+    fonction = appel.get("function") if isinstance(appel, dict) else getattr(appel, "function", None)
+    nom = fonction.get("name") if isinstance(fonction, dict) else getattr(fonction, "name", None)
+    if not nom:
+        return None
+    brut = fonction.get("arguments") if isinstance(fonction, dict) else getattr(fonction, "arguments", None)
+    try:
+        arguments = json.loads(brut) if isinstance(brut, str) else (brut or {})
+    except ValueError:
+        arguments = {}
+    details = " · ".join(f"{cle} : {valeur}" for cle, valeur in arguments.items()
+                         if valeur not in (None, "")) if isinstance(arguments, dict) else ""
+    return f"{nom} — {details}"[:240] if details else nom
+
+
 def _extract_transcript(context) -> list[dict] | None:
-    """Extrait les tours user/assistant textuels du LLMContext Pipecat (sans le
-    prompt système ni les appels d'outils). Défensif : au pire None, jamais d'erreur."""
+    """Extrait du LLMContext Pipecat les tours de parole ET les appels d'outils, sans le
+    prompt système ni les résultats bruts des outils. Défensif : au pire None.
+
+    Les appels d'outils y figurent sous le rôle « outil » depuis le 24/09/2026. Avant,
+    ils étaient jetés, et l'appel 152 en a montré le prix : le modèle avait pris DEUX
+    messages pour l'équipe au lieu de la réservation, et rien ne le montrait — ni au
+    restaurateur, qui ne voyait pas qu'un rappel avait été promis, ni au diagnostic : un
+    rejeu à partir de la transcription ne peut pas reproduire ce qui passe par un outil."""
     try:
         get_messages = getattr(context, "get_messages", None)
         messages = get_messages() if callable(get_messages) else getattr(context, "messages", [])
@@ -783,6 +806,13 @@ def _extract_transcript(context) -> list[dict] | None:
             )
             if role in ("user", "assistant") and isinstance(content, str) and content.strip():
                 transcript.append({"role": role, "content": content.strip()})
+            if role == "assistant":
+                appels = (message.get("tool_calls") if isinstance(message, dict)
+                          else getattr(message, "tool_calls", None)) or []
+                for appel in appels:
+                    description = _decrire_outil(appel)
+                    if description:
+                        transcript.append({"role": "outil", "content": description})
         return transcript or None
     except Exception:
         return None
