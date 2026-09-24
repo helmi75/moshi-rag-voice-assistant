@@ -21,6 +21,7 @@ from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
     InterimTranscriptionFrame,
+    LLMContextFrame,
     MetricsFrame,
     StartFrame,
     TranscriptionFrame,
@@ -526,3 +527,70 @@ class TestLangueDeLAppel:
 
     def test_sans_decision_la_langue_reste_vide(self):
         assert JournalDeBord().journal()["langue"] is None
+
+
+class TestCeQueLitLeModele:
+    """SCRUM-89. Le 23/09, le modèle a refusé l'anglais (appel 152), et le contexte gardé
+    par la transcription, rejoué dix fois, n'a jamais reproduit le refus. Le texte que le
+    modèle avait RÉELLEMENT lu n'existait que dans les journaux du conteneur — effacés par
+    le déploiement suivant. Il est désormais gardé dans le journal de bord, en base."""
+
+    @staticmethod
+    def _contexte(*messages):
+        from pipecat.processors.aggregators.llm_context import LLMContext
+
+        return LLMContextFrame(context=LLMContext(
+            messages=[{"role": "system", "content": "consignes"}, *messages]))
+
+    @staticmethod
+    def _lu(j):
+        return [e for e in j.journal()["evenements"] if e["quoi"] == "modele_lit"]
+
+    def test_modele_lit_la_derniere_parole_du_client(self):
+        j = JournalDeBord()
+        _pousser(j, self._contexte(
+            {"role": "user", "content": "Possible to make a in English?"},
+            {"role": "assistant", "content": "Yes, I can take your reservation in English."},
+            {"role": "user", "content": "I want to make a reservation in English."}), 1000)
+        [lu] = self._lu(j)
+        assert lu["texte"] == "I want to make a reservation in English."
+        assert lu["dernier"] == "user"
+        assert lu["messages"] == 4
+
+    def test_modele_lit_une_relance_apres_outil_se_distingue(self):
+        """Après un outil, le modèle est relancé sur le MÊME dernier propos : « dernier »
+        dit que c'est une relance, pas une nouvelle parole de l'appelant."""
+        j = JournalDeBord()
+        _pousser(j, self._contexte(
+            {"role": "user", "content": "Une table pour deux"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "type": "function",
+                 "function": {"name": "check_availability", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "{}"}), 1000)
+        [lu] = self._lu(j)
+        assert lu["texte"] == "Une table pour deux"
+        assert lu["dernier"] == "tool"
+
+    def test_modele_lit_un_texte_borne(self):
+        """Une phrase à relire, pas une seconde transcription du journal."""
+        j = JournalDeBord()
+        _pousser(j, self._contexte({"role": "user", "content": "mot " * 200}), 1000)
+        assert len(self._lu(j)[0]["texte"]) <= 200
+
+    def test_modele_lit_un_contexte_illisible_sans_faire_tomber_l_appel(self):
+        j = JournalDeBord()
+        _pousser(j, LLMContextFrame(context=object()), 1000)
+        [lu] = self._lu(j)
+        assert lu["texte"] is None and lu["messages"] == 0
+
+    def test_les_arguments_de_l_outil_sont_gardes(self):
+        """C'est dans ses arguments que le modèle a écrit « je ne peux pas basculer dans
+        cette langue » : les garder, c'est lire sa raison."""
+        j = JournalDeBord()
+        _pousser(j, FunctionCallInProgressFrame(
+            function_name="take_message", tool_call_id="1",
+            arguments={"subject": "Client anglophone", "details": "je ne peux pas basculer"},
+            cancel_on_interruption=False), 1000)
+        [outil] = [e for e in j.journal()["evenements"] if e["quoi"] == "outil"]
+        assert outil["nom"] == "take_message"
+        assert "je ne peux pas basculer" in outil["arguments"]

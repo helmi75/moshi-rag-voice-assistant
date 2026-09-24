@@ -466,6 +466,12 @@ tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
   align-self: flex-end; background: var(--app-accent); color: #fff;
   border-bottom-right-radius: 6px;
 }
+/* Une action de l'assistante, pas une parole : centrée, discrète, jamais une bulle. */
+.transcript .outil {
+  align-self: center; max-width: 92%; background: transparent; color: var(--app-muted);
+  border: 1px dashed var(--app-muted); border-radius: 8px;
+  font-size: .78rem; padding: .3rem .7rem;
+}
 
 /* ---- Fiches de connaissance --------------------------------------------- */
 .kb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: .9rem; }

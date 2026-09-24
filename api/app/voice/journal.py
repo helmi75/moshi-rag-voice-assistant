@@ -74,6 +74,7 @@ frames n'est pas celui qu'on imagine** :
    26 496 ms. On la met en attente et on la consomme à l'ouverture du tour, comme le
    texte entendu.
 """
+import json
 import os
 from collections import OrderedDict
 from typing import Optional
@@ -84,6 +85,7 @@ from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
     InterimTranscriptionFrame,
+    LLMContextFrame,
     MetricsFrame,
     StartFrame,
     TranscriptionFrame,
@@ -163,6 +165,45 @@ def _confiance(frame) -> Optional[float]:
         return round(float(valeur), 3)
     except Exception:
         return None
+
+
+# Assez pour relire une phrase, pas assez pour faire du journal une seconde transcription.
+_LU_MAX = 200
+
+
+def _champ_message(message, nom):
+    return message.get(nom) if isinstance(message, dict) else getattr(message, nom, None)
+
+
+def _ce_que_lit_le_modele(contexte) -> tuple[Optional[str], Optional[str], int]:
+    """La dernière parole de l'appelant telle que le modèle va la lire, le rôle du tout
+    dernier message (« user », ou « tool » quand le modèle est relancé après un outil),
+    et la taille du contexte. Défensif : la forme des messages appartient à Pipecat."""
+    try:
+        messages = list(contexte.get_messages())
+    except Exception:
+        messages = list(getattr(contexte, "messages", None) or [])
+    dernier = _champ_message(messages[-1], "role") if messages else None
+    for message in reversed(messages):
+        if _champ_message(message, "role") != "user":
+            continue
+        contenu = _champ_message(message, "content")
+        if isinstance(contenu, list):  # contenu en parties (format multimodal)
+            contenu = " ".join(p.get("text", "") for p in contenu if isinstance(p, dict))
+        return " ".join(str(contenu or "").split())[:_LU_MAX] or None, dernier, len(messages)
+    return None, dernier, len(messages)
+
+
+def _arguments_lisibles(arguments) -> Optional[str]:
+    """Les arguments d'un outil, tels que le modèle les a écrits : c'est là que l'appel 152
+    disait « je ne peux pas basculer dans cette langue »."""
+    if not arguments:
+        return None
+    try:
+        texte = json.dumps(arguments, ensure_ascii=False) if not isinstance(arguments, str) else arguments
+    except (TypeError, ValueError):
+        texte = str(arguments)
+    return texte[:_LU_MAX]
 
 
 class JournalDeBord(BaseObserver):
@@ -330,10 +371,23 @@ class JournalDeBord(BaseObserver):
             self._noter(t, "entendu", texte=texte[:120])
             return
 
+        # --- ce que le modèle LIT, à l'instant où il est déclenché ---------------
+        # Appel 152 (23/09/2026) : le modèle a refusé l'anglais, et le contexte que la
+        # transcription a gardé, rejoué dix fois, n'a JAMAIS reproduit le refus. La
+        # transcription garde le texte FINAL ; le modèle, lui, est déclenché sur ce qui
+        # existe à la fin de tour — 86 ms avant la transcription finale ce jour-là, sur un
+        # appel à 47 révisions. Les journaux du conteneur, qui imprimaient ce contexte,
+        # ont été effacés par le déploiement suivant. On le garde donc ICI, en base.
+        if isinstance(frame, LLMContextFrame):
+            lu, dernier, taille = _ce_que_lit_le_modele(getattr(frame, "context", None))
+            self._noter(t, "modele_lit", texte=lu, dernier=dernier, messages=taille)
+            return
+
         # --- outils -----------------------------------------------------------
         if isinstance(frame, FunctionCallInProgressFrame):
             self._debut_outil = t
-            self._noter(t, "outil", nom=getattr(frame, "function_name", None))
+            self._noter(t, "outil", nom=getattr(frame, "function_name", None),
+                        arguments=_arguments_lisibles(getattr(frame, "arguments", None)))
             return
 
         if isinstance(frame, FunctionCallResultFrame):

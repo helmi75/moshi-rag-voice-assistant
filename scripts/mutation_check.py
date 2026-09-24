@@ -494,6 +494,27 @@ GARDE_FOUS = [
         panne="cinq appels perdus d'affilée pèsent 5 sur 20 dans la semaine : la "
               "proportion dirait « attention » pendant que la ligne est muette",
     ),
+    GardeFou(
+        nom="Le journal garde ce que le modèle a réellement lu",
+        fichier="api/app/voice/journal.py",
+        avant="        if isinstance(frame, LLMContextFrame):",
+        apres="        if False:  # mutation",
+        tests=["test_journal.py"],
+        k="modele_lit",
+        panne="appel 152 : le modèle a refusé l'anglais, le contexte enregistré ne le "
+              "reproduisait pas, et les journaux du conteneur qui montraient ce qu'il avait "
+              "lu ont été effacés au déploiement suivant — plus aucun moyen de savoir",
+    ),
+    GardeFou(
+        nom="Les appels d'outils figurent dans la transcription",
+        fichier="api/app/voice/bot.py",
+        avant='                        transcript.append({"role": "outil", "content": description})',
+        apres="                        pass  # mutation",
+        tests=["test_transcription.py"],
+        k="outil or equipe",
+        panne="l'assistante prend un message pour l'équipe au lieu d'une réservation, et "
+              "ni le restaurateur ni un rejeu ne peuvent le voir",
+    ),
 ]
 
 
