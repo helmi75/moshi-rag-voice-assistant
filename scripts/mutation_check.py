@@ -146,8 +146,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Détection des appels muets",
         fichier="api/app/supervision.py",
-        avant='    return any(isinstance(t, dict) and t.get("role") == "assistant" for t in tours)',
-        apres="    return True  # mutation",
+        avant='    return any(t.get("role") == "assistant" and _sans_decor(t.get("content"), decor)',
+        apres='    return True or any(t.get("role") == "assistant" and _sans_decor(t.get("content"), decor)',
         tests=["test_supervision.py"],
         k="muet",
         panne="la panne du 30/07 (appels sans un mot, tout en HTTP 200) redeviendrait invisible",
