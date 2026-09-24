@@ -104,6 +104,28 @@ class TestBuildSystemPrompt:
         prompt = llm.build_system_prompt(_tenant()).lower()
         assert any(formule in prompt for formule in _FORMULES_DE_CONGE)
 
+    def test_l_anglais_des_la_premiere_phrase_mais_pas_sur_deux_mots(self):
+        """SCRUM-89, mesuré au banc le 24/09/2026 sur de vrais appels : un appelant qui
+        commence en anglais recevait une réponse EN FRANÇAIS 15 à 19 fois sur 20 (appel
+        153). L'ancienne règle disait « continue en anglais » : le modèle attendait qu'on
+        ait commencé. Mais « réponds dans la langue de la dernière phrase », essayé aussi,
+        faisait basculer 17 Français sur 20 au moment de confirmer, parce qu'en bilingue
+        « C'est ça » est transcrit « Yes, sir. » (mesuré le 10/09). Les deux moitiés de la
+        règle se tiennent : les retirer l'une sans l'autre refait l'une des deux pannes."""
+        prompt = " ".join(llm.build_system_prompt(_tenant()).split())
+        assert "Réponds en anglais DÈS sa première phrase" in prompt
+        assert "même si ton accueil était en français" in prompt
+        assert "Deux ou trois mots (« Yes, sir. », « Okay. ») ne changent pas la langue" in prompt
+
+    def test_elle_ne_pretend_jamais_ne_parler_que_francais(self):
+        """SCRUM-89, appel 152 : elle ENTENDAIT l'anglais et a répondu « je ne peux
+        communiquer qu'en français ». La consigne le dit désormais en toutes lettres, dans le
+        prompt ET dans l'outil où elle s'est réfugiée."""
+        prompt = " ".join(llm.build_system_prompt(_tenant()).split())
+        assert "Ne dis jamais que tu ne parles que français" in prompt
+        [outil] = [o for o in llm.TOOLS if o["name"] == "take_message"]
+        assert "JAMAIS parce que le client parle anglais" in outil["description"]
+
     def test_reste_compact(self):
         """Le prompt est renvoyé à chaque tour : au-delà, on paie en latence.
 
