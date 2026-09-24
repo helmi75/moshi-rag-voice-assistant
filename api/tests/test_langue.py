@@ -21,15 +21,19 @@ from pipecat.transcriptions.language import Language
 from app.voice import langue as L
 
 
-def _finale(texte, langues):
-    """Une transcription finale telle que Deepgram `multi` la renvoie : une langue par mot."""
+def _finale(texte, langues, confiance=None):
+    """Une transcription finale telle que Deepgram `multi` la renvoie : une langue par mot,
+    et la confiance de Deepgram quand le test en a besoin."""
     mots = texte.split()
     if isinstance(langues, str):
         langues = [langues] * len(mots)
-    brut = {"channel": {"alternatives": [{
+    alternative = {
         "transcript": texte,
         "words": [{"word": m, "language": l} for m, l in zip(mots, langues)],
-    }]}}
+    }
+    if confiance is not None:
+        alternative["confidence"] = confiance
+    brut = {"channel": {"alternatives": [alternative]}}
     return TranscriptionFrame(texte, "u", "2026-09-10T12:00:00Z", result=brut)
 
 
@@ -191,15 +195,18 @@ def _ouvrir_la_bouche(d):
     asyncio.run(d.process_frame(UserStartedSpeakingFrame(), FrameDirection.DOWNSTREAM))
 
 
-def _parler(d, horloge, duree=2.0, texte=None, langues="fr"):
+def _parler(d, horloge, duree=2.0, texte=None, langues="fr", confiance=None, tardive=False):
     """Un tour de parole vu par le pipeline : le VAD l'ouvre, la transcription arrive
-    s'il y en a une, le VAD le referme."""
+    s'il y en a une — avant la fin du tour, ou APRÈS si `tardive` —, le VAD le referme."""
     async def scenario():
         await d.process_frame(UserStartedSpeakingFrame(), FrameDirection.DOWNSTREAM)
         horloge.avancer(duree)
-        if texte is not None:
-            await d.process_frame(_finale(texte, langues), FrameDirection.DOWNSTREAM)
+        finale = _finale(texte, langues, confiance) if texte is not None else None
+        if finale is not None and not tardive:
+            await d.process_frame(finale, FrameDirection.DOWNSTREAM)
         await d.process_frame(UserStoppedSpeakingFrame(), FrameDirection.DOWNSTREAM)
+        if finale is not None and tardive:
+            await d.process_frame(finale, FrameDirection.DOWNSTREAM)
     asyncio.run(scenario())
 
 
@@ -270,3 +277,90 @@ class TestOnNeResteJamaisSourd:
         _parler(d, horloge, texte="Bon d'accord je reprends en français alors")
         assert d.langue == "fr"
         assert _reglages(poussees)[-1] == ("reglage", "multi")
+
+
+class TestLesMotsFantomes:
+    """Appel 156, 24/09/2026. Fixé sur `fr`, l'anglais de l'ami de Helmi n'a pas produit
+    RIEN, comme sur l'appel 152 : il a produit « alors », « allô » — un mot pour sept
+    secondes de parole, à faible confiance, souvent JUSTE APRÈS la fin du tour. Chaque
+    fantôme effaçait la surdité en attente : la garde n'a jamais mordu, et l'appelant a
+    renoncé. Les chiffres ci-dessous sont ceux du journal de bord de cet appel."""
+
+    def _verrouille(self, monkeypatch):
+        horloge = _Horloge()
+        monkeypatch.setattr(L.time, "monotonic", horloge)
+        d, poussees, _ = _detecteur()
+        _parler(d, horloge, duree=8.9, confiance=0.96,
+                texte="Oui bonjour je vais vous passer quelqu'un qui parle anglais")
+        assert _reglages(poussees) == [("reglage", "fr")]
+        return d, poussees, horloge
+
+    def test_l_appel_156_rejoue_bascule_au_deuxieme_tour_anglais(self, monkeypatch):
+        d, poussees, horloge = self._verrouille(monkeypatch)
+        _parler(d, horloge, duree=6.979, texte="Hello,", confiance=0.56)   # sourd
+        _parler(d, horloge, duree=0.107, texte="alors", confiance=0.35)    # fantôme : neutre
+        _parler(d, horloge, duree=2.338, texte="alors,", confiance=0.77)   # sourd
+        _ouvrir_la_bouche(d)
+        assert _reglages(poussees) == [("reglage", "fr"), ("reglage", "multi")]
+
+    def test_un_fantome_en_retard_n_efface_plus_la_surdite(self, monkeypatch):
+        """La transcription arrive APRÈS la fin du tour : elle doit être jugée avec lui,
+        pas effacer ce qu'on en avait conclu."""
+        d, poussees, horloge = self._verrouille(monkeypatch)
+        _parler(d, horloge, duree=4.053, texte="Allô.", confiance=0.43, tardive=True)
+        _parler(d, horloge, duree=2.834, texte="Alors,", confiance=0.53, tardive=True)
+        _ouvrir_la_bouche(d)
+        assert _reglages(poussees)[-1] == ("reglage", "multi")
+
+    def test_un_bonjour_francais_etire_reste_compris(self, monkeypatch):
+        """Un seul mot en 2,6 s, c'est aussi un « Bonjour » français — mais à 0,99 de
+        confiance. Le débit seul aurait fait basculer dix appels français."""
+        d, poussees, horloge = self._verrouille(monkeypatch)
+        for _ in range(3):
+            _parler(d, horloge, duree=2.6, texte="Bonjour", confiance=0.99)
+        _ouvrir_la_bouche(d)
+        assert _reglages(poussees) == [("reglage", "fr")]
+
+    def test_un_francais_hesitant_mais_compris_ne_bascule_pas(self, monkeypatch):
+        """Appel 156 à 236 s : dix mots en six secondes, avec des pauses — 1,6 mot/s,
+        le plus lent des tours français compris. Il doit remettre le compteur à zéro."""
+        d, poussees, horloge = self._verrouille(monkeypatch)
+        _parler(d, horloge, duree=6.979, texte="Hello,", confiance=0.56)
+        _parler(d, horloge, duree=6.072, confiance=0.92,
+                texte="voilà donc elle n'a pas su répondre en anglais voilà")
+        _parler(d, horloge, duree=4.053, texte="Allô.", confiance=0.43)
+        _ouvrir_la_bouche(d)
+        assert _reglages(poussees) == [("reglage", "fr")]
+
+
+class TestVerdictDUnTour:
+    """Les verdicts sur les valeurs RÉELLES du journal de bord (appels 152 et 156)."""
+
+    @staticmethod
+    def _v(duree, mots, confiances):
+        return L.DetecteurDeLangue.verdict(
+            {"duree": duree, "mots": mots, "confiances": confiances})
+
+    def test_long_quasi_vide_et_peu_sur_est_sourd(self):
+        assert self._v(6.979, 1, [0.56]) == L.SOURD      # « Hello, » (156)
+        assert self._v(2.975, 1, [0.28]) == L.SOURD      # « Allô » (152)
+
+    def test_parole_sans_texte_est_sourde(self):
+        assert self._v(2.0, 0, []) == L.SOURD
+
+    def test_une_toux_sans_texte_est_neutre(self):
+        assert self._v(0.3, 0, []) == L.NEUTRE
+
+    def test_un_fragment_court_et_incertain_est_neutre(self):
+        assert self._v(0.107, 1, [0.35]) == L.NEUTRE     # « alors » (156)
+
+    def test_le_francais_compris_remet_a_zero(self):
+        assert self._v(8.851, 29, [0.96]) == L.COMPRIS
+        assert self._v(2.6, 1, [0.99]) == L.COMPRIS      # « Bonjour » étiré
+
+    def test_sans_mesure_de_confiance_un_texte_vaut_ecoute(self):
+        """Le comportement d'avant, gardé tel quel quand le fournisseur ne dit rien."""
+        assert self._v(6.0, 1, []) == L.COMPRIS
+
+    def test_un_tour_jamais_referme_n_est_pas_juge(self):
+        assert self._v(None, 0, []) == L.NEUTRE
