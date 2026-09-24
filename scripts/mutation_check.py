@@ -473,6 +473,27 @@ GARDE_FOUS = [
         k="ressemble",
         panne="une phrase dictée comme nom deviendrait du texte libre dans les consignes de l'appel suivant",
     ),
+    GardeFou(
+        nom="L'accueil pré-rendu ne passe pas pour une réponse",
+        fichier="api/app/supervision.py",
+        avant="        tours = tours[1:]  # l'accueil d'ouverture : il part même serveur de voix mort",
+        apres="        pass  # mutation",
+        tests=["test_supervision.py"],
+        k="accueil_seul",
+        panne="le 23/09 : plus de GPU en Europe, cinq appels perdus sur la musique "
+              "d'attente, et le contrôle « Appels muets » au vert parce que l'accueil — "
+              "joué SANS GPU — comptait comme une réponse",
+    ),
+    GardeFou(
+        nom="Une ligne muette en ce moment est une panne, pas une moyenne",
+        fichier="api/app/supervision.py",
+        avant="    if d_affilee:",
+        apres="    if False:  # mutation",
+        tests=["test_supervision.py"],
+        k="d_affilee",
+        panne="cinq appels perdus d'affilée pèsent 5 sur 20 dans la semaine : la "
+              "proportion dirait « attention » pendant que la ligne est muette",
+    ),
 ]
 
 

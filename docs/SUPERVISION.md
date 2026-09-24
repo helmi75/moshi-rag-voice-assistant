@@ -44,7 +44,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Configuration du chemin d'appel | Une des quatre variables du chemin d'appel manque, ou `PUBLIC_WS_URL` contient une espace — l'appel raccroche alors sans un mot | oui |
 | Signature des requêtes Twilio | Jeton absent ou vérification coupée (attention) ; en `log`, des requêtes qui seraient refusées (attention : vérifier `PUBLIC_URL`) ; en `enforce`, **toutes** refusées = l'URL publique n'est plus celle que Twilio signe, plus un appel n'aboutit | oui, si tout est refusé |
 | Jeton du serveur de voix | `MOSHI_TTS_API_KEY` vide ou égale à `public_token`, la clé de démonstration connue de tous : qui trouve l'URL Modal fait tourner le GPU à nos frais | non |
-| Appels muets | Appel `completed`, plus de 15 s, **pas un tour** de l'assistante. La signature exacte du 30/07 | si majoritaire |
+| Appels muets | Appel `completed`, plus de 15 s, **aucune réponse venue du modèle** : l'accueil pré-rendu, la reprise et les relances ne comptent pas, puisqu'ils partent sans lui. Voit la panne LLM du 30/07 comme la panne GPU du 23/09 | si majoritaire, **ou si les 3 derniers appels n'ont rien obtenu** |
 | Appels en échec | Le pipeline a levé une erreur pendant l'appel | si majoritaire |
 | Appels jamais clôturés | `finish_call` n'a pas tourné : le worker est mort avec l'appel | si majoritaire |
 | Blanc ressenti | Dérive de la latence (mesuré en prod : 1,16 s ; attention à 2,5 s, panne à 4 s) | oui |
@@ -104,5 +104,22 @@ de livrer un correctif, et une porte qui se ferme pour des motifs sans rapport f
 Trois mutations de `scripts/mutation_check.py` coupent le fil de l'alarme à trois
 endroits — la sonde qui renvoie toujours 200, le verdict global forcé au vert, la
 détection des appels muets désarmée. Chacune doit faire **rougir** les tests.
+
+### L'angle mort du 23/09/2026
+
+Modal n'avait plus de GPU L4 en Europe. Cinq appels (145 à 149) ont entendu l'accueil, la
+musique d'attente, puis plus rien — et **tous les contrôles sont restés verts**. « Appels
+muets » comptait *n'importe quel* tour de l'assistante, or l'accueil est un WAV pré-rendu
+joué **sans GPU** : il figurait en tête de chaque transcription. La même cécité masquait déjà
+la panne du 30/07, que ce contrôle avait été écrit pour voir : la reprise et les relances, dites
+sans le modèle, remplissaient la transcription.
+
+Rejoué sur les 25 vrais appels 130 à 154 : l'ancien contrôle n'en signalait **aucun** ; le
+nouveau signale les 5 appels de la panne **et l'appel 130** du 19/09, resté deux minutes sans
+réponse pendant la rotation de la clé du serveur de voix — une panne passée inaperçue jusque-là.
+Aucune fausse alerte.
+
+On ne sonde **pas** le serveur de voix en direct : chaque sonde réveillerait le GPU et casserait
+la mise en veille, qui fait l'essentiel des économies. La panne se lit dans les vrais appels.
 Une supervision est le garde-fou le plus facile à rendre décoratif : elle a l'air de
 marcher tant qu'on ne provoque pas la panne.

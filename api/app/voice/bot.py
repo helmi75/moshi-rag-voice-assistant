@@ -224,6 +224,22 @@ _RELANCES = {
 }
 
 
+def phrases_du_pipeline() -> frozenset[str]:
+    """Tout ce que l'assistante dit SANS le modèle : la reprise après l'attente et les
+    relances d'un silence.
+
+    La supervision s'en sert pour distinguer un appel où l'assistante a vraiment
+    RÉPONDU d'un appel où seul le décor a fonctionné. Lu ici, à côté des phrases
+    elles-mêmes : une relance ajoutée demain y entre sans que personne y pense."""
+    from . import greeting
+
+    return frozenset({
+        greeting.texte_de_reprise(True),
+        greeting.texte_de_reprise(False),
+        *(texte for textes in _RELANCES.values() for texte in textes),
+    })
+
+
 def relance(n: int, langue: str | None) -> tuple[str, bool]:
     """La n-ième relance (1, 2, 3…) dans la langue de l'appel, et s'il faut raccrocher
     après l'avoir dite. Langue inconnue → français, la langue de l'accueil."""
