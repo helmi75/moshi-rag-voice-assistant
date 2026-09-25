@@ -46,6 +46,23 @@
           {% endfor %}
         </select>
       </label>
+      {# Où partent les réservations prises au téléphone. La clé resOS ne passe jamais
+         par ce formulaire : elle se pose dans le .env du serveur. #}
+      <label>Carnet de réservations
+        <select name="booking_provider">
+          <option value="interne" {{ "selected" if not tenant or tenant.booking_provider in (None, "", "interne") }}>Helmane (interne)</option>
+          <option value="resos" {{ "selected" if tenant and tenant.booking_provider == "resos" }}>resOS — demandes à valider par le restaurant</option>
+        </select>
+        {% if tenant and tenant.booking_provider == "resos" %}
+          {% if cle_resos_posee(tenant.id) %}
+          <small class="muted">Clé API resOS posée sur le serveur.</small>
+          {% else %}
+          <small style="color: var(--app-bad, #b42318)">Clé API resOS absente : ajouter
+            <code>{{ tenant.id }}=…</code> à <code>RESOS_API_KEYS</code> dans le .env du serveur.
+            Sans elle, l'assistante prend un message au lieu de réserver.</small>
+          {% endif %}
+        {% endif %}
+      </label>
       {% endif %}
       <label>Langue
         <input name="language" value="{{ tenant.language if tenant else 'fr-FR' }}">

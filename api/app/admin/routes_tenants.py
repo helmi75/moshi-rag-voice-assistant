@@ -8,7 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from .. import db, plans, taches, tenants, users
+from .. import connecteurs, db, plans, taches, tenants, users
+from ..connecteurs import resos
 from ..users import User
 from . import deps
 
@@ -30,6 +31,9 @@ _SEPARATEURS = re.compile(r"[\s.\-()]")
 # de moins en moins bien. 12 000 caractères ≈ 3 000 tokens ; la base démo en fait 600.
 KB_MAX = 12_000
 deps.templates.env.globals["KB_MAX"] = KB_MAX
+# La fiche dit si la clé resOS de l'établissement est posée — jamais sa valeur : elle
+# vit dans le .env du serveur (RESOS_API_KEYS), pas dans un formulaire.
+deps.templates.env.globals["cle_resos_posee"] = lambda tenant_id: bool(resos.cle_pour(tenant_id))
 
 
 def _numero(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -96,6 +100,7 @@ async def tenant_create(
     knowledge_base: str = Form(""),
     plan: Optional[str] = Form(None),
     notify_email: Optional[str] = Form(None),
+    booking_provider: Optional[str] = Form(None),
 ):
     adresse, erreur = _email_de_notification(notify_email)
     numero, erreur_numero = _numero(phone_number)
@@ -123,6 +128,8 @@ async def tenant_create(
     # naîtrait sur la formule par défaut sans que personne ne l'ait décidé.
     if plans.get(plan) is not None:
         await db.hors_boucle(tenants.update_tenant, tenant.id, plan=plan)
+    if booking_provider in connecteurs.FOURNISSEURS:
+        await db.hors_boucle(tenants.update_tenant, tenant.id, booking_provider=booking_provider)
     if adresse:
         await db.hors_boucle(tenants.update_tenant, tenant.id, notify_email=adresse)
     await _prerender_greeting(tenant.id)
@@ -153,6 +160,7 @@ async def tenant_update(
     knowledge_base: str = Form(""),
     plan: Optional[str] = Form(None),
     notify_email: Optional[str] = Form(None),
+    booking_provider: Optional[str] = Form(None),
 ):
     tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     adresse, erreur = _email_de_notification(notify_email)
@@ -184,6 +192,10 @@ async def tenant_update(
     # donc pas inscrire un plafond que personne n'a vendu.
     if user.is_superadmin and plans.get(plan) is not None:
         fields["plan"] = plan
+    # Le carnet aussi : il décide où partent les réservations du restaurant. Une valeur
+    # hors liste est ignorée, jamais écrite.
+    if user.is_superadmin and booking_provider in connecteurs.FOURNISSEURS:
+        fields["booking_provider"] = booking_provider
     greeting_changed = (greeting.strip() or None) != tenant.greeting
     try:
         await db.hors_boucle(tenants.update_tenant, tenant.id, **fields)

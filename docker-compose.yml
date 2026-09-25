@@ -131,6 +131,9 @@ services:
       MOSHI_RESUME_TEXT:
       MOSHI_RESUME_TEXT_CHAUD:
       MOSHI_INDISPONIBLE_TEXT:
+      # Carnet resOS (app/connecteurs/resos.py) : RESOS_API_KEYS="<id établissement>=<clé>,…".
+      RESOS_API_KEYS:
+      RESOS_API_URL:
       MOSHI_TTS_OPEN_TIMEOUT:
       MOSHI_WARMUP_TEXT:
       GREETING_CACHE_DIR:

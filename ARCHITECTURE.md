@@ -52,6 +52,14 @@ Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.p
 ignore le transport. `llm.run_tool` est le seul point où un outil touche aux données,
 pour la voix comme pour le SMS.
 
+**Le carnet de réservations** (`connecteurs/`) : `run_tool` ne sait pas non plus *où*
+part une réservation. Il demande `connecteurs.pour(tenant)` et parle à une interface
+commune — chercher un créneau, créer, retrouver par numéro, modifier, annuler. Deux
+carnets : le nôtre (`reservations.py`, par défaut) et resOS (`connecteurs/resos.py`,
+réglé par établissement dans l'admin, clé dans `RESOS_API_KEYS`). Tout ce qui n'est pas
+une réponse sûre de resOS devient un refus que le modèle relit : il n'annonce jamais une
+réservation que personne ne verra. Détails, hypothèses et limites : `docs/RESOS.md`.
+
 ## Les outils et ce que le serveur refuse
 
 Le modèle propose, le serveur dispose. `llm.run_tool` refuse — avec un message que le

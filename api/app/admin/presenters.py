@@ -31,7 +31,7 @@ def voice_label(tenant=None) -> str:
 def outcome_key(call: dict) -> str:
     if call.get("status") == "failed":
         return "failed"
-    if call.get("reservation_id"):
+    if call.get("reservation_id") or call.get("reservation_externe"):
         return "reservation"
     if not call.get("ended_at"):
         # Le worker n'a jamais clôturé l'appel (arrêt brutal) : l'appel n'est pas

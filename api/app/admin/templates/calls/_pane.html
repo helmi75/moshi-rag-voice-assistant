@@ -19,6 +19,12 @@
   {{ reservation.date }} à {{ reservation.time }}{% if reservation.notes %} · {{ reservation.notes }}{% endif %}
   <a href="/admin/reservations?date_from={{ reservation.date }}">Voir la réservation</a>
 </div>
+{% elif call.reservation_externe %}
+{# Écrite dans le carnet du restaurant (resOS), pas chez nous : on n'en a que la référence. #}
+<div class="callout">
+  <b>Demande de réservation envoyée à resOS pendant cet appel</b>
+  À valider par le restaurant dans resOS · référence <code>{{ call.reservation_externe }}</code>
+</div>
 {% elif call.outcome == 'failed' %}
 <div class="callout" style="background: var(--app-bad-soft)">
   <b>Appel en échec</b>
