@@ -485,6 +485,48 @@ GARDE_FOUS = [
               "joué SANS GPU — comptait comme une réponse",
     ),
     GardeFou(
+        nom="Un établissement resOS écrit dans resOS",
+        fichier="api/app/connecteurs/__init__.py",
+        avant="    if fournisseur(tenant) == RESOS:",
+        apres="    if False:  # mutation",
+        tests=["test_connecteurs.py"],
+        k="resos_ecrit_dans_resos",
+        panne="les réservations d'un restaurant sous resOS partiraient dans NOTRE base : "
+              "confirmées au client, invisibles en salle",
+    ),
+    GardeFou(
+        nom="Le créneau est revérifié juste avant d'écrire dans resOS",
+        fichier="api/app/connecteurs/resos.py",
+        avant=("        if heure not in libres:\n"
+               "            raise Complet(_plus_proches(libres, heure))\n"
+               "        invite = "),
+        apres="        invite = ",
+        tests=["test_connecteurs.py"],
+        k="complet",
+        panne="resOS accepte peut-être en silence un créneau complet (question 5 de "
+              "SCRUM-82) : le restaurant recevrait une demande impossible à honorer",
+    ),
+    GardeFou(
+        nom="resOS ne rend à un appelant que SES réservations",
+        fichier="api/app/connecteurs/resos.py",
+        avant='                and _chiffres((b.get("guest") or {}).get("phone")) == numero]',
+        apres="                ]  # mutation",
+        tests=["test_connecteurs.py"],
+        k="ignorait_le_filtre",
+        panne="si resOS ignorait le filtre par numéro, l'assistante lirait à un appelant "
+              "les réservations de tout le carnet",
+    ),
+    GardeFou(
+        nom="resOS injoignable : rien n'est annoncé comme enregistré",
+        fichier="api/app/llm.py",
+        avant="    except connecteurs.Injoignable as exc:",
+        apres="    except ZeroDivisionError as exc:  # mutation",
+        tests=["test_connecteurs.py"],
+        k="Injoignable",
+        panne="une panne de resOS remonterait en « Erreur outil » : le modèle improvise, "
+              "et peut dire « c'est noté » pour une réservation que personne ne verra",
+    ),
+    GardeFou(
         nom="GPU introuvable : l'appelant entend qu'il faut rappeler",
         fichier="api/app/voice/greeting.py",
         avant="            message = None if pret else cached_indisponible_path(tenant)",

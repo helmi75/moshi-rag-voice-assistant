@@ -194,6 +194,17 @@ CREATE INDEX IF NOT EXISTS idx_reservations_appelant
 CREATE INDEX IF NOT EXISTS idx_calls_appelant ON calls(caller_number);
 DROP INDEX IF EXISTS idx_reservations_tenant;
 """,
+    # v14 — carnet de réservations par établissement (SCRUM-83, app/connecteurs/).
+    # booking_provider NULL = le nôtre, comme avant : le parc existant n'a rien à régler.
+    # calls.reservation_externe : l'identifiant d'une réservation écrite dans un carnet
+    # externe (resOS). reservation_id est une clé étrangère vers NOTRE table : elle
+    # refuserait un identifiant qui n'existe pas chez nous. La clé API resOS, elle, n'est
+    # PAS ici : elle ouvre toutes les données du restaurant et la base part dans les
+    # sauvegardes — elle vit dans le .env (RESOS_API_KEYS).
+    """
+ALTER TABLE tenants ADD COLUMN booking_provider TEXT;
+ALTER TABLE calls ADD COLUMN reservation_externe TEXT;
+""",
 ]
 
 

@@ -50,6 +50,9 @@ class Tenant:
     opening_hours: Optional[str] = None
     # Adresse de notification en plus des comptes restaurateurs (app/notifications.py).
     notify_email: Optional[str] = None
+    # Carnet de réservations (app/connecteurs/) : None ou « interne » = le nôtre,
+    # « resos » = celui de resOS. Réglé par le super-admin seulement.
+    booking_provider: Optional[str] = None
 
 
 def _row_to_tenant(row) -> Tenant:
@@ -65,6 +68,7 @@ def _row_to_tenant(row) -> Tenant:
         plan=row["plan"],
         opening_hours=row["opening_hours"],
         notify_email=row["notify_email"],
+        booking_provider=row["booking_provider"],
     )
 
 
@@ -147,7 +151,7 @@ def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     conflit."""
     allowed = {"name", "business_type", "phone_number", "language", "greeting",
                "knowledge_base", "greeting_customized", "voice", "plan", "opening_hours",
-               "notify_email"}
+               "notify_email", "booking_provider"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_by_id(tenant_id)

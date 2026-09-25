@@ -17,13 +17,13 @@ from typing import Optional
 
 from loguru import logger
 
-from .. import db, llm, reservations, taches
+from .. import llm, taches
 from ..tenants import Tenant
 
 
 def make_tool_handler(
     tenant: Tenant,
-    created_reservations: list[int] | None = None,
+    created_reservations: list[int | str] | None = None,
     caller_number: str | None = None,
     call_id: int | None = None,
 ):
@@ -52,7 +52,9 @@ def make_tool_handler(
 
                 rid = json.loads(result).get("reservation_id")
                 if rid:
-                    created_reservations.append(int(rid))
+                    # Entier : notre carnet. Texte : l'identifiant d'un carnet externe
+                    # (resOS), qui n'a pas de ligne chez nous.
+                    created_reservations.append(rid)
             except (ValueError, TypeError, AttributeError):
                 pass  # résultat d'erreur ou format inattendu : pas de lien de résa
         await params.result_callback(result)
@@ -482,13 +484,15 @@ async def run_bot(
     nom_connu = None
     if caller_number:
         try:
-            nom_connu = await db.hors_boucle(reservations.dernier_nom, tenant.id, caller_number)
+            from .. import connecteurs
+
+            nom_connu = await connecteurs.pour(tenant).dernier_nom(caller_number)
         except Exception as exc:
             logger.warning(f"nom du dernier passage introuvable (sans conséquence): {exc}")
     prompt_systeme = llm.build_system_prompt(tenant, appelant=nom_connu)
 
     # Journal des appels : collecte les réservations créées pendant CET appel.
-    created_reservations: list[int] = []
+    created_reservations: list[int | str] = []
     tool_handler = make_tool_handler(tenant, created_reservations, caller_number, call_id)
     for tool in llm.TOOLS:
         llm_service.register_function(tool["name"], tool_handler)

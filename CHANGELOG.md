@@ -7,6 +7,30 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le carnet resOS (SCRUM-82 à 85, 25/09/2026)
+
+Un établissement peut écrire ses réservations dans **resOS**, le logiciel de réservation du
+restaurant, au lieu de notre base. resOS n'ayant ni bac à sable ni compte de test, tout est
+développé contre un faux resOS calqué sur sa documentation publique (`docs/RESOS.md`).
+
+### Ajouté
+- **Un carnet par établissement** (`app/connecteurs/`) : `run_tool` parle à une interface
+  commune, et le choix se fait dans la fiche de l'établissement (super-admin). Par défaut,
+  et pour tout le parc existant : notre carnet, sans aucun changement.
+- **resOS** : vérifier un créneau, créer, retrouver par numéro, modifier, annuler. Les
+  réservations arrivent en **demandes à valider par le restaurant** (`request`, source
+  `phone`), et l'assistante ne dit jamais « confirmé ».
+- Tout ce qui n'est pas une réponse sûre de resOS (plus de 4 s, panne, clé absente ou
+  refusée) devient un refus que le modèle relit : il **n'annonce rien** et prend un
+  message. Le créneau est revérifié juste avant d'écrire, et le numéro de l'appelant est
+  revérifié sur chaque réservation rendue par resOS.
+- Un appel qui a réservé dans resOS garde la référence resOS (`calls.reservation_externe`)
+  et compte parmi les appels avec réservation.
+
+### À poser au déploiement
+Rien pour le parc existant (migration v14 automatique). Pour un restaurant sous resOS :
+`RESOS_API_KEYS=<id>=<clé>` dans le `.env`, puis « resOS » dans sa fiche.
+
 ## Non publiée — quand le GPU ne vient pas (25/09/2026)
 
 Trois pannes de capacité chez Modal en deux jours (plus de GPU L4 en Europe : 23/09, 24/09 à

@@ -16,7 +16,9 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
-from . import db, disponibilite, horloge, messages, notifications, reservations
+from loguru import logger
+
+from . import connecteurs, db, disponibilite, horloge, messages, notifications
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
@@ -114,7 +116,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "reservation_id": {"type": "integer", "description": "Identifiant rendu par find_reservation"},
+                "reservation_id": {"type": "string", "description": "Identifiant rendu par find_reservation, recopié tel quel"},
                 "date": {"type": "string", "description": "Nouvelle date, format AAAA-MM-JJ"},
                 "time": {"type": "string", "description": "Nouvelle heure, format HH:MM"},
                 "party_size": {"type": "integer", "description": "Nouveau nombre de personnes"},
@@ -133,7 +135,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "reservation_id": {"type": "integer", "description": "Identifiant rendu par find_reservation"},
+                "reservation_id": {"type": "string", "description": "Identifiant rendu par find_reservation, recopié tel quel"},
             },
             "required": ["reservation_id"],
         },
@@ -232,7 +234,7 @@ def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None) -> str:
     et uniquement celles qui corrigent un comportement réellement observé au téléphone.
 
     `appelant` : le nom de la dernière réservation faite depuis ce numéro
-    (reservations.dernier_nom), ou None.
+    (connecteurs : `dernier_nom`), ou None.
     """
     instant = maintenant()
     aujourdhui = instant.date()
@@ -360,6 +362,35 @@ def _refus(message: str) -> str:
     return json.dumps({"error": message}, ensure_ascii=False)
 
 
+# Les outils qui passent par le carnet de réservations de l'établissement (connecteurs/).
+OUTILS_DU_CARNET = ("find_reservation", "modify_reservation", "cancel_reservation",
+                    "check_availability", "create_reservation")
+
+# Ce que lit le modèle quand le carnet ne répond pas. Le pire n'est pas l'échec : c'est
+# « c'est enregistré » pour une réservation que personne ne verra (SCRUM-84).
+CARNET_INJOIGNABLE = (
+    "Le carnet de réservations du restaurant ne répond pas. N'annonce RIEN comme "
+    "enregistré, modifié ou annulé. Prends un message (take_message) avec la demande "
+    "exacte, et dis au client que l'équipe le rappellera.")
+CARNET_REFUSE = (
+    "Le carnet de réservations du restaurant a refusé cette demande. Ne dis pas qu'elle "
+    "est enregistrée : propose un autre créneau, ou prends un message (take_message).")
+CONSIGNE_A_VALIDER = (
+    "Demande enregistrée, que le restaurant doit encore valider. Ne dis PAS « confirmé » : "
+    "dis au client que sa demande est bien transmise au restaurant, qui la valide.")
+
+
+def _consigne_complet(autres: list[str]) -> str:
+    if autres:
+        return "Ce créneau n'est pas libre. Propose au client : " + ", ".join(autres) + "."
+    return "Plus rien de libre ce jour-là. Propose un autre jour."
+
+
+def _refus_complet(autres: list[str]) -> str:
+    return json.dumps({"error": _consigne_complet(autres), "autres_horaires": autres},
+                      ensure_ascii=False)
+
+
 def _creneau_refuse(tenant: Tenant, date_iso, heure) -> Optional[str]:
     """Le motif de refus si le créneau est illisible, déjà passé, ou hors des horaires
     d'ouverture de l'établissement ; None s'il est réservable.
@@ -412,58 +443,6 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
             "de modifier une réservation. Prends le message et annonce un rappel."
         )
 
-    if name == "find_reservation":
-        trouvees = await db.hors_boucle(
-            reservations.find_by_phone,
-            tenant.id, caller_number, a_partir_de=tool_input.get("date"))
-        return json.dumps(
-            {"reservations": [
-                {"reservation_id": r["id"], "customer_name": r["customer_name"],
-                 "date": r["date"], "time": r["time"], "party_size": r["party_size"],
-                 "notes": r["notes"]}
-                for r in trouvees
-            ]},
-            ensure_ascii=False,
-        )
-
-    if name in ("modify_reservation", "cancel_reservation"):
-        try:
-            reservation_id = int(tool_input.get("reservation_id"))
-        except (TypeError, ValueError):
-            return _refus("Identifiant de réservation manquant : appelle d'abord find_reservation.")
-        # LA porte : rien n'est chargé sans le tenant ET le numéro appelant.
-        existante = await db.hors_boucle(
-            reservations.get_for_caller, reservation_id, tenant.id, caller_number)
-        if existante is None:
-            return _refus(
-                "Aucune réservation à venir ne correspond à ce numéro. Ne prétends pas "
-                "l'avoir trouvée ; propose de prendre le message."
-            )
-        if name == "cancel_reservation":
-            await db.hors_boucle(reservations.cancel_reservation, reservation_id)
-            notifications.planifier(tenant, "reservation_annulee",
-                                    {"reservation": existante, "appel_id": call_id})
-            return json.dumps(
-                {"status": "cancelled", "reservation_id": reservation_id,
-                 "date": existante["date"], "time": existante["time"]},
-                ensure_ascii=False)
-        champs = {k: tool_input[k] for k in ("date", "time", "party_size", "notes")
-                  if tool_input.get(k) not in (None, "")}
-        if not champs:
-            return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
-        refus = _creneau_refuse(tenant, champs.get("date", existante["date"]),
-                                champs.get("time", existante["time"]))
-        if refus:
-            return _refus(refus)
-        modifiee = await db.hors_boucle(reservations.update_reservation, reservation_id, **champs)
-        notifications.planifier(tenant, "reservation_modifiee",
-                                {"avant": existante, "reservation": modifiee, "appel_id": call_id})
-        return json.dumps(
-            {"status": "modified", "reservation_id": reservation_id,
-             "date": modifiee["date"], "time": modifiee["time"],
-             "party_size": modifiee["party_size"]},
-            ensure_ascii=False)
-
     if name == "take_message":
         # Le seul outil qui n'exige PAS de numéro : un appel masqué doit pouvoir laisser
         # un message, c'est même le cas où il en a le plus besoin — il ne peut ni
@@ -493,43 +472,110 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
              "rappel_possible": bool((caller_number or "").strip())},
             ensure_ascii=False)
 
+    if name not in OUTILS_DU_CARNET:
+        return json.dumps({"error": f"outil inconnu: {name}"}, ensure_ascii=False)
+    try:
+        return await _outil_du_carnet(connecteurs.pour(tenant), tenant, name, tool_input,
+                                      caller_number, call_id)
+    except connecteurs.Complet as exc:
+        return _refus_complet(exc.autres_horaires)
+    except connecteurs.Refus as exc:
+        logger.info(f"carnet de l'établissement {tenant.id} : {name} refusé ({exc})")
+        return _refus(CARNET_REFUSE)
+    except connecteurs.Injoignable as exc:
+        logger.warning(f"carnet de l'établissement {tenant.id} injoignable pendant {name} : {exc}")
+        return _refus(CARNET_INJOIGNABLE)
+
+
+async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
+                           caller_number: Optional[str], call_id: Optional[int]) -> str:
+    """Les outils qui lisent ou écrivent une réservation, quel que soit le carnet."""
+    if name == "find_reservation":
+        trouvees = await carnet.retrouver(caller_number, a_partir_de=tool_input.get("date"))
+        return json.dumps(
+            {"reservations": [
+                {"reservation_id": r["id"], "customer_name": r["customer_name"],
+                 "date": r["date"], "time": r["time"], "party_size": r["party_size"],
+                 "notes": r["notes"]}
+                for r in trouvees
+            ]},
+            ensure_ascii=False,
+        )
+
+    if name in ("modify_reservation", "cancel_reservation"):
+        reservation_id = tool_input.get("reservation_id")
+        if reservation_id in (None, "") or not str(reservation_id).strip():
+            return _refus("Identifiant de réservation manquant : appelle d'abord find_reservation.")
+        # LA porte : rien n'est chargé sans le tenant ET le numéro appelant.
+        existante = await carnet.pour_appelant(reservation_id, caller_number)
+        if existante is None:
+            return _refus(
+                "Aucune réservation à venir ne correspond à ce numéro. Ne prétends pas "
+                "l'avoir trouvée ; propose de prendre le message."
+            )
+        reservation_id = existante["id"]
+        if name == "cancel_reservation":
+            await carnet.annuler(reservation_id)
+            notifications.planifier(tenant, "reservation_annulee",
+                                    {"reservation": existante, "appel_id": call_id})
+            return json.dumps(
+                {"status": "cancelled", "reservation_id": reservation_id,
+                 "date": existante["date"], "time": existante["time"]},
+                ensure_ascii=False)
+        champs = {k: tool_input[k] for k in ("date", "time", "party_size", "notes")
+                  if tool_input.get(k) not in (None, "")}
+        if not champs:
+            return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
+        refus = _creneau_refuse(tenant, champs.get("date", existante["date"]),
+                                champs.get("time", existante["time"]))
+        if refus:
+            return _refus(refus)
+        modifiee = await carnet.modifier(reservation_id, champs)
+        notifications.planifier(tenant, "reservation_modifiee",
+                                {"avant": existante, "reservation": modifiee, "appel_id": call_id})
+        return json.dumps(
+            {"status": "modified", "reservation_id": reservation_id,
+             "date": modifiee["date"], "time": modifiee["time"],
+             "party_size": modifiee["party_size"]},
+            ensure_ascii=False)
+
     if name == "check_availability":
         refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
         if refus:
             return _refus(refus)
-        booked = await db.hors_boucle(
-            reservations.count_for_slot, tenant.id, tool_input["date"], tool_input["time"]
-        )
+        reponse = await carnet.disponibilite(tool_input["date"], tool_input["time"],
+                                             tool_input.get("party_size") or 2)
+        if not reponse.get("available"):
+            reponse["consigne"] = _consigne_complet(reponse.get("autres_horaires") or [])
+        return json.dumps(reponse, ensure_ascii=False)
+
+    # create_reservation
+    # Le téléphone vient du RÉSEAU, jamais du modèle, et ce n'est pas qu'une question
+    # de qualité de transcription : c'est ce champ qui autorisera plus tard la
+    # modification et l'annulation (#33). Laisser le modèle le proposer reviendrait à
+    # accepter que l'appelant décide de qui il est. Un appel masqué donne None : la
+    # réservation existe, mais elle ne sera pas modifiable au téléphone.
+    refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
+    if refus:
+        return _refus(refus)
+    # Relevé au banc le 10/09/2026 : récapitulatif « …au nom de. C'est bien ça ? »,
+    # « Très bien merci », et une table enregistrée SANS NOM — introuvable en salle.
+    if not str(tool_input.get("customer_name") or "").strip():
+        return _refus("Nom manquant : demande le nom du client avant d'enregistrer.")
+    reservation = await carnet.creer(
+        nom=tool_input["customer_name"], date=tool_input["date"], heure=tool_input["time"],
+        couverts=tool_input["party_size"], telephone=(caller_number or "").strip() or None,
+        notes=tool_input.get("notes"))
+    notifications.planifier(tenant, "reservation_creee",
+                            {"reservation": reservation, "appel_id": call_id})
+    if reservation.get("a_valider"):
+        # resOS : la réservation est une DEMANDE que le restaurant accepte (décision du
+        # 25/09/2026). Annoncer « c'est confirmé » serait une promesse qu'on ne tient pas.
         return json.dumps(
-            {"available": True, "covers_already_booked": booked},
-            ensure_ascii=False,
-        )
-    if name == "create_reservation":
-        # Le téléphone vient du RÉSEAU, jamais du modèle, et ce n'est pas qu'une question
-        # de qualité de transcription : c'est ce champ qui autorisera plus tard la
-        # modification et l'annulation (#33). Laisser le modèle le proposer reviendrait à
-        # accepter que l'appelant décide de qui il est. Un appel masqué donne None : la
-        # réservation existe, mais elle ne sera pas modifiable au téléphone.
-        refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
-        if refus:
-            return _refus(refus)
-        # Relevé au banc le 10/09/2026 : récapitulatif « …au nom de. C'est bien ça ? »,
-        # « Très bien merci », et une table enregistrée SANS NOM — introuvable en salle.
-        if not str(tool_input.get("customer_name") or "").strip():
-            return _refus("Nom manquant : demande le nom du client avant d'enregistrer.")
-        row = await db.hors_boucle(
-            reservations.create_reservation,
-            tenant_id=tenant.id,
-            customer_name=tool_input["customer_name"],
-            date=tool_input["date"],
-            time=tool_input["time"],
-            party_size=tool_input["party_size"],
-            customer_phone=(caller_number or "").strip() or None,
-            notes=tool_input.get("notes"),
-        )
-        notifications.planifier(tenant, "reservation_creee", {"reservation": row, "appel_id": call_id})
-        return json.dumps({"status": "confirmed", "reservation_id": row["id"]}, ensure_ascii=False)
-    return json.dumps({"error": f"outil inconnu: {name}"}, ensure_ascii=False)
+            {"status": "pending_restaurant_approval", "reservation_id": reservation["id"],
+             "consigne": CONSIGNE_A_VALIDER}, ensure_ascii=False)
+    return json.dumps({"status": "confirmed", "reservation_id": reservation["id"]},
+                      ensure_ascii=False)
 
 
 async def respond(tenant: Tenant, history: list, user_text: str,
@@ -543,7 +589,7 @@ async def respond(tenant: Tenant, history: list, user_text: str,
     donc jamais de message système, quel que soit le nombre de tours.
     """
     client = get_client()
-    nom = (await db.hors_boucle(reservations.dernier_nom, tenant.id, caller_number)
+    nom = (await connecteurs.pour(tenant).dernier_nom(caller_number)
            if caller_number else None)
     api_messages = (
         [{"role": "system", "content": build_system_prompt(tenant, appelant=nom)}]

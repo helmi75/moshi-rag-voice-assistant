@@ -114,18 +114,25 @@ def finish_call(
     call_sid: str,
     status: str = "completed",
     transcript: Optional[list[dict]] = None,
-    reservation_id: Optional[int] = None,
+    reservation_id: Optional[int | str] = None,
     turn_latencies: Optional[list[int]] = None,
     journal: Optional[dict] = None,
     recording_bytes: Optional[int] = None,
 ) -> Optional[int]:
     """Clôt l'appel : durée depuis started_at, statut, transcript JSON, coût estimé.
 
+    `reservation_id` : entier = une ligne de notre table `reservations` ; texte =
+    l'identifiant d'un carnet externe (resOS), rangé dans `reservation_externe` — la clé
+    étrangère refuserait un identifiant qui n'existe pas chez nous.
+
     `turn_latencies` = les blancs ressentis tour par tour, en millisecondes (cf.
     voice/latency.py). Stockés tels quels : c'est la matière première du diagnostic.
 
     Renvoie l'identifiant de l'appel clôturé — c'est lui qui permet d'enchaîner sur le
     résumé (`resume.planifier`) sans relire la base — ou None si l'appel est inconnu."""
+    externe = None
+    if isinstance(reservation_id, str):
+        externe, reservation_id = reservation_id, None
     with db.get_conn() as conn:
         row = conn.execute(
             "SELECT id, started_at FROM calls WHERE call_sid = ?", (call_sid,)
@@ -138,14 +145,15 @@ def finish_call(
         conn.execute(
             """UPDATE calls SET ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                    duration_seconds = ?, status = ?, transcript = ?,
-                   reservation_id = ?, estimated_cost = ?, turn_latencies = ?,
-                   journal = ?, recording_bytes = ?
+                   reservation_id = ?, reservation_externe = ?, estimated_cost = ?,
+                   turn_latencies = ?, journal = ?, recording_bytes = ?
                WHERE id = ?""",
             (
                 duration,
                 status,
                 json.dumps(transcript, ensure_ascii=False) if transcript else None,
                 reservation_id,
+                externe,
                 estimate_call_cost(duration),
                 json.dumps(turn_latencies) if turn_latencies else None,
                 _journal_borne(journal),
@@ -158,10 +166,16 @@ def finish_call(
 
 # Issues filtrables depuis l'admin. Elles décrivent l'état RÉEL des colonnes ; il n'y
 # a pas de catégorie « à rappeler », rien ne la matérialise en base.
+# Une réservation prise pendant l'appel : dans notre carnet (reservation_id, clé
+# étrangère) ou dans un carnet externe comme resOS (reservation_externe, son identifiant
+# à lui — il n'a pas de ligne chez nous). Une seule définition, pour que le filtre de
+# l'admin et les statistiques comptent la même chose.
+A_RESERVE = "(reservation_id IS NOT NULL OR reservation_externe IS NOT NULL)"
+
 OUTCOME_FILTERS = {
-    "reservation": "reservation_id IS NOT NULL",
+    "reservation": A_RESERVE,
     "failed": "status = 'failed'",
-    "info": "reservation_id IS NULL AND status = 'completed'",
+    "info": f"NOT {A_RESERVE} AND status = 'completed'",
     # Un rappel a été promis à l'appelant. Sans ce filtre, ces appels se noyaient dans
     # « info », au même titre qu'une question d'horaires — et le restaurateur n'avait
     # aucun moyen de savoir qu'on s'était engagé en son nom.
@@ -220,7 +234,7 @@ def stats_daily(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
         params_resas.append(tenant_id)
     with db.get_conn() as conn:
         calls_rows = conn.execute(
-            f"SELECT started_at, reservation_id, estimated_cost FROM calls {where_calls}",
+            f"SELECT started_at, {A_RESERVE} AS a_reserve, estimated_cost FROM calls {where_calls}",
             params_calls,
         ).fetchall()
         resa_rows = conn.execute(
@@ -238,7 +252,7 @@ def stats_daily(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
             continue
         entree = _entree(jour)
         entree["n_calls"] += 1
-        entree["n_with_reservation"] += 1 if row["reservation_id"] is not None else 0
+        entree["n_with_reservation"] += 1 if row["a_reserve"] else 0
         entree["total_cost"] += row["estimated_cost"] or 0.0
     for row in resa_rows:
         jour = jour_local(row["created_at"])
@@ -288,7 +302,7 @@ def totals(tenant_id: Optional[int] = None, days: int = 30,
     with db.get_conn() as conn:
         c = conn.execute(
             f"""SELECT COUNT(*) AS n_calls,
-                       COALESCE(SUM(CASE WHEN reservation_id IS NOT NULL THEN 1 ELSE 0 END), 0)
+                       COALESCE(SUM(CASE WHEN {A_RESERVE} THEN 1 ELSE 0 END), 0)
                            AS n_with_reservation,
                        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS n_failed,
                        COALESCE(SUM(CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END), 0) AS n_unfinished,
@@ -328,7 +342,7 @@ def stats_by_tenant(days: int = 30) -> dict[int, dict]:
     with db.get_conn() as conn:
         call_rows = conn.execute(
             f"""SELECT tenant_id, COUNT(*) AS n_calls,
-                       COALESCE(SUM(CASE WHEN reservation_id IS NOT NULL THEN 1 ELSE 0 END), 0)
+                       COALESCE(SUM(CASE WHEN {A_RESERVE} THEN 1 ELSE 0 END), 0)
                            AS n_with_reservation,
                        COALESCE(SUM(estimated_cost), 0) AS total_cost
                 FROM calls WHERE {clause.format(col='started_at')} GROUP BY tenant_id""",
