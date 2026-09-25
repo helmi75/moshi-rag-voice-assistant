@@ -9,11 +9,20 @@
   </div>
 </div>
 {% for e in erreurs %}<p role="alert">{{ e }}</p>{% endfor %}
+{% if source_resos %}
+<div class="callout">
+  <b>Horaires lus dans resOS</b>
+  Pour cet établissement, c'est resOS qui fait foi : l'assistante applique les horaires
+  ci-dessous, relus toutes les 10 minutes. Ils se changent dans resOS — ou, en bac à sable,
+  sur la page <a href="/admin/tenants/{{ tenant.id }}/resos">Carnet resOS</a>.
+</div>
+{% endif %}
 
 <div class="split">
   <article class="card card-table">
     <form method="post" action="/admin/tenants/{{ tenant.id }}/horaires">
       <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+      <fieldset {% if source_resos %}disabled{% endif %} style="margin: 0; border: 0; padding: 0">
       <table>
         <thead>
           <tr><th>Jour</th><th>Fermé</th><th>Service 1</th><th>Service 2</th></tr>
@@ -45,8 +54,9 @@
         </label>
         <p class="card-sub">Une heure de fin est la dernière heure à laquelle une table est
            encore prise. Un service qui finit après minuit se saisit tel quel (19:00 – 01:00).</p>
-        <button type="submit">Enregistrer</button>
+        {% if not source_resos %}<button type="submit">Enregistrer</button>{% endif %}
       </div>
+      </fieldset>
     </form>
   </article>
 

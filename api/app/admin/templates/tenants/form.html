@@ -52,7 +52,12 @@
         <select name="booking_provider">
           <option value="interne" {{ "selected" if not tenant or tenant.booking_provider in (None, "", "interne") }}>Helmane (interne)</option>
           <option value="resos" {{ "selected" if tenant and tenant.booking_provider == "resos" }}>resOS — demandes à valider par le restaurant</option>
+          <option value="resos_demo" {{ "selected" if tenant and tenant.booking_provider == "resos_demo" }}>resOS — bac à sable (tests, rien ne sort du serveur)</option>
         </select>
+        {% if tenant and tenant.booking_provider == "resos_demo" %}
+          <small class="muted">Bac à sable : suivre les tests sur la page
+            <a href="/admin/tenants/{{ tenant.id }}/resos">Carnet resOS</a>.</small>
+        {% endif %}
         {% if tenant and tenant.booking_provider == "resos" %}
           {% if cle_resos_posee(tenant.id) %}
           <small class="muted">Clé API resOS posée sur le serveur.</small>

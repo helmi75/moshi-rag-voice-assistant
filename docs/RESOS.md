@@ -92,17 +92,60 @@ Une réservation créée par l'assistante porte :
 3. Dans l'admin (super-admin), fiche de l'établissement → **Carnet de réservations :
    resOS**. La fiche indique si la clé est posée, sans jamais l'afficher.
 
-## Le faux resOS
+## Le faux resOS, et le bac à sable en production
 
-`api/tests/faux_resos.py` reproduit la doc, avec des réponses à la forme exacte des
-exemples. Les tests (`test_connecteurs.py`) passent par lui. En tête de fichier, deux
-listes séparent ce qui est **documenté** de ce qui est **supposé**. Pour un banc local :
+`api/app/connecteurs/bac_a_sable.py` reproduit la doc, avec des réponses à la forme exacte
+des exemples. En tête de fichier, deux listes séparent ce qui est **documenté** de ce qui est
+**supposé**. Il sert à deux choses :
+
+- **les tests** (`test_connecteurs.py`, `test_carnet_resos.py`), avec un état jetable ;
+- **le mode « resOS — bac à sable »** (SCRUM-93), qu'on choisit dans la fiche de
+  l'établissement. On appelle le vrai numéro, la réservation arrive dans un carnet fictif
+  **propre à l'établissement**, conservé à côté de la base
+  (`data/bac_a_sable_resos/etablissementN.json`). Tout le client resOS s'exécute, requêtes
+  HTTP comprises (`httpx.ASGITransport`). Aucune clé n'est nécessaire, rien ne sort du
+  serveur, et le bac à sable n'est exposé sur aucune route publique.
+
+La page **Carnet resOS** de l'admin suit les tests en direct : état de resOS, réservations
+à venir, journal des requêtes de l'assistante. En bac à sable, le super-admin y joue le
+restaurant : valider ou refuser, capacité, services, jours fermés, panne ou lenteur
+simulées. La procédure pas à pas est la section R de `docs/RECETTE.md`.
+
+Pour un banc local, sans l'application :
 
 ```bash
-cd api && python -m uvicorn tests.faux_resos:app --port 8765
+cd api && python -m uvicorn app.connecteurs.bac_a_sable:app --port 8765
 ```
 
 puis `RESOS_API_URL=http://localhost:8765/v1` et `RESOS_API_KEYS="<id>=cle-de-test-resos"`.
+
+## Les horaires viennent de resOS (SCRUM-86)
+
+`GET /openingHours` rend un objet par jour et par service. `day` va de 1 à 7 : **lu comme
+lundi = 1** (supposé, la doc ne le dit pas), et les heures sont des entiers `HHMM`. Les
+ouvertures « spéciales » sont ignorées, faute d'exemple. Les horaires sont convertis dans
+notre format (`disponibilite.py`) et servis exactement là où servaient ceux saisis chez
+nous : **le prompt et le refus des créneaux fermés ne savent pas d'où ils viennent**.
+
+- **Aucune attente pour l'appelant** : une copie en mémoire, relue en tâche de fond après
+  10 minutes, et au démarrage de l'application. Avant la première lecture, le prompt n'a
+  pas d'horaires, mais chaque créneau reste vérifié auprès de resOS avant d'être réservé.
+- Si resOS ne répond pas, l'ancienne copie reste servie.
+- La page **Horaires** de l'admin passe en **lecture seule** pour un établissement resOS :
+  un champ modifiable qui n'aurait aucun effet est pire qu'un champ absent.
+
+## Quand resOS ne répond pas (SCRUM-87)
+
+Décision : **refuser plutôt que mentir**. Aucune réservation n'est gardée chez nous pour
+être rattrapée plus tard, donc il n'y a jamais de réservation « non synchronisée ».
+
+| Quoi | Comment |
+|---|---|
+| L'appelant | « N'annonce RIEN comme enregistré » : l'assistante prend un message et promet un rappel |
+| Le même appel | **Coupe-circuit** : après un échec, plus d'essai pendant 60 s. Sinon chaque outil attendrait 4 s de plus |
+| Le restaurateur | **E-mail immédiat** « resOS ne répond pas », au plus un toutes les 30 min |
+| La supervision | Contrôle **« Carnet resOS »** : PANNE si la clé est absente ou si le dernier échec a moins d'une heure. L'état est écrit sur l'ardoise à chaque changement, il survit aux redémarrages. Le bac à sable plafonne à « attention » |
+| La page Carnet resOS | Journal des requêtes, échecs en rouge, bouton « Tester resOS maintenant » |
 
 ## À vérifier au premier vrai appel (clé d'un restaurant pilote)
 
@@ -112,6 +155,7 @@ puis `RESOS_API_URL=http://localhost:8765/v1` et `RESOS_API_KEYS="<id>=cle-de-te
       « passed as a header » ;
 - [ ] `fromDateTime` au format date seule (`AAAA-MM-JJ`), comme dans l'exemple ;
 - [ ] la `duration` (120 min imposées) : resOS applique-t-il celle du service ?
+- [ ] `day` des horaires : 1 = lundi, comme supposé ? Et le format des ouvertures spéciales ;
 - [ ] la latence réelle d'un `bookingFlow/times` suivi d'un `POST`, mesurée au journal
       de bord : c'est du silence au téléphone ;
 - [ ] une réservation créée apparaît bien en « demande » dans l'interface de resOS.
@@ -120,7 +164,6 @@ puis `RESOS_API_URL=http://localhost:8765/v1` et `RESOS_API_KEYS="<id>=cle-de-te
 
 | Manque | Ticket |
 |---|---|
-| Les horaires et fermetures viennent de resOS pour les disponibilités, mais le prompt ne les cite pas encore | SCRUM-86 |
-| resOS injoignable : le modèle prend un message, mais ni la supervision ni le restaurateur n'en sont prévenus | SCRUM-87 |
+| Les ouvertures « spéciales » de resOS (jours fériés, événements) ne sont pas lues : sans exemple dans la doc, on n'invente pas leur format. resOS les applique quand même via `bookingFlow/times` | au premier vrai appel |
 | La page Réservations de l'admin et le compteur « réservations » du tableau de bord ne lisent que notre carnet. Les appels, eux, comptent bien ceux qui ont réservé dans resOS | à planifier |
 | Le nom du dernier passage n'est pas proposé aux clients resOS : ce serait une requête réseau avant le décroché | à mesurer avec une vraie clé |

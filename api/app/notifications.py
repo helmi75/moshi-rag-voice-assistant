@@ -141,6 +141,17 @@ def sujet_et_corps(evenement: str, tenant, donnees: dict) -> tuple[str, str]:
         if donnees.get("customer_name"):
             corps.append(f"De la part de : {donnees['customer_name']}")
         corps.append(f"Rappeler le : {_telephone(donnees.get('caller_number'))}")
+    elif evenement == "carnet_injoignable":
+        # SCRUM-87 : pendant la panne, l'assistante n'enregistre rien et prend des
+        # messages. Le restaurateur doit le savoir avant le service, pas après.
+        sujet = "resOS ne répond pas — les réservations téléphoniques deviennent des messages"
+        corps = [f"Pendant un appel pour {nom_resto}, resOS n'a pas répondu "
+                 f"({donnees.get('erreur') or 'sans détail'}).", "",
+                 "L'assistante n'a annoncé AUCUNE réservation comme enregistrée : elle prend",
+                 "un message et promet un rappel. Tant que resOS ne répond pas, chaque demande",
+                 "de réservation arrivera ainsi, en message.", "",
+                 "À faire : vérifier que resOS fonctionne, et rappeler les clients des messages.",
+                 "Pas d'autre e-mail pour cette panne avant 30 minutes."]
     else:
         raise ValueError(f"évènement inconnu : {evenement!r}")
     return sujet, "\n".join(corps + [""] + pied)

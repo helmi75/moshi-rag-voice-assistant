@@ -1,0 +1,124 @@
+{# Rafraîchi toutes les 5 s : ce que l'assistante fait dans resOS, pendant l'appel. #}
+{% set demo = mode == "resos_demo" %}
+{% set joue_le_resto = demo and request.state.user.is_superadmin %}
+<div id="resos-direct" hx-get="/admin/tenants/{{ tenant.id }}/resos/direct"
+     hx-trigger="every 5s" hx-swap="outerHTML">
+
+  <div class="kpi-grid">
+    <article class="card kpi">
+      <div class="kpi-label">
+        <span class="dot {{ 'dot-bad' if coupure is not none or (journal and journal[0].panne) else 'dot-good' }}"></span>
+        État de resOS
+      </div>
+      {% if coupure is not none %}
+      <div class="kpi-value" style="font-size: 1.3rem">En panne</div>
+      <p class="kpi-sub">Coupe-circuit ouvert : plus d'essai pendant {{ coupure }} s. L'assistante
+        prend des messages, sans rien annoncer comme enregistré.</p>
+      {% elif journal and journal[0].panne %}
+      <div class="kpi-value" style="font-size: 1.3rem">Dernier essai en échec</div>
+      <p class="kpi-sub">{{ journal[0].erreur }}</p>
+      {% elif journal %}
+      <div class="kpi-value" style="font-size: 1.3rem">Répond</div>
+      <p class="kpi-sub">Dernière requête : {{ journal[0].duree_ms }} ms.</p>
+      {% else %}
+      <div class="kpi-value" style="font-size: 1.3rem">Pas encore sollicité</div>
+      <p class="kpi-sub">Aucune requête de l'assistante depuis le dernier démarrage.</p>
+      {% endif %}
+    </article>
+    <article class="card kpi">
+      <div class="kpi-label">À valider</div>
+      <div class="kpi-value">{{ reservations | selectattr("statut", "equalto", "request") | list | length }}</div>
+      <p class="kpi-sub">demande(s) prise(s) au téléphone, en attente du restaurant</p>
+    </article>
+    <article class="card kpi">
+      <div class="kpi-label">À venir (14 jours)</div>
+      <div class="kpi-value">{{ reservations | length }}</div>
+      <p class="kpi-sub">toutes réservations du carnet, quel qu'en soit le statut</p>
+    </article>
+  </div>
+
+  {% if test %}
+  <div class="callout" {% if not test.ok %}style="background: var(--app-bad-soft)"{% endif %}>
+    <b>{{ "resOS répond" if test.ok else "resOS ne répond pas" }}</b>
+    Test à {{ maintenant }} : {{ test.duree_ms }} ms{% if not test.ok %} — {{ test.erreur }}{% endif %}.
+  </div>
+  {% endif %}
+
+  <article class="card card-table">
+    <div style="padding: 1rem 1.3rem .4rem; display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap">
+      <div>
+        <h2 style="margin: 0">Le carnet{{ " (bac à sable)" if demo }}</h2>
+        <p class="card-sub">Mis à jour à {{ maintenant }} — rafraîchi toutes les 5 secondes.</p>
+      </div>
+      {% if mode != "interne" %}
+      <button class="secondary" style="width: auto; margin: 0"
+              hx-post="/admin/tenants/{{ tenant.id }}/resos/tester"
+              hx-target="#resos-direct" hx-swap="outerHTML">Tester resOS maintenant</button>
+      {% endif %}
+    </div>
+    {% if erreur_lecture %}
+    <p role="alert" style="margin: .5rem 1.3rem">Carnet illisible : {{ erreur_lecture }}</p>
+    {% endif %}
+    <table>
+      <thead><tr><th>Date</th><th>Heure</th><th>Nom</th><th>Couverts</th><th>Téléphone</th>
+                 <th>Statut</th><th>Source</th><th>Demande</th>{% if joue_le_resto %}<th></th>{% endif %}</tr></thead>
+      <tbody>
+      {% for r in reservations %}
+        {% set libelle, classe = statuts.get(r.statut, (r.statut, "")) %}
+        <tr>
+          <td>{{ r.date }}</td>
+          <td>{{ r.time }}</td>
+          <td>{{ r.customer_name or "—" }}</td>
+          <td>{{ r.party_size }}</td>
+          <td>{{ r.customer_phone or "masqué" }}</td>
+          <td><span class="chip {{ classe }}">{{ libelle }}</span></td>
+          <td>{{ "Téléphone (assistante)" if r.source == "phone" else r.source }}</td>
+          <td>{{ r.notes or "" }}</td>
+          {% if joue_le_resto %}
+          <td style="white-space: nowrap">
+            {% if r.statut == "request" %}
+            <button class="secondary" style="width: auto; margin: 0; padding: .25rem .6rem"
+                    hx-post="/admin/tenants/{{ tenant.id }}/resos/demandes/{{ r.id }}/valider"
+                    hx-target="#resos-direct" hx-swap="outerHTML">Valider</button>
+            <button class="secondary" style="width: auto; margin: 0; padding: .25rem .6rem"
+                    hx-post="/admin/tenants/{{ tenant.id }}/resos/demandes/{{ r.id }}/refuser"
+                    hx-target="#resos-direct" hx-swap="outerHTML">Refuser</button>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr><td colspan="{{ 9 if joue_le_resto else 8 }}" class="muted">
+          {% if mode == "interne" %}Cet établissement utilise le carnet Helmane : voir la page Réservations.
+          {% else %}Aucune réservation dans les 14 prochains jours. Appelez le {{ tenant.phone_number }} pour en créer une.{% endif %}
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="card card-table" style="margin-top: .9rem">
+    <div style="padding: 1rem 1.3rem .4rem">
+      <h2 style="margin: 0">Ce que l'assistante a demandé à resOS</h2>
+      <p class="card-sub">Les 15 dernières requêtes pendant les appels, la plus récente en haut.
+        Les lectures de cette page n'y figurent pas.</p>
+    </div>
+    <table>
+      <thead><tr><th>Heure</th><th>Requête</th><th>Réponse</th><th>Durée</th><th>Détail</th></tr></thead>
+      <tbody>
+      {% for j in journal %}
+        <tr {% if j.panne %}style="background: var(--app-bad-soft)"{% endif %}>
+          <td>{{ j.heure }}</td>
+          <td><code>{{ j.methode }} {{ j.chemin }}</code></td>
+          <td>{{ j.code or "—" }}</td>
+          <td>{{ j.duree_ms ~ " ms" if j.duree_ms is not none else "—" }}</td>
+          <td>{{ j.erreur or "" }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">Rien encore. Chaque vérification de créneau, réservation,
+          recherche ou annulation faite par l'assistante apparaîtra ici.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </article>
+</div>

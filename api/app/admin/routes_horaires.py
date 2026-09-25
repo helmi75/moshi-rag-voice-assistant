@@ -8,17 +8,26 @@ import json
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from .. import db, disponibilite, tenants
+from .. import connecteurs, db, disponibilite, tenants
 from ..users import User
 from . import deps
 
 router = APIRouter()
 
 
-def _contexte(tenant, grille, fermetures: str, erreurs: list[str]) -> dict:
-    horaires = disponibilite.charger(tenant.opening_hours)
+def _contexte(tenant, grille, fermetures: str, erreurs: list[str],
+              brut: str | None = None) -> dict:
+    horaires = disponibilite.charger(tenant.opening_hours if brut is None else brut)
     return {"tenant": tenant, "grille": grille, "fermetures": fermetures, "erreurs": erreurs,
-            "lettres": disponibilite.en_toutes_lettres(horaires)}
+            "lettres": disponibilite.en_toutes_lettres(horaires),
+            "source_resos": connecteurs.est_resos(tenant)}
+
+
+async def _horaires_resos(tenant) -> str | None:
+    """Pour un carnet resOS, les horaires sont ceux de resOS (SCRUM-86) : on les montre,
+    on ne les saisit pas. Un champ modifiable qui n'a aucun effet est pire qu'un champ
+    absent."""
+    return connecteurs.horaires_en_cache(tenant) or await connecteurs.rafraichir_horaires(tenant)
 
 
 def _grille_saisie(form) -> list[dict]:
@@ -32,15 +41,16 @@ def _grille_saisie(form) -> list[dict]:
 
 
 @router.get("/admin/tenants/{tenant_id}/horaires")
-def horaires_page(request: Request, tenant_id: int,
+async def horaires_page(request: Request, tenant_id: int,
                         user: User = Depends(deps.current_user)):
-    tenant = deps.resolve_tenant(tenant_id, user)
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     deps.ensure_csrf(request)
-    horaires = disponibilite.charger(tenant.opening_hours)
+    brut = await _horaires_resos(tenant) if connecteurs.est_resos(tenant) else tenant.opening_hours
+    horaires = disponibilite.charger(brut)
     return deps.templates.TemplateResponse(
         request, "tenants/horaires.html",
         _contexte(tenant, disponibilite.grille(horaires),
-                  disponibilite.fermetures_en_texte(horaires), []),
+                  disponibilite.fermetures_en_texte(horaires), [], brut=brut or ""),
     )
 
 
@@ -48,6 +58,17 @@ def horaires_page(request: Request, tenant_id: int,
 async def horaires_update(request: Request, tenant_id: int,
                           user: User = Depends(deps.current_user)):
     tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
+    if connecteurs.est_resos(tenant):
+        brut = await _horaires_resos(tenant)
+        horaires = disponibilite.charger(brut)
+        return deps.templates.TemplateResponse(
+            request, "tenants/horaires.html",
+            _contexte(tenant, disponibilite.grille(horaires),
+                      disponibilite.fermetures_en_texte(horaires),
+                      ["Ces horaires viennent de resOS : ils se changent dans resOS, "
+                       "rien n'a été enregistré ici."], brut=brut or ""),
+            status_code=409,
+        )
     form = await request.form()
     horaires, erreurs = disponibilite.depuis_formulaire(form)
     if erreurs:

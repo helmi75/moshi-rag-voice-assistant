@@ -7,6 +7,23 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — resOS : bac à sable, horaires, panne (SCRUM-86, 87, 93, 25/09/2026)
+
+### Ajouté
+- **resOS en bac à sable** : un troisième carnet, « resOS — bac à sable ». On appelle le vrai
+  numéro et la réservation arrive dans un faux resOS propre à l'établissement, conservé d'un
+  déploiement à l'autre, sans clé ni abonnement. Tout le client resOS s'exécute.
+- **Page « Carnet resOS »** dans l'admin : état de resOS, réservations à venir rafraîchies
+  toutes les 5 s, journal de ce que l'assistante a demandé. En bac à sable, le super-admin
+  joue le restaurant : valider ou refuser, capacité, services, jours fermés, panne ou
+  lenteur simulées. Recette pas à pas : section R de `docs/RECETTE.md`.
+- **Les horaires viennent de resOS** (SCRUM-86) : lus en tâche de fond, gardés 10 minutes,
+  servis au prompt et au refus des créneaux fermés comme ceux saisis chez nous. Aucune
+  attente pour l'appelant. La page Horaires passe en lecture seule pour ces établissements.
+- **Panne de resOS** (SCRUM-87) : coupe-circuit de 60 s (pas de second blanc de 4 s dans le
+  même appel), e-mail immédiat au restaurateur (un par demi-heure), et un contrôle de
+  supervision « Carnet resOS », le quinzième.
+
 ## Non publiée — le carnet resOS (SCRUM-82 à 85, 25/09/2026)
 
 Un établissement peut écrire ses réservations dans **resOS**, le logiciel de réservation du

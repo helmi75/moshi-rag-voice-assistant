@@ -35,7 +35,7 @@ Détail des choix : [ARCHITECTURE.md](ARCHITECTURE.md).
 | Messages pris pour l'équipe, rappels à faire | `app/messages.py` |
 | E-mail au restaurateur à chaque réservation, modification, annulation, message | `app/notifications.py` (SMTP) |
 | Admin : parc, salle de contrôle, journal des appels (transcription, écoute), réservations, voix, fiche, comptes | `app/admin/` — `/admin` |
-| Supervision : 14 contrôles, sonde `/supervision`, alerte GitHub Actions | `app/supervision.py` |
+| Supervision : 15 contrôles, sonde `/supervision`, alerte GitHub Actions | `app/supervision.py` |
 | RGPD : purges automatiques, droit à l'effacement | `app/rgpd.py`, [docs/RGPD.md](docs/RGPD.md) |
 | Formules et plafond mensuel (compte, prévient, ne coupe jamais la ligne) | `app/plans.py`, `app/quotas.py` |
 

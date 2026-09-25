@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Carnet resOS — {{ tenant.name }}{% endblock %}
+{% block content %}
+{% set demo = mode == "resos_demo" %}
+<div class="page-head">
+  <div>
+    <h1>Carnet resOS
+      {% if demo %}<span class="chip chip-accent">Bac à sable</span>
+      {% elif mode == "resos" %}<span class="chip chip-good">resOS réel</span>
+      {% else %}<span class="chip">Non activé</span>{% endif %}
+    </h1>
+    <p class="lede">Ce que l'assistante de {{ tenant.name }} fait dans resOS, en direct.
+      {% if demo %}Le bac à sable se comporte comme resOS : les réservations prises au
+      téléphone y arrivent vraiment, mais rien ne sort du serveur.{% endif %}</p>
+  </div>
+</div>
+
+{% if mode == "interne" %}
+<div class="callout">
+  <b>resOS n'est pas activé pour cet établissement</b>
+  Les réservations vont dans le carnet Helmane (page Réservations). Pour tester resOS sans clé :
+  <a href="/admin/tenants/{{ tenant.id }}/edit">fiche de l'établissement</a> → Carnet de réservations →
+  « resOS — bac à sable ».
+</div>
+{% elif mode == "resos" and not cle_posee %}
+<div class="callout" style="background: var(--app-bad-soft)">
+  <b>Clé API resOS absente</b>
+  Chaque demande de réservation devient un message pour l'équipe. Ajouter
+  <code>{{ tenant.id }}=…</code> à <code>RESOS_API_KEYS</code> dans le .env du serveur, puis redéployer.
+</div>
+{% endif %}
+
+{% if demo %}
+<div class="split">
+  <article class="card">
+    <h2>Tester au téléphone</h2>
+    <ol class="kb-body" style="padding-left: 1.2rem; margin: .4rem 0 0">
+      <li>Appeler le <b>{{ tenant.phone_number }}</b> et demander une table.</li>
+      <li>La demande apparaît ci-dessous en <span class="chip chip-warn">À valider</span>, en
+        quelques secondes. L'assistante doit dire « demande transmise », jamais « confirmé ».</li>
+      <li>Jouer le restaurant : <b>Valider</b> ou <b>Refuser</b>.</li>
+      <li>Rappeler pour <b>modifier</b> ou <b>annuler</b> : la ligne change ici.</li>
+      <li><b>Créneau complet</b> : capacité à 0 → elle propose d'autres horaires.
+        <b>Jour fermé</b> : cocher le jour → elle le refuse.</li>
+      <li><b>Panne</b> : cocher « resOS en panne » → elle prend un message, n'annonce rien,
+        et la supervision le signale.</li>
+    </ol>
+  </article>
+
+  {% if request.state.user.is_superadmin %}
+  <article class="card">
+    <h2>Réglages du bac à sable</h2>
+    <form method="post" action="/admin/tenants/{{ tenant.id }}/resos/bac">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+      <div class="grid">
+        <label>Tables par créneau de 15 min
+          <input name="capacite" type="number" min="0" max="50" value="{{ bac.capacite }}">
+        </label>
+        <label>Services
+          <input name="services" value="{{ services_texte }}" placeholder="12:00-14:00, 19:00-22:00">
+        </label>
+      </div>
+      <fieldset>
+        <legend class="card-sub">Jours fermés</legend>
+        {% for numero, jour in jours %}
+        <label style="display: inline-flex; gap: .3rem; margin-right: .8rem">
+          <input type="checkbox" name="jour_{{ numero }}" {% if numero in bac.jours_fermes %}checked{% endif %}>
+          {{ jour }}
+        </label>
+        {% endfor %}
+      </fieldset>
+      <label>Fermetures exceptionnelles <small class="muted">(une date par ligne, AAAA-MM-JJ)</small>
+        <textarea name="fermes" rows="2">{{ bac.fermes | sort | join("\n") }}</textarea>
+      </label>
+      <fieldset>
+        <legend class="card-sub">Simuler une panne (effacée au prochain déploiement)</legend>
+        <label><input type="checkbox" name="en_panne" {% if bac.en_panne %}checked{% endif %}>
+          resOS en panne (répond 503)</label>
+        <label><input type="checkbox" name="lent" {% if bac.retard %}checked{% endif %}>
+          resOS lent ({{ retard_simule | int }} s, au-delà du délai de 4 s)</label>
+      </fieldset>
+      <button type="submit">Enregistrer les réglages</button>
+    </form>
+    <form method="post" action="/admin/tenants/{{ tenant.id }}/resos/vider"
+          onsubmit="return confirm('Effacer toutes les réservations du bac à sable ?')">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+      <button type="submit" class="secondary">Vider le carnet du bac à sable</button>
+    </form>
+  </article>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if mode != "interne" %}
+<article class="card" style="margin: .9rem 0">
+  <h2>Horaires que l'assistante applique</h2>
+  {% if lettres_horaires %}
+  <p class="kb-body">{{ lettres_horaires }}</p>
+  <p class="card-sub">Lus dans resOS, relus toutes les 10 minutes (tout de suite après un
+    changement des réglages du bac à sable).</p>
+  {% else %}
+  <p class="card-sub">Pas encore lus dans resOS : ils le seront au prochain appel. D'ici là,
+    chaque créneau reste vérifié auprès de resOS avant d'être réservé.</p>
+  {% endif %}
+</article>
+{% endif %}
+
+{% include "tenants/_resos_direct.html" %}
+{% endblock %}
