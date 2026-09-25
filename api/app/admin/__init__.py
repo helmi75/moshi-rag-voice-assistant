@@ -40,6 +40,9 @@ def _include_protected_routes() -> None:
     from . import routes_horaires
 
     admin_router.include_router(routes_horaires.router)
+    from . import routes_resos
+
+    admin_router.include_router(routes_resos.router)
 
 
 _include_protected_routes()

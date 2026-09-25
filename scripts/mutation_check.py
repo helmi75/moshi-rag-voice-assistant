@@ -528,6 +528,68 @@ GARDE_FOUS = [
               "et peut dire « c'est noté » pour une réservation que personne ne verra",
     ),
     GardeFou(
+        nom="Une panne de resOS se voit dans la supervision",
+        fichier="api/app/supervision.py",
+        avant="            niveau = PANNE if recente else ATTENTION",
+        apres="            niveau = OK  # mutation",
+        tests=["test_carnet_resos.py"],
+        k="supervision or redemarrage",
+        panne="SCRUM-87 : resOS en panne un samedi soir, chaque réservation devient un "
+              "message, et la sonde reste verte",
+    ),
+    GardeFou(
+        nom="Une panne SIMULÉE n'alerte pas la production",
+        fichier="api/app/supervision.py",
+        avant="        if demo and niveau == PANNE:",
+        apres="        if False:  # mutation",
+        tests=["test_carnet_resos.py"],
+        k="simulee",
+        panne="cocher « resOS en panne » dans le bac à sable ferait sonner l'alerte de "
+              "production — et on apprendrait à l'ignorer",
+    ),
+    GardeFou(
+        nom="Pas de second blanc de 4 s dans le même appel",
+        fichier="api/app/connecteurs/resos.py",
+        avant="        ouvert_depuis = None if forcer else sante.en_coupure(tenant_id)",
+        apres="        ouvert_depuis = None  # mutation",
+        tests=["test_carnet_resos.py"],
+        k="coupe_circuit",
+        panne="resOS en panne : chaque outil de l'appel attendrait 4 s de plus — quatre "
+              "blancs d'affilée pour un seul appelant",
+    ),
+    GardeFou(
+        nom="Le restaurateur apprend la panne de resOS",
+        fichier="api/app/llm.py",
+        avant="        connecteurs.signaler_panne(tenant, name, str(exc), call_id)",
+        apres="        pass  # mutation",
+        tests=["test_carnet_resos.py"],
+        k="prevenu",
+        panne="le restaurateur découvrirait le lendemain que ses réservations "
+              "téléphoniques sont devenues des messages",
+    ),
+    GardeFou(
+        nom="Les horaires d'un carnet resOS sont ceux de resOS",
+        fichier="api/app/connecteurs/__init__.py",
+        avant="    return dataclasses.replace(tenant, opening_hours=entree[1])",
+        apres="    return tenant  # mutation",
+        tests=["test_carnet_resos.py"],
+        k="suivent_resos",
+        panne="SCRUM-86 : horaires d'été changés dans resOS, l'assistante annonce encore "
+              "les anciens",
+    ),
+    GardeFou(
+        nom="Les horaires resOS ne se saisissent pas chez nous",
+        fichier="api/app/admin/routes_horaires.py",
+        avant=("    if connecteurs.est_resos(tenant):\n"
+               "        brut = await _horaires_resos(tenant)\n"
+               "        horaires = disponibilite.charger(brut)"),
+        apres="    if False:  # mutation\n        horaires = None",
+        tests=["test_carnet_resos.py"],
+        k="saisissent",
+        panne="un champ modifiable sans effet : le restaurateur croirait avoir changé "
+              "ses horaires, l'assistante suivrait resOS",
+    ),
+    GardeFou(
         nom="GPU introuvable : l'appelant entend qu'il faut rappeler",
         fichier="api/app/voice/greeting.py",
         avant="            message = None if pret else cached_indisponible_path(tenant)",

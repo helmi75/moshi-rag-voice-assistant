@@ -1,6 +1,6 @@
 """Le carnet de réservations par établissement : le nôtre ou resOS (SCRUM-83 à 85).
 
-resOS n'a pas de bac à sable : tout passe par `faux_resos.py`, calqué sur la doc
+resOS n'a pas de bac à sable : tout passe par `connecteurs/bac_a_sable.py`, calqué sur la doc
 publique. Ces tests visent d'abord ce qui doit être IMPOSSIBLE — l'assistante qui
 annonce une réservation que personne ne verra, ou qui lit à un appelant la réservation
 d'un autre — puis le contrat : le modèle doit lire la même chose quel que soit le carnet.
@@ -16,7 +16,8 @@ import pytest
 from app import calls, connecteurs, db, horloge, llm, reservations, tenants
 from app.connecteurs import resos
 
-from faux_resos import CLE_DE_TEST, Etat, creer_app
+from app.connecteurs import bac_a_sable, sante
+from app.connecteurs.bac_a_sable import CLE_DE_TEST, Etat, creer_app
 
 APPELANT = "+33612345678"
 AUTRE = "+33699999999"
@@ -28,9 +29,17 @@ def _dans(jours: int = 3) -> str:
 
 @pytest.fixture()
 def base(tmp_path):
+    # Chaque base jetable réutilise les mêmes id d'établissement : sans remise à zéro,
+    # le coupe-circuit ouvert par un test ferait échouer le suivant.
+    sante.reinitialiser()
+    connecteurs.oublier_horaires()
+    bac_a_sable.oublier_tout()
     with patch.object(db, "DB_PATH", str(tmp_path / "carnet.db")):
         db.init_db()
         yield
+    sante.reinitialiser()
+    connecteurs.oublier_horaires()
+    bac_a_sable.oublier_tout()
 
 
 @pytest.fixture()
@@ -214,7 +223,7 @@ class TestResosInjoignable:
     def test_cle_absente(self, resto_resos, faux, monkeypatch):
         monkeypatch.setenv("RESOS_API_KEYS", "")
         self._jamais_annonce(_creer(resto_resos))
-        assert faux.requetes == [], "sans clé, on n'appelle même pas resOS"
+        assert list(faux.requetes) == [], "sans clé, on n'appelle même pas resOS"
 
     def test_cle_refusee(self, resto_resos, faux):
         faux.cle = "une-autre-cle"
@@ -248,8 +257,7 @@ class TestLesReservationsDesAutres:
         ignoré, resOS rendrait tout le carnet : on revérifie le numéro nous-mêmes."""
         faux.reserver(date=_dans(), time="20:00", phone=AUTRE, nom="Voisin")
         mienne = faux.reserver(date=_dans(), time="21:00", phone=APPELANT)
-        import faux_resos
-        monkeypatch.setattr(faux_resos, "_filtre", lambda booking, expression: True)
+        monkeypatch.setattr(bac_a_sable, "_filtre", lambda booking, expression: True)
         trouvees = _outil(resto_resos, "find_reservation", {})["reservations"]
         assert [r["reservation_id"] for r in trouvees] == [mienne]
 

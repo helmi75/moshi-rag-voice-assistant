@@ -36,7 +36,7 @@ appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles mor
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les quatorze contrôles
+## Les quinze contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
@@ -49,6 +49,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Appels jamais clôturés | `finish_call` n'a pas tourné : le worker est mort avec l'appel | si majoritaire |
 | Blanc ressenti | Dérive de la latence (mesuré en prod : 1,16 s ; attention à 2,5 s, panne à 4 s) | oui |
 | Alertes Twilio | Webhook injoignable, TwiML invalide — **invisible de l'intérieur** | non |
+| Carnet resOS | Établissements dont les réservations vont dans resOS : clé API absente, ou resOS en échec (état écrit sur l'ardoise à chaque changement, il survit aux redémarrages). Pendant la panne, l'assistante prend des messages au lieu de réserver. Le bac à sable plafonne à « attention » : une panne simulée ne réveille pas l'alerte | oui si dernier échec < 1 h |
 | Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) ; message « rappelez dans quelques minutes » absent — si le GPU ne vient pas, l'appelant n'entendra que le silence | non |
 | Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité ; copie hors du serveur absente ou arrêtée (attention) | oui à 72 h |
 | Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |

@@ -125,6 +125,14 @@ async def _demarrer_taches_de_fond():
 
     taches.lancer(supervision.boucle_twilio(), nom="relève des alertes Twilio")
     taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
+    # Horaires des carnets resOS lus dès le démarrage : le premier appel après un
+    # déploiement les a déjà dans son prompt (SCRUM-86).
+    from . import connecteurs
+
+    for tenant in tenants.list_all():
+        if connecteurs.est_resos(tenant):
+            taches.lancer(connecteurs.rafraichir_horaires(tenant),
+                          nom=f"horaires resOS de l'établissement {tenant.id}")
 
 
 async def _arreter_taches_de_fond():

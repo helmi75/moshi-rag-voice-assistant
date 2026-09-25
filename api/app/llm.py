@@ -484,6 +484,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         return _refus(CARNET_REFUSE)
     except connecteurs.Injoignable as exc:
         logger.warning(f"carnet de l'établissement {tenant.id} injoignable pendant {name} : {exc}")
+        connecteurs.signaler_panne(tenant, name, str(exc), call_id)
         return _refus(CARNET_INJOIGNABLE)
 
 
@@ -589,6 +590,7 @@ async def respond(tenant: Tenant, history: list, user_text: str,
     donc jamais de message système, quel que soit le nombre de tours.
     """
     client = get_client()
+    tenant = connecteurs.avec_horaires_du_carnet(tenant)
     nom = (await connecteurs.pour(tenant).dernier_nom(caller_number)
            if caller_number else None)
     api_messages = (

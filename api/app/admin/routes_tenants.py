@@ -36,6 +36,18 @@ deps.templates.env.globals["KB_MAX"] = KB_MAX
 deps.templates.env.globals["cle_resos_posee"] = lambda tenant_id: bool(resos.cle_pour(tenant_id))
 
 
+def _carnet_resos(tenant_id) -> bool:
+    """Le menu montre « Carnet resOS » au restaurateur seulement s'il en a un."""
+    try:
+        tenant = tenants.get_by_id(int(tenant_id))
+    except (TypeError, ValueError):
+        return False
+    return tenant is not None and connecteurs.est_resos(tenant)
+
+
+deps.templates.env.globals["carnet_resos"] = _carnet_resos
+
+
 def _numero(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     """(numéro normalisé, message d'erreur ou None)."""
     numero = _SEPARATEURS.sub("", saisie or "")

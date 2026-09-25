@@ -1,7 +1,7 @@
 """Le carnet resOS : l'API publique v1.2 (doc Postman du 23/07/2025, docs/RESOS.md).
 
 Écrit sans clé : resOS n'a ni bac à sable ni compte de test, et son API est une option
-payante. Tout a été développé contre `tests/faux_resos.py`, qui reproduit la doc. Les
+payante. Tout a été développé contre `bac_a_sable.py`, qui reproduit la doc. Les
 points que la doc ne tranche pas sont traités du côté PRUDENT, et listés dans
 docs/RESOS.md pour le premier vrai appel.
 
@@ -22,13 +22,15 @@ le lit au moment de l'appel.
 import asyncio
 import os
 import re
+import time
+from datetime import timedelta
 from typing import Optional
 from urllib.parse import quote
 
 import httpx
 
 from .. import horloge
-from . import Complet, Injoignable, Refus
+from . import Complet, Injoignable, Refus, sante
 
 # Au-delà, l'appelant entend un blanc et dit « allô ? ». Une réponse plus lente vaut
 # une panne : on le dit au modèle plutôt que de laisser la ligne muette. Plafond de
@@ -97,7 +99,43 @@ def _en_reservation(booking: dict) -> dict:
         "party_size": booking.get("people"),
         "notes": booking.get("comment") or None,
         "a_valider": booking.get("status") == "request",
+        "statut": booking.get("status"),
+        "source": booking.get("source"),
     }
+
+
+# `day` de l'API : 1 à 7, sans légende dans la doc. Lu comme la norme ISO — 1 = lundi,
+# 7 = dimanche. À vérifier au premier vrai appel (docs/RESOS.md).
+_JOURS_RESOS = {numero: jour for numero, jour in enumerate(horloge.JOURS, start=1)}
+
+
+def _hhmm(valeur) -> str:
+    """`1645` → « 16:45 » : la forme des heures d'ouverture chez resOS."""
+    entier = int(valeur)
+    return f"{entier // 100:02d}:{entier % 100:02d}"
+
+
+def horaires_depuis_resos(ouvertures) -> dict:
+    """Les horaires resOS dans NOTRE format (`disponibilite.py`) : le prompt et le refus
+    des créneaux fermés s'en servent sans savoir d'où ils viennent (SCRUM-86).
+
+    Les ouvertures « spéciales » (jours fériés, événements) sont ignorées : la doc n'en
+    montre aucun exemple, et une date inventée fermerait un jour ouvert. Le vrai
+    garde-fou reste `bookingFlow/times`, consulté avant chaque écriture."""
+    semaine = {jour: [] for jour in horloge.JOURS}
+    for ouverture in ouvertures or []:
+        if not isinstance(ouverture, dict) or ouverture.get("special"):
+            continue
+        jour = _JOURS_RESOS.get(ouverture.get("day"))
+        try:
+            plage = [_hhmm(ouverture["open"]), _hhmm(ouverture["close"])]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if jour and plage not in semaine[jour]:
+            semaine[jour].append(plage)
+    for plages in semaine.values():
+        plages.sort()
+    return {"semaine": semaine, "fermetures": []}
 
 
 def _a_venir(booking: dict) -> bool:
@@ -106,38 +144,78 @@ def _a_venir(booking: dict) -> bool:
 
 
 class ConnecteurResos:
-    def __init__(self, tenant):
+    def __init__(self, tenant, *, bac_a_sable: bool = False):
         self.tenant = tenant
-        self.cle = cle_pour(tenant.id)
+        self.bac_a_sable = bac_a_sable
+        if bac_a_sable:
+            # Le faux resOS de l'établissement, dans le même processus : tout le client
+            # HTTP s'exécute, rien ne sort sur le réseau (SCRUM-93).
+            from . import bac_a_sable as bac
 
-    async def _requete(self, methode: str, chemin: str, *, params=None, corps=None):
-        """La réponse JSON ; None pour une 404. Lève `Injoignable` ou `Refus`."""
+            self.cle, self.base = bac.CLE_DE_TEST, bac.URL
+            self.transport = httpx.ASGITransport(app=bac.app_pour(tenant.id))
+        else:
+            self.cle, self.base, self.transport = cle_pour(tenant.id), url_api(), _transport
+
+    async def _requete(self, methode: str, chemin: str, *, params=None, corps=None,
+                       forcer: bool = False, journaliser: bool = True):
+        """La réponse JSON ; None pour une 404. Lève `Injoignable` ou `Refus`.
+
+        `forcer` ignore le coupe-circuit, et `journaliser=False` n'écrit ni journal ni
+        ardoise : ce sont les lectures de la page « Carnet resOS », pas le chemin d'un
+        appel — l'écran qui se rafraîchit ne doit pas se faire passer pour l'assistante."""
+        tenant_id = self.tenant.id
         if not self.cle:
+            if journaliser:
+                await sante.noter(tenant_id, methode=methode, chemin=chemin,
+                                  erreur="clé absente", panne=True)
             raise Injoignable("aucune clé resOS pour cet établissement (RESOS_API_KEYS)")
+        ouvert_depuis = None if forcer else sante.en_coupure(tenant_id)
+        if ouvert_depuis is not None:
+            # Pas de nouvel essai dans le chemin de l'appel (SCRUM-87) : resOS vient
+            # d'échouer, attendre encore 4 s ne ferait qu'ajouter un blanc.
+            raise Injoignable(f"resOS a échoué il y a {ouvert_depuis:.0f} s : pas de "
+                              f"nouvel essai avant {sante.COUPE_CIRCUIT_SECONDES:.0f} s")
+        debut = time.monotonic()
+
+        async def _noter(code=None, erreur=None, panne=False):
+            if journaliser:
+                await sante.noter(tenant_id, methode=methode, chemin=chemin, code=code,
+                                  duree_ms=int((time.monotonic() - debut) * 1000),
+                                  erreur=erreur, panne=panne)
+
         try:
-            async with httpx.AsyncClient(base_url=url_api(), auth=(self.cle, ""),
+            async with httpx.AsyncClient(base_url=self.base, auth=(self.cle, ""),
                                          timeout=DELAI_SECONDES,
-                                         transport=_transport) as client:
+                                         transport=self.transport) as client:
                 reponse = await asyncio.wait_for(
                     client.request(methode, chemin, params=params, json=corps),
                     DELAI_SECONDES)
         except (httpx.HTTPError, asyncio.TimeoutError) as exc:
             # Une écriture coupée ici a peut-être abouti chez resOS : on préfère une
             # demande en double, que le restaurant voit, à une confirmation inventée.
+            await _noter(erreur=type(exc).__name__, panne=True)
             raise Injoignable(f"{methode} {chemin} : {type(exc).__name__}") from exc
         code = reponse.status_code
         if code == 404:
+            await _noter(code)
             return None
         if code in (401, 403):
-            raise Injoignable(f"resOS refuse la clé de l'établissement {self.tenant.id} ({code})")
+            await _noter(code, "clé refusée", panne=True)
+            raise Injoignable(f"resOS refuse la clé de l'établissement {tenant_id} ({code})")
         if code == 429 or code >= 500:
+            await _noter(code, f"HTTP {code}", panne=True)
             raise Injoignable(f"resOS a répondu {code}")
         if code >= 400:
+            await _noter(code, reponse.text[:120])
             raise Refus(reponse.text[:200])
         try:
-            return reponse.json()
+            donnees = reponse.json()
         except ValueError as exc:
+            await _noter(code, "réponse illisible", panne=True)
             raise Injoignable(f"réponse illisible de resOS ({code})") from exc
+        await _noter(code)
+        return donnees
 
     async def _libres(self, date: str, couverts: int) -> list[str]:
         services = await self._requete("GET", "/bookingFlow/times",
@@ -242,6 +320,32 @@ class ConnecteurResos:
         chemin = f"/bookings/{quote(str(reservation_id), safe='')}"
         if await self._requete("PUT", chemin, corps={"status": "canceled"}) is not True:
             raise Injoignable("resOS n'a pas confirmé l'annulation")
+
+    # -- lectures hors appel : horaires (SCRUM-86) et page « Carnet resOS » ---------
+
+    async def horaires(self) -> dict:
+        return horaires_depuis_resos(await self._requete("GET", "/openingHours"))
+
+    async def a_venir(self, jours: int = 14) -> list[dict]:
+        """Le carnet des prochains jours, TOUS numéros confondus : pour l'admin, jamais
+        pour un appelant."""
+        debut = horloge.aujourd_hui()
+        trouves = await self._requete("GET", "/bookings", params={
+            "fromDateTime": debut.isoformat(),
+            "toDateTime": (debut + timedelta(days=jours)).isoformat(),
+            "limit": 100, "sort": "dateTime:1"}, forcer=True, journaliser=False)
+        return sorted((_en_reservation(b) for b in trouves or [] if isinstance(b, dict)),
+                      key=lambda r: (r["date"] or "", r["time"] or ""))
+
+    async def verifier(self) -> dict:
+        """Le bouton « tester maintenant » : ignore le coupe-circuit."""
+        debut = time.monotonic()
+        try:
+            await self._requete("GET", "/healthcheck", forcer=True)
+            return {"ok": True, "duree_ms": int((time.monotonic() - debut) * 1000)}
+        except (Injoignable, Refus) as exc:
+            return {"ok": False, "erreur": str(exc),
+                    "duree_ms": int((time.monotonic() - debut) * 1000)}
 
     async def dernier_nom(self, telephone) -> Optional[str]:
         # Volontairement vide : ce serait une requête réseau AVANT le décroché, sur un

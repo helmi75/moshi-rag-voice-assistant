@@ -481,11 +481,14 @@ async def run_bot(
     # Le nom du dernier passage, cherché une fois au décroché (une requête indexée, hors
     # boucle) : l'assistante le PROPOSE au lieu de le redemander. Best-effort : sans lui,
     # l'appel se déroule comme avant.
+    # Carnet resOS : ses horaires, en copie mémoire (jamais d'attente réseau ici). Le
+    # prompt et les outils voient ainsi les mêmes horaires que le restaurant (SCRUM-86).
+    from .. import connecteurs
+
+    tenant = connecteurs.avec_horaires_du_carnet(tenant)
     nom_connu = None
     if caller_number:
         try:
-            from .. import connecteurs
-
             nom_connu = await connecteurs.pour(tenant).dernier_nom(caller_number)
         except Exception as exc:
             logger.warning(f"nom du dernier passage introuvable (sans conséquence): {exc}")

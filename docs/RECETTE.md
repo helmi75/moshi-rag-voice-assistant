@@ -147,6 +147,28 @@ Maintenant il dit lequel des quatre maillons l'a produit.
 « lundi 20 h » était pris un jour de fermeture. **S1 conditionne S2** : tant qu'une seule
 requête est refusée en `log`, ne pas passer en `enforce` — ce serait couper la ligne.
 
+## R. resOS en bac à sable — SCRUM-84 à 87 et 93, sans clé ni abonnement
+
+Préparer : fiche de l'établissement → **Carnet de réservations : resOS — bac à sable**, puis
+ouvrir la page **Carnet resOS** du menu. Elle se rafraîchit toute seule toutes les 5 s :
+la laisser ouverte pendant les appels.
+
+| # | Test | Attendu | ✅/❌ |
+|---|---|---|---|
+| R1 | Appeler, demander une table pour demain 20 h | Elle dit « demande transmise au restaurant », **jamais « confirmé »** ; la ligne apparaît en « À valider », source « Téléphone (assistante) » | |
+| R2 | Sur la page : **Valider** | La ligne passe en « Validée » | |
+| R3 | Rappeler du même numéro : « je voudrais passer à 4 personnes » | Elle retrouve la réservation ; la ligne affiche 4 couverts | |
+| R4 | Rappeler : « je voudrais annuler » | La ligne passe en « Annulée » | |
+| R5 | Réglages : 0 table par créneau. Appeler | « Complet » : elle **propose d'autres horaires** (ou un autre jour), n'enregistre rien | |
+| R6 | Réglages : cocher le jour de demain dans « Jours fermés ». Appeler pour demain | Elle refuse ce jour-là ; la page Horaires l'affiche fermé, **en lecture seule** | |
+| R7 | Réglages : **resOS en panne**. Appeler et demander une table | Elle **n'annonce rien** comme enregistré et prend un message ; le journal de la page montre les 503 en rouge ; e-mail « resOS ne répond pas » (si le SMTP est réglé) ; `/supervision` → « Carnet resOS » en attention (bac à sable) | |
+| R8 | Pendant la même panne, redemander dans le même appel | Réponse immédiate, sans nouveau blanc de 4 s (coupe-circuit) | |
+| R9 | Décocher la panne, rappeler | Tout refonctionne tout de suite | |
+| R10 | Réglages : **resOS lent**. Appeler | Même comportement que R7, après 4 s d'attente au plus | |
+
+**R1 est le test qui compte** : une réservation que l'assistante annonce et que le carnet ne
+contient pas est la seule faute impardonnable de toute l'intégration.
+
 ## G. Le test qu'on oublie toujours
 
 | # | Test | Attendu | ✅/❌ |

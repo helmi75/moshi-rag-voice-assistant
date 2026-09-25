@@ -83,7 +83,7 @@ class TestEnumeration:
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
     ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
-                "appels_echoues", "appels_inacheves", "latence", "twilio", "accueils",
+                "appels_echoues", "appels_inacheves", "latence", "twilio", "carnets", "accueils",
                 "sauvegarde", "purge", "disque", "enregistrements"]
 
     def test_tous_les_controles_sont_presents(self, base):

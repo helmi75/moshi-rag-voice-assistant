@@ -828,6 +828,65 @@ _CACHE_SECONDES = 15
 _cache: dict = {}
 
 
+def _controle_carnets() -> Controle:
+    """Le carnet resOS des établissements qui en ont un (SCRUM-87).
+
+    Pendant une panne de resOS, l'assistante n'enregistre rien et prend des messages :
+    elle ne ment pas, mais le restaurant perd ses réservations téléphoniques. Ça doit
+    se voir ici, et pas seulement dans un e-mail que personne n'a lu.
+
+    L'état vient de l'ardoise (`connecteurs/sante.py`), écrite à chaque CHANGEMENT
+    d'état : il survit aux redémarrages. Comme pour le GPU, on ne sonde pas resOS
+    d'ici : la panne se lit dans les vrais appels. Le bac à sable plafonne à
+    « attention » : une panne SIMULÉE ne doit pas réveiller l'alerte de production."""
+    from . import connecteurs
+    from .connecteurs import resos
+
+    concernes = [t for t in tenants.list_all() if connecteurs.est_resos(t)]
+    if not concernes:
+        return Controle("carnets", "Carnet resOS", OK,
+                        "Sans objet : aucun établissement sur resOS.",
+                        mesure={"etablissements": 0})
+    niveaux, lignes, mesure = [], [], {}
+    for tenant in concernes:
+        demo = connecteurs.fournisseur(tenant) == connecteurs.RESOS_DEMO
+        nom = f"{tenant.name}{' (bac à sable)' if demo else ''}"
+        memo = relire(f"carnet:{tenant.id}")
+        valeur = memo[0] if memo else {}
+        if not demo and not resos.cle_pour(tenant.id):
+            niveau, texte = PANNE, (f"{nom} : clé API absente (RESOS_API_KEYS) — chaque "
+                                    "demande de réservation devient un message.")
+        elif valeur.get("etat") == "echec":
+            age = _age_minutes(valeur.get("dernier_echec"))
+            recente = age is not None and age <= 60
+            niveau = PANNE if recente else ATTENTION
+            texte = (f"{nom} : resOS en échec depuis {valeur.get('depuis', '?')} "
+                     f"({valeur.get('echecs', '?')} échec(s), dernier il y a "
+                     f"{age if age is not None else '?'} min : {valeur.get('erreur') or '?'})."
+                     + ("" if recente else " Aucun appel depuis pour dire si c'est réparé."))
+        else:
+            niveau, texte = OK, f"{nom} : resOS répond."
+        if demo and niveau == PANNE:
+            niveau = ATTENTION
+        niveaux.append(niveau)
+        lignes.append(texte)
+        mesure[str(tenant.id)] = {"niveau": niveau, "bac_a_sable": demo,
+                                  "etat": valeur.get("etat")}
+    niveau = pire(*niveaux)
+    en_defaut = sum(1 for n in niveaux if n != OK)
+    return Controle(
+        "carnets", "Carnet resOS", niveau,
+        f"{len(concernes) - en_defaut} / {len(concernes)} carnet(s) resOS joignable(s).",
+        " ".join(lignes) if niveau != OK else "",
+        mesure=mesure,
+    )
+
+
+def _age_minutes(iso: Optional[str]) -> Optional[int]:
+    instant = horloge.lire_utc(iso) if iso else None
+    return int((_maintenant() - instant).total_seconds() // 60) if instant else None
+
+
 def controles() -> list[Controle]:
     """Tous les contrôles, toujours dans le même ordre : du plus grave au plus fin.
 
@@ -865,6 +924,7 @@ def controles() -> list[Controle]:
         ("appels_inacheves", _sur_appels(_controle_appels_inacheves)),
         ("latence", _controle_latence),
         ("twilio", _controle_twilio),
+        ("carnets", _controle_carnets),
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
         ("purge", _controle_purge),
