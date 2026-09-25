@@ -485,6 +485,26 @@ GARDE_FOUS = [
               "joué SANS GPU — comptait comme une réponse",
     ),
     GardeFou(
+        nom="GPU introuvable : l'appelant entend qu'il faut rappeler",
+        fichier="api/app/voice/greeting.py",
+        avant="            message = None if pret else cached_indisponible_path(tenant)",
+        apres="            message = None  # mutation",
+        tests=["test_greeting.py"],
+        k="GpuIntrouvable",
+        panne="24/09 : Modal sans GPU en Europe, 90 s de musique puis le SILENCE — les "
+              "appels 158 et 159 raccrochés sans que personne leur dise de rappeler",
+    ),
+    GardeFou(
+        nom="Le message d'indisponibilité ne passe pas pour une réponse",
+        fichier="api/app/voice/bot.py",
+        avant="        greeting.texte_indisponible(),",
+        apres="        # mutation",
+        tests=["test_supervision.py"],
+        k="indisponibilite",
+        panne="le filet de sécurité masquerait la panne qu'il amortit : des appels "
+              "perdus comptés comme servis, le voyant « Appels muets » au vert",
+    ),
+    GardeFou(
         nom="Une ligne muette en ce moment est une panne, pas une moyenne",
         fichier="api/app/supervision.py",
         avant="    if d_affilee:",

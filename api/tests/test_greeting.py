@@ -131,9 +131,9 @@ def test_texte_de_reprise_selon_l_attente(monkeypatch):
     assert g.texte_de_reprise(False) == "Merci d'avoir patienté, je vous écoute."
 
 
-def _intro(monkeypatch, chaud, secondes_accueil=0.5):
-    """Joue l'intro avec de faux transport/tâche ; renvoie (réveils, textes dits,
-    trames audio envoyées, attentes)."""
+def _jouer_intro(monkeypatch, chaud, secondes_accueil=0.5, gpu_venu=True):
+    """Joue l'intro avec de faux transport/tâche ; renvoie (résultat, réveils, trames
+    mises en file, trames audio envoyées, attentes)."""
     import asyncio
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
@@ -143,6 +143,7 @@ def _intro(monkeypatch, chaud, secondes_accueil=0.5):
 
     async def faux_reveil():
         reveils.append(1)
+        return gpu_venu
 
     async def fausse_attente(secondes):
         attentes.append(secondes)
@@ -153,11 +154,17 @@ def _intro(monkeypatch, chaud, secondes_accueil=0.5):
     _write_wav(g._cache_path(_tenant()), seconds=secondes_accueil)
     task = SimpleNamespace(queue_frames=AsyncMock())
     sortie = SimpleNamespace(send_audio=AsyncMock())
-    asyncio.run(g.run_switchboard_intro(task, sortie, _tenant(), None, chaud=chaud))
+    resultat = asyncio.run(g.run_switchboard_intro(task, sortie, _tenant(), None, chaud=chaud))
     frames = [f for appel in task.queue_frames.await_args_list for f in appel.args[0]]
+    return resultat, reveils, frames, sortie.send_audio.await_count, attentes
+
+
+def _intro(monkeypatch, chaud, secondes_accueil=0.5):
+    """Le cas nominal : renvoie (réveils, textes dits, trames audio envoyées, attentes)."""
+    _, reveils, frames, trames, attentes = _jouer_intro(monkeypatch, chaud, secondes_accueil)
     textes = [f.text for f in frames if type(f).__name__ == "TTSSpeakFrame"]
     assert type(frames[-1]).__name__ == "STTMuteFrame" and frames[-1].mute is False
-    return reveils, textes, sortie.send_audio.await_count, attentes
+    return reveils, textes, trames, attentes
 
 
 def test_intro_gpu_chaud_ni_reveil_ni_musique(monkeypatch):
@@ -179,6 +186,96 @@ def test_intro_gpu_froid_reveille_et_remercie(monkeypatch):
     reveils, textes, _, _ = _intro(monkeypatch, chaud=False)
     assert reveils == [1]
     assert textes == ["Merci d'avoir patienté, je vous écoute."]
+
+
+class TestGpuIntrouvable:
+    """Appels 158 et 159 (24/09/2026, 23 h 15) : Modal n'avait plus de GPU L4 en Europe.
+    90 s de musique, puis une reprise envoyée à un serveur absent — et l'appelant dans
+    le silence jusqu'à ce qu'il raccroche. Il doit entendre qu'on le rappelle à rappeler."""
+
+    def _message_en_cache(self, secondes=3.0):
+        return _write_wav(g._chemin_indisponible(_tenant()), seconds=secondes)
+
+    def test_le_message_est_joue_puis_on_raccroche(self, monkeypatch):
+        self._message_en_cache(secondes=3.0)
+        resultat, _, frames, trames, _ = _jouer_intro(monkeypatch, chaud=False, gpu_venu=False)
+        assert resultat == g.INDISPONIBLE
+        assert trames == 25 + 150, "l'accueil (0,5 s) puis le message (3 s), en trames de 20 ms"
+        noms = [type(f).__name__ for f in frames]
+        assert noms[-1] == "EndFrame", "on raccroche, on ne laisse pas l'appelant en ligne"
+        assert "TTSSpeakFrame" not in noms, (
+            "la reprise partirait vers un serveur absent : c'est le silence des appels 158-159")
+
+    def test_rien_ne_suit_le_raccroche(self, monkeypatch):
+        """Un démute mis en file après l'EndFrame arriverait sur un pipeline qui s'arrête."""
+        self._message_en_cache()
+        _, _, frames, _, _ = _jouer_intro(monkeypatch, chaud=False, gpu_venu=False)
+        assert [type(f).__name__ for f in frames].count("STTMuteFrame") == 1
+
+    def test_un_gpu_venu_ne_declenche_jamais_le_message(self, monkeypatch):
+        self._message_en_cache()
+        resultat, _, frames, trames, _ = _jouer_intro(monkeypatch, chaud=False, gpu_venu=True)
+        assert resultat is None
+        assert trames == 25, "l'accueil seul"
+        assert "EndFrame" not in [type(f).__name__ for f in frames]
+
+    def test_sans_message_en_cache_la_reprise_est_tentee(self, monkeypatch):
+        """Pas de WAV : on ne raccroche pas au nez de l'appelant sans un mot. On tente la
+        reprise, comme avant — et la supervision signale le message manquant."""
+        resultat, _, frames, _, _ = _jouer_intro(monkeypatch, chaud=False, gpu_venu=False)
+        assert resultat is None
+        assert [f.text for f in frames if type(f).__name__ == "TTSSpeakFrame"] == [
+            "Merci d'avoir patienté, je vous écoute."]
+
+    def test_le_message_a_son_propre_cache_suivant_la_voix(self):
+        """Changer la voix de l'établissement doit rendre un nouveau message : sinon
+        l'appelant entendrait deux voix différentes dans le même appel."""
+        from app.voice import voices
+
+        tenant = _tenant()
+        assert g._chemin_indisponible(tenant) != g._cache_path(tenant)
+        autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
+        assert g._chemin_indisponible(_tenant(voice=autre.id)) != g._chemin_indisponible(tenant)
+
+    def test_le_pre_rendu_prepare_aussi_le_message(self, monkeypatch):
+        import asyncio
+
+        import numpy as np
+
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        rendus = []
+
+        async def rendre(texte, voix=None):
+            rendus.append(texte)
+            return np.zeros(2400, dtype=np.float32)
+
+        async def convertir(_pcm):
+            return b"\x00\x00" * 800
+
+        monkeypatch.setattr(g, "_render_pcm", rendre)
+        monkeypatch.setattr(g, "_to_twilio_int16", convertir)
+        tenant = _tenant()
+        assert asyncio.run(g.ensure_greeting_wav(tenant)) == g._cache_path(tenant)
+        assert g.cached_indisponible_path(tenant) is not None
+        assert rendus[-1] == g.texte_indisponible()
+        # Idempotent : tout est en cache, plus aucun rendu.
+        asyncio.run(g.ensure_greeting_wav(tenant))
+        assert len(rendus) == 2
+
+    def test_gpu_injoignable_on_n_attend_pas_une_deuxieme_fois(self, monkeypatch):
+        """L'accueil vient d'échouer : réessayer le message coûterait 90 s de plus."""
+        import asyncio
+
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        rendus = []
+
+        async def echouer(texte, voix=None):
+            rendus.append(texte)
+            raise TimeoutError("timed out during opening handshake")
+
+        monkeypatch.setattr(g, "_render_pcm", echouer)
+        assert asyncio.run(g.ensure_greeting_wav(_tenant())) is None
+        assert len(rendus) == 1
 
 
 class TestKeepWarmAuxHeuresDeService:
@@ -276,3 +373,40 @@ class TestAmorceDuContexte:
         tenant = _tenant()
         _write_wav(g._cache_path(tenant))
         assert bot.amorce_assistante(tenant) == []
+
+
+class TestTranscriptionDuMessage:
+    """Le message part sans le modèle : il n'est pas dans le contexte. Il faut l'y
+    inscrire, sinon l'appel se lirait comme un appelant qui raccroche sans un mot."""
+
+    def _tache(self, resultat=None, annulee=False):
+        import asyncio
+
+        async def intro():
+            if annulee:
+                await asyncio.sleep(3600)
+            return resultat
+
+        async def jouer():
+            tache = asyncio.ensure_future(intro())
+            if annulee:
+                await asyncio.sleep(0)
+                tache.cancel()
+            try:
+                await tache
+            except asyncio.CancelledError:
+                pass
+            return tache
+
+        return asyncio.run(jouer())
+
+    def test_raccroche_faute_de_gpu(self):
+        from app.voice import bot
+
+        assert bot.message_de_fin_d_intro(self._tache(g.INDISPONIBLE)) == g.texte_indisponible()
+
+    def test_intro_normale_ou_interrompue(self):
+        from app.voice import bot
+
+        assert bot.message_de_fin_d_intro(self._tache(None)) is None
+        assert bot.message_de_fin_d_intro(self._tache(annulee=True)) is None

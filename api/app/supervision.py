@@ -534,12 +534,25 @@ def _controle_accueils() -> Controle:
         )
     liste = tenants.list_all()
     manquants = [t.name for t in liste if greeting_mod.cached_greeting_path(t) is None]
+    # Le message « rappelez dans quelques minutes » ne sert que GPU introuvable : son
+    # absence ne se remarquerait qu'au pire moment, en rendant le silence à l'appelant.
+    sans_excuse = [t.name for t in liste
+                   if greeting_mod.cached_indisponible_path(t) is None]
+    explication = []
+    if manquants:
+        explication.append("Décroché non instantané pour : " + ", ".join(manquants[:5])
+                           + ". Le premier appel supportera un démarrage à froid du GPU.")
+    if sans_excuse:
+        explication.append("Pas de message « rappelez dans quelques minutes » pour : "
+                           + ", ".join(sans_excuse[:5]) + ". Si le GPU ne vient pas, "
+                           "l'appelant n'entendra que le silence après la musique.")
     return Controle(
-        "accueils", "Voix d'accueil", ATTENTION if manquants else OK,
-        f"{len(liste) - len(manquants)} / {len(liste)} accueil(s) pré-rendu(s).",
-        "Décroché non instantané pour : " + ", ".join(manquants[:5]) + ". "
-        "Le premier appel supportera un démarrage à froid du GPU." if manquants else "",
-        mesure={"total": len(liste), "manquants": len(manquants)},
+        "accueils", "Voix d'accueil", ATTENTION if manquants or sans_excuse else OK,
+        f"{len(liste) - len(manquants)} / {len(liste)} accueil(s) pré-rendu(s), "
+        f"{len(liste) - len(sans_excuse)} / {len(liste)} message(s) d'indisponibilité.",
+        " ".join(explication),
+        mesure={"total": len(liste), "manquants": len(manquants),
+                "sans_message_d_indisponibilite": len(sans_excuse)},
     )
 
 

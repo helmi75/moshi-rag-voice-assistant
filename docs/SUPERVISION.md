@@ -49,7 +49,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Appels jamais clôturés | `finish_call` n'a pas tourné : le worker est mort avec l'appel | si majoritaire |
 | Blanc ressenti | Dérive de la latence (mesuré en prod : 1,16 s ; attention à 2,5 s, panne à 4 s) | oui |
 | Alertes Twilio | Webhook injoignable, TwiML invalide — **invisible de l'intérieur** | non |
-| Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) | non |
+| Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) ; message « rappelez dans quelques minutes » absent — si le GPU ne vient pas, l'appelant n'entendra que le silence | non |
 | Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité ; copie hors du serveur absente ou arrêtée (attention) | oui à 72 h |
 | Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |
 | Espace disque | Un disque plein laisse passer les `SELECT` et fait échouer la seule chose qui compte : enregistrer une réservation | oui sous 2 Go |

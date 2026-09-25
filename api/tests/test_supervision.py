@@ -260,6 +260,16 @@ class TestLesDeuxPannesQueLeControleNAvaitPasVues:
         ])
         assert _controle("appels_muets")["mesure"]["muets"] == 1
 
+    def test_le_message_d_indisponibilite_n_est_pas_une_reponse(self, etablissement):
+        """25/09/2026 : GPU introuvable, l'assistante demande de rappeler et raccroche.
+        L'appel est perdu pour le restaurant : il doit compter parmi les muets, sinon
+        le filet de sécurité masquerait la panne qu'il amortit."""
+        from app.voice import greeting
+
+        _appel(etablissement.id, "CA-indispo", transcript=[
+            ACCUEIL, {"role": "assistant", "content": greeting.texte_indisponible()}])
+        assert _controle("appels_muets")["mesure"]["muets"] == 1
+
     def test_des_relances_fusionnees_en_un_seul_tour_restent_du_decor(self, etablissement):
         """L'agrégateur fusionne les sorties consécutives : l'appel 138 portait les trois
         relances bout à bout dans UN tour. Une comparaison exacte l'aurait pris pour une
@@ -766,3 +776,36 @@ class TestCablage:
         assert not re.search(r"^\s*#?\s*SUPERVISION_TOKEN=\S", texte, re.M), (
             "env.example contient SUPERVISION_TOKEN=<valeur> : gabarit ou secret, "
             "les deux sont à proscrire dans un dépôt public")
+
+
+class TestMessageDIndisponibilite:
+    """Le message « rappelez dans quelques minutes » ne sert que GPU introuvable. S'il
+    manque, personne ne le remarque — jusqu'au jour où l'appelant retrouve le silence."""
+
+    def _wav(self, chemin):
+        import wave
+
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(chemin), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(8000)
+            w.writeframes(b"\x00\x00" * 800)
+
+    def test_un_message_manquant_se_voit(self, etablissement, tmp_path, monkeypatch):
+        from app.voice import greeting
+
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        monkeypatch.setenv("GREETING_CACHE_DIR", str(tmp_path / "accueils"))
+        liste = tenants.list_all()
+        for t in liste:
+            self._wav(greeting._cache_path(t))
+        controle = _controle("accueils")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert controle["mesure"]["sans_message_d_indisponibilite"] == len(liste)
+
+        for t in liste:
+            self._wav(greeting._chemin_indisponible(t))
+        controle = _controle("accueils")
+        assert controle["niveau"] == supervision.OK
+        assert controle["mesure"]["sans_message_d_indisponibilite"] == 0
