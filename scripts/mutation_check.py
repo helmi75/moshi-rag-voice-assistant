@@ -217,8 +217,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Le téléphone d'une réservation vient du réseau, pas du modèle",
         fichier="api/app/llm.py",
-        avant='            customer_phone=(caller_number or "").strip() or None,',
-        apres='            customer_phone=tool_input.get("customer_phone"),  # mutation',
+        avant='        couverts=tool_input["party_size"], telephone=(caller_number or "").strip() or None,',
+        apres='        couverts=tool_input["party_size"], telephone=tool_input.get("customer_phone"),  # mutation',
         tests=["test_reservation_modification.py"],
         k="reseau or telephone",
         panne="l'appelant déciderait de qui il est, donc à quelles réservations il accède",
@@ -317,8 +317,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Une table ne s'enregistre pas sans nom",
         fichier="api/app/llm.py",
-        avant='        if not str(tool_input.get("customer_name") or "").strip():',
-        apres="        if False:  # mutation",
+        avant='    if not str(tool_input.get("customer_name") or "").strip():',
+        apres="    if False:  # mutation",
         tests=["test_creneau.py"],
         k="sans_nom",
         panne="une réservation « au nom de. » entrerait en base — vécu au banc : "
@@ -413,8 +413,9 @@ GARDE_FOUS = [
     GardeFou(
         nom="Une réservation prise prévient le restaurateur",
         fichier="api/app/llm.py",
-        avant='        notifications.planifier(tenant, "reservation_creee", {"reservation": row, "appel_id": call_id})',
-        apres="        pass  # mutation",
+        avant=('    notifications.planifier(tenant, "reservation_creee",\n'
+               '                            {"reservation": reservation, "appel_id": call_id})'),
+        apres="    pass  # mutation",
         tests=["test_notifications.py"],
         k="creee",
         panne="une table prise au téléphone ne serait vue par personne en salle avant l'heure du service",
