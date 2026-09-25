@@ -7,6 +7,24 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — quand le GPU ne vient pas (25/09/2026)
+
+Trois pannes de capacité chez Modal en deux jours (plus de GPU L4 en Europe : 23/09, 24/09 à
+23 h 15, 25/09 à 8 h 48). Après 90 s de musique d'attente, la reprise partait vers un serveur
+absent : l'appelant n'entendait plus **rien** et finissait par raccrocher (appels 158 et 159).
+
+### Ajouté
+- **Message « rappelez dans quelques minutes »** : si le GPU n'a pas répondu à la fin de
+  l'attente (`MOSHI_HOLD_MAX_SECONDS`, 90 s), l'assistante s'excuse, demande de rappeler et
+  raccroche. Le message est pré-rendu dans la voix de l'établissement, au même moment que
+  l'accueil — c'est le seul moment où le serveur de voix est sûr de répondre. Il figure dans
+  la transcription, et l'appel reste compté parmi les « Appels muets » : le filet amortit la
+  panne, il ne la cache pas. `MOSHI_INDISPONIBLE_TEXT` remplace le texte.
+- Le contrôle « Voix d'accueil » signale un message d'indisponibilité manquant.
+
+### À poser au déploiement
+Rien. Le message est rendu au démarrage, dès que le GPU répond (quelques secondes).
+
 ## Non publiée — ce que quatre vrais appels ont montré (20/09/2026)
 
 Quatre appels passés le 20/09 au soir, réécoutés et relus en base (appels 138 à 141).

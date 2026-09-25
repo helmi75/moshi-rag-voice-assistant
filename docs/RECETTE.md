@@ -37,6 +37,7 @@ ssh root@187.77.172.87 "docker compose -f /opt/moshi-rag-voice-assistant/docker-
 | A6 | Dans le même appel, revenir au français | Elle suit, sans qu'on ait à répéter trois fois | |
 | A7 | Relire la transcription dans l'admin | L'accueil apparaît **une seule fois** ; un nom déjà connu est écrit « Helmi », pas « HELMI » | |
 | A8 | Liste des appels, quelques minutes après | Une phrase de résumé (« Réservation pour deux… »), pas « Bonjour, restaurant… » | |
+| A9 | GPU introuvable : `MOSHI_HOLD_MAX_SECONDS=5` dans le `.env`, redémarrer, attendre 3 min sans appel (GPU éteint), appeler — **remettre la variable ensuite** | Accueil, 5 s de musique, puis « Toutes nos excuses… merci de nous rappeler dans quelques minutes. Au revoir. » et l'appel raccroche — jamais de silence | |
 
 **A2 est le test de #22.** Si la mention manque, la migration n'est pas passée ou
 `RGPD_MENTION` est à 0.

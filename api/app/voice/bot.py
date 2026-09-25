@@ -237,8 +237,22 @@ def phrases_du_pipeline() -> frozenset[str]:
     return frozenset({
         greeting.texte_de_reprise(True),
         greeting.texte_de_reprise(False),
+        greeting.texte_indisponible(),
         *(texte for textes in _RELANCES.values() for texte in textes),
     })
+
+
+def message_de_fin_d_intro(intro_task) -> str | None:
+    """Ce que l'intro a dit, sans le modèle, avant de raccrocher faute de GPU — à
+    inscrire dans la transcription. Sans lui, le restaurateur lirait un appelant qui
+    raccroche sans un mot, alors que l'assistante lui a demandé de rappeler."""
+    from . import greeting
+
+    if not intro_task.done() or intro_task.cancelled() or intro_task.exception() is not None:
+        return None
+    if intro_task.result() == greeting.INDISPONIBLE:
+        return greeting.texte_indisponible()
+    return None
 
 
 def relance(n: int, langue: str | None) -> tuple[str, bool]:
@@ -703,7 +717,11 @@ async def run_bot(
     )
     # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
     # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).
-    if greeting_mod.cached_greeting_path(tenant) is None:
+    # Même rattrapage pour le message d'indisponibilité, que le démarrage n'a pas pu
+    # rendre si le GPU manquait à ce moment-là — mais GPU chaud seulement : pendant un
+    # réveil, ce serait une connexion de plus vers un GPU peut-être introuvable.
+    if greeting_mod.cached_greeting_path(tenant) is None or (
+            chaud and greeting_mod.cached_indisponible_path(tenant) is None):
         taches.lancer(greeting_mod.ensure_greeting_wav(tenant),
                       nom=f"accueil de l'établissement {tenant.id}")
 
@@ -715,6 +733,9 @@ async def run_bot(
         status = "failed"
         raise
     finally:
+        message_final = message_de_fin_d_intro(intro_task)
+        if message_final:
+            context.add_message({"role": "assistant", "content": message_final})
         intro_task.cancel()
         # Fermeture de l'enregistrement AVANT la clôture en base : `etat()` doit refléter
         # ce qui a réellement été écrit, y compris les tranches perdues. Son propre

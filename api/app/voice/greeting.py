@@ -34,6 +34,17 @@ _RESUME_TEXT = "Merci d'avoir patienté, je vous écoute."
 # GPU chaud : il n'y a pas eu d'attente, donc rien dont remercier.
 _RESUME_TEXT_CHAUD = "Je vous écoute."
 
+# GPU introuvable au bout de l'attente (Modal sans capacité L4 en Europe : 23/09, 24/09
+# et 25/09/2026). La reprise partait alors vers un serveur absent et l'appelant
+# n'entendait plus RIEN après la musique : appels 158 et 159 raccrochés dans le silence.
+# Ce message est pré-rendu comme l'accueil — par définition, le serveur de voix ne
+# répond pas au moment où il faut le dire.
+_INDISPONIBLE_TEXT = ("Toutes nos excuses, nous rencontrons un petit souci technique. "
+                      "Merci de nous rappeler dans quelques minutes. Au revoir.")
+
+# Ce que rend `run_switchboard_intro` quand elle a raccroché faute de GPU.
+INDISPONIBLE = "indisponible"
+
 # Avance de la reprise sur la fin de l'accueil, GPU chaud : le temps que la synthèse
 # rende sa première syllabe (≈ 610 ms mesurés, journal de bord de l'appel 39). Lancée
 # plus tard, elle laisserait un blanc ; plus tôt, elle chevaucherait l'accueil.
@@ -46,6 +57,12 @@ def texte_de_reprise(chaud: bool) -> str:
     if chaud:
         return os.getenv("MOSHI_RESUME_TEXT_CHAUD", _RESUME_TEXT_CHAUD)
     return os.getenv("MOSHI_RESUME_TEXT", _RESUME_TEXT)
+
+
+def texte_indisponible() -> str:
+    """Ce que l'appelant entend quand le GPU n'est pas venu. Une seule source : le WAV en
+    cache, la transcription et la supervision lisent le même texte."""
+    return os.getenv("MOSHI_INDISPONIBLE_TEXT", _INDISPONIBLE_TEXT)
 
 # Débit du WAV mis en cache : celui de Twilio (8 kHz), pour être rejoué tel quel
 # par le transport sortant sans rééchantillonnage.
@@ -86,19 +103,36 @@ def _cache_path(tenant: Tenant) -> Path:
 
     C'est ce qui rend le changement de voix sûr : le WAV rendu dans l'ancienne voix
     n'est plus jamais retrouvé, donc jamais rejoué par-dessus la nouvelle."""
-    key = f"{_voice(tenant)}|{_texte(tenant)}".encode("utf-8")
+    return _chemin_en_cache(tenant, _texte(tenant))
+
+
+def _chemin_indisponible(tenant: Tenant) -> Path:
+    """Même règle que l'accueil : un changement de voix ou de texte rend un nouveau WAV."""
+    return _chemin_en_cache(tenant, texte_indisponible(), "_indisponible")
+
+
+def _chemin_en_cache(tenant: Tenant, texte: str, etiquette: str = "") -> Path:
+    key = f"{_voice(tenant)}|{texte}".encode("utf-8")
     digest = hashlib.sha1(key).hexdigest()[:12]
-    return _cache_dir() / f"tenant{tenant.id}_{digest}.wav"
+    return _cache_dir() / f"tenant{tenant.id}{etiquette}_{digest}.wav"
+
+
+def _si_valide(path: Path) -> Path | None:
+    # 44 octets = en-tête WAV seul : un fichier de cette taille est vide/corrompu.
+    if path.exists() and path.stat().st_size > 44:
+        return path
+    return None
 
 
 def cached_greeting_path(tenant: Tenant) -> Path | None:
     """Retourne le WAV d'accueil déjà en cache, ou None. NE rend RIEN (un rendu à
     froid bloquerait l'accueil ; l'appelant retombe alors sur le TTS live)."""
-    path = _cache_path(tenant)
-    # 44 octets = en-tête WAV seul : un fichier de cette taille est vide/corrompu.
-    if path.exists() and path.stat().st_size > 44:
-        return path
-    return None
+    return _si_valide(_cache_path(tenant))
+
+
+def cached_indisponible_path(tenant: Tenant) -> Path | None:
+    """Le WAV « rappelez dans quelques minutes » déjà en cache, ou None. NE rend RIEN."""
+    return _si_valide(_chemin_indisponible(tenant))
 
 
 async def _render_pcm(text: str, voice: Optional[str] = None) -> np.ndarray | None:
@@ -164,28 +198,37 @@ def _write_wav(path: Path, pcm_int16: bytes) -> None:
 
 
 async def ensure_greeting_wav(tenant: Tenant) -> Path | None:
-    """Rend et met en cache le WAV d'accueil s'il manque. Idempotent. None si échec
+    """Rend et met en cache le WAV d'accueil s'il manque, puis le message
+    d'indisponibilité. Idempotent. Rend le chemin de l'ACCUEIL, None si échec
     (l'appelant retombe alors sur le TTS live)."""
     if not is_moshi_server():
         return None
-    existing = cached_greeting_path(tenant)
-    if existing:
-        return existing
+    accueil = cached_greeting_path(tenant) or await _rendre_en_cache(
+        tenant, _texte(tenant), _cache_path(tenant), "accueil")
+    # Ce message ne se rend que GPU joignable : on profite de chaque passage ici. Sans
+    # accueil, le GPU vient de ne pas répondre — inutile de lui laisser 90 s de plus.
+    if accueil is not None and cached_indisponible_path(tenant) is None:
+        await _rendre_en_cache(tenant, texte_indisponible(), _chemin_indisponible(tenant),
+                               "message d'indisponibilité")
+    return accueil
+
+
+async def _rendre_en_cache(tenant: Tenant, texte: str, chemin: Path, quoi: str) -> Path | None:
     try:
         t0 = time.monotonic()
-        pcm = await _render_pcm(_texte(tenant), _voice(tenant))
+        pcm = await _render_pcm(texte, _voice(tenant))
         if pcm is None:
-            logger.warning(f"greeting: rendu vide (tenant {tenant.id})")
+            logger.warning(f"greeting: rendu vide ({quoi}, tenant {tenant.id})")
             return None
-        _write_wav(_cache_path(tenant), await _to_twilio_int16(pcm))
+        _write_wav(chemin, await _to_twilio_int16(pcm))
         logger.info(
-            f"greeting: pré-rendu tenant {tenant.id} en voix « {_voice(tenant)} » "
+            f"greeting: {quoi} pré-rendu, tenant {tenant.id}, en voix « {_voice(tenant)} » "
             f"({pcm.shape[0] / _NATIVE_RATE:.1f}s d'audio) en {time.monotonic() - t0:.1f}s "
-            f"→ {_cache_path(tenant).name}"
+            f"→ {chemin.name}"
         )
-        return _cache_path(tenant)
+        return chemin
     except Exception as exc:
-        logger.warning(f"greeting: pré-rendu échoué (repli TTS live), tenant {tenant.id}: {exc}")
+        logger.warning(f"greeting: pré-rendu échoué ({quoi}), tenant {tenant.id}: {exc}")
         return None
 
 
@@ -207,17 +250,20 @@ def load_greeting_frames(path: Path, chunk_ms: int = 20) -> list:
     return frames
 
 
-async def warmup_moshi_server() -> None:
+async def warmup_moshi_server() -> bool:
     """Réveille (ou garde chaud) le serveur moshi : mini-requête TTS. Non bloquant,
-    erreurs avalées — c'est un préchauffage best-effort, jamais un point de panne."""
+    erreurs avalées — c'est un préchauffage best-effort, jamais un point de panne.
+    Rend True si le serveur a répondu : l'intro en déduit s'il faut s'excuser."""
     if not is_moshi_server():
-        return
+        return False
     try:
         t0 = time.monotonic()
         await _render_pcm(os.getenv("MOSHI_WARMUP_TEXT", "Bonjour."))
         logger.info(f"warmup moshi-server : OK en {time.monotonic() - t0:.1f}s")
+        return True
     except Exception as exc:
         logger.warning(f"warmup moshi-server échoué (sans conséquence): {exc}")
+        return False
 
 
 def hold_music_dir() -> Path:
@@ -253,9 +299,10 @@ def load_hold_music_chunks(
 async def run_switchboard_intro(
     task, output_transport, tenant: Tenant, pipeline_ready: Optional[asyncio.Event] = None,
     chaud: Optional[bool] = None,
-) -> None:
+) -> Optional[str]:
     """Flux « standardiste » (Phase 3) : accueil pré-rendu → musique d'attente pendant
     le réveil du GPU → reprise proactive. Lancé en tâche de fond parallèle au pipeline.
+    Rend `INDISPONIBLE` si l'appel a été raccroché faute de GPU, None sinon.
 
     ⚠️ `pipeline_ready` : le transport de sortie JETTE l'audio reçu avant le StartFrame.
     Sans cette attente, l'accueil (4 s envoyées d'un bloc à t=0) part dans le vide et
@@ -276,8 +323,14 @@ async def run_switchboard_intro(
     allumé, le réveil ouvrait une connexion de plus par appel — celle qui allumait un
     deuxième GPU dès cinq appels simultanés au banc — et faisait patienter l'appelant
     pour rien. « Je vous écoute. » s'enchaîne alors sur la fin de l'accueil.
+
+    GPU INTROUVABLE à la fin de l'attente : message pré-rendu « rappelez dans quelques
+    minutes », puis on raccroche. La reprise partait vers un serveur absent, et
+    l'appelant restait dans le silence jusqu'à raccrocher de lui-même.
     """
-    from pipecat.frames.frames import OutputAudioRawFrame, STTMuteFrame, TTSSpeakFrame
+    from pipecat.frames.frames import (
+        EndFrame, OutputAudioRawFrame, STTMuteFrame, TTSSpeakFrame,
+    )
 
     if chaud is None:
         chaud = gpu_chaud()
@@ -286,6 +339,7 @@ async def run_switchboard_intro(
     # (il est « en ligne d'attente ») ; on écoute à la reprise. La musique, elle, ne
     # passe plus par le STT (send_audio) : le mute ne concerne donc que l'entrée réelle.
     await task.queue_frames([STTMuteFrame(mute=True)])
+    raccroche = False
 
     # Attend le démarrage effectif du pipeline avant d'émettre le moindre audio.
     if pipeline_ready is not None:
@@ -330,17 +384,36 @@ async def run_switchboard_intro(
                         audio=chunks[i % len(chunks)], sample_rate=rate, num_channels=1))
                     i += 1
                     await asyncio.sleep(0.9)  # < 1 s : petit tampon d'avance anti-coupure
+            pret = False
             try:
-                await asyncio.wait_for(warm, timeout=max(0.0, deadline - time.monotonic()))
+                pret = bool(await asyncio.wait_for(
+                    warm, timeout=max(0.0, deadline - time.monotonic())))
             except Exception:
-                pass  # warmup KO/expiré : on reprend quand même la main
+                pass  # warmup expiré : le GPU n'est pas venu
+            message = None if pret else cached_indisponible_path(tenant)
+            if message is not None:
+                logger.warning(f"GPU toujours injoignable après ~{i}s de musique : « rappelez "
+                               "dans quelques minutes », puis on raccroche.")
+                for frame in load_greeting_frames(message):
+                    await output_transport.send_audio(frame)
+                # Pas d'attente ici : le transport de sortie ne traite l'EndFrame qu'une
+                # fois joué tout l'audio déjà en file (musique restante, puis message).
+                await task.queue_frames([EndFrame()])
+                raccroche = True
+                return INDISPONIBLE
+            if not pret:
+                logger.warning("GPU toujours injoignable, et aucun message d'indisponibilité "
+                               "en cache : reprise tentée quand même.")
             logger.info(f"Fin de l'attente (~{i}s de musique jouée) : reprise proactive.")
 
         # 4. Reprise proactive (TTS désormais chaud → ~1,2 s), via le pipeline normal.
         await task.queue_frames([TTSSpeakFrame(texte_de_reprise(chaud))])
+        return None
     finally:
-        # Démute : le client peut désormais parler et être transcrit.
-        await task.queue_frames([STTMuteFrame(mute=False)])
+        # Démute : le client peut désormais parler et être transcrit. Sauf si l'on
+        # raccroche : rien ne doit plus suivre l'EndFrame.
+        if not raccroche:
+            await task.queue_frames([STTMuteFrame(mute=False)])
 
 
 _PLAGE = re.compile(r"\s*(\d{1,2})(?:[:h](\d{2}))?\s*-\s*(\d{1,2})(?:[:h](\d{2}))?\s*")
