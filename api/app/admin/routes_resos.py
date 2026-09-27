@@ -9,7 +9,7 @@ panne ou un resOS lent. C'est ce qui permet de tester au téléphone, sans clé 
 abonnement, tout ce qu'un vrai resOS ferait vivre à l'assistante.
 """
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -22,9 +22,6 @@ from . import deps
 
 router = APIRouter()
 
-# Un resOS « lent » : au-delà du délai de 4 s du connecteur, pour voir le mode dégradé.
-RETARD_SIMULE_SECONDES = 6.0
-
 STATUTS = {
     "request": ("À valider", "chip-warn"),
     "approved": ("Validée", "chip-good"),
@@ -36,6 +33,21 @@ STATUTS = {
     "left": ("Partie", ""),
     "no_show": ("Absente", "chip-bad"),
 }
+
+SOURCES = {"phone": "Téléphone (assistante)", "website": "Site web", "google": "Google",
+           "walkin": "Sans réservation", "email": "E-mail", "other": "Autre"}
+
+
+def _date_courte(iso: str) -> str:
+    """« 2026-10-02 » → « ven. 2 oct. » : lisible d'un coup d'œil, sur une ligne."""
+    try:
+        jour = date.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return iso or "—"
+    mois = ("janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.",
+            "oct.", "nov.", "déc.")[jour.month - 1]
+    return f"{horloge.JOURS[jour.weekday()][:3]}. {jour.day} {mois}"
+
 
 _PLAGE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$")
 
@@ -51,19 +63,38 @@ def _bac(tenant) -> Optional[bac_a_sable.Etat]:
 async def _contexte_direct(tenant) -> dict:
     """Ce qui se rafraîchit pendant l'appel : réservations, journal, état."""
     reservations, erreur = [], None
-    if connecteurs.est_resos(tenant):
+    bac = _bac(tenant)
+    if bac is not None and bac.simulation():
+        # Pendant une panne simulée, la page lit le carnet fictif en direct : sinon chaque
+        # rafraîchissement attendrait 4 s la panne qu'on est justement en train de simuler.
+        reservations = _a_venir_du_bac(bac)
+    elif connecteurs.est_resos(tenant):
         try:
             reservations = await connecteurs.pour(tenant).a_venir()
         except (Injoignable, Refus) as exc:
             erreur = str(exc)
     coupure = sante.en_coupure(tenant.id)
+    for reservation in reservations:
+        reservation["date_courte"] = _date_courte(reservation.get("date"))
     return {
-        "tenant": tenant, "mode": _mode(tenant), "bac": _bac(tenant),
+        "tenant": tenant, "mode": _mode(tenant), "bac": bac,
+        # Montrée en tête de page ET dans le bloc rafraîchi : une panne simulée qu'on ne
+        # voit pas a fait échouer deux jours de tests (25-27/09/2026).
+        "simulation": bac.simulation() if bac else None,
         "reservations": reservations, "erreur_lecture": erreur, "statuts": STATUTS,
+        "sources": SOURCES,
         "journal": _journal(tenant),
         "coupure": None if coupure is None else int(sante.COUPE_CIRCUIT_SECONDES - coupure),
         "maintenant": horloge.maintenant().strftime("%H:%M:%S"),
     }
+
+
+def _a_venir_du_bac(bac: bac_a_sable.Etat, jours: int = 14) -> list[dict]:
+    debut = horloge.aujourd_hui()
+    fin = (debut + timedelta(days=jours)).isoformat()
+    return sorted((resos._en_reservation(b) for b in bac.reservations.values()
+                   if debut.isoformat() <= b["date"] <= fin),
+                  key=lambda r: (r["date"], r["time"]))
 
 
 def _journal(tenant) -> list[dict]:
@@ -95,9 +126,40 @@ async def carnet_page(request: Request, tenant_id: int,
         "lettres_horaires": _lettres(connecteurs.horaires_en_cache(tenant)),
         "services_texte": ", ".join(f"{d}-{f}" for d, f in bac.services) if bac else "",
         "jours": list(enumerate(horloge.JOURS, start=1)),
-        "retard_simule": RETARD_SIMULE_SECONDES,
+        "jours_fermes_texte": ", ".join(horloge.JOURS[n - 1] for n in sorted(bac.jours_fermes))
+                              if bac else "",
+        "retard_simule": bac_a_sable.RETARD_SIMULE_SECONDES,
+        "simulation_minutes": bac_a_sable.SIMULATION_MINUTES,
+        "etat_resos": etat_de_resos(contexte["simulation"]),
     })
+    contexte["confirmation"] = _confirmation(request.query_params.get("ok"), bac, contexte)
     return deps.templates.TemplateResponse(request, "tenants/resos.html", contexte)
+
+
+def etat_de_resos(simulation: Optional[dict]) -> str:
+    """L'état du bac à sable en une phrase, tel qu'on l'écrit partout sur la page."""
+    if not simulation:
+        return "resOS fonctionne normalement"
+    quoi = ("resOS en panne (répond 503)" if simulation["quoi"] == "panne"
+            else f"resOS lent (plus de {int(bac_a_sable.RETARD_SIMULE_SECONDES)} s)")
+    reste = simulation.get("reste_minutes")
+    return f"{quoi}{f', encore {reste} min' if reste else ''}"
+
+
+def _confirmation(quoi: Optional[str], bac, contexte: dict) -> Optional[str]:
+    """Après un enregistrement, ce qui a VRAIMENT été enregistré — relu dans l'état, pas
+    recopié du formulaire : un clic qui n'aurait rien changé se verrait ici."""
+    if bac is None or quoi not in ("restaurant", "simulation", "vide"):
+        return None
+    heure = horloge.maintenant().strftime("%H:%M")
+    if quoi == "restaurant":
+        fermes = contexte["jours_fermes_texte"]
+        return (f"Restaurant enregistré à {heure} : {bac.capacite} table(s) par créneau · "
+                f"services {contexte['services_texte']} · "
+                + (f"fermé le {fermes}." if fermes else "ouvert tous les jours."))
+    if quoi == "simulation":
+        return f"État de resOS enregistré à {heure} : {etat_de_resos(bac.simulation())}."
+    return f"Carnet du bac à sable vidé à {heure}."
 
 
 def _lettres(brut) -> str:
@@ -179,20 +241,36 @@ async def carnet_regler(request: Request, tenant_id: int,
         capacite = bac.capacite
     if erreur:
         raise HTTPException(422, erreur)
-    etait_en_panne = bac.en_panne or bac.retard > 0
     bac.capacite, bac.services, bac.fermes = capacite, services, fermes
     bac.jours_fermes = {n for n in range(1, 8) if form.get(f"jour_{n}")}
-    bac.en_panne = bool(form.get("en_panne"))
-    bac.retard = RETARD_SIMULE_SECONDES if form.get("lent") else 0.0
     bac.sauver()
-    if etait_en_panne and not (bac.en_panne or bac.retard):
-        # Fin de la panne simulée : on veut rejouer tout de suite, pas attendre la fin
-        # du coupe-circuit.
-        sante.rouvrir(tenant.id)
-    if not (bac.en_panne or bac.retard):
+    # Les réglages ne touchent JAMAIS à la simulation de panne : c'est en les mêlant au
+    # même formulaire qu'une case « lent » invisible est restée cochée deux jours.
+    if not bac.simulation():
         # Les nouveaux horaires servent dès l'appel suivant, sans attendre 10 minutes.
         await connecteurs.rafraichir_horaires(tenant)
-    return RedirectResponse(f"/admin/tenants/{tenant.id}/resos", status_code=303)
+    return RedirectResponse(f"/admin/tenants/{tenant.id}/resos?ok=restaurant", status_code=303)
+
+
+@router.post("/admin/tenants/{tenant_id}/resos/simulation",
+             dependencies=[Depends(deps.verify_csrf)])
+async def carnet_simuler(request: Request, tenant_id: int,
+                         user: User = Depends(deps.require_superadmin)):
+    """Démarrer ou arrêter une panne simulée. Elle s'arrête d'elle-même au bout de
+    `SIMULATION_MINUTES` : oubliée, elle sabote les tests suivants."""
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
+    bac = _exiger_bac(tenant)
+    action = str((await request.form()).get("action", ""))
+    if action in ("panne", "lent"):
+        bac.simuler(action)
+    elif action == "arreter":
+        bac.arreter_simulation()
+        # On veut rejouer tout de suite, pas attendre la fin du coupe-circuit.
+        sante.rouvrir(tenant.id)
+        await connecteurs.rafraichir_horaires(tenant)
+    else:
+        raise HTTPException(422, "Action inconnue.")
+    return RedirectResponse(f"/admin/tenants/{tenant.id}/resos?ok=simulation", status_code=303)
 
 
 @router.post("/admin/tenants/{tenant_id}/resos/vider",
@@ -204,4 +282,4 @@ async def carnet_vider(request: Request, tenant_id: int,
     bac.reservations.clear()
     bac.notes.clear()
     bac.sauver()
-    return RedirectResponse(f"/admin/tenants/{tenant.id}/resos", status_code=303)
+    return RedirectResponse(f"/admin/tenants/{tenant.id}/resos?ok=vide", status_code=303)

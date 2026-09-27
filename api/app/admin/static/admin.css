@@ -416,7 +416,11 @@ button.contrast { background: var(--app-text); color: var(--app-bg); }
 
 /* ---- Formulaires -------------------------------------------------------- */
 label { font-weight: 500; color: var(--app-text); }
-input, select, textarea {
+/* Cases à cocher et boutons radio EXCLUS : le `background` imposé ici effaçait leur
+   coche (le fond porte l'icône). Constaté le 27/09/2026 sur la page Carnet resOS : quatre
+   jours fermés et une panne simulée cochés, toutes les cases affichées vides — l'état
+   réel était invisible, et chaque « Enregistrer » le renvoyait tel quel. */
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
   background: var(--app-surface) !important;
   color: var(--app-text) !important;
   border: 1px solid var(--app-border) !important;
@@ -424,6 +428,10 @@ input, select, textarea {
   box-shadow: none !important;
   padding: .65rem .85rem;
   transition: border-color .15s ease, box-shadow .15s ease;
+}
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--app-accent);
+  width: 1.15rem; height: 1.15rem; flex: none;
 }
 input:focus, select:focus, textarea:focus {
   border-color: var(--app-accent) !important;
