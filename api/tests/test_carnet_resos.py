@@ -359,6 +359,28 @@ class TestLaPageCarnetResos:
         page = client.get(f"/admin/tenants/{resto_demo.id}/resos").text
         assert "fermé le <b>lundi, samedi</b>" in page
 
+    def test_les_fichiers_statiques_portent_leur_empreinte(self, resto_demo):
+        """27/09/2026 : la correction des cases était en ligne, la capture de Helmi
+        montrait encore l'ancienne page — le navigateur gardait l'ancienne feuille de
+        style. L'adresse change avec le contenu : un correctif atteint le navigateur."""
+        from app.admin import deps
+
+        page = self._connecte().get(f"/admin/tenants/{resto_demo.id}/resos").text
+        for nom in ("pico.min.css", "admin.css", "htmx.min.js", "admin.js"):
+            assert f'/admin/static/{nom}?v=' in page, nom
+        attendu = deps._empreinte("admin.css")
+        assert len(attendu) == 10 and f"admin.css?v={attendu}" in page
+
+    def test_une_case_a_cocher_est_carree(self):
+        """Le rayon du thème (pensé pour les boutons en pilule) rendait les cases rondes :
+        on les prenait pour des boutons radio (27/09/2026, jours fermés)."""
+        import pathlib
+        import re
+
+        css = (pathlib.Path(__file__).resolve().parents[1] / "app" / "admin" / "static"
+               / "admin.css").read_text(encoding="utf-8")
+        assert re.search(r'input\[type="checkbox"\]:not\(\[role="switch"\]\)\s*\{\s*border-radius:\s*\.3rem', css)
+
     def test_une_case_cochee_garde_sa_coche(self):
         """Le `background: … !important` imposé à tous les champs effaçait la coche des
         cases (le fond porte l'icône) : un état invisible, sur Carnet resOS et Horaires."""
