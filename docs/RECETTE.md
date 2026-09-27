@@ -169,6 +169,18 @@ la laisser ouverte pendant les appels.
 **R1 est le test qui compte** : une réservation que l'assistante annonce et que le carnet ne
 contient pas est la seule faute impardonnable de toute l'intégration.
 
+## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| L1 | À chaque question, répondre **tout de suite et court** (« oui », « 20 heures ») | Jamais « Vous êtes toujours là ? » après une réponse. Au pire « Pardon, je n'ai pas bien entendu », dans les 3 s | |
+| L2 | Rester vraiment silencieux après une question | « Vous êtes toujours là ? » au bout de 8 s, comme avant | |
+| L3 | Donner jour, heure et nombre ; complet ; « disons vendredi » | Elle garde l'heure et le nombre : « Vendredi, toujours vingt heures pour deux ? » | |
+| L4 | Quand elle dit « je vérifie », se taire | La réponse arrive sans relance de votre part | |
+| L5 | **Numéro masqué** (#31# devant le numéro), demander à laisser un message | Elle demande « À quel numéro peut-on vous joindre ? » AVANT de transmettre, relit le numéro ; l'e-mail et la fiche de l'appel l'affichent, marqué « donné par l'appelant, appel masqué » | |
+| L6 | Numéro masqué, dicter un numéro incomplet | Elle fait redire le numéro en entier | |
+| L7 | Fiche de l'appel → journal de bord | Compteurs `paroles_rattrapees`, `paroles_perdues`, `annonces_relancees` : ce que les filets ont fait | |
+
 ## G. Le test qu'on oublie toujours
 
 | # | Test | Attendu | ✅/❌ |

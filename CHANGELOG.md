@@ -7,6 +7,31 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — elle écoute mieux, redemande moins, rappelle les numéros masqués (27/09/2026)
+
+Tiré de 19 appels de test (183 à 201) : 27 « Vous êtes toujours là ? », des questions déjà
+répondues posées deux fois, et un appel masqué que personne ne pouvait rappeler.
+
+### Corrigé
+- **La voix entendue sans mots est rattrapée.** 17 relances sur 27 tombaient sur quelqu'un
+  qui venait de répondre : le VAD l'entendait, la transcription en direct ne rendait rien
+  (« 20 heures, 20 heures », « Ouais ouais »). Le segment est désormais retranscrit à part ;
+  si rien ne revient, l'assistante dit tout de suite « Pardon, je n'ai pas bien entendu »,
+  et plus jamais « Vous êtes toujours là ? » à quelqu'un qui vient de parler.
+  `RATTRAPAGE_PAROLE=off` le retire.
+- **« Je vérifie tout de suite. » est suivi d'une vérification.** 8 relances venaient d'une
+  annonce restée sans outil. Le modèle est relancé 1,5 s après, au lieu de laisser
+  l'appelant huit secondes dans le silence.
+- **Ce qui a été dit une fois est acquis** : changer de jour ne fait plus redemander l'heure
+  ni le nombre de personnes. Au banc, sur le modèle de production : de 4/10 à 8/10 sur le
+  pire cas, 10/10 sur les trois autres.
+- **Appel masqué** : l'assistante demande un numéro de rappel avant de transmettre un
+  message, le relit, et il figure dans l'e-mail et sur la fiche de l'appel. Pour une
+  réservation, il est ajouté aux notes.
+- **Les correctifs de l'admin atteignent le navigateur** : les feuilles de style portent
+  l'empreinte de leur contenu. La correction des cases à cocher était en ligne, mais le
+  navigateur gardait l'ancienne page.
+
 ## Non publiée — la page Carnet resOS disait faux (27/09/2026)
 
 Deux jours de tests en échec (appels 179 et 180 compris) sans que rien ne le montre : la case
