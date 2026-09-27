@@ -367,13 +367,20 @@ class TestLaPageCarnetResos:
 
         css = (pathlib.Path(__file__).resolve().parents[1] / "app" / "admin" / "static"
                / "admin.css").read_text(encoding="utf-8")
+        # Sans les commentaires : placé juste avant la règle, le commentaire devenait le
+        # début du « sélecteur » lu ici, et ce test ne voyait plus rien (le garde-fou de
+        # mutation l'a prouvé).
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        vues = 0
         for regle in re.finditer(r"([^{}]+)\{([^}]*)\}", css):
             selecteurs, corps = regle.group(1), regle.group(2)
             if "background" in corps and "!important" in corps:
                 for selecteur in selecteurs.split(","):
                     selecteur = selecteur.strip()
                     if selecteur.startswith("input") and ":focus" not in selecteur:
+                        vues += 1
                         assert 'not([type="checkbox"])' in selecteur, selecteur
+        assert vues, "aucune règle de champ trouvée : ce test ne vérifie plus rien"
 
     def test_des_reglages_illisibles_sont_refuses(self, resto_demo):
         client = self._connecte()
