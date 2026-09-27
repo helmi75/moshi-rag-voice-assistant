@@ -108,8 +108,13 @@ des exemples. En tête de fichier, deux listes séparent ce qui est **documenté
 
 La page **Carnet resOS** de l'admin suit les tests en direct : état de resOS, réservations
 à venir, journal des requêtes de l'assistante. En bac à sable, le super-admin y joue le
-restaurant : valider ou refuser, capacité, services, jours fermés, panne ou lenteur
-simulées. La procédure pas à pas est la section R de `docs/RECETTE.md`.
+restaurant : valider ou refuser, capacité, services, jours fermés. L'**état de resOS** se
+règle par trois boutons toujours visibles (« fonctionne », « en panne », « lent »), séparés
+des réglages du restaurant ; une panne simulée s'affiche en bandeau rouge et **s'arrête
+d'elle-même au bout de 30 min**. Chaque enregistrement est confirmé en tête de page, relu
+dans l'état. (Leçon du 25-27/09/2026 : une case « lent » invisible, mêlée aux réglages, a
+fait échouer deux jours de tests.) La procédure pas à pas est la section R de
+`docs/RECETTE.md`.
 
 Pour un banc local, sans l'application :
 

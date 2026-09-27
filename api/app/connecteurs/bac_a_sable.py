@@ -38,6 +38,7 @@ import itertools
 import json
 import secrets
 import string
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import date as Date, datetime, timezone
@@ -56,6 +57,12 @@ FUSEAU = ZoneInfo("Europe/Paris")
 
 # Deux services, des créneaux de 15 min, fin incluse — la forme de l'exemple de la doc.
 SERVICES = (("12:00", "14:00"), ("19:00", "22:00"))
+
+# Une panne simulée s'arrête d'elle-même : oubliée, elle a saboté deux jours de tests
+# (25-27/09/2026, « resOS lent » resté actif et invisible). Et un resOS « lent » l'est
+# au-delà du délai de 4 s du connecteur, sinon il n'y a rien à voir.
+SIMULATION_MINUTES = 30
+RETARD_SIMULE_SECONDES = 6.0
 ACTIFS = ("request", "approved", "waitlist", "arrived", "seated")
 _MODIFIABLES = {"date", "time", "dateTime", "people", "tables", "duration", "status",
                 "metadata", "source", "referrer", "languageCode", "openingHourId",
@@ -89,6 +96,7 @@ class Etat:
     # panne simulée qui survivrait au déploiement serait prise pour une vraie.
     en_panne: bool = False
     retard: float = 0.0
+    simulation_fin: Optional[float] = None   # time.monotonic() ; None = sans échéance
     requetes: deque = field(default_factory=lambda: deque(maxlen=200))
     chemin: Optional[Path] = None
 
@@ -101,6 +109,26 @@ class Etat:
             "guest": {"name": nom, "phone": phone}})
         self.sauver()
         return identifiant
+
+    def simuler(self, quoi: str, minutes: float = SIMULATION_MINUTES) -> None:
+        """« panne » (503 partout) ou « lent » (au-delà du délai du connecteur)."""
+        self.en_panne = quoi == "panne"
+        self.retard = RETARD_SIMULE_SECONDES if quoi == "lent" else 0.0
+        self.simulation_fin = time.monotonic() + minutes * 60
+
+    def arreter_simulation(self) -> None:
+        self.en_panne, self.retard, self.simulation_fin = False, 0.0, None
+
+    def simulation(self) -> Optional[dict]:
+        """La simulation en cours, ou None — et l'arrête si son heure est passée."""
+        if not (self.en_panne or self.retard):
+            return None
+        if self.simulation_fin is not None and time.monotonic() >= self.simulation_fin:
+            self.arreter_simulation()
+            return None
+        reste = (None if self.simulation_fin is None
+                 else max(1, round((self.simulation_fin - time.monotonic()) / 60)))
+        return {"quoi": "panne" if self.en_panne else "lent", "reste_minutes": reste}
 
     def occupes(self, date: str, heure: str) -> int:
         return sum(1 for b in self.reservations.values()
@@ -213,6 +241,7 @@ def creer_app(etat: Etat | None = None) -> FastAPI:
     @app.middleware("http")
     async def garde(request: Request, call_next):
         etat.requetes.append((request.method, request.url.path, dict(request.query_params)))
+        etat.simulation()  # arrête une simulation échue avant de la subir
         if etat.retard:
             await asyncio.sleep(etat.retard)
         if etat.en_panne:

@@ -7,16 +7,23 @@
   <div class="kpi-grid">
     <article class="card kpi">
       <div class="kpi-label">
-        <span class="dot {{ 'dot-bad' if coupure is not none or (journal and journal[0].panne) else 'dot-good' }}"></span>
+        <span class="dot {{ 'dot-bad' if simulation or coupure is not none or erreur_lecture or (journal and journal[0].panne) else 'dot-good' }}"></span>
         État de resOS
       </div>
-      {% if coupure is not none %}
+      {% if simulation %}
+      <div class="kpi-value" style="font-size: 1.3rem; color: var(--app-bad)">Panne simulée</div>
+      <p class="kpi-sub">{{ "resOS répond 503" if simulation.quoi == "panne" else "resOS répond en plus de 4 s" }}{% if simulation.reste_minutes %}, encore {{ simulation.reste_minutes }} min{% endif %}.
+        L'assistante prend des messages.</p>
+      {% elif coupure is not none %}
       <div class="kpi-value" style="font-size: 1.3rem">En panne</div>
       <p class="kpi-sub">Coupe-circuit ouvert : plus d'essai pendant {{ coupure }} s. L'assistante
         prend des messages, sans rien annoncer comme enregistré.</p>
       {% elif journal and journal[0].panne %}
       <div class="kpi-value" style="font-size: 1.3rem">Dernier essai en échec</div>
       <p class="kpi-sub">{{ journal[0].erreur }}</p>
+      {% elif erreur_lecture %}
+      <div class="kpi-value" style="font-size: 1.3rem">Ne répond pas</div>
+      <p class="kpi-sub">La lecture du carnet par cette page vient d'échouer : {{ erreur_lecture }}</p>
       {% elif journal %}
       <div class="kpi-value" style="font-size: 1.3rem">Répond</div>
       <p class="kpi-sub">Dernière requête : {{ journal[0].duree_ms }} ms.</p>
@@ -66,13 +73,13 @@
       {% for r in reservations %}
         {% set libelle, classe = statuts.get(r.statut, (r.statut, "")) %}
         <tr>
-          <td>{{ r.date }}</td>
+          <td style="white-space: nowrap">{{ r.date_courte }}</td>
           <td>{{ r.time }}</td>
           <td>{{ r.customer_name or "—" }}</td>
           <td>{{ r.party_size }}</td>
           <td>{{ r.customer_phone or "masqué" }}</td>
           <td><span class="chip {{ classe }}">{{ libelle }}</span></td>
-          <td>{{ "Téléphone (assistante)" if r.source == "phone" else r.source }}</td>
+          <td>{{ sources.get(r.source, r.source) }}</td>
           <td>{{ r.notes or "" }}</td>
           {% if joue_le_resto %}
           <td style="white-space: nowrap">

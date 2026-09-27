@@ -161,10 +161,10 @@ la laisser ouverte pendant les appels.
 | R4 | Rappeler : « je voudrais annuler » | La ligne passe en « Annulée » | |
 | R5 | Réglages : 0 table par créneau. Appeler | « Complet » : elle **propose d'autres horaires** (ou un autre jour), n'enregistre rien | |
 | R6 | Réglages : cocher le jour de demain dans « Jours fermés ». Appeler pour demain | Elle refuse ce jour-là ; la page Horaires l'affiche fermé, **en lecture seule** | |
-| R7 | Réglages : **resOS en panne**. Appeler et demander une table | Elle **n'annonce rien** comme enregistré et prend un message ; le journal de la page montre les 503 en rouge ; e-mail « resOS ne répond pas » (si le SMTP est réglé) ; `/supervision` → « Carnet resOS » en attention (bac à sable) | |
+| R7 | Bouton **« resOS en panne »** (bandeau rouge en haut de la page). Appeler et demander une table | Elle **n'annonce rien** comme enregistré et prend un message ; le journal de la page montre les 503 en rouge ; e-mail « resOS ne répond pas » (si le SMTP est réglé) ; `/supervision` → « Carnet resOS » en attention (bac à sable) | |
 | R8 | Pendant la même panne, redemander dans le même appel | Réponse immédiate, sans nouveau blanc de 4 s (coupe-circuit) | |
-| R9 | Décocher la panne, rappeler | Tout refonctionne tout de suite | |
-| R10 | Réglages : **resOS lent**. Appeler | Même comportement que R7, après 4 s d'attente au plus | |
+| R9 | Bouton **« resOS fonctionne »** (confirmation verte), rappeler | Tout refonctionne tout de suite | |
+| R10 | Bouton **« resOS lent »**. Appeler | Même comportement que R7, après 4 s d'attente au plus. Sans retour à « resOS fonctionne », arrêt automatique au bout de 30 min | |
 
 **R1 est le test qui compte** : une réservation que l'assistante annonce et que le carnet ne
 contient pas est la seule faute impardonnable de toute l'intégration.

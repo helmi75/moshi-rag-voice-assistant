@@ -31,6 +31,12 @@ def _jour(iso_semaine: int) -> str:
     return jour.isoformat()
 
 
+def _date_lisible(iso: str) -> str:
+    from app.admin.routes_resos import _date_courte
+
+    return _date_courte(iso)
+
+
 def _remise_a_zero():
     sante.reinitialiser()
     connecteurs.oublier_horaires()
@@ -287,15 +293,87 @@ class TestLaPageCarnetResos:
 
     def test_simuler_une_panne_puis_la_lever(self, resto_demo):
         client = self._connecte()
-        reglages = {"capacite": "3", "services": "12:00-14:00, 19:00-22:00", "fermes": ""}
-        client.post(f"/admin/tenants/{resto_demo.id}/resos/bac",
-                    data={**reglages, "en_panne": "on"}, follow_redirects=False)
+        client.post(f"/admin/tenants/{resto_demo.id}/resos/simulation",
+                    data={"action": "panne"}, follow_redirects=False)
         reponse = _creer(resto_demo)
         assert "N'annonce RIEN" in reponse["error"]
+        page = client.get(f"/admin/tenants/{resto_demo.id}/resos").text
+        assert "Panne simulée en cours" in page
+        client.post(f"/admin/tenants/{resto_demo.id}/resos/simulation",
+                    data={"action": "arreter"}, follow_redirects=False)
+        assert _creer(resto_demo)["status"] == "pending_restaurant_approval", (
+            "arrêter la simulation doit rouvrir le circuit tout de suite")
+
+    def test_chaque_clic_dit_ce_qui_a_ete_enregistre(self, resto_demo):
+        """Demande de Helmi (27/09) : « quand je clique et que ça s'enregistre, mets-moi
+        quelque part l'état du truc ». Relu dans l'état, pas recopié du formulaire."""
+        client = self._connecte()
+        url = f"/admin/tenants/{resto_demo.id}/resos"
+        page = client.post(f"{url}/simulation", data={"action": "lent"}).text
+        assert "État de resOS enregistré à" in page and "resOS lent" in page
+        page = client.post(f"{url}/simulation", data={"action": "arreter"}).text
+        assert "resOS fonctionne normalement." in page
+        page = client.post(f"{url}/bac", data={
+            "capacite": "2", "services": "19:00-22:00", "fermes": "", "jour_1": "on"}).text
+        assert "Restaurant enregistré à" in page
+        assert "2 table(s) par créneau · services 19:00-22:00 · fermé le lundi." in page
+        assert "Restaurant enregistré à" not in client.get(url).text, (
+            "la confirmation ne s'affiche qu'une fois")
+
+    def test_les_reglages_ne_touchent_jamais_a_la_simulation(self, resto_demo):
+        """27/09/2026 : la case « lent », mêlée aux réglages, était renvoyée cochée à
+        chaque « Enregistrer » — deux jours de tests en échec sans que rien ne le montre."""
+        client = self._connecte()
+        bac = bac_a_sable.etat_pour(resto_demo.id)
+        reglages = {"capacite": "3", "services": "12:00-14:00, 19:00-22:00", "fermes": ""}
+        client.post(f"/admin/tenants/{resto_demo.id}/resos/bac",
+                    data={**reglages, "lent": "on", "en_panne": "on"}, follow_redirects=False)
+        assert bac.simulation() is None
+        bac.simuler("panne")
         client.post(f"/admin/tenants/{resto_demo.id}/resos/bac", data=reglages,
                     follow_redirects=False)
-        assert _creer(resto_demo)["status"] == "pending_restaurant_approval", (
-            "lever la panne doit rouvrir le circuit tout de suite")
+        assert bac.simulation()["quoi"] == "panne"
+
+    def test_une_simulation_s_arrete_d_elle_meme(self, resto_demo, monkeypatch):
+        bac = bac_a_sable.etat_pour(resto_demo.id)
+        bac.simuler("lent")
+        maintenant = bac_a_sable.time.monotonic()
+        monkeypatch.setattr(bac_a_sable.time, "monotonic",
+                            lambda: maintenant + bac_a_sable.SIMULATION_MINUTES * 60 + 1)
+        assert bac.simulation() is None
+        assert bac.retard == 0 and bac.en_panne is False
+
+    def test_la_page_reste_lisible_pendant_une_panne_simulee(self, resto_demo):
+        client = self._connecte()
+        bac = bac_a_sable.etat_pour(resto_demo.id)
+        bac.reserver(date=_jour(4), time="20:00", nom="Pendant-la-panne", status="request")
+        bac.simuler("lent")
+        direct = client.get(f"/admin/tenants/{resto_demo.id}/resos/direct").text
+        assert "Pendant-la-panne" in direct and "Carnet illisible" not in direct
+        assert _date_lisible(_jour(4)) in direct
+        assert "Panne simulée" in direct
+
+    def test_l_etat_reel_des_cases_se_voit(self, resto_demo):
+        client = self._connecte()
+        bac_a_sable.etat_pour(resto_demo.id).jours_fermes = {1, 6}
+        page = client.get(f"/admin/tenants/{resto_demo.id}/resos").text
+        assert "fermé le <b>lundi, samedi</b>" in page
+
+    def test_une_case_cochee_garde_sa_coche(self):
+        """Le `background: … !important` imposé à tous les champs effaçait la coche des
+        cases (le fond porte l'icône) : un état invisible, sur Carnet resOS et Horaires."""
+        import pathlib
+        import re
+
+        css = (pathlib.Path(__file__).resolve().parents[1] / "app" / "admin" / "static"
+               / "admin.css").read_text(encoding="utf-8")
+        for regle in re.finditer(r"([^{}]+)\{([^}]*)\}", css):
+            selecteurs, corps = regle.group(1), regle.group(2)
+            if "background" in corps and "!important" in corps:
+                for selecteur in selecteurs.split(","):
+                    selecteur = selecteur.strip()
+                    if selecteur.startswith("input") and ":focus" not in selecteur:
+                        assert 'not([type="checkbox"])' in selecteur, selecteur
 
     def test_des_reglages_illisibles_sont_refuses(self, resto_demo):
         client = self._connecte()

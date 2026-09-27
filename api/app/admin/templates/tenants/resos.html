@@ -15,6 +15,27 @@
   </div>
 </div>
 
+{% if confirmation %}
+<div class="callout" role="status">
+  <b>✅ Enregistré</b>
+  {{ confirmation }}
+</div>
+{% endif %}
+
+{% if simulation %}
+<div class="callout" style="background: var(--app-bad-soft)" role="alert">
+  <b style="color: var(--app-bad)">Panne simulée en cours : {{ etat_resos }}</b>
+  Tant qu'elle dure, l'assistante ne réserve rien : elle prend des messages. Pour tester une
+  réservation, arrêter d'abord la simulation.
+  {% if request.state.user.is_superadmin %}
+  <form method="post" action="/admin/tenants/{{ tenant.id }}/resos/simulation" style="margin: .6rem 0 0">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <button type="submit" name="action" value="arreter" style="width: auto; margin: 0">Arrêter la simulation</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if mode == "interne" %}
 <div class="callout">
   <b>resOS n'est pas activé pour cet établissement</b>
@@ -34,7 +55,7 @@
 <div class="split">
   <article class="card">
     <h2>Tester au téléphone</h2>
-    <ol class="kb-body" style="padding-left: 1.2rem; margin: .4rem 0 0">
+    <ol class="card-sub" style="padding-left: 1.2rem; margin: .6rem 0 0; font-size: .86rem; line-height: 1.6">
       <li>Appeler le <b>{{ tenant.phone_number }}</b> et demander une table.</li>
       <li>La demande apparaît ci-dessous en <span class="chip chip-warn">À valider</span>, en
         quelques secondes. L'assistante doit dire « demande transmise », jamais « confirmé ».</li>
@@ -42,51 +63,75 @@
       <li>Rappeler pour <b>modifier</b> ou <b>annuler</b> : la ligne change ici.</li>
       <li><b>Créneau complet</b> : capacité à 0 → elle propose d'autres horaires.
         <b>Jour fermé</b> : cocher le jour → elle le refuse.</li>
-      <li><b>Panne</b> : cocher « resOS en panne » → elle prend un message, n'annonce rien,
-        et la supervision le signale.</li>
+      <li><b>Panne</b> : bouton « resOS en panne » → elle prend un message, n'annonce rien,
+        et la supervision le signale. Revenir ensuite sur « resOS fonctionne » (sinon, retour
+        automatique après {{ simulation_minutes }} min).</li>
     </ol>
   </article>
 
   {% if request.state.user.is_superadmin %}
-  <article class="card">
-    <h2>Réglages du bac à sable</h2>
-    <form method="post" action="/admin/tenants/{{ tenant.id }}/resos/bac">
-      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
-      <div class="grid">
-        <label>Tables par créneau de 15 min
+  <div class="stack">
+    <article class="card">
+      <h2>Le restaurant fictif</h2>
+      <form method="post" action="/admin/tenants/{{ tenant.id }}/resos/bac">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+        <label>Tables par créneau de 15 min <small class="muted">(0 = complet partout)</small>
           <input name="capacite" type="number" min="0" max="50" value="{{ bac.capacite }}">
         </label>
-        <label>Services
+        <label>Services <small class="muted">(séparés par une virgule)</small>
           <input name="services" value="{{ services_texte }}" placeholder="12:00-14:00, 19:00-22:00">
         </label>
-      </div>
-      <fieldset>
-        <legend class="card-sub">Jours fermés</legend>
-        {% for numero, jour in jours %}
-        <label style="display: inline-flex; gap: .3rem; margin-right: .8rem">
-          <input type="checkbox" name="jour_{{ numero }}" {% if numero in bac.jours_fermes %}checked{% endif %}>
-          {{ jour }}
+        <fieldset style="margin-bottom: .6rem">
+          <legend style="font-weight: 500">Jours fermés</legend>
+          <div style="display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; margin-top: .3rem">
+            {% for numero, jour in jours %}
+            <label style="display: inline-flex; align-items: center; gap: .4rem; margin: 0; font-weight: 400">
+              <input type="checkbox" name="jour_{{ numero }}" style="margin: 0"
+                     {% if numero in bac.jours_fermes %}checked{% endif %}>
+              {{ jour }}
+            </label>
+            {% endfor %}
+          </div>
+          <small class="muted">
+            {% if jours_fermes_texte %}Enregistré : fermé le <b>{{ jours_fermes_texte }}</b>.
+            {% else %}Ouvert tous les jours.{% endif %}
+          </small>
+        </fieldset>
+        <label>Fermetures exceptionnelles <small class="muted">(une date par ligne, AAAA-MM-JJ)</small>
+          <textarea name="fermes" rows="2">{{ bac.fermes | sort | join("\n") }}</textarea>
         </label>
-        {% endfor %}
-      </fieldset>
-      <label>Fermetures exceptionnelles <small class="muted">(une date par ligne, AAAA-MM-JJ)</small>
-        <textarea name="fermes" rows="2">{{ bac.fermes | sort | join("\n") }}</textarea>
-      </label>
-      <fieldset>
-        <legend class="card-sub">Simuler une panne (effacée au prochain déploiement)</legend>
-        <label><input type="checkbox" name="en_panne" {% if bac.en_panne %}checked{% endif %}>
-          resOS en panne (répond 503)</label>
-        <label><input type="checkbox" name="lent" {% if bac.retard %}checked{% endif %}>
-          resOS lent ({{ retard_simule | int }} s, au-delà du délai de 4 s)</label>
-      </fieldset>
-      <button type="submit">Enregistrer les réglages</button>
-    </form>
-    <form method="post" action="/admin/tenants/{{ tenant.id }}/resos/vider"
-          onsubmit="return confirm('Effacer toutes les réservations du bac à sable ?')">
-      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
-      <button type="submit" class="secondary">Vider le carnet du bac à sable</button>
-    </form>
-  </article>
+        <button type="submit">Enregistrer le restaurant</button>
+      </form>
+      <form method="post" action="/admin/tenants/{{ tenant.id }}/resos/vider"
+            onsubmit="return confirm('Effacer toutes les réservations du bac à sable ?')">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+        <button type="submit" class="secondary">Vider le carnet du bac à sable</button>
+      </form>
+    </article>
+
+    <article class="card">
+      <h2>État de resOS dans le bac à sable</h2>
+      <p style="margin: .3rem 0 .8rem">État actuel :
+        <span class="chip {{ 'chip-bad' if simulation else 'chip-good' }}">{{ etat_resos }}</span></p>
+      <form method="post" action="/admin/tenants/{{ tenant.id }}/resos/simulation"
+            style="display: flex; gap: .5rem; flex-wrap: wrap; margin: 0">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+        {% set actif = simulation.quoi if simulation else "normal" %}
+        <button type="submit" name="action" value="arreter" style="width: auto; margin: 0"
+                {% if actif != "normal" %}class="secondary"{% endif %} aria-pressed="{{ 'true' if actif == 'normal' else 'false' }}">
+          resOS fonctionne</button>
+        <button type="submit" name="action" value="panne" style="width: auto; margin: 0"
+                {% if actif != "panne" %}class="secondary"{% endif %} aria-pressed="{{ 'true' if actif == 'panne' else 'false' }}">
+          resOS en panne (503)</button>
+        <button type="submit" name="action" value="lent" style="width: auto; margin: 0"
+                {% if actif != "lent" %}class="secondary"{% endif %} aria-pressed="{{ 'true' if actif == 'lent' else 'false' }}">
+          resOS lent ({{ retard_simule | int }} s)</button>
+      </form>
+      <p class="card-sub" style="margin-top: .7rem">Le bouton bleu est l'état en cours. Une panne
+        ou une lenteur s'arrête d'elle-même au bout de {{ simulation_minutes }} min ; pendant ce
+        temps, l'assistante ne réserve rien et prend des messages.</p>
+    </article>
+  </div>
   {% endif %}
 </div>
 {% endif %}

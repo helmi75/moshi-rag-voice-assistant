@@ -590,6 +590,35 @@ GARDE_FOUS = [
               "ses horaires, l'assistante suivrait resOS",
     ),
     GardeFou(
+        nom="Une case cochée garde sa coche dans l'admin",
+        fichier="api/app/admin/static/admin.css",
+        avant='input:not([type="checkbox"]):not([type="radio"]), select, textarea {',
+        apres="input, select, textarea {",
+        tests=["test_carnet_resos.py"],
+        k="coche",
+        panne="25-27/09 : « resOS lent » et quatre jours fermés cochés mais affichés vides — "
+              "deux jours de tests en échec sans que rien ne le montre",
+    ),
+    GardeFou(
+        nom="Une panne simulée s'arrête d'elle-même",
+        fichier="api/app/connecteurs/bac_a_sable.py",
+        avant="        if self.simulation_fin is not None and time.monotonic() >= self.simulation_fin:",
+        apres="        if False:  # mutation",
+        tests=["test_carnet_resos.py"],
+        k="elle_meme",
+        panne="une panne simulée oubliée saboterait tous les tests des jours suivants",
+    ),
+    GardeFou(
+        nom="La page Carnet resOS reste lisible pendant une panne simulée",
+        fichier="api/app/admin/routes_resos.py",
+        avant="    if bac is not None and bac.simulation():",
+        apres="    if False:  # mutation",
+        tests=["test_carnet_resos.py"],
+        k="reste_lisible",
+        panne="chaque rafraîchissement attendrait 4 s la panne simulée, et le carnet "
+              "s'afficherait « illisible » au moment où l'on veut le regarder",
+    ),
+    GardeFou(
         nom="GPU introuvable : l'appelant entend qu'il faut rappeler",
         fichier="api/app/voice/greeting.py",
         avant="            message = None if pret else cached_indisponible_path(tenant)",

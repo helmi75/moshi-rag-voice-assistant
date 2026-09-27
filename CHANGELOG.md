@@ -7,6 +7,21 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la page Carnet resOS disait faux (27/09/2026)
+
+Deux jours de tests en échec (appels 179 et 180 compris) sans que rien ne le montre : la case
+« resOS lent » et quatre jours fermés étaient cochés, mais **affichés vides**.
+
+### Corrigé
+- **Les cases à cocher de tout l'admin** perdaient leur coche : une règle CSS imposait un fond
+  à tous les champs, cases comprises. Touchait aussi la case « Fermé » de la page Horaires.
+- **La panne simulée ne se mêle plus aux réglages** : trois boutons toujours visibles
+  (« resOS fonctionne », « en panne », « lent »), l'actif en bleu, l'état écrit en toutes
+  lettres, un bandeau rouge tant qu'elle dure, et **arrêt automatique au bout de 30 min**.
+- **Chaque enregistrement est confirmé** en tête de page, relu dans l'état.
+- Pendant une panne simulée, la page lit le carnet fictif directement au lieu d'attendre 4 s
+  à chaque rafraîchissement. Dates courtes (« ven. 2 oct. »), sources en français.
+
 ## Non publiée — resOS : bac à sable, horaires, panne (SCRUM-86, 87, 93, 25/09/2026)
 
 ### Ajouté
