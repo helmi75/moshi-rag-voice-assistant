@@ -15,7 +15,12 @@ quelqu'un qui ne rappelle pas.
 **Le numéro vient du réseau, jamais du modèle.** Même règle que pour les réservations
 (#33) : l'appelant ne décide pas de qui il est. Le modèle fournit le sujet et le détail,
 le numéro est injecté côté serveur.
+
+**Le numéro de RAPPEL, lui, peut être dicté** (appel 192, 27/09/2026 : numéro masqué,
+rappel impossible). Il est rangé à part (`numero_rappel`) et n'identifie personne : c'est
+un « rappelez-moi ici », rien de plus. Il ne donne accès à aucune réservation.
 """
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -39,9 +44,32 @@ def _borner(texte: Optional[str], maximum: int) -> Optional[str]:
     return texte[:maximum] or None
 
 
+def numero_dicte(brut) -> tuple[Optional[str], Optional[str]]:
+    """Un numéro de téléphone dicté, remis en forme : (numéro, None) ou (None, motif).
+
+    Ce qui arrive est ce que le modèle a compris à l'oral : « 06 45 75 05 88 »,
+    « zéro six… » déjà converti, « +33 6… ». On garde les chiffres. Un numéro français
+    fait dix chiffres ; en dessous, c'est un numéro INCOMPLET — l'appel 192 a d'abord
+    transmis « 0 6 45 60 », quatre chiffres sur dix. Le dire au modèle, c'est le faire
+    redemander, au lieu de transmettre un numéro qui ne sonnera chez personne."""
+    texte = str(brut or "")
+    chiffres = re.sub(r"\D", "", texte)
+    if texte.strip().startswith("+") or chiffres.startswith("00"):
+        chiffres = chiffres[2:] if chiffres.startswith("00") else chiffres
+        if chiffres.startswith("33") and len(chiffres) == 11:
+            chiffres = "0" + chiffres[2:]
+        elif 8 <= len(chiffres) <= 15:
+            return "+" + chiffres, None
+    if len(chiffres) == 10 and chiffres.startswith("0"):
+        return " ".join(chiffres[i:i + 2] for i in range(0, 10, 2)), None
+    return None, (f"numéro incomplet ou illisible ({len(chiffres)} chiffres compris, "
+                  "il en faut dix)")
+
+
 def create_message(tenant_id: int, subject: str, details: Optional[str] = None,
                    caller_number: Optional[str] = None, call_id: Optional[int] = None,
-                   customer_name: Optional[str] = None) -> Optional[int]:
+                   customer_name: Optional[str] = None,
+                   numero_rappel: Optional[str] = None) -> Optional[int]:
     """Enregistre un message. Renvoie son identifiant, ou None si le sujet est vide.
 
     Un sujet vide n'est pas une erreur à faire remonter au modèle : c'est un message
@@ -53,10 +81,11 @@ def create_message(tenant_id: int, subject: str, details: Optional[str] = None,
     with db.get_conn() as conn:
         cur = conn.execute(
             """INSERT INTO messages (tenant_id, call_id, caller_number, customer_name,
-                                     subject, details, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                     subject, details, created_at, numero_rappel)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (int(tenant_id), call_id, caller_number, _borner(customer_name, 80),
-             sujet, _borner(details, _MAX_DETAILS), _maintenant()),
+             sujet, _borner(details, _MAX_DETAILS), _maintenant(),
+             _borner(numero_rappel, 20)),
         )
         return cur.lastrowid
 

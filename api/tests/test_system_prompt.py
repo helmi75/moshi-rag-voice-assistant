@@ -131,9 +131,13 @@ class TestBuildSystemPrompt:
 
         Porté de 6 000 à 7 000 le 10/09/2026 pour les règles tirées des appels 100 à
         106 — heure du restaurant, épellation, récapitulatif en question, anglais —,
-        chacune corrigeant une faute entendue. Environ 200 jetons de plus. Le plafond
-        reste là pour que la prochaine règle se paie par une autre qu'on retire."""
-        assert len(llm.build_system_prompt(_tenant())) < 7000
+        chacune corrigeant une faute entendue. Environ 200 jetons de plus. Porté à 7 300
+        le 27/09/2026 (environ 60 jetons) pour deux fautes relevées sur 19 appels de
+        test : l'heure et le nombre redemandés après un changement de jour, et « je
+        vérifie » annoncé sans outil. Le préfixe du prompt est en cache chez le
+        fournisseur : ces jetons se paient peu. Le plafond reste là pour que la prochaine
+        règle se paie par une autre qu'on retire."""
+        assert len(llm.build_system_prompt(_tenant())) < 7300
 
 
 class TestAppelantConnu:
@@ -154,3 +158,38 @@ class TestAppelantConnu:
         du 20/09/2026) n'est pas une question, c'est un bug."""
         prompt = llm.build_system_prompt(_tenant(), appelant="Durand")
         assert "PRONONCE-le" in prompt and "ne l'épelle jamais" in prompt
+
+
+class TestNumeroMasque:
+    """Appels 192 et 195 (27/09/2026) : numéro masqué, message transmis sans numéro de
+    rappel — l'équipe ne pouvait rappeler personne."""
+
+    def test_un_numero_connu_ne_se_redemande_pas(self):
+        prompt = " ".join(llm.build_system_prompt(_tenant()).split())
+        assert "Le numéro est DÉJÀ enregistré : ne le demande pas." in prompt
+        assert "# Appelant : numéro masqué" not in prompt
+
+    def test_un_numero_masque_se_demande_avant_le_message(self):
+        prompt = " ".join(llm.build_system_prompt(_tenant(), numero_masque=True).split())
+        assert "# Appelant : numéro masqué" in prompt
+        assert "AVANT take_message ou create_reservation" in prompt and "callback_number" in prompt
+        assert "DÉJÀ enregistré" not in prompt
+
+    def test_les_outils_acceptent_le_numero_dicte(self):
+        for nom in ("take_message", "create_reservation"):
+            [outil] = [o for o in llm.TOOLS if o["name"] == nom]
+            assert "callback_number" in outil["input_schema"]["properties"]
+            assert "callback_number" not in outil["input_schema"]["required"]
+
+
+class TestNePasRedemander:
+    def test_ce_qui_est_dit_une_fois_est_acquis(self):
+        """Appels 184, 194, 195, 201 : l'heure et le nombre redemandés après un changement
+        de jour. Au banc (27/09/2026, modèle de production) : 4/10 → 8/10 et 9/10 → 10/10."""
+        prompt = " ".join(llm.build_system_prompt(_tenant()).split())
+        assert "Ce qui a été dit UNE fois est acquis" in prompt
+        assert "GARDE l'heure, le nombre et le nom" in prompt
+
+    def test_l_annonce_et_l_outil_vont_ensemble(self):
+        prompt = " ".join(llm.build_system_prompt(_tenant()).split())
+        assert "Annonce ET appel d'outil dans la MÊME réponse" in prompt
