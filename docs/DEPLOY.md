@@ -50,9 +50,10 @@ PUBLIC_WS_URL=wss://assistant.mondomaine.fr/ws/voice
 
 DEEPGRAM_API_KEY=<clé fraîche>
 
+MISTRAL_API_KEY=<clé Mistral>                   # la voix (docs/VOXTRAL.md)
+# Voix de secours, seulement si la clé Mistral manque (abandon prévu) :
 MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run
 MOSHI_TTS_API_KEY=<openssl rand -hex 32>       # même valeur que pour modal deploy (docs/MODAL.md)
-MOSHI_TTS_VOICE=unmute-prod-website/developpeuse-3.wav
 
 LLM_MODEL=google/gemini-2.5-flash
 OPENROUTER_API_KEY=<clé fraîche>

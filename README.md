@@ -41,12 +41,12 @@ Détail des choix : [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Démarrer
 
-Prérequis : Docker ; des clés OpenRouter, Deepgram et Twilio ; moshi-server déployé sur
-Modal ([docs/MODAL.md](docs/MODAL.md)).
+Prérequis : Docker ; des clés OpenRouter, Deepgram, Twilio et Mistral (voix Voxtral,
+[docs/VOXTRAL.md](docs/VOXTRAL.md)).
 
 ```bash
-cp env.example .env      # OPENROUTER_API_KEY, DEEPGRAM_API_KEY, TWILIO_*, MOSHI_TTS_URL,
-                         # MOSHI_TTS_API_KEY, PUBLIC_WS_URL, ADMIN_EMAIL, ADMIN_PASSWORD…
+cp env.example .env      # OPENROUTER_API_KEY, DEEPGRAM_API_KEY, TWILIO_*, MISTRAL_API_KEY,
+                         # PUBLIC_WS_URL, ADMIN_EMAIL, ADMIN_PASSWORD…
 docker compose up -d --build
 curl -s localhost:8000/health
 ```
@@ -100,7 +100,8 @@ dans `.env` n'atteint le conteneur que si `docker-compose.yml` la liste.
 |---|---|
 | `OPENROUTER_API_KEY`, `LLM_MODEL` | LLM (production : `google/gemini-2.5-flash`) |
 | `DEEPGRAM_API_KEY` | transcription |
-| `MOSHI_TTS_URL`, `MOSHI_TTS_API_KEY` | serveur de voix et sa clé privée (même valeur qu'au `modal deploy`) |
+| `MISTRAL_API_KEY`, `VOIX_PAR_DEFAUT` | voix Mistral (Voxtral) et voix des établissements qui n'ont rien choisi |
+| `MOSHI_TTS_URL`, `MOSHI_TTS_API_KEY` | voix de SECOURS Moshi (GPU Modal), seulement si la clé Mistral manque ; abandon prévu |
 | `PUBLIC_WS_URL`, `PUBLIC_URL` | URL publiques : flux média, et base de la signature Twilio |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SIGNATURE` | compte Twilio ; vérification des signatures (`enforce` par défaut) |
 | `TWILIO_NUMBER`, `SEED_DEMO` | restaurant de démonstration d'une base vide |

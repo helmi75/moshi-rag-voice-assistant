@@ -49,6 +49,23 @@ avec ce tarif (+0,4 c€ par appel moyen) : c'est un plafond, pas une mesure.
 *Taux retenu pour la conversion : 1 € = 1,08 $. Il dérive — le recalculer avant toute
 décision qui en dépend, plutôt que de le figer dans le code.*
 
+### Mise à jour du 28/09/2026 : voix Mistral, coût à la consommation
+
+La voix passe du GPU Moshi (0,020 $/min) à Mistral Voxtral (0,016 $ pour 1 000
+caractères, ~320 caractères par minute d'appel mesurés sur les appels 202 à 204). Twilio
+se lit sur la facture du numéro français : **0,01 $ par minute entamée**. À 3,5 min :
+
+| Poste | Avant (28/09 matin) | Maintenant |
+|---|---|---|
+| Téléphone | 3,0 c$ | 4,0 c$ (4 minutes entamées) |
+| Transcription | 3,2 c$ | 3,2 c$ |
+| Compréhension | 0,35 c$ (forfait) | à mesurer : les jetons sont désormais comptés par appel |
+| Voix | 7,0 c$ (GPU) | ≈ 1,8 c$ |
+| **Total** | **≈ 13,5 c$** | **≈ 9,4 c$ (≈ 8,7 c€), −30 %** |
+
+Les marges ci-dessous sont donc des planchers. À recalculer quand un mois d'appels réels
+aura donné le coût moyen mesuré par l'admin (« Santé & coûts »).
+
 ## Les marges
 
 À 3,5 min de moyenne, numéros compris :

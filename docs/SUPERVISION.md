@@ -41,7 +41,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
 | Base de données | Volume plein ou en lecture seule. Il **écrit** vraiment : lire prouve que la base répond, pas qu'elle accepte encore une réservation | oui |
-| Configuration du chemin d'appel | Une des quatre variables du chemin d'appel manque, ou `PUBLIC_WS_URL` contient une espace — l'appel raccroche alors sans un mot | oui |
+| Configuration du chemin d'appel | Une des quatre variables du chemin d'appel manque (`OPENROUTER_API_KEY`, `PUBLIC_WS_URL`, `DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`), ou `PUBLIC_WS_URL` contient une espace — l'appel raccroche alors sans un mot | oui |
 | Signature des requêtes Twilio | Jeton absent ou vérification coupée (attention) ; en `log`, des requêtes qui seraient refusées (attention : vérifier `PUBLIC_URL`) ; en `enforce`, **toutes** refusées = l'URL publique n'est plus celle que Twilio signe, plus un appel n'aboutit | oui, si tout est refusé |
 | Jeton du serveur de voix | `MOSHI_TTS_API_KEY` vide ou égale à `public_token`, la clé de démonstration connue de tous : qui trouve l'URL Modal fait tourner le GPU à nos frais | non |
 | Appels muets | Appel `completed`, plus de 15 s, **aucune réponse venue du modèle** : l'accueil pré-rendu, la reprise et les relances ne comptent pas, puisqu'ils partent sans lui. Voit la panne LLM du 30/07 comme la panne GPU du 23/09 | si majoritaire, **ou si les 3 derniers appels n'ont rien obtenu** |
@@ -50,7 +50,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Blanc ressenti | Dérive de la latence (mesuré en prod : 1,16 s ; attention à 2,5 s, panne à 4 s) | oui |
 | Alertes Twilio | Webhook injoignable, TwiML invalide — **invisible de l'intérieur** | non |
 | Carnet resOS | Établissements dont les réservations vont dans resOS : clé API absente, ou resOS en échec (état écrit sur l'ardoise à chaque changement, il survit aux redémarrages). Pendant la panne, l'assistante prend des messages au lieu de réserver. Le bac à sable plafonne à « attention » : une panne simulée ne réveille pas l'alerte | oui si dernier échec < 1 h |
-| Voix Voxtral | Établissements en voix Marie (Mistral) : clé `MISTRAL_API_KEY` absente (ils entendent la voix Moshi par défaut), ou synthèses échouées dans l'heure — chacune est une phrase que l'appelant n'a pas entendue. On ne sonde pas Mistral : chaque sonde serait facturée | oui si la clé manque |
+| Voix Mistral | La voix de tous les établissements (Voxtral) : clé `MISTRAL_API_KEY` absente (voix de secours Moshi, réveil de GPU), ou synthèses échouées dans l'heure — chacune est une phrase que l'appelant n'a pas entendue. On ne sonde pas Mistral : chaque sonde serait facturée | oui si la clé manque |
 | Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) ; message « rappelez dans quelques minutes » absent — si le GPU ne vient pas, l'appelant n'entendra que le silence | non |
 | Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité ; copie hors du serveur absente ou arrêtée (attention) | oui à 72 h |
 | Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |
