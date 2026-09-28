@@ -92,8 +92,9 @@ async def _prerender_greetings():
     passage un cold start du GPU une seule fois, au démarrage, plutôt qu'en appel.
     Active aussi le keep-warm périodique si MOSHI_KEEPWARM_SECONDS > 0."""
     from .voice import greeting as greeting_mod
+    from .voice import voices
 
-    if not greeting_mod.is_moshi_server():
+    if not (greeting_mod.is_moshi_server() or voices.voxtral_disponible()):
         return
 
     async def _prerender():

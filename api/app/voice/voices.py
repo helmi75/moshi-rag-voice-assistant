@@ -13,6 +13,12 @@ D'où deux règles :
   2. tout identifiant ajouté ici doit exister dans l'image Modal — c'est-à-dire vivre
      dans un dossier listé par VOICE_FOLDERS (deploy/modal_moshi_server.py). Ajouter
      une voix d'un autre dossier suppose d'élargir VOICE_FOLDERS ET de redéployer.
+
+Deux fournisseurs depuis le 28/09/2026 (SCRUM-94) : les voix Moshi, servies par notre
+GPU sur Modal, et **Marie**, voix prédéfinie de Voxtral chez Mistral, retenue par Helmi à
+l'écoute à l'aveugle, en quatre tons. Marie n'est proposée que si la clé Mistral est
+posée : sans elle, `resolve()` retombe sur la voix Moshi par défaut plutôt que sur le
+silence.
 """
 import os
 from dataclasses import dataclass
@@ -27,11 +33,17 @@ DEFAULT_VOICE = "unmute-prod-website/developpeuse-3.wav"
 EMBEDDED_FOLDERS = ("unmute-prod-website/", "cml-tts/fr/")
 
 
+MOSHI = "moshi"
+VOXTRAL = "voxtral"
+
+
 @dataclass(frozen=True)
 class Voice:
-    id: str  # chemin exact envoyé au serveur (?voice=...)
+    id: str  # Moshi : chemin exact envoyé au serveur (?voice=...) ; Voxtral : « voxtral/… »
     label: str  # nom affiché dans l'admin
     note: str  # une ligne pour aider à choisir, à l'oreille
+    fournisseur: str = MOSHI
+    voxtral_id: Optional[str] = None  # identifiant de la voix prédéfinie chez Mistral
 
 
 # Voix retenues par Helmi à l'écoute des extraits réels, le 31/07/2026 : les noms sont
@@ -80,21 +92,58 @@ CATALOGUE: tuple[Voice, ...] = (
 )
 
 
+# Marie, la seule voix française prédéfinie de Voxtral (GET /v1/audio/voices, vérifié le
+# 28/09/2026). Mistral la décline en six tons ; « triste » et « en colère » n'ont rien à
+# faire au standard d'un restaurant. Les descriptions traduisent les étiquettes de Mistral.
+VOXTRAL_CATALOGUE: tuple[Voice, ...] = (
+    Voice(id="voxtral/marie-neutre", label="Marie · neutre", note="Posée, régulière.",
+          fournisseur=VOXTRAL, voxtral_id="5a271406-039d-46fe-835b-fbbb00eaf08d"),
+    Voice(id="voxtral/marie-joyeuse", label="Marie · joyeuse", note="Chaleureuse, souriante.",
+          fournisseur=VOXTRAL, voxtral_id="49d024dd-981b-4462-bb17-74d381eb8fd7"),
+    Voice(id="voxtral/marie-curieuse", label="Marie · curieuse", note="Vive, attentive.",
+          fournisseur=VOXTRAL, voxtral_id="e0580ce5-e63c-4cbe-88c8-a983b80c5f1f"),
+    Voice(id="voxtral/marie-enthousiaste", label="Marie · enthousiaste",
+          note="Pétillante, enjouée.",
+          fournisseur=VOXTRAL, voxtral_id="2f62b1af-aea3-4079-9d10-7ca665ee7243"),
+)
+
+
 def catalogue() -> tuple[Voice, ...]:
+    return CATALOGUE + VOXTRAL_CATALOGUE
+
+
+def voix_moshi() -> tuple[Voice, ...]:
     return CATALOGUE
+
+
+def voix_voxtral() -> tuple[Voice, ...]:
+    return VOXTRAL_CATALOGUE
+
+
+def voxtral_disponible() -> bool:
+    """La clé Mistral est-elle posée ? Sans elle, Marie ne se choisit pas et ne s'entend
+    pas : un appel ne doit jamais dépendre d'une clé absente."""
+    return bool(os.getenv("MISTRAL_API_KEY", "").strip())
 
 
 def get(voice_id: Optional[str]) -> Optional[Voice]:
     """La voix du catalogue, ou None si l'identifiant n'y figure pas."""
-    return next((v for v in CATALOGUE if v.id == voice_id), None)
+    return next((v for v in catalogue() if v.id == voice_id), None)
+
+
+def est_voxtral(voice_id: Optional[str]) -> bool:
+    voix = get(voice_id)
+    return voix is not None and voix.fournisseur == VOXTRAL
 
 
 def default_id() -> str:
-    """Voix par défaut du parc : MOSHI_TTS_VOICE si elle est au catalogue, sinon la
-    voix historique. Une variable d'environnement mal saisie ne doit pas rendre tout
-    le parc muet ni le faire répondre avec la voix de repli du serveur."""
+    """Voix par défaut du parc : MOSHI_TTS_VOICE si c'est une voix Moshi du catalogue,
+    sinon la voix historique. Une variable d'environnement mal saisie ne doit pas rendre
+    tout le parc muet ni le faire répondre avec la voix de repli du serveur. Le défaut
+    reste une voix Moshi : il sert aussi de repli quand la clé Mistral manque."""
     configured = os.getenv("MOSHI_TTS_VOICE", "").strip()
-    return configured if get(configured) else DEFAULT_VOICE
+    voix = get(configured)
+    return configured if voix is not None and voix.fournisseur == MOSHI else DEFAULT_VOICE
 
 
 def resolve(tenant=None) -> str:
@@ -104,7 +153,14 @@ def resolve(tenant=None) -> str:
     C'est le seul endroit qui décide : le TTS live et l'accueil pré-rendu passent
     tous les deux par ici, sinon un appel pourrait mélanger deux voix."""
     chosen = getattr(tenant, "voice", None)
-    return chosen if get(chosen) else default_id()
+    voix = get(chosen)
+    if voix is None:
+        return default_id()
+    if voix.fournisseur == VOXTRAL and not voxtral_disponible():
+        # Clé retirée depuis le choix : la voix par défaut plutôt que le silence. La
+        # supervision (contrôle « Voix Voxtral ») le signale.
+        return default_id()
+    return voix.id
 
 
 def label_for(tenant=None) -> str:

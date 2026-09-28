@@ -338,6 +338,6 @@ async def _prerender_greeting(tenant_id: int) -> None:
     from ..voice import greeting as greeting_mod
 
     tenant = await db.hors_boucle(tenants.get_by_id, tenant_id)
-    if tenant is not None and greeting_mod.is_moshi_server():
+    if tenant is not None and greeting_mod.pre_rendu_possible(tenant):
         taches.lancer(greeting_mod.ensure_greeting_wav(tenant),
                       nom=f"accueil de l'établissement {tenant.id}")
