@@ -7,6 +7,38 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Sprint 2 « Admin pro » : une interface restaurateur plus simple (SCRUM-106 à 113, 28/09/2026)
+
+Retours de Helmi sur l'admin, traités dans le sprint 2.
+
+### Ajouté
+- **Réservations en calendrier** (SCRUM-112), dans les deux interfaces : vue **mois**
+  (réservations et couverts par jour, un clic ouvre le jour), **semaine** (chaque
+  réservation à son heure) et **jour** (cartes à modifier ou annuler sur place). Jours
+  fermés grisés d'après les horaires ; statut écrit sur chaque réservation (confirmée,
+  à valider, annulée…). Sur téléphone, la vue du jour s'ouvre d'elle-même. Filtre par
+  établissement pour le super-admin. Pour un établissement sur resOS, le calendrier lit
+  **le carnet resOS** (paginé) ; un resOS injoignable est signalé, jamais montré comme
+  une journée vide. La liste d'avant reste disponible (vue « Liste »).
+- **« Ce que l'IA sait » se modifie sur place** (SCRUM-111) : chaque fiche s'édite dans
+  sa carte, s'ajoute, se supprime ; confirmation visible ; jauge de 12 000 caractères
+  conservée. Même texte `## Titre` dans le prompt qu'avant. Un enregistrement fait sur
+  une base modifiée entre-temps est refusé au lieu d'écraser.
+
+### Changé
+- **Les horaires d'ouverture vivent dans « Ce que l'IA sait »** (SCRUM-110) : plus de
+  menu à part ; l'ancienne adresse y redirige.
+- **La fiche « Établissement » ne garde que l'identité** (SCRUM-111), en rubriques ; elle
+  n'écrit plus ni la base ni l'accueil.
+- **Accueil de ~5 s au lieu de ~9** (SCRUM-107) : « Bonjour, <restaurant>. Je suis
+  l'assistante vocale, cet appel est enregistré. » — sans « un instant s'il vous plaît »
+  quand la voix n'a pas de GPU à réveiller. Formulation à valider (docs/RGPD.md §7).
+- **L'aperçu de l'accueil suit la voix choisie** et affiche le texte prononcé (SCRUM-106) :
+  le navigateur ne rejoue plus une ancienne copie.
+- **Fiche d'un appel côté restaurateur** (SCRUM-108) : l'enregistrement (les deux voix
+  mêlées) et la transcription ; le diagnostic technique est réservé au super-admin.
+- **Graphiques « par jour »** (SCRUM-113) : la valeur au-dessus de chaque barre.
+
 ## Non publiée — bascule sur Mistral, toutes ses voix, et le vrai coût des appels (SCRUM-94, SCRUM-99, 28/09/2026)
 
 Décision de Helmi après trois appels en voix Marie (« c'est hyper fluide ») : on bascule

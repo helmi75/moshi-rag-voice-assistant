@@ -66,7 +66,7 @@ jusqu'à `run_tool`.
 | C1 | « Je voudrais décaler ma table de demain à 21h30 » | Elle retrouve la réservation **sans te demander de numéro de dossier** | |
 | C2 | Vérifier l'admin | L'heure a changé, la date n'a pas bougé | |
 | C3 | « Finalement je préfère annuler » | Elle fait confirmer, puis annule | |
-| C4 | Admin → Réservations | Ligne **barrée**, chip « Annulée », date d'annulation | |
+| C4 | Admin → Réservations, vue **Jour** de la réservation | Carte **barrée**, pastille « Annulée », date d'annulation ; elle ne compte plus dans les couverts du jour | |
 | C5 | Rappeler et redemander le même créneau | Il est **de nouveau libre** | |
 | C6 | Appeler en masqué et demander une annulation | Elle prend le message, **n'annule rien**, n'invente pas | |
 
@@ -141,7 +141,7 @@ Maintenant il dit lequel des quatre maillons l'a produit.
 | P1 | Rappeler du même numéro après B1 et demander une table | Elle **propose** « au nom de Martin ? » au lieu de le demander ; un autre nom donné est celui retenu | |
 | K1 | `python scripts/test_moshi_server.py --url "$MOSHI_TTS_URL" --api-key public_token` | **Refusé** ; avec la vraie clé, accepté ; sonde « Jeton du serveur de voix » verte | |
 | R1 | Lancer `/opt/backups/backup-db.sh` à la main | Finit par « copie distante ok » ; `rclone ls` montre l'archive ; sonde « Sauvegarde » verte | |
-| C7 | Admin → Réservations → « Annuler » | Ligne **barrée**, toujours là : l'admin n'efface plus | |
+| C7 | Admin → Réservations → vue Jour → « Annuler » | Carte **barrée**, toujours là : l'admin n'efface plus | |
 
 **O1 est le défaut critique de l'audit** : la disponibilité répondait toujours oui, et
 « lundi 20 h » était pris un jour de fermeture. **S1 conditionne S2** : tant qu'une seule
@@ -160,7 +160,7 @@ la laisser ouverte pendant les appels.
 | R3 | Rappeler du même numéro : « je voudrais passer à 4 personnes » | Elle retrouve la réservation ; la ligne affiche 4 couverts | |
 | R4 | Rappeler : « je voudrais annuler » | La ligne passe en « Annulée » | |
 | R5 | Réglages : 0 table par créneau. Appeler | « Complet » : elle **propose d'autres horaires** (ou un autre jour), n'enregistre rien | |
-| R6 | Réglages : cocher le jour de demain dans « Jours fermés ». Appeler pour demain | Elle refuse ce jour-là ; la page Horaires l'affiche fermé, **en lecture seule** | |
+| R6 | Réglages : cocher le jour de demain dans « Jours fermés ». Appeler pour demain | Elle refuse ce jour-là ; « Ce que l'IA sait » l'affiche fermé, **en lecture seule** (horaires lus dans resOS) | |
 | R7 | Bouton **« resOS en panne »** (bandeau rouge en haut de la page). Appeler et demander une table | Elle **n'annonce rien** comme enregistré et prend un message ; le journal de la page montre les 503 en rouge ; e-mail « resOS ne répond pas » (si le SMTP est réglé) ; `/supervision` → « Carnet resOS » en attention (bac à sable) | |
 | R8 | Pendant la même panne, redemander dans le même appel | Réponse immédiate, sans nouveau blanc de 4 s (coupe-circuit) | |
 | R9 | Bouton **« resOS fonctionne »** (confirmation verte), rappeler | Tout refonctionne tout de suite | |
@@ -182,6 +182,27 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | V5 | Réserver une table | Toute la conversation dans la voix choisie, relances et « pardon » compris | |
 | V6 | « Santé & coûts » après l'appel | Répartition : téléphonie, transcription, compréhension, voix Mistral ; la somme = le total. Le coût de l'appel ≈ 5 c pour 2 min | |
 | V7 | Un établissement qui n'a rien choisi | Il parle avec la voix par défaut du parc (Marie neutre) | |
+
+## P. L'admin du restaurateur — Sprint 2 « Admin pro » (SCRUM-106 à 113)
+
+À faire avec un **compte restaurateur**, puis une fois en super-admin.
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| P1 | « Voix & accueil » : changer de voix, enregistrer, écouter l'aperçu | L'aperçu parle dans la **nouvelle** voix et dit le texte affiché sous le lecteur, mention comprise (SCRUM-106) | |
+| P2 | Appels → ouvrir un appel (restaurateur) | Lecteur de l'enregistrement et transcription ; **pas** de lien « Diagnostic » (SCRUM-108) | |
+| P3 | Vue du parc / Appels : graphiques « par jour » | Une valeur au-dessus de chaque barre non nulle, lisible sur téléphone (SCRUM-113) | |
+| P4 | « Ce que l'IA sait » | Les horaires en tête (plus de menu « Horaires d'ouverture »), puis les fiches (SCRUM-110) | |
+| P5 | Une fiche → **Modifier**, changer une ligne, **Enregistrer** | « Fiche … enregistrée. » ; au prochain appel, l'assistante cite la nouvelle information (SCRUM-111) | |
+| P6 | **Ajouter une fiche** « Accès », puis la **Supprimer** | Elle apparaît, puis disparaît ; la jauge de caractères suit | |
+| P7 | Deux onglets sur « Ce que l'IA sait » : modifier dans l'un, puis dans l'autre | Le second est **refusé** (« modifiée entre-temps ») : rien n'est écrasé | |
+| P8 | « Fiche établissement » | Seulement l'identité, la ligne et l'e-mail ; plus de grand champ de texte | |
+| P9 | Réservations (ordinateur) | Le **mois** : réservations et couverts par jour, lundi grisé si fermé ; un clic sur un jour ouvre le jour (SCRUM-112) | |
+| P10 | Réservations → Semaine | Chaque réservation à son heure : heure, couverts, nom ; annulées barrées | |
+| P11 | Réservations → Jour → Modifier l'heure d'une réservation | La page se recharge, la réservation est à sa nouvelle heure | |
+| P12 | Réservations **sur téléphone** | S'ouvre sur la vue du **jour** | |
+| P13 | Établissement en resOS (bac à sable) → Réservations | Les demandes apparaissent « À valider » ; pas de bouton Modifier : resOS fait foi | |
+| P14 | Super-admin → Réservations → « Tous les établissements », puis un seul | Tout le parc (le nom sur chaque carte), puis ce seul établissement | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 
