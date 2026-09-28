@@ -556,3 +556,10 @@ mark { background: var(--app-accent-soft); color: var(--app-text); border-radius
    « Annulée » à côté du nom — jamais par la seule opacité. */
 tr.annulee { opacity: .55; }
 tr.annulee strong { text-decoration: line-through; }
+
+/* Sur téléphone, le graphique (640 unités de large) est réduit de moitié : les valeurs
+   passent à 13 unités pour rester lisibles. 30 barres de ~19 unités les contiennent
+   encore sans chevauchement (SCRUM-113). */
+@media (max-width: 520px) {
+  .viz-root .viz-valeur { font-size: 13px; }
+}
