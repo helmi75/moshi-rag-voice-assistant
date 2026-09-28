@@ -7,9 +7,9 @@ from . import db
 
 DEMO_TENANT_NUMBER = os.getenv("TWILIO_NUMBER", "+33100000000")
 
-# Accueil du tenant démo : finit par « un instant s'il vous plaît » pour enchaîner sur
-# la musique d'attente pendant le réveil du GPU (flux standardiste, voir voice/greeting.py).
-_DEMO_GREETING = "Bonjour, restaurant Le Fouquet's Paris. Un instant s'il vous plaît."
+# Accueil du tenant démo. Plus de « un instant s'il vous plaît » depuis la voix Mistral
+# (SCRUM-107) : il n'y a plus de réveil de GPU à meubler.
+_DEMO_GREETING = "Bonjour, restaurant Le Fouquet's Paris."
 
 _DEMO_KNOWLEDGE_BASE = """\
 ## Restaurant
@@ -62,7 +62,7 @@ def _row_to_tenant(row) -> Tenant:
         business_type=row["business_type"],
         phone_number=row["phone_number"],
         language=row["language"],
-        greeting=row["greeting"] or f"Bonjour, {row['name']}, que puis-je faire pour vous ?",
+        greeting=row["greeting"] or f"Bonjour, {row['name']}.",
         knowledge_base=row["knowledge_base"],
         voice=row["voice"],
         plan=row["plan"],

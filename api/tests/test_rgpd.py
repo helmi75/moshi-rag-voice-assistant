@@ -170,7 +170,26 @@ class TestMentionDInformation:
     def test_la_mention_suit_l_accueil(self):
         texte = rgpd.accueil(self._Tenant())
         assert texte.startswith("Bonjour, restaurant Le Test.")
-        assert "assistant vocal" in texte
+        assert "assistante vocale" in texte
+
+    def test_un_accueil_court(self, monkeypatch):
+        """SCRUM-107 : l'accueil de hello-resto durait ~9 s (158 caractères), dont 6 pour
+        la mention. Avec la voix Mistral, « un instant s'il vous plaît » ne sert plus
+        (rien n'attend) et une ponctuation sépare l'accueil de la mention."""
+        from app.tenants import Tenant
+
+        monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
+        monkeypatch.setenv("ENREGISTREMENT_APPELS", "1")
+        monkeypatch.setenv("RGPD_MENTION", "1")
+        hello = Tenant(id=3, name="hello-resto", business_type="restaurant", phone_number="+33",
+                       language="fr-FR", greeting="Bonjour,  hello resto, un instant s'il vous plait",
+                       knowledge_base="")
+        texte = rgpd.accueil(hello)
+        assert texte == "Bonjour, hello resto. Je suis l'assistante vocale, cet appel est enregistré."
+        assert len(texte) <= 90  # ~5 s au lieu de ~9
+        # Avec la voix de secours (GPU à réveiller), la formule d'attente reste utile.
+        monkeypatch.delenv("MISTRAL_API_KEY")
+        assert "un instant" in rgpd.accueil(hello)
 
     def test_desactivable_mais_par_decision_explicite(self, monkeypatch):
         monkeypatch.setenv("RGPD_MENTION", "0")
@@ -360,4 +379,4 @@ class TestLaMentionAnnonceLEnregistrement:
         monkeypatch.setenv("ENREGISTREMENT_APPELS", "0")
         monkeypatch.setenv("RGPD_MENTION", "1")
         texte = rgpd.accueil(self._Tenant())
-        assert "assistant vocal" in texte and "enregistré" not in texte
+        assert "assistante vocale" in texte and "enregistré" not in texte

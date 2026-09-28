@@ -30,7 +30,7 @@ ssh root@187.77.172.87 "docker compose -f /opt/moshi-rag-voice-assistant/docker-
 | # | Test | Attendu | ✅/❌ |
 |---|---|---|---|
 | A1 | Appeler le numéro | Ça décroche | |
-| A2 | Écouter le tout début | L'accueil du restaurant, **puis** « Cet accueil est assuré par un assistant vocal ; votre appel est traité pour votre réservation » | |
+| A2 | Écouter le tout début | L'accueil du restaurant, **puis** « Je suis l'assistante vocale, cet appel est enregistré. », puis « Je vous écoute. » : ~5 s en tout, sans « un instant s'il vous plaît » (SCRUM-107) | |
 | A3 | Chronométrer le blanc avant la 1ʳᵉ réponse | < 2 s si le GPU est chaud ; ≈ 46 s au tout premier appel de la journée, couvert par la musique d'attente | |
 | A4 | Vérifier le journal | `POST /twilio/webhook` puis `WebSocket /ws/voice [accepted]` | |
 | A5 | **Commencer en français**, échanger deux phrases, **puis passer à l'anglais** | Elle répond en anglais. Elle peut manquer UN tour le temps de rouvrir l'oreille — pas plus, et surtout pas jusqu'à la fin de l'appel | |
