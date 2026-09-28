@@ -486,6 +486,10 @@ tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
 }
 
 /* ---- Fiches de connaissance --------------------------------------------- */
+/* Fiche établissement : des rubriques titrées, deux ou trois champs par ligne au plus. */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); column-gap: 1rem; }
+h2.form-section { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--app-muted); margin: 1.1rem 0 .6rem; }
+h2.form-section:first-of-type { margin-top: 0; }
 .kb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: .9rem; }
 .kb-body { font-size: .84rem; color: var(--app-muted); line-height: 1.55; white-space: pre-line; margin: .6rem 0 0; }
 

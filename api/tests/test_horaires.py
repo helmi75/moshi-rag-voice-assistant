@@ -222,13 +222,17 @@ class TestAdminHoraires:
             "dimanche_1_debut": "12:00", "dimanche_1_fin": "15:00",
             "fermetures": "2026-12-25"}
 
-    def test_la_page_s_affiche_et_la_navigation_la_propose(self, etablissement):
+    def test_les_horaires_vivent_dans_ce_que_l_ia_sait(self, etablissement):
+        """SCRUM-110 : plus de menu à part ; l'ancienne adresse mène à la bonne page."""
         client = _login(TestClient(app))
-        page = client.get(f"/admin/tenants/{etablissement.id}/horaires")
+        resp = client.get(f"/admin/tenants/{etablissement.id}/horaires", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == f"/admin/tenants/{etablissement.id}/knowledge#horaires"
+        page = client.get(f"/admin/tenants/{etablissement.id}/knowledge")
         assert page.status_code == 200
-        assert "Horaires d'ouverture" in page.text
-        assert f"/admin/tenants/{etablissement.id}/horaires" in page.text  # item de navigation
+        assert "Horaires d'ouverture" in page.text and 'id="horaires"' in page.text
         assert "Rien de renseigné" in page.text
+        assert f'href="/admin/tenants/{etablissement.id}/horaires"' not in page.text
 
     def test_enregistrer_puis_relire(self, etablissement):
         client = _login(TestClient(app))
@@ -236,11 +240,12 @@ class TestAdminHoraires:
         resp = client.post(f"/admin/tenants/{etablissement.id}/horaires",
                            data={**self.FORM, "csrf_token": token}, follow_redirects=False)
         assert resp.status_code == 303
+        assert resp.headers["location"].endswith("/knowledge#horaires")
         stocke = json.loads(tenants.get_by_id(etablissement.id).opening_hours)
         assert stocke["semaine"]["mardi"] == [["12:00", "14:30"], ["19:00", "22:30"]]
         assert stocke["semaine"]["lundi"] == []
         assert stocke["fermetures"] == ["2026-12-25"]
-        page = client.get(f"/admin/tenants/{etablissement.id}/horaires").text
+        page = client.get(f"/admin/tenants/{etablissement.id}/knowledge").text
         assert "Mardi" in page and 'value="22:30"' in page and "Rien de renseigné" not in page
 
     def test_une_saisie_fausse_est_renvoyee_sans_perdre_le_reste(self, etablissement):
@@ -264,7 +269,7 @@ class TestAdminHoraires:
             token = _csrf(client)
             assert client.post(f"/admin/tenants/{etablissement.id}/horaires",
                                data={**self.FORM, "csrf_token": token}).status_code == 403
-            assert client.get(f"/admin/tenants/{autre.id}/horaires").status_code == 200
+            assert client.get(f"/admin/tenants/{autre.id}/knowledge").status_code == 200
         finally:
             tenants.delete_tenant(autre.id)
 

@@ -25,6 +25,9 @@ def _include_protected_routes() -> None:
     from . import routes_dashboard
 
     admin_router.include_router(routes_dashboard.router)
+    from . import routes_connaissances
+
+    admin_router.include_router(routes_connaissances.router)
     from . import routes_tenants
 
     admin_router.include_router(routes_tenants.router)

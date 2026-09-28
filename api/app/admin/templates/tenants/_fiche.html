@@ -1,0 +1,18 @@
+<article class="card" id="fiche-{{ n }}">
+  <div class="card-head" style="padding: 0 0 .2rem">
+    <h2>{{ s.title }}</h2>
+    {% if s.filled %}<span class="chip chip-good">Renseignée</span>
+    {% else %}<span class="chip chip-warn">À compléter</span>{% endif %}
+  </div>
+  <p class="kb-body">{{ s.body or "Rien de renseigné pour l'instant." }}</p>
+  <div style="display: flex; gap: .5rem; margin-top: .9rem">
+    <button type="button" class="secondary" style="width: auto; margin: 0; padding: .3rem .9rem; font-size: .85rem"
+            hx-get="/admin/tenants/{{ tenant.id }}/knowledge/fiches/{{ n }}/modifier"
+            hx-target="closest article" hx-swap="outerHTML">Modifier</button>
+    <button type="button" class="secondary" style="width: auto; margin: 0; padding: .3rem .9rem; font-size: .85rem"
+            hx-post="/admin/tenants/{{ tenant.id }}/knowledge/fiches/{{ n }}/supprimer"
+            hx-vals='{"version": "{{ version }}"}'
+            hx-confirm="Supprimer la fiche « {{ s.title }} » ? L'assistante ne saura plus ce qu'elle contient."
+            hx-target="#fiches" hx-swap="outerHTML">Supprimer</button>
+  </div>
+</article>

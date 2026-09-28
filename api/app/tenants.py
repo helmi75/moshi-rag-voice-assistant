@@ -102,6 +102,20 @@ def parse_knowledge_sections(knowledge_base: str) -> list[dict]:
     return sections
 
 
+def assembler_fiches(fiches: list[dict]) -> str:
+    """L'inverse de `parse_knowledge_sections` : des fiches, le texte de la base.
+
+    Chaque fiche redevient un bloc `## Titre` suivi de son texte : c'est ce texte qui part
+    dans le prompt, et le relire donne les mêmes fiches (SCRUM-111). Le préambule sans
+    titre, s'il y en avait un, devient une fiche « Général » comme à l'affichage."""
+    blocs = []
+    for fiche in fiches:
+        titre = " ".join(str(fiche.get("title") or "").split()) or "Sans titre"
+        corps = str(fiche.get("body") or "").strip()
+        blocs.append(f"## {titre}\n{corps}".rstrip())
+    return ("\n\n".join(blocs) + "\n") if blocs else ""
+
+
 def get_by_phone(phone_number: Optional[str]) -> Optional[Tenant]:
     """Résout le tenant à partir du numéro Twilio appelé (champ Twilio `To`)."""
     if not phone_number:

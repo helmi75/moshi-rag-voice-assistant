@@ -1,0 +1,19 @@
+<article class="card" {% if n is not none %}id="fiche-{{ n }}"{% endif %}>
+  <form hx-post="/admin/tenants/{{ tenant.id }}/knowledge/fiches{% if n is not none %}/{{ n }}{% endif %}"
+        hx-target="#fiches" hx-swap="outerHTML" style="margin: 0">
+    <input type="hidden" name="version" value="{{ version }}">
+    <label>Titre de la fiche
+      <input name="titre" value="{{ fiche.title }}" required maxlength="80"
+             placeholder="Carte, Accès, Groupes…">
+    </label>
+    <label>Ce que l'assistante doit savoir
+      <textarea name="corps" rows="9">{{ fiche.body }}</textarea>
+    </label>
+    <div style="display: flex; gap: .5rem">
+      <button type="submit" style="width: auto; margin: 0">Enregistrer</button>
+      <button type="button" class="secondary" style="width: auto; margin: 0"
+              hx-get="/admin/tenants/{{ tenant.id }}/knowledge/fiches/{{ n if n is not none else 'annuler' }}"
+              hx-target="closest article" hx-swap="outerHTML">Annuler</button>
+    </div>
+  </form>
+</article>
