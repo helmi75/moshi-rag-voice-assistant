@@ -43,8 +43,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Voix hors catalogue → voix par défaut",
         fichier="api/app/voice/voices.py",
-        avant="    return chosen if get(chosen) else default_id()",
-        apres="    return chosen if chosen else default_id()",
+        avant="    if voix is None:\n        return default_id()",
+        apres="    if voix is None:\n        return chosen or default_id()",
         tests=["test_voices.py", "test_greeting.py", "test_admin_voice.py"],
         k="hors_catalogue or outside_catalogue",
         panne="moshi-server remplacerait la voix EN SILENCE par sa voix de repli",
