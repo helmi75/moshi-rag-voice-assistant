@@ -183,7 +183,8 @@ def _configuration_requise() -> list[tuple[str, str]]:
         ("PUBLIC_WS_URL",
          "Twilio ne saurait pas où brancher le flux audio : l'appel raccroche"),
         ("DEEPGRAM_API_KEY", "sans transcription, l'assistante n'entend rien"),
-        ("MOSHI_TTS_URL", "sans serveur de voix, l'assistante ne parle pas"),
+        ("MISTRAL_API_KEY", "sans clé Mistral, pas de voix Mistral : l'assistante parle "
+                            "avec la voix de secours Moshi, ou pas du tout"),
     ]
 
 
@@ -883,7 +884,7 @@ def _controle_carnets() -> Controle:
 
 
 def _controle_voxtral() -> Controle:
-    """La voix Marie (Voxtral, Mistral) des établissements qui l'ont choisie (SCRUM-97).
+    """La voix des établissements : Mistral (Voxtral) depuis le 28/09/2026 (SCRUM-94).
 
     Pas de GPU derrière : pas de réveil ni de capacité à obtenir, mais une panne de
     Mistral rendrait l'assistante muette phrase après phrase. On lit les échecs des
@@ -891,31 +892,29 @@ def _controle_voxtral() -> Controle:
     d'ici : chaque sonde serait une synthèse facturée."""
     from .voice import voices, voxtral_tts
 
-    choisis = [t for t in tenants.list_all() if voices.est_voxtral(getattr(t, "voice", None))]
-    if not choisis:
-        return Controle("voxtral", "Voix Voxtral", OK,
-                        "Sans objet : aucun établissement n'a choisi Marie.",
+    liste = tenants.list_all()
+    if not liste:
+        return Controle("voxtral", "Voix Mistral", OK, "Sans objet : aucun établissement.",
                         mesure={"etablissements": 0})
-    noms = ", ".join(t.name for t in choisis[:5])
     if not voices.voxtral_disponible():
         return Controle(
-            "voxtral", "Voix Voxtral", PANNE,
-            f"Clé Mistral absente : {len(choisis)} établissement(s) ont choisi Marie.",
-            f"{noms} : MISTRAL_API_KEY manque dans le .env du serveur. Leurs appels "
-            "partent sur la voix Moshi par défaut, avec son réveil de GPU.",
-            mesure={"etablissements": len(choisis), "cle": False})
+            "voxtral", "Voix Mistral", PANNE,
+            f"Clé Mistral absente : {len(liste)} établissement(s) sans leur voix.",
+            "MISTRAL_API_KEY manque dans le .env du serveur. Les appels partent sur la voix "
+            "de secours Moshi, avec son réveil de GPU — ou sans voix si le GPU n'est plus là.",
+            mesure={"etablissements": len(liste), "cle": False})
     echecs = voxtral_tts.echecs_depuis(3600)
     if echecs:
         return Controle(
-            "voxtral", "Voix Voxtral", ATTENTION,
-            f"{len(echecs)} synthèse(s) Voxtral échouée(s) dans l'heure.",
+            "voxtral", "Voix Mistral", ATTENTION,
+            f"{len(echecs)} synthèse(s) Mistral échouée(s) dans l'heure.",
             f"Dernière erreur : {echecs[-1][1]}. Chaque échec est une phrase que "
-            f"l'appelant n'a pas entendue ({noms}).",
-            mesure={"etablissements": len(choisis), "cle": True, "echecs_1h": len(echecs)})
+            "l'appelant n'a pas entendue.",
+            mesure={"etablissements": len(liste), "cle": True, "echecs_1h": len(echecs)})
     return Controle(
-        "voxtral", "Voix Voxtral", OK,
-        f"{len(choisis)} établissement(s) en voix Marie, aucun échec dans l'heure.",
-        mesure={"etablissements": len(choisis), "cle": True, "echecs_1h": 0})
+        "voxtral", "Voix Mistral", OK,
+        f"{len(liste)} établissement(s) en voix Mistral, aucun échec dans l'heure.",
+        mesure={"etablissements": len(liste), "cle": True, "echecs_1h": 0})
 
 
 def _age_minutes(iso: Optional[str]) -> Optional[int]:

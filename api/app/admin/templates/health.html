@@ -69,7 +69,7 @@
          sub="Le worker s'est arrêté avant la fin : ni durée, ni transcription.",
          tone="dot-warn") }}
   {{ kpi("Coût moyen par appel", money(totals.avg_cost),
-         sub="Estimation aux tarifs de calls.py, cohérente avec le total du parc.") }}
+         sub="Chiffré sur ce que chaque appel a consommé : minutes Twilio entamées, minutes de transcription, jetons Gemini, caractères de voix.") }}
   {{ kpi("Voix d'accueil prêtes", greeting_ready ~ " / " ~ greeting_total,
          sub="WAV d'accueil présent en cache = décroché immédiat.",
          tone="dot-good") }}
@@ -98,8 +98,8 @@
   <div class="stack">
     <section class="card">
       <h2>Répartition du coût · {{ days }} j</h2>
-      <p class="card-sub">Décomposition du total ({{ money(totals.total_cost) }}) avec les
-         tarifs qui servent déjà à l'estimation par appel.</p>
+      <p class="card-sub">Somme des postes chiffrés à la fin de chaque appel : exactement
+         le total ({{ money(totals.total_cost) }}).</p>
       <div style="margin-top: 1rem">
         {% for b in breakdown %}
         <div class="meter-row">
@@ -132,8 +132,8 @@
         {% endfor %}
         <div class="card-row">
           <span class="row-main">
-            <span class="row-title">Voix de synthèse</span>
-            <span class="row-sub">Réglage global — pas encore paramétrable par établissement.</span>
+            <span class="row-title">Voix par défaut</span>
+            <span class="row-sub">Pour les établissements qui n'ont pas choisi la leur (page « Voix &amp; accueil »).</span>
           </span>
           <span class="chip">{{ voice }}</span>
         </div>

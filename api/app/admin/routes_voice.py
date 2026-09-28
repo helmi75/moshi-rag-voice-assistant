@@ -1,6 +1,8 @@
 """Config voix par tenant : accueil (re-rendu auto), aperçu WAV, musique d'attente."""
 import io
+import os
 import wave
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -27,14 +29,23 @@ def voice_settings(request: Request, tenant_id: int,
     return _page(request, tenant)
 
 
+def _groupes(catalogue) -> list[dict]:
+    """Les voix regroupées par locuteur (« Marie — Français »), dans l'ordre du catalogue :
+    le français d'abord."""
+    groupes: dict = {}
+    for v in catalogue:
+        cle = (v.locuteur, v.note)
+        groupes.setdefault(cle, {"titre": f"{v.locuteur} — {v.note}", "voix": []})["voix"].append(v)
+    return list(groupes.values())
+
+
 def _page(request: Request, tenant, error: Optional[str] = None, status_code: int = 200):
     return deps.templates.TemplateResponse(
         request, "voice/settings.html",
         {
             "tenant": tenant,
             "voice_name": presenters.voice_label(tenant),
-            "voix_moshi": voices.voix_moshi(),
-            "voix_voxtral": voices.voix_voxtral(),
+            "groupes": _groupes(voices.voix_voxtral()),
             "voxtral_disponible": voices.voxtral_disponible(),
             "voice_id": voices.resolve(tenant),
             "voix_sans_gpu": greeting_mod.voix_sans_gpu(tenant),
@@ -71,11 +82,11 @@ async def voice_update(
     chosen = voices.get((voice or "").strip())
     if chosen is not None and chosen.fournisseur == voices.VOXTRAL \
             and not voices.voxtral_disponible():
-        # Marie sans clé Mistral : l'appel retomberait sur la voix par défaut sans que
+        # Voix Mistral sans clé : l'appel retomberait sur la voix de secours sans que
         # personne ne l'ait voulu. On refuse ici, avec la raison.
         return _page(request, tenant, status_code=422, error=(
-            "Marie n'est pas encore disponible : la clé Mistral n'est pas posée sur le "
-            "serveur. La voix n'a pas été changée."))
+            "Les voix Mistral ne sont pas disponibles : la clé Mistral n'est pas posée sur "
+            "le serveur. La voix n'a pas été changée."))
     if chosen is not None:
         fields["voice"] = chosen.id
     if fields:
@@ -87,6 +98,43 @@ async def voice_update(
         taches.lancer(greeting_mod.ensure_greeting_wav(refreshed),
                       nom=f"accueil de l'établissement {tenant.id}")
     return RedirectResponse(f"/admin/tenants/{tenant.id}/voice", status_code=303)
+
+
+# Un extrait par voix, pour choisir à l'oreille. Rendu à la première écoute puis gardé :
+# ~90 caractères, soit 0,15 c, une fois par voix. En qualité téléphone (8 kHz, µ-law) :
+# c'est ce qu'entendront les clients, pas ce que rend un casque de studio.
+_EXTRAIT = {
+    "fr": "Bonjour, vous êtes bien au restaurant. C'est pour combien de personnes, et à quelle heure ?",
+    "en": "Hello, you've reached the restaurant. How many people will it be, and at what time?",
+}
+
+
+def _dossier_extraits() -> Path:
+    return Path(os.getenv("VOIX_EXTRAITS_DIR", "/app/data/voix_extraits"))
+
+
+@router.get("/admin/voix/{slug}/extrait.wav")
+async def extrait_de_voix(slug: str, user: User = Depends(deps.current_user)):
+    voix = voices.get(f"voxtral/{slug}")
+    # Liste fermée : seul ce que Mistral a listé se rend — jamais un identifiant saisi.
+    if voix is None or voix.fournisseur != voices.VOXTRAL:
+        raise HTTPException(status_code=404, detail="Voix inconnue.")
+    chemin = _dossier_extraits() / f"{slug}.wav"
+    if not chemin.exists():
+        if not voices.voxtral_disponible():
+            raise HTTPException(status_code=503, detail="Clé Mistral absente : extrait impossible.")
+        from ..voice import ulaw
+        from ..voice.voxtral_tts import rendre_pcm
+
+        try:
+            texte = _EXTRAIT["fr" if (voix.langue or "").startswith("fr") else "en"]
+            pcm = await rendre_pcm(texte, voix.voxtral_id)
+            huit = await greeting_mod._to_twilio_int16(pcm)
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            greeting_mod._write_wav(chemin, ulaw.decoder(ulaw.encoder(huit)))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Mistral n'a pas rendu l'extrait ({exc}).")
+    return FileResponse(chemin, media_type="audio/wav")
 
 
 @router.get("/admin/tenants/{tenant_id}/greeting.wav")

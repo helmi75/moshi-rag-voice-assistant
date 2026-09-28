@@ -43,8 +43,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Voix hors catalogue → voix par défaut",
         fichier="api/app/voice/voices.py",
-        avant="    if voix is None:\n        return default_id()",
-        apres="    if voix is None:\n        return chosen or default_id()",
+        avant="    voix = get(getattr(tenant, \"voice\", None))\n    if voix is not None and voix.fournisseur == VOXTRAL:",
+        apres="    voix = get(getattr(tenant, \"voice\", None)) or Voice(getattr(tenant, \"voice\", None) or \"\", \"\", \"\", VOXTRAL)  # mutation\n    if voix is not None and voix.fournisseur == VOXTRAL:",
         tests=["test_voices.py", "test_greeting.py", "test_admin_voice.py"],
         k="hors_catalogue or outside_catalogue",
         panne="moshi-server remplacerait la voix EN SILENCE par sa voix de repli",
@@ -731,14 +731,44 @@ GARDE_FOUS = [
               "montrait encore l'ancienne page",
     ),
     GardeFou(
-        nom="Sans clé Mistral, Marie cède la place à une voix qui parle",
+        nom="Une voix perdue ne se rattrape jamais en bilingue",
+        fichier="api/app/voice/bot.py",
+        avant="    return depart if depart != \"multi\" else langue_du_lieu",
+        apres="    return depart  # mutation",
+        tests=["test_rattrapage.py"],
+        k="bilingue",
+        panne="appel 204 : « All I have taken… » inventé en bilingue, l'assistante passe à "
+              "l'anglais avec un Français",
+    ),
+    GardeFou(
+        nom="Sans clé Mistral, une voix qui parle plutôt que le silence",
         fichier="api/app/voice/voices.py",
-        avant="    if voix.fournisseur == VOXTRAL and not voxtral_disponible():",
-        apres="    if False:  # mutation",
-        tests=["test_voxtral.py"],
-        k="sans_cle",
+        avant="    if not voxtral_disponible():\n        # Clé absente",
+        apres="    if False:  # mutation\n        # Clé absente",
+        tests=["test_voxtral.py", "test_voices.py"],
+        k="sans_cle or secours",
         panne="clé retirée : chaque phrase de l'établissement échouerait chez Mistral — une "
               "assistante muette au lieu d'une voix Moshi",
+    ),
+    GardeFou(
+        nom="La voix Mistral se paie aux caractères dits",
+        fichier="api/app/calls.py",
+        avant="        voix = int(conso.get(\"caracteres_voix\") or 0) * _COST_VOIX_PAR_CARACTERE",
+        apres="        voix = 0.0  # mutation",
+        tests=["test_admin_core.py"],
+        k="caracteres or postes",
+        panne="la voix disparaîtrait du coût des appels : une grille tarifaire arrêtée sur "
+              "des chiffres faux",
+    ),
+    GardeFou(
+        nom="Un appel du banc ne paie ni téléphone ni sept heures de connexion",
+        fichier="api/app/calls.py",
+        avant="            secondes = min(secondes, activite + 5.0)",
+        apres="            pass  # mutation",
+        tests=["test_admin_core.py"],
+        k="banc",
+        panne="10/09 : huit appels du banc restés connectés sept heures — 80 $ fictifs sur "
+              "les 97 $ affichés dans l'admin",
     ),
     GardeFou(
         nom="Marie décroche sans musique d'attente",

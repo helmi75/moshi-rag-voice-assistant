@@ -23,7 +23,7 @@ from app.tenants import Tenant
 from app.voice import greeting as g
 from app.voice import voices, voxtral_tts
 
-MARIE = "voxtral/marie-joyeuse"
+MARIE = "voxtral/fr_marie_happy"
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -77,13 +77,6 @@ def _ton(secondes=0.1):
 
 
 class TestCatalogue:
-    def test_marie_en_quatre_tons_sans_triste_ni_colere(self):
-        labels = [v.label for v in voices.voix_voxtral()]
-        assert labels == ["Marie · neutre", "Marie · joyeuse", "Marie · curieuse",
-                          "Marie · enthousiaste"]
-        assert all(v.fournisseur == voices.VOXTRAL and len(v.voxtral_id) == 36
-                   for v in voices.voix_voxtral())
-
     def test_marie_se_resout_avec_la_cle(self):
         assert voices.resolve(_tenant()) == MARIE
         assert voices.label_for(_tenant()) == "Marie · joyeuse"
@@ -92,10 +85,6 @@ class TestCatalogue:
         """Jamais le silence : un appel ne doit pas dépendre d'une clé absente."""
         monkeypatch.delenv("MISTRAL_API_KEY")
         assert voices.resolve(_tenant()) == voices.DEFAULT_VOICE
-
-    def test_le_defaut_du_parc_reste_une_voix_moshi(self, monkeypatch):
-        monkeypatch.setenv("MOSHI_TTS_VOICE", MARIE)
-        assert voices.default_id() == voices.DEFAULT_VOICE
 
     def test_build_tts_choisit_voxtral_meme_sans_serveur_moshi(self, monkeypatch):
         from app.voice import bot
@@ -190,9 +179,10 @@ class TestAccueilEtDecroche:
         assert reveils == [] and textes == ["Je vous écoute."]
         assert sortie.send_audio.await_count == 25  # l'accueil seul, aucune musique
 
-    def test_une_voix_moshi_garde_son_reveil(self, monkeypatch):
-        assert g.voix_sans_gpu(_tenant(voice=voices.DEFAULT_VOICE)) is False
+    def test_seule_la_voix_de_secours_reveille_un_gpu(self, monkeypatch):
         assert g.voix_sans_gpu(_tenant()) is True
+        monkeypatch.delenv("MISTRAL_API_KEY")
+        assert g.voix_sans_gpu(_tenant()) is False
 
 
 class TestSupervision:
@@ -203,13 +193,10 @@ class TestSupervision:
         yield t
         tenants.delete_tenant(t.id)
 
-    def test_sans_objet_si_personne_n_a_choisi_marie(self):
-        assert supervision._controle_voxtral().niveau == supervision.OK
-
-    def test_cle_retiree_apres_le_choix_est_une_panne(self, marie, monkeypatch):
+    def test_cle_retiree_est_une_panne(self, marie, monkeypatch):
         monkeypatch.delenv("MISTRAL_API_KEY")
         controle = supervision._controle_voxtral()
-        assert controle.niveau == supervision.PANNE and "Chez Marie" in controle.detail
+        assert controle.niveau == supervision.PANNE and "MISTRAL_API_KEY" in controle.detail
 
     def test_des_echecs_dans_l_heure_se_voient(self, marie):
         voxtral_tts.noter_echec("HTTP 503 : surcharge")
@@ -243,35 +230,55 @@ class TestAdmin:
         client.headers["X-CSRF-Token"] = json.loads(base64.b64decode(brut))["csrf"]
         return client
 
-    def test_marie_et_ses_tons_s_ecoutent_sur_la_page(self, resto):
+    def test_toutes_les_voix_mistral_se_choisissent_et_s_ecoutent(self, resto):
         page = self._client().get(f"/admin/tenants/{resto.id}/voice").text
-        for v in voices.voix_voxtral():
+        for v in voices.catalogue():
             assert f'value="{v.id}"' in page
-        assert "/admin/static/voix/marie-joyeuse.wav?v=" in page
+        assert "/admin/voix/fr_marie_happy/extrait.wav" in page
+        assert "Marie — Français" in page and "Paul — Anglais (États-Unis)" in page
 
-    def test_choisir_marie(self, resto, monkeypatch):
+    def test_choisir_une_voix(self, resto, monkeypatch):
         monkeypatch.setattr(g, "ensure_greeting_wav", AsyncMock())
         reponse = self._client().post(f"/admin/tenants/{resto.id}/voice",
                                       data={"voice": MARIE}, follow_redirects=False)
         assert reponse.status_code == 303
         assert tenants.get_by_id(resto.id).voice == MARIE
 
-    def test_sans_cle_marie_est_grisee_et_refusee(self, resto, monkeypatch):
+    def test_sans_cle_les_voix_sont_grisees_et_refusees(self, resto, monkeypatch):
         monkeypatch.delenv("MISTRAL_API_KEY")
         client = self._client()
         page = client.get(f"/admin/tenants/{resto.id}/voice").text
-        assert "clé Mistral absente" in page and "disabled" in page
+        assert "Clé Mistral absente" in page and "disabled" in page
         reponse = client.post(f"/admin/tenants/{resto.id}/voice", data={"voice": MARIE})
         assert reponse.status_code == 422 and "clé Mistral" in reponse.text
         assert tenants.get_by_id(resto.id).voice != MARIE
 
-    def test_les_extraits_existent(self):
-        import pathlib
 
-        dossier = pathlib.Path(__file__).resolve().parents[1] / "app" / "admin" / "static" / "voix"
-        for v in voices.voix_voxtral():
-            with wave.open(str(dossier / f"{v.id.split('/')[1]}.wav")) as w:
-                assert w.getframerate() == 8000 and w.getnframes() > 8000
+class TestExtraitDEcoute:
+    """Un extrait par voix, rendu à la première écoute puis gardé : ~0,15 c par voix."""
+
+    def _client(self):
+        return TestAdmin._client(self)
+
+    def test_rendu_une_fois_puis_garde(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("VOIX_EXTRAITS_DIR", str(tmp_path / "extraits"))
+        rendus = []
+
+        async def faux_rendu(texte, voix_id):
+            rendus.append((texte, voix_id))
+            return _ton(0.5)
+
+        monkeypatch.setattr(voxtral_tts, "rendre_pcm", faux_rendu)
+        client = self._client()
+        for _ in range(2):
+            reponse = client.get("/admin/voix/en_paul_happy/extrait.wav")
+            assert reponse.status_code == 200 and reponse.content[:4] == b"RIFF"
+        assert len(rendus) == 1 and rendus[0][0].startswith("Hello")
+        assert rendus[0][1] == voices.get("voxtral/en_paul_happy").voxtral_id
+
+    def test_une_voix_inconnue_n_est_jamais_rendue(self, monkeypatch):
+        monkeypatch.setattr(voxtral_tts, "rendre_pcm", AsyncMock(side_effect=AssertionError))
+        assert self._client().get("/admin/voix/inventee/extrait.wav").status_code == 404
 
 
 class TestDansLePipeline:

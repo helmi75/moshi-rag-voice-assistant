@@ -6,6 +6,7 @@ SQLite ≈ 1 ms). finish_call est appelé via asyncio.to_thread depuis bot.py po
 jamais bloquer l'event loop.
 """
 import json
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -13,23 +14,31 @@ from typing import Optional
 
 from . import db, horloge
 
-# Tarifs pour le coût ESTIMÉ par appel (affichage admin). Calés sur les mesures réelles
-# de scripts/cost_report.py (18/07/2026) : L4 ~2 ct/min (helmi), Twilio entrant
-# ~0,85 ct/min, LLM gemini-flash ~0,35 ct/appel.
-# Le coût EXACT reste l'affaire de cost_report.py (APIs de facturation).
+# Coût d'un appel, poste par poste (SCRUM-99, 28/09/2026). Chaque tarif se surcharge
+# par variable d'environnement. Le coût EXACT reste l'affaire des factures
+# (scripts/cost_report.py) ; ceci chiffre ce que l'appel a RÉELLEMENT consommé.
 #
-# Deepgram corrigé le 30/08/2026 : 0,0058 était le tarif **nova-2**, alors que la
-# production tourne en **nova-3** (DEEPGRAM_MODEL) depuis le réglage de naturalité.
-# Tarif nova-3 streaming, à la carte : 0,0077 $/min monolingue, 0,0092 $/min en `multi`
-# (deepgram.com/pricing). Depuis le 10/09/2026 on DÉCROCHE en `multi` (voice/langue.py)
-# avant de se fixer sur une langue : la part réellement facturée en multi n'est pas
-# mesurée, donc on retient la borne HAUTE. Un coût surestimé d'un demi-centime se voit ;
-# un coût sous-estimé ne se voit qu'à la facture, et c'est sur ces chiffres qu'on arrête
-# une grille tarifaire (#29).
-_COST_TWILIO_PER_MIN = float(os.getenv("COST_TWILIO_PER_MIN", "0.0085"))
+# - Twilio : 0,01 $ par minute ENTAMÉE — lu sur les factures des appels 183 à 204
+#   (numéro français, entrant) : 98 s → 0,02 $, 453 s → 0,08 $. L'ancien chiffre,
+#   0,0085 $/min au prorata, venait du numéro américain de juillet.
+# - Deepgram nova-3 en flux : 0,0077 $/min monolingue, 0,0092 $/min en `multi`. On
+#   DÉCROCHE en `multi` (voice/langue.py) : on retient la borne haute. Un coût surestimé
+#   d'un demi-centime se voit ; sous-estimé, il ne se voit qu'à la facture.
+# - Gemini 2.5 Flash via OpenRouter (API de tarifs, 28/09/2026) : 0,30 $ le million de
+#   jetons d'entrée, 0,03 $ s'ils sont lus en cache, 2,50 $ en sortie. Le forfait de
+#   0,35 c par appel ne sert plus qu'aux appels sans mesure.
+# - Voix Mistral (Voxtral) : 0,016 $ pour 1 000 caractères (mistral.ai, mars 2026).
+# - Voix Moshi (GPU Modal, secours seulement) : ~2 c/min.
+_COST_TWILIO_PER_MIN = float(os.getenv("COST_TWILIO_PER_MIN", "0.01"))
 _COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0092"))
-_COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
+_COST_LLM_ENTREE = float(os.getenv("COST_LLM_ENTREE_PAR_MILLION", "0.30")) / 1e6
+_COST_LLM_CACHE = float(os.getenv("COST_LLM_CACHE_PAR_MILLION", "0.03")) / 1e6
+_COST_LLM_SORTIE = float(os.getenv("COST_LLM_SORTIE_PAR_MILLION", "2.50")) / 1e6
 _COST_LLM_PER_CALL = float(os.getenv("COST_LLM_PER_CALL", "0.0035"))
+_COST_VOIX_PAR_CARACTERE = float(os.getenv("COST_VOIX_PAR_MILLE_CARACTERES", "0.016")) / 1000
+_COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
+
+POSTES = ("telephonie", "transcription", "comprehension", "voix")
 
 
 # Ce que Twilio met dans `From` quand l'appelant masque son numéro : l'orthographe au
@@ -52,10 +61,63 @@ def numero_appelant(brut: Optional[str]) -> Optional[str]:
     return numero
 
 
-def estimate_call_cost(duration_seconds: float) -> float:
-    minutes = max(0.0, duration_seconds) / 60.0
-    per_min = _COST_TWILIO_PER_MIN + _COST_DEEPGRAM_PER_MIN + _COST_MODAL_PER_MIN
-    return round(minutes * per_min + _COST_LLM_PER_CALL, 6)
+# Les appels du banc d'essai (scripts/banc_conversation.py) : pas de Twilio derrière.
+PREFIXE_BANC = "CABANC"
+
+
+def _activite_secondes(journal: Optional[dict]) -> Optional[float]:
+    """Jusqu'où l'appel a réellement vécu : le dernier événement du journal de bord."""
+    instants = [e.get("t_ms") for e in ((journal or {}).get("evenements") or [])
+                if isinstance(e, dict) and isinstance(e.get("t_ms"), (int, float))]
+    return max(instants) / 1000.0 if instants else None
+
+
+def couts_appel(duration_seconds: float, journal: Optional[dict] = None,
+                banc: bool = False) -> dict:
+    """Les quatre postes d'un appel, en dollars, et la voix qui l'a servi.
+
+    `journal` : le journal de bord (voice/journal.py), qui compte ce que l'appel a
+    consommé — caractères envoyés à la voix, jetons envoyés au modèle. Sans lui (appel
+    coupé avant la fin, test), le modèle est chiffré au forfait et la voix à zéro.
+
+    `banc` : un appel du banc d'essai ne passe pas par Twilio, et sa connexion peut
+    rester ouverte des heures après la conversation (appels 82 à 87 du 10/09/2026 :
+    sept heures au compteur pour 72 à 88 s de conversation, 80 $ fictifs sur 97). On
+    le chiffre sur sa durée ACTIVE, lue au journal. Un vrai appel, lui, se chiffre sur
+    sa durée : c'est celle que Twilio facture."""
+    secondes = max(0.0, float(duration_seconds or 0))
+    if banc:
+        activite = _activite_secondes(journal)
+        if activite is not None:
+            secondes = min(secondes, activite + 5.0)
+    minutes = secondes / 60.0
+    conso = (journal or {}).get("consommation") or {}
+    fournisseur = ((journal or {}).get("voix") or {}).get("fournisseur") or "voxtral"
+    if conso.get("generations"):
+        entree = int(conso.get("jetons_entree") or 0)
+        cache = min(int(conso.get("jetons_cache") or 0), entree)
+        comprehension = ((entree - cache) * _COST_LLM_ENTREE + cache * _COST_LLM_CACHE
+                         + int(conso.get("jetons_sortie") or 0) * _COST_LLM_SORTIE)
+    else:
+        comprehension = _COST_LLM_PER_CALL
+    if fournisseur == "moshi":
+        voix = minutes * _COST_MODAL_PER_MIN
+    else:
+        voix = int(conso.get("caracteres_voix") or 0) * _COST_VOIX_PAR_CARACTERE
+    # Chaque poste arrondi au millionième, et le total = leur somme : la répartition de
+    # l'admin retombe exactement sur le coût de l'appel.
+    return {
+        "telephonie": 0.0 if banc else round(math.ceil(secondes / 60.0) * _COST_TWILIO_PER_MIN, 6),
+        "transcription": round(minutes * _COST_DEEPGRAM_PER_MIN, 6),
+        "comprehension": round(comprehension, 6),
+        "voix": round(voix, 6),
+        "fournisseur": fournisseur,
+    }
+
+
+def estimate_call_cost(duration_seconds: float, journal: Optional[dict] = None) -> float:
+    couts = couts_appel(duration_seconds, journal)
+    return sum(couts[p] for p in POSTES)
 
 
 def start_call(call_sid: Optional[str], tenant_id: int,
@@ -142,11 +204,16 @@ def finish_call(
         debut = horloge.lire_utc(row["started_at"])
         duration = (datetime.now(timezone.utc) - debut).total_seconds() if debut else 0.0
         duration = max(0.0, duration)
+        # Chiffré au tarif du jour, poste par poste, et figé : la répartition de l'admin
+        # est la somme de ces colonnes, pas une seconde estimation.
+        couts = couts_appel(duration, journal, banc=call_sid.startswith(PREFIXE_BANC))
         conn.execute(
             """UPDATE calls SET ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                    duration_seconds = ?, status = ?, transcript = ?,
                    reservation_id = ?, reservation_externe = ?, estimated_cost = ?,
-                   turn_latencies = ?, journal = ?, recording_bytes = ?
+                   turn_latencies = ?, journal = ?, recording_bytes = ?,
+                   cout_telephonie = ?, cout_transcription = ?, cout_comprehension = ?,
+                   cout_voix = ?, voix_fournisseur = ?
                WHERE id = ?""",
             (
                 duration,
@@ -154,10 +221,12 @@ def finish_call(
                 json.dumps(transcript, ensure_ascii=False) if transcript else None,
                 reservation_id,
                 externe,
-                estimate_call_cost(duration),
+                sum(couts[p] for p in POSTES),
                 json.dumps(turn_latencies) if turn_latencies else None,
                 _journal_borne(journal),
                 recording_bytes,
+                couts["telephonie"], couts["transcription"], couts["comprehension"],
+                couts["voix"], couts["fournisseur"],
                 row["id"],
             ),
         )
@@ -408,30 +477,42 @@ def latency_stats(tenant_id: Optional[int] = None, days: int = 30) -> Optional[d
 
 
 def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
-    """Ventilation du coût estimé par composant, avec les MÊMES tarifs que
-    estimate_call_cost : c'est la décomposition de la somme affichée ailleurs, pas
-    une seconde estimation."""
-    t = totals(tenant_id, days=days)
-    minutes = t["total_duration"] / 60.0
+    """Répartition du coût par poste : la SOMME des postes rangés à la clôture de chaque
+    appel (finish_call), sur la même fenêtre que `totals`. Le total des lignes est donc
+    exactement le coût affiché ailleurs, sans règle de trois.
+
+    La voix est séparée par fournisseur : l'historique en GPU Moshi et les appels en
+    voix Mistral ne se paient pas pareil, et c'est cette comparaison qui a décidé la
+    bascule du 28/09/2026. Une ligne à zéro n'est pas affichée."""
+    clause, params = _window(days, 0)
+    where = clause.format(col="started_at")
+    if tenant_id is not None:
+        where += " AND tenant_id = ?"
+        params.append(tenant_id)
+    with db.get_conn() as conn:
+        r = conn.execute(
+            f"""SELECT COALESCE(SUM(cout_telephonie), 0) AS telephonie,
+                       COALESCE(SUM(cout_transcription), 0) AS transcription,
+                       COALESCE(SUM(cout_comprehension), 0) AS comprehension,
+                       COALESCE(SUM(CASE WHEN voix_fournisseur = 'moshi' THEN cout_voix END), 0)
+                           AS voix_moshi,
+                       COALESCE(SUM(CASE WHEN voix_fournisseur IS NOT 'moshi' THEN cout_voix END), 0)
+                           AS voix_mistral
+                FROM calls WHERE {where}""",
+            params,
+        ).fetchone()
     rows = [
-        ("Twilio (téléphonie)", minutes * _COST_TWILIO_PER_MIN),
-        ("Deepgram (transcription)", minutes * _COST_DEEPGRAM_PER_MIN),
-        ("Modal GPU (voix Moshi)", minutes * _COST_MODAL_PER_MIN),
-        ("LLM (compréhension)", t["n_calls"] * _COST_LLM_PER_CALL),
+        ("Téléphonie (Twilio)", r["telephonie"]),
+        ("Transcription (Deepgram)", r["transcription"]),
+        ("Compréhension (Gemini)", r["comprehension"]),
+        ("Voix Mistral (Voxtral)", r["voix_mistral"]),
     ]
-    raw_total = sum(amount for _, amount in rows)
-    if not raw_total:
-        return [{"label": label, "amount": 0.0, "share": 0} for label, _ in rows]
-    # `estimated_cost` est arrondi au millionième À CHAQUE appel : recalculer les
-    # composants depuis la durée totale laisse un résidu d'arrondi. On le redistribue
-    # au prorata pour que la ventilation somme EXACTEMENT au total affiché ailleurs —
-    # c'est bien une décomposition, pas une seconde estimation.
-    scale = t["total_cost"] / raw_total
-    return [
-        {"label": label, "amount": amount * scale,
-         "share": round(100 * amount / raw_total)}
-        for label, amount in rows
-    ]
+    if r["voix_moshi"]:
+        rows.append(("Voix Moshi (GPU, historique)", r["voix_moshi"]))
+    total = sum(montant for _, montant in rows)
+    return [{"label": label, "amount": montant,
+             "share": round(100 * montant / total) if total else 0}
+            for label, montant in rows]
 
 
 def enregistrements_stats(tenant_id: Optional[int] = None, days: int = 7) -> dict:

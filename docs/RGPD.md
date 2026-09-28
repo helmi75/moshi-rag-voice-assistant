@@ -84,7 +84,8 @@ faux du traitement.** Vérifié dans le code le 30/08/2026 :
 | Fournisseur | Rôle | Où |
 |---|---|---|
 | Hostinger | VPS, base de données **et enregistrements audio** | 🇫🇷 Paris — vérifié |
-| Modal | GPU, synthèse vocale | 🇪🇺 `MODAL_REGION=eu` — vérifié |
+| **Mistral (Voxtral)** | **Synthèse vocale depuis le 28/09/2026 : reçoit le texte que dit l'assistante** — qui peut contenir le nom du client, sa date, son numéro relu | 🇫🇷 société française ; **lieu de traitement de l'API à vérifier** (contrat, console Mistral) |
+| Modal | GPU, synthèse vocale : **secours seulement** depuis le 28/09/2026, abandon prévu | 🇪🇺 `MODAL_REGION=eu` — vérifié |
 | **Deepgram** | **Transcription : reçoit l'audio de la conversation** | 🇺🇸 endpoint par défaut, **aucune région EU configurée** |
 | **OpenRouter → Google** | **LLM : reçoit le texte de la conversation** | 🇺🇸 |
 | **Twilio** | **Téléphonie : transporte l'appel** | 🇺🇸 |

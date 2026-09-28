@@ -17,8 +17,8 @@
   <article class="card">
     <h2>Message d'accueil</h2>
     <p class="card-sub">Joué instantanément au décroché (pré-rendu en voix IA).
-       {% if voix_sans_gpu %}Avec Marie, l'assistante enchaîne tout de suite : pas de
-       mise en route, donc pas de musique d'attente.
+       {% if voix_sans_gpu %}L'assistante enchaîne tout de suite : pas de mise en
+       route, donc pas de musique d'attente.
        {% else %}Terminez par « un instant s'il vous plaît » : la musique d'attente enchaîne
        pendant la mise en route, puis l'assistante reprend la parole.{% endif %}</p>
     <form method="post" action="/admin/tenants/{{ tenant.id }}/voice" style="margin-top: 1rem">
@@ -41,50 +41,38 @@
             style="margin-top: .9rem">
         <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
         <label for="voice-select">Voix</label>
-        <select name="voice" id="voice-select">
-          <optgroup label="Marie — voix Mistral Voxtral{% if not voxtral_disponible %} (clé Mistral absente){% endif %}">
-            {% for v in voix_voxtral %}
-            <option value="{{ v.id }}" {% if v.id == voice_id %}selected{% endif %}
-                    {% if not voxtral_disponible %}disabled{% endif %}>
-              {{ v.label }} — {{ v.note }}
-            </option>
+        <select name="voice" id="voice-select" data-extrait-cible="extrait-voix"
+                {% if not voxtral_disponible %}disabled{% endif %}>
+          {% for g in groupes %}
+          <optgroup label="{{ g.titre }}">
+            {% for v in g.voix %}
+            <option value="{{ v.id }}" data-extrait="/admin/voix/{{ v.id.split('/')[1] }}/extrait.wav"
+                    {% if v.id == voice_id %}selected{% endif %}>{{ v.label }}</option>
             {% endfor %}
           </optgroup>
-          <optgroup label="Voix Moshi">
-            {% for v in voix_moshi %}
-            <option value="{{ v.id }}" {% if v.id == voice_id %}selected{% endif %}>
-              {{ v.label }} — {{ v.note }}
-            </option>
-            {% endfor %}
-          </optgroup>
+          {% endfor %}
         </select>
-        <button type="submit">Changer la voix</button>
+        <p class="row-sub" style="margin: .5rem 0 .3rem">Écouter la voix sélectionnée
+           (qualité téléphone) :</p>
+        <audio id="extrait-voix" controls preload="none" style="width: 100%"
+               src="{% for g in groupes %}{% for v in g.voix %}{% if v.id == voice_id %}/admin/voix/{{ v.id.split('/')[1] }}/extrait.wav{% endif %}{% endfor %}{% endfor %}"></audio>
+        <button type="submit" {% if not voxtral_disponible %}disabled{% endif %}>Changer la voix</button>
       </form>
       <p class="row-sub" style="margin-top: .7rem">Actuellement&nbsp;: {{ voice_name }}</p>
-    </article>
-
-    <article class="card">
-      <h2>Écouter Marie</h2>
-      <p class="card-sub">La même phrase dans chacun de ses tons, en qualité téléphone :
-         ce qu'entendront vos clients. Sans attente au décroché, quelle que soit l'heure.</p>
-      <div class="stack" style="gap: .6rem; margin-top: .8rem">
-        {% for v in voix_voxtral %}
-        <div>
-          <p class="row-sub" style="margin: 0 0 .25rem"><b>{{ v.label }}</b> — {{ v.note }}</p>
-          <audio controls preload="none" style="width: 100%"
-                 src="{{ statique('voix/' ~ v.id.split('/')[1] ~ '.wav') }}"></audio>
-        </div>
-        {% endfor %}
-      </div>
+      <p class="card-sub" style="margin-top: .5rem">Voix Mistral (Voxtral). Les voix
+         anglaises parlent français avec l'accent anglais : à réserver aux établissements
+         qui reçoivent surtout des anglophones.</p>
       {% if not voxtral_disponible %}
-      <p class="card-sub" style="margin-top: .8rem">Pour la choisir, ajoutez
-         <code>MISTRAL_API_KEY</code> au fichier <code>.env</code> du serveur, puis redéployez.</p>
+      <p class="card-sub" style="margin-top: .5rem"><b>Clé Mistral absente</b> : ajoutez
+         <code>MISTRAL_API_KEY</code> au fichier <code>.env</code> du serveur, puis redéployez.
+         D'ici là, l'assistante parle avec la voix de secours.</p>
       {% endif %}
     </article>
 
+    {% if not voix_sans_gpu %}
     <article class="card">
       <h2>Musique d'attente</h2>
-      {% if voix_sans_gpu %}<p class="card-sub">Sans effet avec Marie : il n'y a pas d'attente à meubler.</p>{% endif %}
+      <p class="card-sub">Ne sert qu'avec la voix de secours (Moshi), qui doit réveiller un GPU.</p>
       <p class="card-sub">
         {% if has_custom_music %}Musique personnalisée en place.
         {% else %}Musique par défaut (Vivaldi synthétisé). Envoyez un WAV pour la remplacer
@@ -103,6 +91,7 @@
       </form>
       {% endif %}
     </article>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

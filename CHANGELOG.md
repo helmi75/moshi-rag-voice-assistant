@@ -7,6 +7,27 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — bascule sur Mistral, toutes ses voix, et le vrai coût des appels (SCRUM-94, SCRUM-99, 28/09/2026)
+
+Décision de Helmi après trois appels en voix Marie (« c'est hyper fluide ») : on bascule
+sur Mistral et on abandonne Moshi.
+
+### Changé
+- **Toutes les voix viennent de Mistral** : les 30 voix du catalogue (Marie, Jane,
+  Oliver, Paul, chacune en plusieurs tons), relues chez Mistral toutes les heures. Un
+  lecteur fait entendre la voix sélectionnée avant de l'enregistrer. Voix par défaut du
+  parc : Marie neutre. Les voix Moshi ne se choisissent plus ; Moshi reste le secours
+  si la clé Mistral manque. La clé Mistral devient une variable obligatoire.
+- **Le coût des appels est chiffré sur ce qu'ils consomment**, poste par poste :
+  Twilio à la minute entamée (0,01 $, facture du numéro français, au lieu de
+  0,0085 $/min), Deepgram, Gemini aux jetons (au lieu d'un forfait), la voix aux
+  caractères (au lieu de 2 c/min de GPU). La répartition de « Santé & coûts » est la
+  somme exacte des postes. Appel 204 : 9 c au lieu de 13 c.
+- **Le banc d'essai ne gonfle plus les coûts** : huit de ses appels (10/09), restés
+  connectés sept heures pour ~80 s de conversation, comptaient 80 $ fictifs sur les
+  97 $ affichés. Ils sont chiffrés sur leur durée active, sans téléphone : l'historique
+  passe à 17,65 $.
+
 ## Non publiée — la voix « Marie » de Mistral, au choix, avec son ton (SCRUM-94, 28/09/2026)
 
 ### Ajouté

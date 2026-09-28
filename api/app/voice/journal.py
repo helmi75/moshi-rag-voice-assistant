@@ -244,6 +244,11 @@ class JournalDeBord(BaseObserver):
             "finales_vides": 0, "revisions_stt": 0,
             "paroles_rattrapees": 0, "paroles_perdues": 0, "annonces_relancees": 0,
         }
+        # Ce que l'appel a réellement consommé, pour le chiffrer (calls.py, SCRUM-99) :
+        # les caractères envoyés à la voix, les jetons envoyés au modèle.
+        self._conso = {"caracteres_voix": 0, "jetons_entree": 0, "jetons_cache": 0,
+                       "jetons_sortie": 0, "generations": 0}
+        self._voix: dict = {}
 
     # -- horloge --------------------------------------------------------------
 
@@ -454,6 +459,19 @@ class JournalDeBord(BaseObserver):
                 # L'attacher au tour ouvert le rattacherait au tour précédent.
                 self._decision = decision
                 self._noter(t, "fin_de_tour", **decision)
+            elif nom == "TTSUsageMetricsData":
+                self._conso["caracteres_voix"] += int(getattr(donnee, "value", 0) or 0)
+            elif nom == "LLMUsageMetricsData":
+                jetons = getattr(donnee, "value", None)
+                if jetons is not None:
+                    # Format OpenAI : les jetons lus en cache sont COMPRIS dans
+                    # prompt_tokens ; ils sont facturés dix fois moins.
+                    self._conso["jetons_entree"] += int(getattr(jetons, "prompt_tokens", 0) or 0)
+                    self._conso["jetons_cache"] += int(
+                        getattr(jetons, "cache_read_input_tokens", 0) or 0)
+                    self._conso["jetons_sortie"] += int(
+                        getattr(jetons, "completion_tokens", 0) or 0)
+                    self._conso["generations"] += 1
             elif nom == "TTFBMetricsData":
                 etage = _etage(getattr(donnee, "processor", None))
                 # Pas de `stt` : Deepgram ne publie aucun TTFB (vérifié dans le service).
@@ -488,6 +506,10 @@ class JournalDeBord(BaseObserver):
         else:
             self._tronque = True
         self._compteurs["tours"] = len(self.tours)
+
+    def noter_voix(self, fournisseur: str, voix: str) -> None:
+        """La voix de l'appel : son fournisseur décide de la façon de chiffrer l'appel."""
+        self._voix = {"fournisseur": fournisseur, "voix": voix}
 
     def noter_langue(self, langue: str) -> None:
         """Langue de l'appel, tranchée par voice/langue.py. Sans elle, un anglophone mal
@@ -528,6 +550,8 @@ class JournalDeBord(BaseObserver):
             # est un tout autre sujet et appelle un tout autre correctif.
             "accueil": {"premiere_parole_ms": self._premiere_parole},
             "langue": self._langue,
+            "voix": self._voix,
+            "consommation": dict(self._conso),
             "compteurs": {
                 **self._compteurs,
                 "blanc_median_ms": sorted(blancs)[len(blancs) // 2] if blancs else None,
