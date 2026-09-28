@@ -581,9 +581,9 @@ GARDE_FOUS = [
         nom="Les horaires resOS ne se saisissent pas chez nous",
         fichier="api/app/admin/routes_horaires.py",
         avant=("    if connecteurs.est_resos(tenant):\n"
-               "        brut = await _horaires_resos(tenant)\n"
-               "        horaires = disponibilite.charger(brut)"),
-        apres="    if False:  # mutation\n        horaires = None",
+               "        return await rendre_page(request, tenant, status_code=409"),
+        apres=("    if False:  # mutation\n"
+               "        return await rendre_page(request, tenant, status_code=409"),
         tests=["test_carnet_resos.py"],
         k="saisissent",
         panne="un champ modifiable sans effet : le restaurateur croirait avoir changé "
