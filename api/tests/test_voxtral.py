@@ -296,3 +296,14 @@ class TestDansLePipeline:
         # Vidé en fin de phrase : toute la voix rendue arrive, rien n'est gardé en réserve.
         assert abs(sum(len(f.audio) for f in audio) / 2 / 8000 - 0.4) < 0.01
         assert vues[0]["input"] == "Je vous écoute."
+
+
+class TestStatutDeLAccueil:
+    def test_on_n_annonce_pas_90_s_de_gpu_pour_marie(self):
+        from app.admin import deps
+
+        gabarit = deps.templates.env.get_template("voice/_greeting_status.html")
+        marie = gabarit.render(tenant=_tenant(), greeting_ready=False, voix_sans_gpu=True)
+        moshi = gabarit.render(tenant=_tenant(), greeting_ready=False, voix_sans_gpu=False)
+        assert "quelques secondes" in marie and "GPU" not in marie
+        assert "90 s" in moshi

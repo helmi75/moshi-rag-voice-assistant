@@ -105,6 +105,7 @@ def greeting_status(request: Request, tenant_id: int,
     return deps.templates.TemplateResponse(
         request, "voice/_greeting_status.html",
         {"tenant": tenant,
+         "voix_sans_gpu": greeting_mod.voix_sans_gpu(tenant),
          "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None},
     )
 
