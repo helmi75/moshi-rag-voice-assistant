@@ -829,6 +829,11 @@ async def run_bot(
     # Les deux mesurent le même intervalle : un test de recoupement le vérifie.
     latence = TurnLatencyObserver()
     bord = JournalDeBord()
+    from . import voices as voices_mod
+
+    _voix_appel = voices_mod.get(voices_mod.resolve(tenant))
+    if _voix_appel is not None:
+        bord.noter_voix(_voix_appel.fournisseur, _voix_appel.id)
     task = PipelineTask(
         pipeline,
         observers=[latence, bord],

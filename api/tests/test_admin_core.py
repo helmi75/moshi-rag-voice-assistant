@@ -159,24 +159,64 @@ class TestCalls:
         assert all(c["tenant_id"] == other for c in calls.list_calls(other))
 
     def test_estimate_cost_formula(self):
-        """Le coût est linéaire en durée, plus un forfait par appel.
+        """Quatre postes, chiffrés sur ce que l'appel a consommé (SCRUM-99, 28/09/2026).
 
-        Le test LIT les constantes du module au lieu de les recopier. Un test qui
-        répète les tarifs ne vérifie pas la formule : il duplique la grille, et il
-        casse à chaque révision de prix sans avoir rien protégé. Vécu le 30/08/2026,
-        en corrigeant le tarif Deepgram de nova-2 vers nova-3 — ce test a rougi alors
-        que le calcul était juste."""
-        par_minute = (calls._COST_TWILIO_PER_MIN + calls._COST_DEEPGRAM_PER_MIN
-                      + calls._COST_MODAL_PER_MIN)
-        assert calls.estimate_call_cost(0) == pytest.approx(calls._COST_LLM_PER_CALL)
-        assert calls.estimate_call_cost(60) == pytest.approx(
-            par_minute + calls._COST_LLM_PER_CALL)
-        # Linéaire : la 3e minute coûte autant que la 2e.
-        assert (calls.estimate_call_cost(180) - calls.estimate_call_cost(120)
-                == pytest.approx(calls.estimate_call_cost(120)
-                                 - calls.estimate_call_cost(60)))
+        Le test LIT les constantes du module au lieu de les recopier : un test qui répète
+        les tarifs duplique la grille et casse à chaque révision de prix sans avoir rien
+        protégé (vécu le 30/08/2026 avec le tarif Deepgram)."""
+        forfait = calls._COST_LLM_PER_CALL
+        assert calls.estimate_call_cost(0) == pytest.approx(forfait)
+        # Une minute : une minute Twilio, une minute de transcription, le forfait modèle.
+        une = calls._COST_TWILIO_PER_MIN + calls._COST_DEEPGRAM_PER_MIN + forfait
+        assert calls.estimate_call_cost(60) == pytest.approx(une)
+        # Twilio facture la minute ENTAMÉE : 61 s = deux minutes de téléphone.
+        assert calls.estimate_call_cost(61) - calls.estimate_call_cost(60) == pytest.approx(
+            calls._COST_TWILIO_PER_MIN + calls._COST_DEEPGRAM_PER_MIN / 60, abs=1e-6)
         # Une durée négative (horloge qui recule pendant l'appel) ne crée pas d'avoir.
-        assert calls.estimate_call_cost(-30) == pytest.approx(calls._COST_LLM_PER_CALL)
+        assert calls.estimate_call_cost(-30) == pytest.approx(forfait)
+
+    def test_la_voix_mistral_se_paie_aux_caracteres_et_le_modele_aux_jetons(self):
+        """Appel 204 (28/09/2026) : 199 s, 991 caractères dits. L'ancienne formule y
+        comptait 6,6 c de GPU qui n'avait pas tourné."""
+        journal = {"voix": {"fournisseur": "voxtral"},
+                   "consommation": {"caracteres_voix": 991, "jetons_entree": 40000,
+                                    "jetons_cache": 30000, "jetons_sortie": 500,
+                                    "generations": 12}}
+        c = calls.couts_appel(199, journal)
+        assert c["voix"] == pytest.approx(991 * calls._COST_VOIX_PAR_CARACTERE, abs=1e-6)
+        assert c["comprehension"] == pytest.approx(
+            10000 * calls._COST_LLM_ENTREE + 30000 * calls._COST_LLM_CACHE
+            + 500 * calls._COST_LLM_SORTIE, abs=1e-6)
+        assert c["telephonie"] == pytest.approx(4 * calls._COST_TWILIO_PER_MIN)
+        assert c["fournisseur"] == "voxtral"
+
+    def test_un_appel_du_banc_se_chiffre_sur_sa_duree_active_sans_telephone(self):
+        """Appels 82 à 87 du 10/09/2026 : sept heures au compteur, 72 à 88 s de
+        conversation au journal — 80 $ fictifs sur 97 dans l'admin."""
+        journal = {"voix": {"fournisseur": "moshi"},
+                   "evenements": [{"t_ms": 1000}, {"t_ms": 85000}]}
+        c = calls.couts_appel(25242, journal, banc=True)
+        assert c["telephonie"] == 0
+        assert c["transcription"] == pytest.approx(90 / 60 * calls._COST_DEEPGRAM_PER_MIN, abs=1e-6)
+        # Un vrai appel, lui, paie sa durée : c'est celle que Twilio facture.
+        assert calls.couts_appel(25242, journal)["telephonie"] > 1
+
+    def test_finish_call_range_les_postes_et_leur_somme(self, fresh_db, tenant_id):
+        calls.start_call("CA-postes", tenant_id)
+        calls.finish_call("CA-postes", "completed", journal={
+            "voix": {"fournisseur": "voxtral"},
+            "consommation": {"caracteres_voix": 500, "generations": 0}})
+        with db.get_conn() as conn:
+            r = conn.execute("SELECT * FROM calls WHERE call_sid = 'CA-postes'").fetchone()
+        assert r["voix_fournisseur"] == "voxtral"
+        assert r["cout_voix"] == pytest.approx(500 * calls._COST_VOIX_PAR_CARACTERE, abs=1e-6)
+        assert r["estimated_cost"] == pytest.approx(
+            r["cout_telephonie"] + r["cout_transcription"] + r["cout_comprehension"]
+            + r["cout_voix"], abs=1e-9)
+
+    def test_la_voix_de_secours_moshi_se_paie_a_la_minute(self):
+        c = calls.couts_appel(120, {"voix": {"fournisseur": "moshi"}})
+        assert c["voix"] == pytest.approx(2 * calls._COST_MODAL_PER_MIN)
 
     def test_stats_daily(self, fresh_db, tenant_id):
         calls.start_call("CA-1", tenant_id)

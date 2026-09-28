@@ -108,6 +108,10 @@ async def _prerender_greetings():
 
     taches.lancer(_prerender(), nom="pré-rendu des accueils")
     taches.lancer(greeting_mod.keep_warm_loop(), nom="keep-warm moshi-server")
+    if voices.voxtral_disponible():
+        # Le catalogue des voix Mistral, relu au démarrage puis toutes les heures : une
+        # voix ajoutée chez Mistral apparaît dans l'admin sans redéployer.
+        taches.lancer(voices.boucle_catalogue(), nom="catalogue des voix Mistral")
 
 
 async def _demarrer_taches_de_fond():

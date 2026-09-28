@@ -239,14 +239,19 @@ def _health(request: Request):
     max_cost = max((r["stats"]["total_cost"] for r in rows), default=0) or 1
     # Configuration RÉELLE de la pile (variables d'environnement du conteneur) :
     # une colonne « latence » figurerait ici si elle était mesurée — elle ne l'est pas.
-    modal_url = os.getenv("MOSHI_TTS_URL", "")
+    from ..voice import voices
+    from ..voice.voxtral_tts import modele as modele_voxtral
+
     stack = [
         {"name": "Transcription (STT)", "detail": "Deepgram",
          "metric": os.getenv("DEEPGRAM_MODEL", "nova-3")},
         {"name": "Compréhension (LLM)", "detail": "OpenRouter",
          "metric": os.getenv("LLM_MODEL", "google/gemini-2.5-flash")},
-        {"name": "Voix de synthèse (TTS)", "detail": "moshi-server (voix Moshi)",
-         "metric": modal_url.split("//")[-1] or "non configuré"},
+        {"name": "Voix de synthèse (TTS)",
+         "detail": (f"Mistral Voxtral · {len(voices.voix_voxtral())} voix au catalogue"
+                    if voices.voxtral_disponible()
+                    else "Clé Mistral absente : voix de secours Moshi"),
+         "metric": modele_voxtral() if voices.voxtral_disponible() else "secours"},
         {"name": "Téléphonie", "detail": "Twilio Media Streams",
          "metric": f"{len(rows)} numéro(s) routé(s)"},
     ]

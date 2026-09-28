@@ -92,8 +92,17 @@ class TestChoixDeVoix:
     surtout ce qu'il refuse — une voix hors catalogue serait servie sans erreur par
     moshi-server, avec sa voix de repli, sans que rien ne le signale."""
 
+    @pytest.fixture(autouse=True)
+    def _mistral(self, monkeypatch):
+        """Les voix se choisissent chez Mistral : il faut la clé. Le re-rendu de
+        l'accueil est neutralisé — pas d'appel réseau dans les tests."""
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
+        monkeypatch.setattr(greeting_mod, "ensure_greeting_wav", AsyncMock())
+
     def _autre_voix(self):
-        return next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
+        return next(v for v in voices.catalogue() if v.id != voices.VOIX_PAR_DEFAUT)
 
     def _poster(self, client, tenant_id, **champs):
         return client.post(

@@ -21,3 +21,16 @@ document.addEventListener("htmx:beforeSwap", (event) => {
     event.detail.isError = false;
   }
 });
+
+// Page « Voix & accueil » : le lecteur fait entendre la voix SÉLECTIONNÉE dans la liste,
+// avant même de l'enregistrer. L'adresse de l'extrait est portée par l'option.
+document.addEventListener("change", (event) => {
+  const liste = event.target;
+  if (!(liste instanceof HTMLSelectElement) || !liste.dataset.extraitCible) return;
+  const lecteur = document.getElementById(liste.dataset.extraitCible);
+  const adresse = liste.selectedOptions[0]?.dataset.extrait;
+  if (lecteur instanceof HTMLAudioElement && adresse) {
+    lecteur.pause();
+    lecteur.src = adresse;
+  }
+});

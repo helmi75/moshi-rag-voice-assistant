@@ -1,10 +1,17 @@
 """Catalogue de voix et choix de la voix par établissement.
 
-Ces tests protègent contre une panne SILENCIEUSE, la pire de ce projet : moshi-server
-ne signale pas une voix inconnue, il rend la phrase avec sa voix de repli. Rien dans
-les journaux, rien dans les métriques — seul l'appelant entend que ce n'est pas la
-bonne voix. D'où l'insistance sur « hors catalogue -> on retombe sur le défaut ».
+Depuis le 28/09/2026, toutes les voix viennent de Mistral (Voxtral) : le catalogue est
+celui de l'API, relu toutes les heures, avec une copie dans le dépôt. Les voix Moshi ne
+se choisissent plus ; elles restent le secours si la clé Mistral manque.
+
+La règle de fond ne change pas : jamais un identifiant hors catalogue. Une voix inconnue
+serait refusée par Mistral (phrase muette) ou, côté Moshi, remplacée EN SILENCE par la
+voix de repli du serveur.
 """
+import asyncio
+import functools
+
+import httpx
 import pytest
 
 from app.tenants import Tenant
@@ -12,106 +19,131 @@ from app.voice import voices
 
 
 def _tenant(voice=None):
-    return Tenant(
-        id=1,
-        name="Resto",
-        business_type="restaurant",
-        phone_number="+33100000000",
-        language="fr-FR",
-        greeting="Bonjour.",
-        knowledge_base="",
-        voice=voice,
-    )
+    return Tenant(id=1, name="Resto", business_type="restaurant", phone_number="+33100000000",
+                  language="fr-FR", greeting="Bonjour.", knowledge_base="", voice=voice)
+
+
+@pytest.fixture(autouse=True)
+def _cle(monkeypatch):
+    monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
+    monkeypatch.delenv("VOIX_PAR_DEFAUT", raising=False)
+    monkeypatch.delenv("MOSHI_TTS_VOICE", raising=False)
+    avant = voices._catalogue_mistral
+    yield
+    voices._catalogue_mistral = avant
+
+
+def _autre():
+    return next(v for v in voices.catalogue() if v.id != voices.VOIX_PAR_DEFAUT)
 
 
 class TestCatalogue:
-    def test_identifiants_uniques_et_non_vides(self):
-        ids = [v.id for v in voices.catalogue()]
-        assert ids and len(ids) == len(set(ids))
-        assert all(v.label.strip() and v.note.strip() for v in voices.catalogue())
+    def test_les_trente_voix_de_mistral_le_francais_d_abord(self):
+        catalogue = voices.catalogue()
+        assert len(catalogue) == 30
+        assert all(v.fournisseur == voices.VOXTRAL for v in catalogue)
+        assert [v.locuteur for v in catalogue[:6]] == ["Marie"] * 6
+        assert len({v.id for v in catalogue}) == 30
 
-    def test_toutes_les_voix_viennent_d_un_dossier_embarque(self):
-        """Garde-fou contre l'erreur qu'on ne verrait pas : proposer dans l'admin une
-        voix que l'image du serveur ne contient pas. Élargir EMBEDDED_FOLDERS suppose
-        d'élargir VOICE_FOLDERS dans deploy/modal_moshi_server.py ET de redéployer."""
+    def test_les_tons_sont_en_francais_et_accordes(self):
+        labels = {v.label for v in voices.catalogue()}
+        assert {"Marie · joyeuse", "Paul · joyeux", "Jane · curieuse", "Oliver · curieux",
+                "Marie · neutre"} <= labels
+        assert all("/" not in v.label for v in voices.catalogue())
+
+    def test_la_voix_par_defaut_est_au_catalogue(self):
+        assert voices.get(voices.VOIX_PAR_DEFAUT).label == "Marie · neutre"
+
+    def test_les_voix_moshi_de_secours_viennent_d_un_dossier_embarque(self):
+        """Élargir EMBEDDED_FOLDERS suppose d'élargir VOICE_FOLDERS dans
+        deploy/modal_moshi_server.py ET de redéployer."""
         for voice in voices.voix_moshi():
             assert voice.id.startswith(voices.EMBEDDED_FOLDERS), voice.id
 
-    def test_la_voix_par_defaut_est_au_catalogue(self):
-        assert voices.get(voices.DEFAULT_VOICE) is not None
-
 
 class TestResolve:
-    def test_sans_tenant_donne_le_defaut_du_parc(self, monkeypatch):
-        monkeypatch.delenv("MOSHI_TTS_VOICE", raising=False)
-        assert voices.resolve() == voices.DEFAULT_VOICE
-        assert voices.resolve(None) == voices.DEFAULT_VOICE
+    def test_sans_choix_la_voix_par_defaut_du_parc(self):
+        assert voices.resolve() == voices.resolve(None) == voices.VOIX_PAR_DEFAUT
 
     def test_utilise_la_voix_choisie_par_l_etablissement(self):
-        autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
-        assert voices.resolve(_tenant(autre.id)) == autre.id
+        assert voices.resolve(_tenant(_autre().id)) == _autre().id
 
-    def test_ignore_une_voix_hors_catalogue(self, monkeypatch):
-        """Voix retirée du catalogue, base éditée à la main : on sert le défaut plutôt
-        que de laisser le serveur choisir sa voix de repli à notre place."""
-        monkeypatch.delenv("MOSHI_TTS_VOICE", raising=False)
-        assert voices.resolve(_tenant("dossier-bidon/inconnue.wav")) == voices.DEFAULT_VOICE
+    def test_ignore_une_voix_hors_catalogue(self):
+        assert voices.resolve(_tenant("voxtral/inventee")) == voices.VOIX_PAR_DEFAUT
 
-    def test_env_inconnue_ne_contamine_pas_le_parc(self, monkeypatch):
-        """Même garde-fou pour la variable d'environnement : une faute de frappe dans
-        MOSHI_TTS_VOICE ferait répondre TOUT le parc avec la voix de repli."""
+    def test_une_ancienne_voix_moshi_passe_sur_mistral(self):
+        assert voices.resolve(_tenant(voices.DEFAULT_VOICE)) == voices.VOIX_PAR_DEFAUT
+
+    def test_les_identifiants_du_matin_restent_valides(self):
+        assert voices.resolve(_tenant("voxtral/marie-enthousiaste")) == "voxtral/fr_marie_excited"
+
+    def test_le_defaut_du_parc_se_regle(self, monkeypatch):
+        monkeypatch.setenv("VOIX_PAR_DEFAUT", "voxtral/fr_marie_happy")
+        assert voices.resolve() == "voxtral/fr_marie_happy"
+        monkeypatch.setenv("VOIX_PAR_DEFAUT", "voxtral/faute-de-frappe")
+        assert voices.resolve() == voices.VOIX_PAR_DEFAUT
+
+
+class TestSansCle:
+    """Clé Mistral absente : une voix connue plutôt que le silence."""
+
+    def test_le_secours_moshi(self, monkeypatch):
+        monkeypatch.delenv("MISTRAL_API_KEY")
+        assert voices.resolve(_tenant(_autre().id)) == voices.DEFAULT_VOICE
+        assert "secours Moshi" in voices.label_for(_tenant())
+
+    def test_une_faute_de_frappe_ne_contamine_pas_le_secours(self, monkeypatch):
+        monkeypatch.delenv("MISTRAL_API_KEY")
         monkeypatch.setenv("MOSHI_TTS_VOICE", "unmute-prod-website/faute-de-frappe.wav")
         assert voices.resolve() == voices.DEFAULT_VOICE
 
-    def test_env_connue_devient_le_defaut_du_parc(self, monkeypatch):
-        autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
-        monkeypatch.setenv("MOSHI_TTS_VOICE", autre.id)
-        assert voices.resolve() == autre.id
-        # …mais le choix de l'établissement reste prioritaire.
-        assert voices.resolve(_tenant(voices.DEFAULT_VOICE)) == voices.DEFAULT_VOICE
 
+class TestCatalogueVivant:
+    def _mistral(self, monkeypatch, repondre):
+        origine = httpx.AsyncClient
+        monkeypatch.setattr(httpx, "AsyncClient", functools.partial(
+            origine, transport=httpx.MockTransport(repondre)))
 
-class TestLabel:
-    def test_donne_un_nom_lisible_jamais_un_chemin(self):
-        libelle = voices.label_for(_tenant())
-        assert "/" not in libelle and ".wav" not in libelle
-        assert libelle == voices.get(voices.DEFAULT_VOICE).label
+    def test_une_voix_ajoutee_chez_mistral_apparait(self, monkeypatch):
+        voix = {"id": "0" * 36, "slug": "fr_louise_neutral", "name": "Louise - Neutral",
+                "languages": ["fr_fr"], "gender": "female", "type": "custom"}
+        self._mistral(monkeypatch, lambda r: httpx.Response(
+            200, json={"items": [voix, {"cassee": True}], "total_pages": 1}))
+        assert asyncio.run(voices.rafraichir_catalogue()) is True
+        assert voices.get("voxtral/fr_louise_neutral").label == "Louise · neutre"
+        assert len(voices.catalogue()) == 1  # l'entrée illisible est écartée
+
+    def test_mistral_injoignable_garde_l_ancien_catalogue(self, monkeypatch):
+        avant = voices.catalogue()
+        self._mistral(monkeypatch, lambda r: httpx.Response(503))
+        assert asyncio.run(voices.rafraichir_catalogue()) is False
+        assert voices.catalogue() == avant
 
 
 class TestPlomberieTTS:
-    """La voix doit être décidée au MÊME endroit pour le TTS live et l'accueil
-    pré-rendu — sinon un appel commence dans une voix et continue dans une autre."""
+    """La voix est décidée au MÊME endroit pour la voix en appel et l'accueil pré-rendu —
+    sinon un appel commence dans une voix et continue dans une autre."""
 
-    def test_le_service_moshi_utilise_la_voix_fournie(self):
+    def test_build_tts_prend_la_voix_mistral_du_tenant(self):
         pytest.importorskip("pipecat")
-        from app.voice.moshi_server_tts import MoshiServerTTSService
+        from app.voice.bot import build_tts
+        from app.voice.voxtral_tts import VoxtralTTSService
 
-        autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
-        assert MoshiServerTTSService(voice=autre.id)._voice == autre.id
+        tts = build_tts(_tenant(_autre().id))
+        assert isinstance(tts, VoxtralTTSService) and tts._voix_id == _autre().voxtral_id
 
-    def test_build_tts_transmet_la_voix_du_tenant(self, monkeypatch):
+    def test_sans_cle_build_tts_prend_le_secours_moshi(self, monkeypatch):
         pytest.importorskip("pipecat")
         from app.voice.bot import build_tts
 
+        monkeypatch.delenv("MISTRAL_API_KEY")
         monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
-        autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
-        assert build_tts(_tenant(autre.id))._voice == autre.id
+        assert build_tts(_tenant(_autre().id))._voice == voices.DEFAULT_VOICE
 
-    def test_build_tts_sans_tenant_reste_utilisable(self, monkeypatch):
-        pytest.importorskip("pipecat")
-        from app.voice.bot import build_tts
-
-        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
-        monkeypatch.delenv("MOSHI_TTS_VOICE", raising=False)
-        assert build_tts()._voice == voices.DEFAULT_VOICE
-
-    def test_accueil_et_tts_live_choisissent_la_meme_voix(self, monkeypatch):
-        """Le vrai risque de régression : deux chemins de code, une seule voix."""
+    def test_accueil_et_voix_en_appel_choisissent_la_meme_voix(self):
         pytest.importorskip("pipecat")
         from app.voice import greeting as greeting_mod
         from app.voice.bot import build_tts
 
-        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
-        autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
-        tenant = _tenant(autre.id)
-        assert greeting_mod._voice(tenant) == build_tts(tenant)._voice
+        tenant = _tenant(_autre().id)
+        assert voices.get(greeting_mod._voice(tenant)).voxtral_id == build_tts(tenant)._voix_id

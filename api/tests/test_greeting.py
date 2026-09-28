@@ -42,16 +42,17 @@ def _cache_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_cache_path_changes_with_text_and_voice():
+def test_cache_path_changes_with_text_and_voice(monkeypatch):
     """C'est ce qui rend le changement de voix sûr : l'accueil rendu dans l'ancienne
     voix n'est plus jamais retrouvé, donc jamais rejoué par-dessus la nouvelle."""
     from app.voice import voices
 
+    monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
     p1 = g._cache_path(_tenant("Bonjour A"))
     p2 = g._cache_path(_tenant("Bonjour B"))
     assert p1 != p2, "un texte différent doit donner un fichier de cache différent"
 
-    autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
+    autre = next(v for v in voices.catalogue() if v.id != voices.VOIX_PAR_DEFAUT)
     p3 = g._cache_path(_tenant("Bonjour A", voice=autre.id))
     assert p3 != p1, "une voix différente doit invalider le cache"
 
@@ -227,14 +228,15 @@ class TestGpuIntrouvable:
         assert [f.text for f in frames if type(f).__name__ == "TTSSpeakFrame"] == [
             "Merci d'avoir patienté, je vous écoute."]
 
-    def test_le_message_a_son_propre_cache_suivant_la_voix(self):
+    def test_le_message_a_son_propre_cache_suivant_la_voix(self, monkeypatch):
         """Changer la voix de l'établissement doit rendre un nouveau message : sinon
         l'appelant entendrait deux voix différentes dans le même appel."""
         from app.voice import voices
 
+        monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
         tenant = _tenant()
         assert g._chemin_indisponible(tenant) != g._cache_path(tenant)
-        autre = next(v for v in voices.catalogue() if v.id != voices.DEFAULT_VOICE)
+        autre = next(v for v in voices.catalogue() if v.id != voices.VOIX_PAR_DEFAUT)
         assert g._chemin_indisponible(_tenant(voice=autre.id)) != g._chemin_indisponible(tenant)
 
     def test_le_pre_rendu_prepare_aussi_le_message(self, monkeypatch):

@@ -53,6 +53,9 @@ services:
       # établissement qui l'avait choisie retombe sur la voix Moshi par défaut.
       MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
       VOXTRAL_MODEL: "${VOXTRAL_MODEL:-voxtral-mini-tts-2603}"
+      # Voix des établissements qui n'ont rien choisi (défaut : Marie neutre).
+      VOIX_PAR_DEFAUT: "${VOIX_PAR_DEFAUT:-}"
+      VOIX_EXTRAITS_DIR: "${VOIX_EXTRAITS_DIR:-/app/data/voix_extraits}"
       # Transcription : Deepgram nova-3 en flux — le seul moteur STT depuis le 18/09/2026.
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
       # Modèle Deepgram. nova-3 = défaut (bien meilleur sur les noms propres au
@@ -154,6 +157,10 @@ services:
       COST_DEEPGRAM_PER_MIN:
       COST_MODAL_PER_MIN:
       COST_LLM_PER_CALL:
+      COST_LLM_ENTREE_PAR_MILLION:
+      COST_LLM_CACHE_PAR_MILLION:
+      COST_LLM_SORTIE_PAR_MILLION:
+      COST_VOIX_PAR_MILLE_CARACTERES:
       LOGIN_MAX_ECHECS:
       LOGIN_FENETRE_SECONDES:
       DB_SYNCHRONOUS:

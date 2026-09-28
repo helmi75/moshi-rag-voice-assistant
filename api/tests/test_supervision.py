@@ -162,16 +162,16 @@ class TestConfiguration:
         assert "OPENROUTER_API_KEY" in controle["resume"]
 
     def test_le_chemin_d_appel_exige_ses_quatre_variables(self, base, monkeypatch):
-        """Un seul chemin d'appel (flux média, Deepgram, moshi-server) : les quatre
-        variables sont exigées sans condition. L'exigence dépendait autrefois d'un mode
-        `gather` qui n'existe plus."""
+        """Un seul chemin d'appel (flux média, Deepgram, voix Mistral) : les quatre
+        variables sont exigées sans condition. Depuis le 28/09/2026, la voix est celle
+        de Mistral : c'est sa clé qui est exigée, plus l'adresse du serveur Moshi."""
         monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
         monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
-        monkeypatch.delenv("MOSHI_TTS_URL", raising=False)
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
         controle = _controle("configuration")
         assert controle["niveau"] == supervision.PANNE
         assert set(controle["mesure"]["manquantes"]) == {
-            "PUBLIC_WS_URL", "DEEPGRAM_API_KEY", "MOSHI_TTS_URL"}
+            "PUBLIC_WS_URL", "DEEPGRAM_API_KEY", "MISTRAL_API_KEY"}
 
     @pytest.mark.parametrize("url", ["wss://exemple.fr/ws voice",
                                      "wss://exemple.fr/ws\xa0",
@@ -180,7 +180,7 @@ class TestConfiguration:
         """Une seule espace insécable collée depuis un navigateur, et Twilio ne joint
         jamais le flux : l'appel raccroche sans un mot. Vécu."""
         monkeypatch.setenv("DEEPGRAM_API_KEY", "x")
-        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        monkeypatch.setenv("MISTRAL_API_KEY", "x")
         monkeypatch.setenv("PUBLIC_WS_URL", url)
         controle = _controle("configuration")
         assert controle["niveau"] == supervision.PANNE
@@ -188,7 +188,7 @@ class TestConfiguration:
 
     def test_ok_quand_tout_est_la(self, base, monkeypatch):
         monkeypatch.setenv("DEEPGRAM_API_KEY", "x")
-        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        monkeypatch.setenv("MISTRAL_API_KEY", "x")
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://app.exemple.fr/ws/voice")
         assert _controle("configuration")["niveau"] == supervision.OK
 

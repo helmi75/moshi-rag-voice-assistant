@@ -213,6 +213,67 @@ ALTER TABLE calls ADD COLUMN reservation_externe TEXT;
     """
 ALTER TABLE messages ADD COLUMN numero_rappel TEXT;
 """,
+    # v16 — bascule sur Mistral (SCRUM-94, décision de Helmi le 28/09/2026) et coût réel
+    # par appel (SCRUM-99).
+    #
+    # Voix : les quatre identifiants du matin passent au nom que leur donne Mistral ; les
+    # voix Moshi ne se choisissent plus — NULL = la voix par défaut du parc (Marie neutre).
+    #
+    # Coût : jusqu'ici un seul chiffre, calculé à la minute avec un GPU à 2 c/min. Un appel
+    # en voix Mistral se paie aux caractères, Gemini aux jetons, Twilio à la minute
+    # ENTAMÉE : on range les quatre postes, figés au tarif du jour de l'appel, pour que la
+    # répartition de l'admin soit une somme et non une seconde estimation. L'historique
+    # reçoit la décomposition de la formule qui l'avait chiffré, Deepgram au tarif nova-3
+    # (corrigé le 30/08 dans le code, pas dans les appels d'avant), et le total devient la
+    # somme de ses postes. Deux rechiffrages :
+    #  - les appels en voix Mistral (après le déploiement de 13h50 UTC le 28/09) : 0 GPU,
+    #    voix aux caractères dits, Twilio à la minute entamée ;
+    #  - les appels du banc d'essai (`CABANC…`) : pas de Twilio, et la durée ACTIVE lue au
+    #    journal. Huit d'entre eux (10/09) sont restés connectés sept heures pour ~80 s de
+    #    conversation : 80 $ fictifs sur les 97 $ affichés.
+    """
+UPDATE tenants SET voice = CASE voice
+    WHEN 'voxtral/marie-neutre' THEN 'voxtral/fr_marie_neutral'
+    WHEN 'voxtral/marie-joyeuse' THEN 'voxtral/fr_marie_happy'
+    WHEN 'voxtral/marie-curieuse' THEN 'voxtral/fr_marie_curious'
+    WHEN 'voxtral/marie-enthousiaste' THEN 'voxtral/fr_marie_excited'
+    ELSE NULL END;
+ALTER TABLE calls ADD COLUMN cout_telephonie REAL;
+ALTER TABLE calls ADD COLUMN cout_transcription REAL;
+ALTER TABLE calls ADD COLUMN cout_comprehension REAL;
+ALTER TABLE calls ADD COLUMN cout_voix REAL;
+ALTER TABLE calls ADD COLUMN voix_fournisseur TEXT;
+UPDATE calls SET
+    cout_telephonie = duration_seconds / 60.0 * 0.0085,
+    cout_transcription = duration_seconds / 60.0 * 0.0092,
+    cout_voix = duration_seconds / 60.0 * 0.02,
+    cout_comprehension = 0.0035,
+    voix_fournisseur = 'moshi'
+  WHERE estimated_cost IS NOT NULL AND duration_seconds IS NOT NULL
+    AND started_at < '2026-09-28T13:50:00Z';
+UPDATE calls SET
+    cout_telephonie = ((CAST(duration_seconds AS INTEGER) + 59) / 60) * 0.01,
+    cout_transcription = duration_seconds / 60.0 * 0.0092,
+    cout_voix = COALESCE((SELECT SUM(LENGTH(json_extract(value, '$.content')))
+                          FROM json_each(calls.transcript)
+                          WHERE json_extract(value, '$.role') = 'assistant'), 0) * 0.000016,
+    cout_comprehension = 0.0035,
+    voix_fournisseur = 'voxtral'
+  WHERE estimated_cost IS NOT NULL AND duration_seconds IS NOT NULL
+    AND started_at >= '2026-09-28T13:50:00Z';
+UPDATE calls SET
+    cout_telephonie = 0,
+    cout_transcription = MIN(duration_seconds,
+        COALESCE(json_extract(journal, '$.evenements[#-1].t_ms') / 1000.0 + 5, duration_seconds))
+        / 60.0 * 0.0092,
+    cout_voix = MIN(duration_seconds,
+        COALESCE(json_extract(journal, '$.evenements[#-1].t_ms') / 1000.0 + 5, duration_seconds))
+        / 60.0 * 0.02
+  WHERE call_sid LIKE 'CABANC%' AND voix_fournisseur = 'moshi';
+UPDATE calls SET estimated_cost =
+    cout_telephonie + cout_transcription + cout_voix + cout_comprehension
+  WHERE cout_telephonie IS NOT NULL;
+""",
 ]
 
 
