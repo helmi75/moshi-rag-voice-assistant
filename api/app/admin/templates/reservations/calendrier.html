@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Réservations{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Réservations</h1>
+    <p class="lede">Le carnet de l'établissement, pris par l'assistante ou ailleurs :
+       cliquez un jour pour le détail, une réservation pour la modifier.</p>
+  </div>
+</div>
+
+{% include "reservations/_barre.html" %}
+
+<div class="cal-nav" id="calendrier" {% if vue_implicite %}data-vue-implicite{% endif %}>
+  <a role="button" class="secondary" href="{{ lien(jour=precedent) }}" aria-label="Période précédente">‹</a>
+  <a role="button" class="secondary" href="{{ lien(jour=aujourd_hui) }}">Aujourd'hui</a>
+  <a role="button" class="secondary" href="{{ lien(jour=suivant) }}" aria-label="Période suivante">›</a>
+  <h2>{{ titre }}</h2>
+  <p class="cal-total">
+    <b>{{ resume.reservations }}</b> réservation{{ "s" if resume.reservations > 1 }} ·
+    <b>{{ resume.couverts }}</b> couvert{{ "s" if resume.couverts > 1 }}
+    {% if resume.a_valider %}<span class="chip chip-warn">{{ resume.a_valider }} à valider</span>{% endif %}
+    {% if resume.annulees %}<span class="muted">· {{ resume.annulees }} annulée{{ "s" if resume.annulees > 1 }}</span>{% endif %}
+  </p>
+</div>
+
+{% for e in echecs %}
+<div class="callout" style="background: var(--app-bad-soft)" role="alert">
+  <b style="color: var(--app-bad)">Carnet incomplet</b> {{ e }}
+</div>
+{% endfor %}
+
+{% if vue == "mois" %}
+<div class="cal-mois" role="table" aria-label="{{ titre }}">
+  <div class="cal-ligne" role="row">
+    {% for e in entetes %}<div class="cal-entete" role="columnheader">{{ e }}</div>{% endfor %}
+  </div>
+  {% for semaine in semaines %}
+  <div class="cal-ligne" role="row">
+    {% for j in semaine %}
+    <a role="cell" href="{{ lien(vue='jour', jour=j.iso) }}"
+       class="cal-jour{{ ' hors-mois' if j.hors_mois }}{{ ' ferme' if j.ferme }}{{ ' aujourdhui' if j.aujourdhui }}"
+       aria-label="{{ j.lettres }}{{ ', fermé' if j.ferme }} : {{ j.resume.reservations }} réservation(s), {{ j.resume.couverts }} couvert(s)">
+      <span class="cal-num">{{ j.num }}</span>
+      {% if j.ferme %}<span class="cal-ferme">Fermé</span>{% endif %}
+      {% if j.resume.reservations %}
+      <span class="cal-compte"><b>{{ j.resume.reservations }}</b><span class="cal-long"> résa ·
+        {{ j.resume.couverts }} couv.</span></span>
+      {% if j.resume.a_valider %}<span class="cal-avalider">{{ j.resume.a_valider }} à valider</span>{% endif %}
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+{% elif vue == "semaine" %}
+<section class="card card-table cal-defile">
+  <table class="cal-semaine">
+    <thead>
+      <tr><th scope="col"><span class="sr-only">Heure</span></th>
+        {% for c in colonnes %}
+        <th scope="col" class="{{ 'ferme' if c.ferme }}{{ ' aujourdhui' if c.aujourdhui }}">
+          <a href="{{ lien(vue='jour', jour=c.iso) }}">{{ c.court }}</a>
+          <small>{% if c.ferme %}Fermé{% elif c.resume.reservations %}{{ c.resume.reservations }} résa · {{ c.resume.couverts }} couv.{% else %}—{% endif %}</small>
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for h in heures %}
+      <tr>
+        <th scope="row">{{ "%02d"|format(h) }} h</th>
+        {% for c in colonnes %}
+        <td class="{{ 'ferme' if c.ferme }}">
+          {% for r in par_heure[c.iso].get(h, []) %}
+          <a class="cal-resa etat-{{ r.etat }}" href="{{ lien(vue='jour', jour=c.iso) }}#resa-{{ r.id }}"
+             title="{{ r.libelle }}{% if tenant_names %} · {{ tenant_names.get(r.tenant_id, '') }}{% endif %}">
+            <span class="cal-qui"><b>{{ r.time }}</b> · {{ r.party_size }} couv.</span>
+            <span class="cal-qui">{{ r.customer_name or "Sans nom" }}</span>
+            {% if r.etat != "confirmee" %}<span class="chip {{ r.chip }}">{{ r.libelle }}</span>{% endif %}
+          </a>
+          {% endfor %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% else %}
+{% set j = colonnes[0] %}
+{% if j.ferme %}
+<div class="callout"><b>Fermé ce jour-là</b> d'après les horaires d'ouverture : l'assistante
+  n'y prend aucune réservation.</div>
+{% endif %}
+{% for h, lot in par_heure[j.iso].items() %}
+<section class="cal-creneau">
+  <h3>{{ "%02d"|format(h) }} h</h3>
+  <div class="kb-grid">
+    {% for r in lot %}{% include "reservations/_carte.html" %}{% endfor %}
+  </div>
+</section>
+{% else %}
+<article class="card"><p class="empty" style="margin: 0">Aucune réservation ce jour-là.</p></article>
+{% endfor %}
+{% endif %}
+
+{% if lu_dans_resos %}
+<p class="card-sub" style="margin-top: 1rem">Les réservations resOS se valident, se modifient
+  et s'annulent dans resOS : c'est lui qui fait foi.</p>
+{% endif %}
+{% endblock %}

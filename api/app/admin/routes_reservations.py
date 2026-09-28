@@ -1,12 +1,16 @@
-"""Réservations : tableau filtré/paginé + édition inline htmx (_row ⇄ _row_edit)."""
+"""Réservations : le calendrier mois / semaine / jour (SCRUM-112), la liste paginée, et
+l'édition sur place htmx — en ligne de tableau (_row ⇄ _row_edit) ou en carte du
+calendrier (_carte ⇄ _carte_edition)."""
+import asyncio
 from datetime import date as _date, time as _time
 from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 
-from .. import reservations, tenants
+from .. import connecteurs, db, disponibilite, horloge, reservations, tenants
 from ..users import User
-from . import deps
+from . import calendrier, deps
 
 router = APIRouter()
 
@@ -30,58 +34,169 @@ def _load_scoped(reservation_id: int, user: User) -> dict:
     return resa
 
 
+def _portee(user: User, tenant_id: Optional[int]) -> list:
+    """Les établissements affichés : le sien pour un restaurateur, un seul ou tout le
+    parc pour le super-admin."""
+    if user.is_superadmin and tenant_id is None:
+        return tenants.list_all()
+    return [deps.resolve_tenant(tenant_id if user.is_superadmin else user.tenant_id, user)]
+
+
+async def _lire(portee: list, debut: str, fin: str) -> tuple[list[dict], list[str]]:
+    """Les réservations de la période, dans le carnet de CHAQUE établissement : le nôtre
+    en base, resOS par son API (lus en parallèle). Un resOS injoignable n'empêche pas
+    d'afficher les autres : il est signalé, jamais montré comme une journée vide."""
+    internes = [t.id for t in portee if not connecteurs.est_resos(t)]
+    lignes = await db.hors_boucle(reservations.entre, debut, fin, internes)
+    resas = [calendrier.interne(r, r["tenant_id"]) for r in lignes]
+
+    async def depuis_resos(tenant):
+        try:
+            lot = await connecteurs.pour(tenant).entre(debut, fin)
+        except (connecteurs.Injoignable, connecteurs.Refus) as exc:
+            return [], f"{tenant.name} : réservations resOS illisibles ({exc})."
+        return [calendrier.resos(r, tenant.id) for r in lot], None
+
+    echecs = []
+    for lot, echec in await asyncio.gather(
+            *(depuis_resos(t) for t in portee if connecteurs.est_resos(t))):
+        resas += lot
+        if echec:
+            echecs.append(echec)
+    return resas, echecs
+
+
+async def _horaires(portee: list) -> Optional[dict]:
+    """Les jours fermés se grisent pour UN établissement ; sur tout le parc, un jour
+    fermé ici est ouvert ailleurs."""
+    if len(portee) != 1:
+        return None
+    tenant = portee[0]
+    if connecteurs.est_resos(tenant):
+        from .routes_horaires import _horaires_resos
+
+        return disponibilite.charger(await _horaires_resos(tenant))
+    return disponibilite.charger(tenant.opening_hours)
+
+
+_JOURS_COURTS = ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim.")
+
+
 @router.get("/admin/reservations")
-def reservations_list(
+async def reservations_page(
     request: Request,
     user: User = Depends(deps.current_user),
+    vue: str = "",
+    jour: str = "",
     tenant_id: Optional[int] = None,
     date_from: Optional[str] = None,
     page: int = 1,
 ):
+    """Le calendrier (SCRUM-112) : mois, semaine, jour — et la liste d'avant."""
     deps.ensure_csrf(request)
     if not user.is_superadmin:
         tenant_id = user.tenant_id
+    if not vue and date_from:
+        # Anciens liens (« Voir la réservation » d'une fiche d'appel, e-mails) : le jour.
+        vue, jour = "jour", date_from
+    vue_implicite = vue not in calendrier.VUES
+    vue = "mois" if vue_implicite else vue
+
+    def lien(**changes) -> str:
+        params = {"vue": vue, "jour": jour, "tenant_id": tenant_id, **changes}
+        return "/admin/reservations?" + urlencode(
+            {k: v for k, v in params.items() if v not in (None, "")})
+
+    portee = await db.hors_boucle(_portee, user, tenant_id)
+    communs = {
+        "vue": vue, "vue_implicite": vue_implicite, "lien": lien, "tenant_id": tenant_id,
+        "tenants": await db.hors_boucle(tenants.list_all) if user.is_superadmin else [],
+        # Le nom de l'établissement n'est utile que sur tout le parc.
+        "tenant_names": ({t.id: t.name for t in portee}
+                         if user.is_superadmin and tenant_id is None else {}),
+    }
+    if vue == "liste":
+        return await _liste(request, user, tenant_id, date_from, page, communs)
+
+    aujourd_hui = horloge.aujourd_hui()
+    ancre = calendrier.ancre(jour, aujourd_hui)
+    debut, fin = calendrier.bornes(vue, ancre)
+    resas, echecs = await _lire(portee, debut.isoformat(), fin.isoformat())
+    horaires = await _horaires(portee)
+    groupes = calendrier.par_jour(resas)
+
+    def case(j: _date) -> dict:
+        du_jour = groupes.get(j.isoformat(), [])
+        return {"iso": j.isoformat(), "num": j.day, "court": f"{_JOURS_COURTS[j.weekday()]} {j.day}",
+                "lettres": horloge.en_toutes_lettres(j), "hors_mois": j.month != ancre.month,
+                "ferme": disponibilite.ferme_le(horaires, j), "aujourdhui": j == aujourd_hui,
+                "resume": calendrier.resume(du_jour), "resas": du_jour}
+
+    cases = [case(j) for j in calendrier.jours(debut, fin)]
+    periode = [c for c in cases if not (vue == "mois" and c["hors_mois"])]
+    precedent, suivant = calendrier.voisins(vue, ancre)
+    contexte = {
+        **communs, "titre": calendrier.titre(vue, ancre),
+        "precedent": precedent.isoformat(), "suivant": suivant.isoformat(),
+        "aujourd_hui": aujourd_hui.isoformat(), "ancre_iso": ancre.isoformat(),
+        "echecs": echecs,
+        "resume": calendrier.resume([r for c in periode for r in c["resas"]]),
+        "entetes": _JOURS_COURTS,
+        "semaines": [cases[i:i + 7] for i in range(0, len(cases), 7)],
+        "colonnes": cases,
+        "heures": calendrier.heures(resas),
+        "par_heure": {c["iso"]: calendrier.par_heure(c["resas"]) for c in cases},
+        "lu_dans_resos": any(connecteurs.est_resos(t) for t in portee),
+    }
+    return deps.templates.TemplateResponse(request, "reservations/calendrier.html", contexte)
+
+
+async def _liste(request: Request, user: User, tenant_id: Optional[int],
+                 date_from: Optional[str], page: int, communs: dict):
     page = max(1, page)
     # Cet écran-ci MONTRE les annulées : un restaurateur qui voit « annulée à 15h32 »
     # peut reproposer le créneau, et retrouver la preuve si le client conteste. La liste
     # « à venir » de la salle de contrôle, elle, garde le défaut qui les masque — y
     # laisser des annulées ferait préparer des couverts pour personne.
-    rows = reservations.list_filtered(
-        tenant_id=tenant_id, date_from=date_from or None,
-        limit=PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE,
-        inclure_annulees=True,
-    )
-    has_next = len(rows) > PAGE_SIZE
-    tenant_names = _tenant_names(user)
+    rows = await db.hors_boucle(
+        reservations.list_filtered, tenant_id=tenant_id, date_from=date_from or None,
+        limit=PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE, inclure_annulees=True)
     return deps.templates.TemplateResponse(
         request, "reservations/list.html",
         {
+            **communs,
             "reservations": rows[:PAGE_SIZE],
-            "tenant_names": tenant_names,
-            "tenants": tenants.list_all() if user.is_superadmin else [],
-            "tenant_id": tenant_id,
+            "tenant_names": await db.hors_boucle(_tenant_names, user),
             "date_from": date_from or "",
             "page": page,
-            "has_next": has_next,
+            "has_next": len(rows) > PAGE_SIZE,
         },
     )
 
 
+def _fragment(request: Request, user: User, resa: dict, rendu: str, *, edition=False,
+              erreur: Optional[str] = None, status_code: int = 200):
+    """La même réservation, en ligne de tableau (liste) ou en carte (calendrier)."""
+    if rendu == "carte":
+        gabarit = "reservations/_carte_edition.html" if edition else "reservations/_carte.html"
+        contexte = {"r": calendrier.interne(resa, resa["tenant_id"])}
+    else:
+        gabarit = "reservations/_row_edit.html" if edition else "reservations/_row.html"
+        contexte = {"r": resa}
+    contexte.update(tenant_names={} if edition else _tenant_names(user), error=erreur)
+    return deps.templates.TemplateResponse(request, gabarit, contexte, status_code=status_code)
+
+
 @router.get("/admin/reservations/{reservation_id}/edit")
-def reservation_edit(request: Request, reservation_id: int,
-                           user: User = Depends(deps.current_user)):
-    resa = _load_scoped(reservation_id, user)
-    return deps.templates.TemplateResponse(request, "reservations/_row_edit.html", {"r": resa})
+def reservation_edit(request: Request, reservation_id: int, rendu: str = "",
+                     user: User = Depends(deps.current_user)):
+    return _fragment(request, user, _load_scoped(reservation_id, user), rendu, edition=True)
 
 
 @router.get("/admin/reservations/{reservation_id}/row")
-def reservation_row(request: Request, reservation_id: int,
-                          user: User = Depends(deps.current_user)):
-    resa = _load_scoped(reservation_id, user)
-    return deps.templates.TemplateResponse(
-        request, "reservations/_row.html",
-        {"r": resa, "tenant_names": _tenant_names(user)},
-    )
+def reservation_row(request: Request, reservation_id: int, rendu: str = "",
+                    user: User = Depends(deps.current_user)):
+    return _fragment(request, user, _load_scoped(reservation_id, user), rendu)
 
 
 def _saisie_invalide(customer_name: str, date: str, time: str, party_size: int) -> Optional[str]:
@@ -119,17 +234,16 @@ def reservation_update(
     time: str = Form(...),
     party_size: int = Form(...),
     notes: str = Form(""),
+    rendu: str = Form(""),
 ):
     actuelle = _load_scoped(reservation_id, user)
     erreur = _saisie_invalide(customer_name, date, time, party_size)
     if erreur:
-        # La ligne d'édition revient avec la saisie, pour corriger sans tout retaper.
+        # Le formulaire revient avec la saisie, pour corriger sans tout retaper.
         saisie = {**actuelle, "customer_name": customer_name, "customer_phone": customer_phone,
                   "date": date, "time": time, "party_size": party_size, "notes": notes}
-        return deps.templates.TemplateResponse(
-            request, "reservations/_row_edit.html", {"r": saisie, "error": erreur},
-            status_code=422,
-        )
+        return _fragment(request, user, saisie, rendu, edition=True, erreur=erreur,
+                         status_code=422)
     resa = reservations.update_reservation(
         reservation_id,
         customer_name=customer_name.strip(),
@@ -137,24 +251,25 @@ def reservation_update(
         date=date, time=time, party_size=party_size,
         notes=notes.strip() or None,
     )
-    return deps.templates.TemplateResponse(
-        request, "reservations/_row.html",
-        {"r": resa, "tenant_names": _tenant_names(user)},
-    )
+    reponse = _fragment(request, user, resa, rendu)
+    if rendu == "carte" and (date, time) != (actuelle["date"], actuelle["time"]):
+        # Déplacée : sa carte n'a plus sa place ici, ni les compteurs du jour. La page
+        # se recharge et la montre à sa nouvelle heure.
+        reponse.headers["HX-Refresh"] = "true"
+    return reponse
 
 
 @router.post("/admin/reservations/{reservation_id}/cancel",
              dependencies=[Depends(deps.verify_csrf)])
 def reservation_cancel(request: Request, reservation_id: int,
-                             user: User = Depends(deps.current_user)):
+                       user: User = Depends(deps.current_user), rendu: str = Form("")):
     """« Annuler » annule : la ligne reste, barrée et horodatée — comme une annulation
     faite au téléphone. Le lien s'appelait déjà « Annuler » mais EFFAÇAIT la ligne : le
     restaurateur perdait la preuve en cas de litige, et le client qui rappelait pour
     reprendre sa table n'était plus retrouvé. L'effacement d'un appelant passe par le
     droit à l'effacement (rgpd.effacer_appelant), pas par ce bouton."""
     _load_scoped(reservation_id, user)
-    resa = reservations.cancel_reservation(reservation_id)
-    return deps.templates.TemplateResponse(
-        request, "reservations/_row.html",
-        {"r": resa, "tenant_names": _tenant_names(user)},
-    )
+    reponse = _fragment(request, user, reservations.cancel_reservation(reservation_id), rendu)
+    if rendu == "carte":
+        reponse.headers["HX-Refresh"] = "true"  # les couverts du jour ont changé
+    return reponse

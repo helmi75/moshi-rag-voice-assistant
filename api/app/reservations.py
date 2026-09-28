@@ -128,6 +128,22 @@ def list_filtered(
     return [dict(r) for r in rows]
 
 
+def entre(debut: str, fin: str, tenant_ids: Optional[list[int]] = None) -> list[dict]:
+    """Du `debut` au `fin` inclus, annulées COMPRISES : le calendrier de l'admin les
+    montre barrées, sans les compter (SCRUM-112). `tenant_ids` None = tout le parc
+    (super-admin) ; une liste vide = rien."""
+    if tenant_ids is not None and not tenant_ids:
+        return []
+    query = "SELECT * FROM reservations WHERE date >= ? AND date <= ?"
+    params: list = [debut, fin]
+    if tenant_ids is not None:
+        query += f" AND tenant_id IN ({', '.join('?' * len(tenant_ids))})"
+        params += list(tenant_ids)
+    with db.get_conn() as conn:
+        rows = conn.execute(query + " ORDER BY date, time, id", params).fetchall()
+    return [dict(r) for r in rows]
+
+
 def covers_by_slot(tenant_id: int, date: str) -> list[dict]:
     """Couverts réservés par créneau horaire pour une date donnée (salle de contrôle).
 

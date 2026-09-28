@@ -189,7 +189,7 @@ class TestRestaurateurScoping:
             _seed_resa(tenant.id, name="ChezMoi")
             _seed_resa(other.id, name="ChezLautre")
             _login(client, user.email, "resto-pass")
-            page = client.get("/admin/reservations").text
+            page = client.get("/admin/reservations?vue=liste").text
             assert "ChezMoi" in page and "ChezLautre" not in page
         finally:
             tenants.delete_tenant(other.id)

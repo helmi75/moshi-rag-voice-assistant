@@ -84,6 +84,16 @@ def _ferme_exceptionnellement(horaires: dict, jour: date) -> bool:
     return any(debut <= jour <= fin for debut, fin in horaires["fermetures"])
 
 
+def ferme_le(horaires: Optional[dict], jour: date) -> bool:
+    """Fermé TOUTE la journée : aucun service ce jour de semaine, ou fermeture
+    exceptionnelle. Sert à griser le calendrier de l'admin (SCRUM-112). Non renseigné =
+    ouvert, comme partout ailleurs : on ne grise pas un jour qu'on ne connaît pas."""
+    if not est_configure(horaires):
+        return False
+    return (_ferme_exceptionnellement(horaires, jour)
+            or not horaires["semaine"][JOURS[jour.weekday()]])
+
+
 def _dans_plage(t: time, debut: time, fin: time) -> bool:
     if fin >= debut:
         return debut <= t <= fin

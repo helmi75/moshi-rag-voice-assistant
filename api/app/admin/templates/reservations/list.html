@@ -6,21 +6,16 @@
 <div class="page-head">
   <div>
     <h1>Réservations</h1>
-    <p class="lede">Les couverts pris par l'IA au téléphone, modifiables en ligne.</p>
+    <p class="lede">Notre carnet en liste, annulées comprises, modifiable en ligne. Les
+       réservations resOS sont dans le calendrier.</p>
   </div>
 </div>
 
+{% include "reservations/_barre.html" %}
+
 <form method="get" action="/admin/reservations" class="filters">
-  {% if tenants %}
-  <label>Établissement
-    <select name="tenant_id" data-autosubmit>
-      <option value="">Tous</option>
-      {% for t in tenants %}
-      <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  {% endif %}
+  <input type="hidden" name="vue" value="liste">
+  {% if tenant_id %}<input type="hidden" name="tenant_id" value="{{ tenant_id }}">{% endif %}
   <label>À partir du
     <input type="date" name="date_from" value="{{ date_from }}" data-autosubmit>
   </label>
@@ -44,10 +39,10 @@
 
 <nav class="pager">
   {% if page > 1 %}
-  <a href="?page={{ page - 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}">← Précédent</a>
+  <a href="?vue=liste&page={{ page - 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}">← Précédent</a>
   {% endif %}
   {% if has_next %}
-  <a href="?page={{ page + 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}">Suivant →</a>
+  <a href="?vue=liste&page={{ page + 1 }}{% if tenant_id %}&tenant_id={{ tenant_id }}{% endif %}{% if date_from %}&date_from={{ date_from }}{% endif %}">Suivant →</a>
   {% endif %}
 </nav>
 {% endblock %}

@@ -1,0 +1,21 @@
+{# Vues, navigation dans le temps et filtre d'établissement : communs au calendrier et à
+   la liste. Chaque lien garde l'établissement choisi. #}
+<div class="cal-barre">
+  <nav class="cal-vues" aria-label="Affichage">
+    {% for v, nom in [("mois", "Mois"), ("semaine", "Semaine"), ("jour", "Jour"), ("liste", "Liste")] %}
+    <a href="{{ lien(vue=v) }}" {% if v == vue %}aria-current="page"{% endif %}>{{ nom }}</a>
+    {% endfor %}
+  </nav>
+  {% if tenants %}
+  <form method="get" action="/admin/reservations" class="cal-filtre">
+    <input type="hidden" name="vue" value="{{ vue }}">
+    {% if vue != "liste" %}<input type="hidden" name="jour" value="{{ ancre_iso or '' }}">{% endif %}
+    <select name="tenant_id" data-autosubmit aria-label="Établissement">
+      <option value="">Tous les établissements</option>
+      {% for t in tenants %}
+      <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</div>

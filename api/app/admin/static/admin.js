@@ -23,6 +23,15 @@ document.addEventListener("htmx:beforeSwap", (event) => {
   }
 });
 
+// Réservations : sur un téléphone, la grille du mois est illisible — la vue du jour
+// s'ouvre d'elle-même, tant qu'aucune vue n'a été choisie (SCRUM-112).
+if (document.querySelector("[data-vue-implicite]")
+    && window.matchMedia("(max-width: 640px)").matches) {
+  const adresse = new URL(window.location.href);
+  adresse.searchParams.set("vue", "jour");
+  window.location.replace(adresse.toString());
+}
+
 // Page « Voix & accueil » : le lecteur fait entendre la voix SÉLECTIONNÉE dans la liste,
 // avant même de l'enregistrer. L'adresse de l'extrait est portée par l'option.
 document.addEventListener("change", (event) => {

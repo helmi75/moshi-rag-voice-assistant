@@ -23,7 +23,7 @@ import asyncio
 import os
 import re
 import time
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional
 from urllib.parse import quote
 
@@ -48,6 +48,10 @@ NOTE_INTERNE = "Prise au téléphone par l'assistante."
 # Statuts d'une réservation encore attendue au restaurant. Les autres — declined,
 # canceled, arrived, seated, left, no_show — ne se modifient ni ne s'annulent plus.
 _ACTIFS = ("request", "approved", "waitlist")
+
+# Lecture du carnet pour l'admin : pages de 100 (le maximum de resOS), 10 au plus.
+PAGE = 100
+PAGES_MAX = 10
 
 # Remplacé par les tests (httpx.ASGITransport vers le faux resOS). None = le réseau.
 _transport: Optional[httpx.AsyncBaseTransport] = None
@@ -330,11 +334,26 @@ class ConnecteurResos:
         """Le carnet des prochains jours, TOUS numéros confondus : pour l'admin, jamais
         pour un appelant."""
         debut = horloge.aujourd_hui()
-        trouves = await self._requete("GET", "/bookings", params={
-            "fromDateTime": debut.isoformat(),
-            "toDateTime": (debut + timedelta(days=jours)).isoformat(),
-            "limit": 100, "sort": "dateTime:1"}, forcer=True, journaliser=False)
-        return sorted((_en_reservation(b) for b in trouves or [] if isinstance(b, dict)),
+        return await self.entre(debut.isoformat(), (debut + timedelta(days=jours)).isoformat())
+
+    async def entre(self, debut: str, fin: str) -> list[dict]:
+        """Le carnet du `debut` au `fin` inclus, tous statuts : le calendrier de l'admin
+        (SCRUM-112). Paginé — un mois de brasserie dépasse vite les 100 réservations
+        d'une page resOS, et une page tronquée montrerait des jours vides qui ne le sont
+        pas. `toDateTime` est pris au lendemain puis filtré ici : la doc ne dit pas si la
+        borne inclut la journée."""
+        lendemain = (date.fromisoformat(fin) + timedelta(days=1)).isoformat()
+        trouves: list[dict] = []
+        for page in range(PAGES_MAX):
+            lot = await self._requete("GET", "/bookings", params={
+                "fromDateTime": debut, "toDateTime": lendemain, "limit": PAGE,
+                "skip": page * PAGE, "sort": "dateTime:1"}, forcer=True, journaliser=False)
+            lot = [b for b in lot or [] if isinstance(b, dict)]
+            trouves += lot
+            if len(lot) < PAGE:
+                break
+        return sorted((_en_reservation(b) for b in trouves
+                       if debut <= (b.get("date") or "") <= fin),
                       key=lambda r: (r["date"] or "", r["time"] or ""))
 
     async def verifier(self) -> dict:
