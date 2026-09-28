@@ -65,19 +65,26 @@ def make_tool_handler(
 
 
 def build_tts(tenant: Optional[Tenant] = None):
-    """Le service TTS : la voix Moshi 1.6B via le serveur Rust moshi-server (Modal GPU).
+    """Le service TTS de la voix de l'établissement : Moshi 1.6B via moshi-server (notre
+    GPU sur Modal, websocket), ou Marie via l'API Voxtral de Mistral (HTTPS en flux).
 
-    L'app est simple cliente websocket, aucun modèle en local. `tenant` choisit la voix
-    (voices.resolve — la même décision que l'accueil pré-rendu, sinon un appel mélangerait
-    deux voix). Sans MOSHI_TTS_URL on refuse de construire le pipeline : une erreur
-    franche vaut mieux qu'un appel muet, et la supervision annonce déjà cette absence
-    (_configuration_requise)."""
-    if not os.getenv("MOSHI_TTS_URL", "").strip():
-        raise ValueError("MOSHI_TTS_URL manquante : aucun serveur de voix à joindre")
+    `tenant` choisit la voix (voices.resolve — la même décision que l'accueil pré-rendu,
+    sinon un appel mélangerait deux voix). Pour Moshi, sans MOSHI_TTS_URL on refuse de
+    construire le pipeline : une erreur franche vaut mieux qu'un appel muet, et la
+    supervision annonce déjà cette absence (_configuration_requise)."""
     from . import voices
-    from .moshi_server_tts import MoshiServerTTSService
 
     voice = voices.resolve(tenant)
+    voix = voices.get(voice)
+    if voix is not None and voix.fournisseur == voices.VOXTRAL:
+        from .voxtral_tts import VoxtralTTSService
+
+        logger.info(f"Voix Voxtral : {voix.label}")
+        return VoxtralTTSService(voix_id=voix.voxtral_id)
+    if not os.getenv("MOSHI_TTS_URL", "").strip():
+        raise ValueError("MOSHI_TTS_URL manquante : aucun serveur de voix à joindre")
+    from .moshi_server_tts import MoshiServerTTSService
+
     logger.info(f"Voix moshi-server : {voice}")
     return MoshiServerTTSService(voice=voice)
 
@@ -185,7 +192,7 @@ def amorce_assistante(tenant: Tenant) -> list[dict]:
     """
     from . import greeting
 
-    if not greeting.is_moshi_server() or not (tenant.greeting or "").strip():
+    if not greeting.pre_rendu_possible(tenant) or not (tenant.greeting or "").strip():
         return []
     if greeting.cached_greeting_path(tenant) is None:
         return []
@@ -608,7 +615,9 @@ async def run_bot(
     from . import greeting as greeting_mod
 
     chaud = False
-    if greeting_mod.is_moshi_server():
+    if greeting_mod.voix_sans_gpu(tenant):
+        chaud = True  # Voxtral : rien à réveiller, « Je vous écoute. » tout de suite
+    elif greeting_mod.is_moshi_server():
         from .moshi_server_tts import gpu_chaud
 
         # Décidé UNE fois ici et transmis à l'intro : la phrase de reprise dépend de

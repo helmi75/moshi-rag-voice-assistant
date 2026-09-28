@@ -43,8 +43,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Voix hors catalogue → voix par défaut",
         fichier="api/app/voice/voices.py",
-        avant="    return chosen if get(chosen) else default_id()",
-        apres="    return chosen if chosen else default_id()",
+        avant="    if voix is None:\n        return default_id()",
+        apres="    if voix is None:\n        return chosen or default_id()",
         tests=["test_voices.py", "test_greeting.py", "test_admin_voice.py"],
         k="hors_catalogue or outside_catalogue",
         panne="moshi-server remplacerait la voix EN SILENCE par sa voix de repli",
@@ -729,6 +729,45 @@ GARDE_FOUS = [
         k="empreinte",
         panne="27/09 : la correction des cases à cocher était en ligne, le navigateur "
               "montrait encore l'ancienne page",
+    ),
+    GardeFou(
+        nom="Sans clé Mistral, Marie cède la place à une voix qui parle",
+        fichier="api/app/voice/voices.py",
+        avant="    if voix.fournisseur == VOXTRAL and not voxtral_disponible():",
+        apres="    if False:  # mutation",
+        tests=["test_voxtral.py"],
+        k="sans_cle",
+        panne="clé retirée : chaque phrase de l'établissement échouerait chez Mistral — une "
+              "assistante muette au lieu d'une voix Moshi",
+    ),
+    GardeFou(
+        nom="Marie décroche sans musique d'attente",
+        fichier="api/app/voice/greeting.py",
+        avant="    if sans_gpu:\n        chaud = True",
+        apres="    if False:  # mutation\n        chaud = True",
+        tests=["test_voxtral.py"],
+        k="reveil",
+        panne="l'appelant de Marie entendrait la musique d'attente et un réveil de GPU pour "
+              "une voix qui n'en a pas",
+    ),
+    GardeFou(
+        nom="La fin de chaque phrase de Marie est dite",
+        fichier="api/app/voice/voxtral_tts.py",
+        avant="                reste = flux.resample_chunk(np.zeros(0, dtype=np.int16), last=True).tobytes()",
+        apres="                reste = b\"\"  # mutation",
+        tests=["test_voxtral.py"],
+        k="pipeline",
+        panne="~60 ms coupés à la fin de chaque phrase : la dernière syllabe avalée",
+    ),
+    GardeFou(
+        nom="Une clé Mistral absente sonne l'alerte",
+        fichier="api/app/supervision.py",
+        avant="    if not voices.voxtral_disponible():",
+        apres="    if False:  # mutation",
+        tests=["test_voxtral.py"],
+        k="cle_retiree",
+        panne="des établissements en Marie basculés en silence sur la voix Moshi, avec son "
+              "réveil de 46 s, sans que personne le sache",
     ),
 ]
 

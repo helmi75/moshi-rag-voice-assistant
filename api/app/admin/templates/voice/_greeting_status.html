@@ -5,6 +5,7 @@
 <p class="muted" aria-busy="true"
    hx-get="/admin/tenants/{{ tenant.id }}/greeting/status"
    hx-target="#greeting-status" hx-trigger="every 3s" hx-swap="innerHTML">
-  Rendu de la voix en cours (jusqu'à 90 s si le GPU était endormi)…
+  {% if voix_sans_gpu %}Rendu de la voix en cours (quelques secondes)…
+  {% else %}Rendu de la voix en cours (jusqu'à 90 s si le GPU était endormi)…{% endif %}
 </p>
 {% endif %}

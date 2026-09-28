@@ -103,7 +103,7 @@ def _alerts(rows: list[dict]) -> list[dict]:
     alerts = []
     for row in rows:
         name = row["tenant"].name
-        if greeting_mod.is_moshi_server() and not row["greeting_ready"]:
+        if greeting_mod.pre_rendu_possible(row["tenant"]) and not row["greeting_ready"]:
             alerts.append({
                 "level": "warn", "title": f"{name} · voix d'accueil pas encore rendue",
                 "detail": "Le WAV d'accueil n'est pas en cache : le décroché ne sera pas "

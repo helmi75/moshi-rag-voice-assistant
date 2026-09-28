@@ -40,7 +40,9 @@ Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.p
    mot n'arrive est retranscrite à part, sinon l'assistante dit « Pardon, je n'ai pas bien
    entendu » (`voice/rattrapage.py`) ; **LLM** via OpenRouter, raisonnement
    coupé (c'est du silence au téléphone) ; **voix** servie par `moshi-server` sur Modal,
-   clé privée (`voice/moshi_server_tts.py`).
+   clé privée (`voice/moshi_server_tts.py`), ou, au choix de l'établissement, **Marie** de
+   Voxtral chez Mistral, en HTTPS et en flux, sans GPU (`voice/voxtral_tts.py`,
+   `docs/VOXTRAL.md`).
 4. L'accueil est un WAV pré-rendu par établissement : l'appelant l'entend tout de suite,
    même quand le GPU se réveille ; la musique d'attente meuble le réveil. Il est
    pré-inscrit au contexte du modèle **parce qu'il ne traverse pas le pipeline** ; tout

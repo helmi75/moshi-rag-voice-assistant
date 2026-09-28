@@ -24,18 +24,26 @@ def voice_settings(request: Request, tenant_id: int,
                          user: User = Depends(deps.current_user)):
     tenant = deps.resolve_tenant(tenant_id, user)
     deps.ensure_csrf(request)
+    return _page(request, tenant)
+
+
+def _page(request: Request, tenant, error: Optional[str] = None, status_code: int = 200):
     return deps.templates.TemplateResponse(
         request, "voice/settings.html",
         {
             "tenant": tenant,
             "voice_name": presenters.voice_label(tenant),
-            "voice_catalogue": voices.catalogue(),
+            "voix_moshi": voices.voix_moshi(),
+            "voix_voxtral": voices.voix_voxtral(),
+            "voxtral_disponible": voices.voxtral_disponible(),
             "voice_id": voices.resolve(tenant),
+            "voix_sans_gpu": greeting_mod.voix_sans_gpu(tenant),
             "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None,
             "has_custom_music": greeting_mod.hold_music_path(tenant.id)
             != greeting_mod.hold_music_path(None),
-            "error": None,
+            "error": error,
         },
+        status_code=status_code,
     )
 
 
@@ -61,13 +69,20 @@ async def voice_update(
     # qui la remplacerait en silence par sa voix de repli — l'appelant serait le seul
     # à s'en apercevoir. Hors catalogue -> on ne touche pas au réglage existant.
     chosen = voices.get((voice or "").strip())
+    if chosen is not None and chosen.fournisseur == voices.VOXTRAL \
+            and not voices.voxtral_disponible():
+        # Marie sans clé Mistral : l'appel retomberait sur la voix par défaut sans que
+        # personne ne l'ait voulu. On refuse ici, avec la raison.
+        return _page(request, tenant, status_code=422, error=(
+            "Marie n'est pas encore disponible : la clé Mistral n'est pas posée sur le "
+            "serveur. La voix n'a pas été changée."))
     if chosen is not None:
         fields["voice"] = chosen.id
     if fields:
         await db.hors_boucle(tenants.update_tenant, tenant.id, **fields)
     refreshed = await db.hors_boucle(tenants.get_by_id, tenant.id)
-    if refreshed is not None and greeting_mod.is_moshi_server():
-        # Re-rendu en tâche de fond (60-90 s si GPU froid) : jamais bloquant ici,
+    if refreshed is not None and greeting_mod.pre_rendu_possible(refreshed):
+        # Re-rendu en tâche de fond (60-90 s si GPU froid, 2 s avec Voxtral) : jamais bloquant ici,
         # l'UI polle /greeting/status jusqu'à ce que le WAV soit prêt.
         taches.lancer(greeting_mod.ensure_greeting_wav(refreshed),
                       nom=f"accueil de l'établissement {tenant.id}")
@@ -90,6 +105,7 @@ def greeting_status(request: Request, tenant_id: int,
     return deps.templates.TemplateResponse(
         request, "voice/_greeting_status.html",
         {"tenant": tenant,
+         "voix_sans_gpu": greeting_mod.voix_sans_gpu(tenant),
          "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None},
     )
 

@@ -34,7 +34,7 @@ class TestCatalogue:
         """Garde-fou contre l'erreur qu'on ne verrait pas : proposer dans l'admin une
         voix que l'image du serveur ne contient pas. Élargir EMBEDDED_FOLDERS suppose
         d'élargir VOICE_FOLDERS dans deploy/modal_moshi_server.py ET de redéployer."""
-        for voice in voices.catalogue():
+        for voice in voices.voix_moshi():
             assert voice.id.startswith(voices.EMBEDDED_FOLDERS), voice.id
 
     def test_la_voix_par_defaut_est_au_catalogue(self):

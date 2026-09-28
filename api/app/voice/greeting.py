@@ -85,6 +85,18 @@ def _texte(tenant: Tenant) -> str:
     return accueil(tenant)
 
 
+def voix_sans_gpu(tenant: Optional[Tenant] = None) -> bool:
+    """La voix de cet établissement est-elle servie sans notre GPU (Voxtral) ? Alors ni
+    réveil ni musique d'attente : il n'y a rien à réveiller."""
+    return voices.est_voxtral(_voice(tenant))
+
+
+def pre_rendu_possible(tenant: Optional[Tenant] = None) -> bool:
+    """Peut-on rendre l'accueil de cet établissement ? Voxtral (clé posée, sinon
+    `resolve` ne l'aurait pas choisie) ou un serveur moshi configuré."""
+    return voix_sans_gpu(tenant) or is_moshi_server()
+
+
 def _voice(tenant: Optional[Tenant] = None) -> str:
     """Voix de cet établissement (voix par défaut du parc si rien n'est choisi)."""
     return voices.resolve(tenant)
@@ -136,7 +148,13 @@ def cached_indisponible_path(tenant: Tenant) -> Path | None:
 
 
 async def _render_pcm(text: str, voice: Optional[str] = None) -> np.ndarray | None:
-    """Rend `text` via moshi-server → float32 mono @24 kHz (None si rendu vide)."""
+    """Rend `text` → float32 mono @24 kHz (None si rendu vide), chez le fournisseur de la
+    voix : Voxtral (Mistral) ou moshi-server. Les deux rendent du 24 kHz : la suite
+    (conversion Twilio, cache) ne sait pas d'où vient l'audio."""
+    if voices.est_voxtral(voice):
+        from .voxtral_tts import rendre_pcm
+
+        return await rendre_pcm(text, voices.get(voice).voxtral_id)
     import msgpack
     import websockets
 
@@ -201,7 +219,7 @@ async def ensure_greeting_wav(tenant: Tenant) -> Path | None:
     """Rend et met en cache le WAV d'accueil s'il manque, puis le message
     d'indisponibilité. Idempotent. Rend le chemin de l'ACCUEIL, None si échec
     (l'appelant retombe alors sur le TTS live)."""
-    if not is_moshi_server():
+    if not pre_rendu_possible(tenant):
         return None
     accueil = cached_greeting_path(tenant) or await _rendre_en_cache(
         tenant, _texte(tenant), _cache_path(tenant), "accueil")
@@ -332,7 +350,11 @@ async def run_switchboard_intro(
         EndFrame, OutputAudioRawFrame, STTMuteFrame, TTSSpeakFrame,
     )
 
-    if chaud is None:
+    # Voix Voxtral : aucun GPU à réveiller, l'appel est « chaud » d'office.
+    sans_gpu = voix_sans_gpu(tenant)
+    if sans_gpu:
+        chaud = True
+    elif chaud is None:
         chaud = gpu_chaud()
 
     # STT muté pendant l'intro : la parole du client pendant l'attente est ignorée
@@ -361,10 +383,11 @@ async def run_switchboard_intro(
         else:
             await task.queue_frames([TTSSpeakFrame(_texte(tenant))])  # repli TTS live
 
-        if is_moshi_server() and chaud:
+        if chaud and (sans_gpu or is_moshi_server()):
             # `send_audio` met en file et rend la main aussitôt : l'accueil est encore en
             # train d'être joué. On attend sa fin, moins le temps de rendu de la reprise.
-            logger.info("GPU chaud : ni réveil ni musique d'attente.")
+            logger.info("Voix Voxtral : pas de GPU à réveiller." if sans_gpu
+                        else "GPU chaud : ni réveil ni musique d'attente.")
             reste = debut + duree_accueil - _AVANCE_REPRISE - time.monotonic()
             if reste > 0:
                 await asyncio.sleep(reste)
