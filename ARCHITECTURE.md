@@ -36,7 +36,9 @@ Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.p
 3. Pipecat : VAD Silero + smart-turn (modèle partagé entre les appels) ; **Deepgram
    nova-3** décroche en `multi` puis SUIT la langue de l'appel (`voice/langue.py`) — il
    se fixe sur celle de l'établissement quand elle est avérée, et redevient bilingue dès
-   qu'on constate qu'on n'entend plus l'appelant ; **LLM** via OpenRouter, raisonnement
+   qu'on constate qu'on n'entend plus l'appelant. Une voix que le VAD entend sans qu'aucun
+   mot n'arrive est retranscrite à part, sinon l'assistante dit « Pardon, je n'ai pas bien
+   entendu » (`voice/rattrapage.py`) ; **LLM** via OpenRouter, raisonnement
    coupé (c'est du silence au téléphone) ; **voix** servie par `moshi-server` sur Modal,
    clé privée (`voice/moshi_server_tts.py`).
 4. L'accueil est un WAV pré-rendu par établissement : l'appelant l'entend tout de suite,

@@ -680,6 +680,56 @@ GARDE_FOUS = [
               "pour sept secondes, à faible confiance — et la garde, qui ne cherchait que "
               "l'absence de texte, n'a jamais mordu : l'appelant anglophone a renoncé",
     ),
+    GardeFou(
+        nom="Une voix entendue sans mots est rattrapée",
+        fichier="api/app/voice/rattrapage.py",
+        avant="            await self.push_frame(TranscriptionFrame(texte, \"\", time_now_iso8601()))",
+        apres="            pass  # mutation",
+        tests=["test_rattrapage.py"],
+        k="retranscrit",
+        panne="27/09 : « 20 heures, 20 heures » entendu par le VAD, jamais transcrit — huit "
+              "secondes de silence, « Vous êtes toujours là ? », et l'appelant doit tout redire",
+    ),
+    GardeFou(
+        nom="Pas de « Vous êtes toujours là ? » à quelqu'un qui vient de parler",
+        fichier="api/app/voice/rattrapage.py",
+        avant="            await self._pardonner()",
+        apres="            pass  # mutation",
+        tests=["test_rattrapage.py"],
+        k="pardon",
+        panne="17 relances sur 27 le 27/09 : l'appelant avait répondu, on lui demandait s'il "
+              "était toujours là",
+    ),
+    GardeFou(
+        nom="Une annonce sans outil est reconnue",
+        fichier="api/app/voice/bot.py",
+        avant="            return not texte.endswith(\"?\") and bool(_ANNONCES.search(texte))",
+        apres="            return False  # mutation",
+        tests=["test_rattrapage.py"],
+        k="promesse or annonce",
+        panne="« Je vérifie tout de suite. » puis rien : l'appelant attend une vérification "
+              "que personne ne fait, huit secondes, puis « Vous êtes toujours là ? »",
+    ),
+    GardeFou(
+        nom="Un message d'appel masqué exige un numéro de rappel",
+        fichier="api/app/llm.py",
+        avant="        return None, (CONSIGNE_NUMERO_MASQUE if masque and exiger else None)",
+        apres="        return None, None  # mutation",
+        tests=["test_messages.py"],
+        k="masque",
+        panne="appel 192 : message transmis sans numéro, numéro dicté trop tard — rappel "
+              "promis, impossible à tenir",
+    ),
+    GardeFou(
+        nom="Un correctif de l'admin atteint le navigateur",
+        fichier="api/app/admin/templates/base.html",
+        avant="""  <link rel="stylesheet" href="{{ statique('admin.css') }}">""",
+        apres="""  <link rel="stylesheet" href="/admin/static/admin.css">""",
+        tests=["test_carnet_resos.py"],
+        k="empreinte",
+        panne="27/09 : la correction des cases à cocher était en ligne, le navigateur "
+              "montrait encore l'ancienne page",
+    ),
 ]
 
 

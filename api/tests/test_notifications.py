@@ -145,6 +145,26 @@ class TestDeclencheurs:
         assert (tenant.id, evenement) == (resto.id, "reservation_creee")
         assert donnees["reservation"]["customer_name"] == "Durand" and donnees["appel_id"] == 7
 
+    def test_un_appel_masque_reserve_avec_le_numero_dicte_dans_les_notes(self, resto):
+        """Le numéro dicté va dans les notes, lues par le restaurant, JAMAIS dans le
+        téléphone de la réservation : c'est ce champ qui ouvre la modification (#33)."""
+        with patch.object(notifications, "planifier") as planifier:
+            reponse = _outil(resto, "create_reservation",
+                             {"customer_name": "Durand", "date": DEMAIN, "time": "20:00",
+                              "party_size": 2, "callback_number": "0645750588"}, appelant=None)
+        assert reponse["status"] == "confirmed"
+        r = planifier.call_args.args[2]["reservation"]
+        assert r["customer_phone"] is None
+        assert "Joignable au 06 45 75 05 88 (numéro donné par l'appelant, appel masqué)" in r["notes"]
+
+    def test_un_appel_masque_peut_reserver_sans_numero(self, resto):
+        """Une réservation vaut même sans numéro : le client vient au restaurant."""
+        with patch.object(notifications, "planifier"):
+            reponse = _outil(resto, "create_reservation",
+                             {"customer_name": "Durand", "date": DEMAIN, "time": "20:00",
+                              "party_size": 2}, appelant=None)
+        assert reponse["status"] == "confirmed"
+
     def test_une_reservation_refusee_ne_previent_pas(self, resto):
         with patch.object(notifications, "planifier") as planifier:
             _outil(resto, "create_reservation",
@@ -169,12 +189,22 @@ class TestDeclencheurs:
     def test_un_message_pris_previent_meme_en_numero_masque(self, resto):
         with patch.object(notifications, "planifier") as planifier:
             reponse = _outil(resto, "take_message",
-                             {"subject": "Candidature plongeur", "details": "Disponible le soir"},
+                             {"subject": "Candidature plongeur", "details": "Disponible le soir",
+                              "callback_number": "06 45 75 05 88"},
                              appelant=None)
         assert reponse["status"] == "recorded"
         _, evenement, donnees = planifier.call_args.args
         assert evenement == "message_pris"
         assert donnees["subject"] == "Candidature plongeur" and donnees["caller_number"] is None
+        assert donnees["numero_rappel"] == "06 45 75 05 88"
+
+    def test_le_numero_dicte_figure_dans_l_e_mail(self, resto):
+        """Appel 192 : c'est l'e-mail qui manquait le numéro — l'équipe ne pouvait pas
+        rappeler. Il y figure, marqué comme DICTÉ : un chiffre mal compris ne doit pas
+        passer pour un numéro vérifié."""
+        _, corps = notifications.sujet_et_corps("message_pris", resto, {
+            "subject": "Vérification", "caller_number": None, "numero_rappel": "06 45 75 05 88"})
+        assert "Rappeler le : 06 45 75 05 88 (numéro donné par l'appelant, appel masqué)" in corps
 
 
 class TestContenu:

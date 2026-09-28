@@ -45,6 +45,13 @@ _date_en_toutes_lettres = horloge.en_toutes_lettres
 # vers le RESTAURATEUR (notifications.py, depuis le 19/09/2026) n'y changent rien : le
 # client, lui, ne reçoit toujours rien. Le jour où #34 livre les SMS de confirmation, cette
 # phrase devient un mensonge : la changer fait partie de ce lot-là.
+# Le numéro de rappel DICTÉ (appel 192, 27/09/2026) : sur un appel masqué, c'est le seul
+# moyen pour l'équipe de rappeler. Il n'identifie personne et n'ouvre aucune réservation.
+_RAPPEL_DICTE = (
+    "Numéro où rappeler, tel que l'appelant l'a DICTÉ (appel masqué, ou « rappelez-moi "
+    "plutôt au… ») : les chiffres, ex. « 06 45 75 05 88 ». Jamais inventé, jamais "
+    "deviné : demande-le d'abord.")
+
 TOOLS = [
     {
         "name": "check_availability",
@@ -77,6 +84,7 @@ TOOLS = [
                 "time": {"type": "string", "description": "Heure au format HH:MM"},
                 "party_size": {"type": "integer", "description": "Nombre de personnes"},
                 "notes": {"type": "string", "description": "Demandes particulières"},
+                "callback_number": {"type": "string", "description": _RAPPEL_DICTE},
             },
             "required": ["customer_name", "date", "time", "party_size"],
         },
@@ -166,6 +174,7 @@ TOOLS = [
                     "type": "string",
                     "description": "Le nom de l'appelant s'il l'a donné. Ne le demande pas deux fois.",
                 },
+                "callback_number": {"type": "string", "description": _RAPPEL_DICTE},
             },
             "required": ["subject"],
         },
@@ -226,7 +235,21 @@ N'en parle pas hors réservation.
 """
 
 
-def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None) -> str:
+def _section_numero_masque() -> str:
+    """Appel 192 (27/09/2026) : numéro masqué, message pris SANS numéro, puis numéro
+    dicté trop tard — l'équipe ne pouvait pas rappeler. Appel 195 : même cas, le numéro
+    n'a même pas été demandé."""
+    return """# Appelant : numéro masqué
+Sans numéro, personne ne pourra le rappeler. AVANT take_message ou create_reservation,
+demande « À quel numéro peut-on vous joindre ? », relis-le deux chiffres par deux
+chiffres, puis passe-le dans callback_number. Retrouver, modifier ou annuler une
+réservation est impossible : prends un message.
+
+"""
+
+
+def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None,
+                        numero_masque: bool = False) -> str:
     """Prompt système de l'assistante téléphonique.
 
     Il est ré-envoyé à CHAQUE tour : chaque phrase ajoutée se paie en latence et en
@@ -235,7 +258,10 @@ def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None) -> str:
 
     `appelant` : le nom de la dernière réservation faite depuis ce numéro
     (connecteurs : `dernier_nom`), ou None.
+    `numero_masque` : l'appel n'a pas de numéro — il faut en demander un pour rappeler.
     """
+    numero = ("Le numéro est MASQUÉ : demande-le (voir « Appelant »)." if numero_masque
+              else "Le numéro est DÉJÀ enregistré :\n   ne le demande pas.")
     instant = maintenant()
     aujourdhui = instant.date()
     return f"""Tu es l'assistante téléphonique de « {tenant.name} » ({tenant.business_type}).
@@ -278,17 +304,20 @@ Un jour déjà passé désigne le prochain à venir. Une heure d'aujourd'hui dé
 se réserve pas : propose la suivante. Si la date reste ambiguë, fais préciser : « Samedi
 quinze août, c'est bien ça ? ».
 
-{disponibilite.section_prompt(getattr(tenant, 'opening_hours', None))}{_section_appelant(appelant)}# Réservation — dans l'ordre
+{disponibilite.section_prompt(getattr(tenant, 'opening_hours', None))}{_section_appelant(appelant)}{_section_numero_masque() if numero_masque else ""}# Réservation — dans l'ordre
 1. Il te faut QUATRE informations : nom, date, heure, nombre de personnes. Demande
-   celles qui manquent, une par une, jamais une déjà donnée.
+   celles qui manquent, une par une. Ce qui a été dit UNE fois est acquis, même après
+   un refus : s'il change le jour, GARDE l'heure, le nombre et le nom (« Vendredi,
+   toujours vingt heures pour deux ? »).
 2. Le NOM : demande-le une seule fois. S'il est ÉPELÉ — lettres, ou « H comme Henri,
    E comme Émilie… » —, reconstitue-le avec les initiales et relis-le lettre par
    lettre : « H, E, L, M, I, c'est bien ça ? ». Un nom sans voyelle (« HLMI ») est une
    épellation mal entendue : ne le prononce jamais, fais-le épeler avec des prénoms.
-   Sinon garde ta meilleure compréhension et AVANCE. Le numéro est DÉJÀ enregistré :
-   ne le demande pas. N'ÉPELLE JAMAIS un nom qu'on ne t'a pas épelé.
+   Sinon garde ta meilleure compréhension et AVANCE. {numero}
+   N'ÉPELLE JAMAIS un nom qu'on ne t'a pas épelé.
 3. Appelle check_availability. Dis d'abord une phrase courte
-   (« Je vérifie tout de suite. ») : sans elle le client subit un silence.
+   (« Je vérifie tout de suite. ») : sans elle le client subit un silence. Annonce ET
+   appel d'outil dans la MÊME réponse.
 4. Récapitule sous forme de QUESTION — « Je récapitule : …, c'est bien ça ? » —,
    jamais « je vous confirme » : rien n'est encore réservé.
 5. Le client confirme : tu DOIS appeler create_reservation. Cet appel, et lui seul,
@@ -303,7 +332,7 @@ quinze août, c'est bien ça ? ».
 - Modification ou annulation : appelle find_reservation. Il cherche par le NUMÉRO qui
   appelle, jamais par le nom : dis « à ce numéro ». Fais préciser laquelle s'il y en a
   plusieurs, récapitule, puis appelle modify_reservation ou cancel_reservation. N'annonce le changement qu'APRÈS le retour
-  de l'outil. Rien trouvé, ou numéro masqué : prends le message, et ne demande pas de
+  de l'outil. Ne redemande pas ce qui ne change pas. Rien trouvé, ou numéro masqué : prends le message, et ne demande pas de
   « numéro de dossier », il n'en existe pas.
 - Groupe important, privatisation, événement, réclamation, démarchage, fournisseur :
   ne traite pas, prends le message et annonce un rappel.
@@ -380,6 +409,37 @@ CONSIGNE_A_VALIDER = (
     "dis au client que sa demande est bien transmise au restaurant, qui la valide.")
 
 
+CONSIGNE_NUMERO_MASQUE = (
+    "Appel masqué : sans numéro, personne ne pourra rappeler ce client. Demande-lui à "
+    "quel numéro le joindre, relis-le deux chiffres par deux chiffres, puis rappelle cet "
+    "outil avec callback_number. Seulement s'il REFUSE d'en donner un : callback_number "
+    "« aucun ».")
+
+
+def _numero_de_rappel(tool_input: dict, caller_number: Optional[str], exiger: bool = True
+                      ) -> tuple[Optional[str], Optional[str]]:
+    """Le numéro de rappel dicté, remis en forme, ou le refus à renvoyer au modèle.
+
+    Sur un appel masqué, l'absence de numéro est REFUSÉE : l'appel 192 a pris le
+    message d'abord, noté le numéro ensuite — trop tard, il n'est jamais parti. Refuser
+    tant que le numéro manque met la question au bon moment. « aucun » (sans chiffre)
+    laisse passer : l'appelant a le droit de ne pas en donner.
+
+    `exiger=False` pour une réservation : elle vaut même sans numéro — le client vient
+    au restaurant. Un message sans numéro, lui, promet un rappel impossible."""
+    brut = str(tool_input.get("callback_number") or "").strip()
+    if not brut:
+        masque = not (caller_number or "").strip()
+        return None, (CONSIGNE_NUMERO_MASQUE if masque and exiger else None)
+    if not any(c.isdigit() for c in brut):
+        return None, None
+    numero, motif = messages.numero_dicte(brut)
+    if motif:
+        return None, (f"Numéro de rappel {motif} : fais-le redire en entier, chiffre par "
+                      "chiffre, puis rappelle cet outil.")
+    return numero, None
+
+
 def _consigne_complet(autres: list[str]) -> str:
     if autres:
         return "Ce créneau n'est pas libre. Propose au client : " + ", ".join(autres) + "."
@@ -444,10 +504,13 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         )
 
     if name == "take_message":
-        # Le seul outil qui n'exige PAS de numéro : un appel masqué doit pouvoir laisser
-        # un message, c'est même le cas où il en a le plus besoin — il ne peut ni
-        # réserver ni retrouver quoi que ce soit. On enregistre alors sans numéro, et le
-        # restaurateur voit qu'il n'y a pas de quoi rappeler.
+        # Le seul outil qui n'exige PAS le numéro du réseau : un appel masqué doit pouvoir
+        # laisser un message, c'est même le cas où il en a le plus besoin — il ne peut ni
+        # réserver ni retrouver quoi que ce soit. Il lui faut alors un numéro DICTÉ, sans
+        # quoi le rappel promis est impossible (appel 192).
+        rappel, refus = _numero_de_rappel(tool_input, caller_number)
+        if refus:
+            return _refus(refus)
         identifiant = await db.hors_boucle(
             messages.create_message,
             tenant_id=tenant.id,
@@ -456,6 +519,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
             caller_number=(caller_number or "").strip() or None,
             call_id=call_id,
             customer_name=tool_input.get("customer_name"),
+            numero_rappel=rappel,
         )
         if identifiant is None:
             return _refus(
@@ -466,10 +530,11 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
             "message_id": identifiant, "appel_id": call_id,
             "subject": tool_input.get("subject") or "", "details": tool_input.get("details"),
             "customer_name": tool_input.get("customer_name"),
-            "caller_number": (caller_number or "").strip() or None})
+            "caller_number": (caller_number or "").strip() or None,
+            "numero_rappel": rappel})
         return json.dumps(
             {"status": "recorded", "message_id": identifiant,
-             "rappel_possible": bool((caller_number or "").strip())},
+             "rappel_possible": bool((caller_number or "").strip() or rappel)},
             ensure_ascii=False)
 
     if name not in OUTILS_DU_CARNET:
@@ -563,10 +628,21 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     # « Très bien merci », et une table enregistrée SANS NOM — introuvable en salle.
     if not str(tool_input.get("customer_name") or "").strip():
         return _refus("Nom manquant : demande le nom du client avant d'enregistrer.")
+    # Appel masqué : le numéro dicté va dans les NOTES, jamais dans le téléphone de la
+    # réservation — c'est ce champ-là qui ouvre la modification (#33), et le modèle ne
+    # le fournit pas. Les notes, elles, sont lues par le restaurant qui doit rappeler.
+    rappel, refus = _numero_de_rappel(tool_input, caller_number, exiger=False)
+    if refus:
+        return _refus(refus)
+    notes = tool_input.get("notes")
+    if rappel:
+        mention = (f"Joignable au {rappel} (numéro donné par l'appelant"
+                   f"{'' if (caller_number or '').strip() else ', appel masqué'})")
+        notes = f"{notes} — {mention}" if notes else mention
     reservation = await carnet.creer(
         nom=tool_input["customer_name"], date=tool_input["date"], heure=tool_input["time"],
         couverts=tool_input["party_size"], telephone=(caller_number or "").strip() or None,
-        notes=tool_input.get("notes"))
+        notes=notes)
     notifications.planifier(tenant, "reservation_creee",
                             {"reservation": reservation, "appel_id": call_id})
     if reservation.get("a_valider"):

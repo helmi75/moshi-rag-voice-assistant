@@ -13,12 +13,14 @@ qui ne construisent pas de pipeline n'ont pas à les payer.
 import asyncio
 import json
 import os
+import re
 from typing import Optional
 
 from loguru import logger
 
 from .. import llm, taches
 from ..tenants import Tenant
+from .rattrapage import PARDON, pardon
 
 
 def make_tool_handler(
@@ -105,35 +107,10 @@ def build_stt(tenant: Tenant, language: str):
     18/09/2026 (tag `archive/moteurs-locaux`)."""
     from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
 
-    # Boost de vocabulaire Deepgram : le nom de l'établissement + le lexique de la
-    # réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz
-    # (mots inventés à la place de « réservation », noms propres écorchés...).
-    name_words = [w for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
-    lexicon = [
-        ("réservation", 3), ("réserver", 3), ("couverts", 2), ("personnes", 2),
-        ("table", 2), ("midi", 1), ("soir", 1), ("demain", 1),
-        ("allergie", 2), ("terrasse", 2), ("annuler", 2),
-        # Ajoutés le 01/09/2026 après trois appels réels : « je voudrais annuler »
-        # est revenu en « je voudrais l'abuler », et il a fallu TROIS relances avant
-        # qu'elle comprenne. Trois relances, c'est le moment où un client raccroche.
-        ("annulation", 3), ("modifier", 2), ("décaler", 2), ("changer", 2),
-        ("confirmation", 2), ("réservé", 2),
-    ]
-    extra = [k.strip() for k in os.getenv("DEEPGRAM_KEYWORDS", "").split(",") if k.strip()]
-
     # nova-3 : nettement meilleur sur les noms propres au téléphone (validé à
     # l'oreille le 30/07/2026, là où nova-2 écrivait « fouguez » pour Fouquet's).
     model = os.getenv("DEEPGRAM_MODEL", "nova-3").strip()
-    if model.startswith("nova-3"):
-        # nova-3 a REMPLACÉ `keywords` par `keyterm` (termes nus, sans pondération).
-        # Lui envoyer `keywords` renvoie un HTTP 400 « Keywords are not supported
-        # for Nova-3 » : le STT ne démarre pas et TOUS les appels sont muets.
-        # Contrat vérifié contre l'API Deepgram le 30/07/2026.
-        boost = {"keyterm": name_words + [w for w, _ in lexicon]
-                 + [k.split(":")[0] for k in extra]}
-    else:
-        boost = {"keywords": [f"{w}:5" for w in name_words]
-                 + [f"{w}:{n}" for w, n in lexicon] + extra}
+    boost = vocabulaire(tenant, model)
 
     # Langue : voir voice/langue.py. On décroche en `multi` — un anglophone est compris
     # dès sa première phrase — puis le détecteur fixe la langue de l'établissement dès
@@ -156,6 +133,38 @@ def build_stt(tenant: Tenant, language: str):
             **boost,
         ),
     )
+
+
+def vocabulaire(tenant: Tenant, model: str | None = None) -> dict:
+    """Le vocabulaire poussé à Deepgram : le nom de l'établissement + le lexique de la
+    réservation. Réduit les transcriptions farfelues sur l'audio téléphone 8 kHz (mots
+    inventés à la place de « réservation », noms propres écorchés...). Le flux ET le
+    rattrapage (voice/rattrapage.py) s'en servent : un nom rattrapé doit s'écrire
+    comme un nom entendu."""
+    model = model or os.getenv("DEEPGRAM_MODEL", "nova-3").strip()
+    name_words = [w for w in (tenant.name or "").replace("'", " ").split() if len(w) > 2]
+    lexicon = [
+        ("réservation", 3), ("réserver", 3), ("couverts", 2), ("personnes", 2),
+        ("table", 2), ("midi", 1), ("soir", 1), ("demain", 1),
+        ("allergie", 2), ("terrasse", 2), ("annuler", 2),
+        # Ajoutés le 01/09/2026 après trois appels réels : « je voudrais annuler »
+        # est revenu en « je voudrais l'abuler », et il a fallu TROIS relances avant
+        # qu'elle comprenne. Trois relances, c'est le moment où un client raccroche.
+        ("annulation", 3), ("modifier", 2), ("décaler", 2), ("changer", 2),
+        ("confirmation", 2), ("réservé", 2),
+    ]
+    extra = [k.strip() for k in os.getenv("DEEPGRAM_KEYWORDS", "").split(",") if k.strip()]
+    if model.startswith("nova-3"):
+        # nova-3 a REMPLACÉ `keywords` par `keyterm` (termes nus, sans pondération).
+        # Lui envoyer `keywords` renvoie un HTTP 400 « Keywords are not supported
+        # for Nova-3 » : le STT ne démarre pas et TOUS les appels sont muets.
+        # Contrat vérifié contre l'API Deepgram le 30/07/2026.
+        boost = {"keyterm": name_words + [w for w, _ in lexicon]
+                 + [k.split(":")[0] for k in extra]}
+    else:
+        return {"keywords": [f"{w}:5" for w in name_words]
+                + [f"{w}:{n}" for w, n in lexicon] + extra}
+    return boost
 
 
 def amorce_assistante(tenant: Tenant) -> list[dict]:
@@ -227,6 +236,53 @@ _RELANCES = {
 }
 
 
+# « Je vérifie tout de suite. » … puis RIEN : ni outil, ni question. L'appelant attend
+# poliment, l'assistante aussi, et huit secondes plus tard : « Vous êtes toujours là ? ».
+# Relevé 8 fois sur 27 relances le 27/09/2026 (appels 184, 187, 194, 196, 198).
+_ANNONCES = re.compile(
+    r"\b(je vérifie|je vais vérifier|je regarde|je vais regarder|je cherche|"
+    r"je vais chercher|je consulte|je dois (?:la |les )?retrouver|besoin de la retrouver|"
+    r"un (?:petit )?instant|je transmets|je procède|j'enregistre|je lance|"
+    r"let me check|i'll check|i will check|one moment|just a moment|let me look|"
+    r"i'm checking)\b",
+    re.IGNORECASE)
+# Délai avant de relancer le modèle : le temps qu'un appel d'outil parti avec l'annonce
+# apparaisse dans le contexte, pas plus — l'appelant est déjà dans le silence.
+PROMESSE_DELAI_SECONDES = 1.5
+CONSIGNE_PROMESSE = (
+    "L'appelant attend en silence : tu as annoncé une action sans la faire. Fais-la "
+    "MAINTENANT en appelant l'outil, sans répéter ton annonce.")
+
+
+def _champ_message(message, nom):
+    return message.get(nom) if isinstance(message, dict) else getattr(message, nom, None)
+
+
+def promesse_en_suspens(messages) -> bool:
+    """Le dernier tour de l'assistante ANNONCE une action (« je vérifie »), et aucun
+    outil n'a suivi depuis que l'appelant a parlé.
+
+    Rien avant la première parole de l'appelant : l'accueil dit « un instant s'il vous
+    plaît », ce n'est pas une promesse. Une annonce qui finit par une question attend
+    une réponse, pas un outil."""
+    depuis_l_appelant = []
+    for message in reversed(list(messages or [])):
+        if _champ_message(message, "role") == "user":
+            break
+        depuis_l_appelant.append(message)
+    else:
+        return False
+    if any(_champ_message(m, "tool_calls") or _champ_message(m, "role") == "tool"
+           for m in depuis_l_appelant):
+        return False
+    for message in depuis_l_appelant:
+        contenu = _champ_message(message, "content")
+        if _champ_message(message, "role") == "assistant" and isinstance(contenu, str) and contenu.strip():
+            texte = contenu.strip()
+            return not texte.endswith("?") and bool(_ANNONCES.search(texte))
+    return False
+
+
 def phrases_du_pipeline() -> frozenset[str]:
     """Tout ce que l'assistante dit SANS le modèle : la reprise après l'attente et les
     relances d'un silence.
@@ -241,6 +297,7 @@ def phrases_du_pipeline() -> frozenset[str]:
         greeting.texte_de_reprise(False),
         greeting.texte_indisponible(),
         *(texte for textes in _RELANCES.values() for texte in textes),
+        *PARDON.values(),
     })
 
 
@@ -452,6 +509,28 @@ async def run_bot(
             noter=lambda langue: bord.noter_langue(langue),
         )
 
+    def langue_appel() -> str:
+        return (detecteur.langue if detecteur is not None else None) or language
+
+    # La voix que le VAD entend et que le STT ne rend pas (voice/rattrapage.py) :
+    # retranscrite à part, ou « Pardon, je n'ai pas bien entendu ». RATTRAPAGE_PAROLE=off
+    # le retire sans redéployer de code.
+    rattrapage = None
+    if os.getenv("RATTRAPAGE_PAROLE", "on").strip().lower() != "off":
+        from .rattrapage import RattrapageDeParole, transcrire_deepgram
+
+        termes = vocabulaire(tenant).get("keyterm")
+
+        async def _pardonner() -> None:
+            await task.queue_frames([TTSSpeakFrame(pardon(langue_appel()))])
+
+        rattrapage = RattrapageDeParole(
+            transcrire=lambda pcm, taux, langue: transcrire_deepgram(pcm, taux, langue, termes),
+            langue=lambda: detecteur.langue_stt if detecteur is not None else langue_de_depart(language),
+            pardonner=_pardonner,
+            noter=lambda quoi, **details: bord.noter_rattrapage(quoi, **details),
+        )
+
     # TTS dans la voix choisie pour cet établissement (même décision que l'accueil
     # pré-rendu : voices.resolve, sinon un appel mélangerait deux voix).
     tts = build_tts(tenant)
@@ -492,7 +571,8 @@ async def run_bot(
             nom_connu = await connecteurs.pour(tenant).dernier_nom(caller_number)
         except Exception as exc:
             logger.warning(f"nom du dernier passage introuvable (sans conséquence): {exc}")
-    prompt_systeme = llm.build_system_prompt(tenant, appelant=nom_connu)
+    prompt_systeme = llm.build_system_prompt(
+        tenant, appelant=nom_connu, numero_masque=not (caller_number or "").strip())
 
     # Journal des appels : collecte les réservations créées pendant CET appel.
     created_reservations: list[int | str] = []
@@ -592,9 +672,21 @@ async def run_bot(
         if has_taken_leave(_extract_transcript(context)):
             await task.queue_frames([EndFrame()])
             return
+        # « Je vérifie… » sans rien vérifier : ce n'est pas l'appelant qui est parti,
+        # c'est l'assistante qui n'a pas fini. On la relance, elle, pas lui.
+        if not _promesse["relancee"] and promesse_en_suspens(context.get_messages()):
+            await _relancer_le_modele()
+            return
+        # L'appelant a parlé, on ne l'a pas compris : « Vous êtes toujours là ? » à
+        # quelqu'un qui vient de répondre est ce qui agaçait le plus (27/09/2026).
+        # Deux fois au plus d'affilée : sur une ligne qui ne rend que du bruit, on
+        # reprend l'escalade normale, qui finit par raccrocher.
+        if rattrapage is not None and rattrapage.voix_depuis_le_bot() and rattrapage.pardons_de_suite < 2:
+            rattrapage.pardons_de_suite += 1
+            await task.queue_frames([TTSSpeakFrame(pardon(langue_appel()))])
+            return
         _idle["n"] += 1
-        langue_appel = (detecteur.langue if detecteur is not None else None) or language
-        texte, raccrocher = relance(_idle["n"], langue_appel)
+        texte, raccrocher = relance(_idle["n"], langue_appel())
         # Après deux relances sans réponse, la ligne est abandonnée : on prend congé et
         # on libère, plutôt que de facturer des minutes Twilio pour du silence.
         await task.queue_frames([TTSSpeakFrame(texte)] + ([EndFrame()] if raccrocher else []))
@@ -602,6 +694,41 @@ async def run_bot(
     @_user_agg.event_handler("on_user_turn_stopped")
     async def _reset_idle(aggregator, *args):
         _idle["n"] = 0
+
+    # Une annonce sans outil (« Je vérifie tout de suite. » puis rien) : relancer le
+    # MODÈLE après PROMESSE_DELAI_SECONDES, au lieu de laisser l'appelant huit secondes
+    # dans le silence. Une seule fois d'affilée : s'il recommence, la relance
+    # d'inactivité reprend la main.
+    _promesse = {"tour": 0, "relancee": False}
+
+    async def _relancer_le_modele() -> None:
+        from pipecat.frames.frames import LLMMessagesAppendFrame
+
+        _promesse["relancee"] = True
+        logger.info("annonce sans outil : le modèle est relancé")
+        bord.noter_rattrapage("promesse_relancee")
+        await task.queue_frames([LLMMessagesAppendFrame(
+            messages=[{"role": "system", "content": CONSIGNE_PROMESSE}], run_llm=True)])
+
+    @_user_agg.event_handler("on_user_turn_started")
+    async def _promesse_caduque(aggregator, *args):
+        _promesse["tour"] += 1
+        _promesse["relancee"] = False
+
+    @context_aggregator.assistant().event_handler("on_assistant_turn_stopped")
+    async def _promesse_tenue(aggregator, message):
+        _promesse["tour"] += 1
+        tour = _promesse["tour"]
+        if _promesse["relancee"] or getattr(message, "interrupted", False):
+            return
+
+        async def _verifier() -> None:
+            await asyncio.sleep(PROMESSE_DELAI_SECONDES)
+            if _promesse["tour"] == tour and not _promesse["relancee"] \
+                    and promesse_en_suspens(context.get_messages()):
+                await _relancer_le_modele()
+
+        taches.lancer(_verifier(), nom=f"annonce sans outil {call_sid}")
 
     # Réf. sur le transport de sortie : le flux « standardiste » y injecte l'accueil et
     # la musique via send_audio() (DIRECT vers Twilio), sans traverser STT/VAD.
@@ -658,6 +785,10 @@ async def run_bot(
     if detecteur is not None:
         # Juste derrière le STT : c'est vers lui qu'il renvoie le changement de langue.
         etapes.insert(etapes.index(stt) + 1, detecteur)
+    if rattrapage is not None:
+        # Entre le STT et le détecteur : le texte rattrapé compte pour la langue comme
+        # un texte entendu, et les signaux du VAD remontent jusqu'ici.
+        etapes.insert(etapes.index(stt) + 1, rattrapage)
     pipeline = Pipeline(etapes)
 
     # Deux observateurs : rien n'est inséré sur le chemin de l'audio, le turn-taking

@@ -46,8 +46,10 @@
   {{ m.subject }}
   {% if m.details %}<br>{{ m.details }}{% endif %}
   <br>
-  {% if m.caller_number %}Rappeler le {{ m.caller_number }}{% else %}
-    <i>Numéro masqué : aucun rappel possible.</i>{% endif %}
+  {% if m.numero_rappel %}Rappeler le <b>{{ m.numero_rappel }}</b>
+    <small class="muted">(numéro donné par l'appelant{% if not m.caller_number %}, appel masqué{% endif %})</small>
+  {% elif m.caller_number %}Rappeler le {{ m.caller_number }}{% else %}
+    <i>Numéro masqué, aucun numéro laissé : pas de rappel possible.</i>{% endif %}
   {% if m.customer_name %} · {{ m.customer_name }}{% endif %}
   {% if not m.handled_at %}
   <form method="post" action="/admin/messages/{{ m.id }}/traite" style="display:inline">

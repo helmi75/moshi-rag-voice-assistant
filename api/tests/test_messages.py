@@ -96,11 +96,35 @@ class TestLOutilDuModele:
 
     def test_un_appel_masque_laisse_quand_meme_un_message(self, etablissement):
         """Sans numéro, l'appelant ne peut ni réserver ni retrouver quoi que ce soit :
-        lui refuser le message le laisserait sans aucun recours."""
-        sortie = self._appeler(etablissement, subject="Réclamation", _numero=None)
+        lui refuser le message le laisserait sans aucun recours. S'il ne veut pas donner
+        de numéro (« aucun »), le message part quand même."""
+        sortie = self._appeler(etablissement, subject="Réclamation", _numero=None,
+                               callback_number="aucun")
         assert sortie["status"] == "recorded"
         # Et le restaurateur voit qu'il n'y a pas de quoi rappeler.
         assert sortie["rappel_possible"] is False
+
+    def test_un_appel_masque_doit_d_abord_donner_un_numero(self, etablissement):
+        """Appel 192 (27/09/2026) : message pris SANS numéro, numéro dicté ensuite —
+        trop tard, il n'est jamais parti. Le refus met la question au bon moment."""
+        sortie = self._appeler(etablissement, subject="Vérifier ma réservation", _numero=None)
+        assert "callback_number" in sortie["error"]
+        assert messages.count_pending(etablissement.id) == 0
+
+    def test_le_numero_dicte_part_avec_le_message(self, etablissement):
+        sortie = self._appeler(etablissement, subject="Vérifier ma réservation", _numero=None,
+                               callback_number="0 6 45 75 0 5 88")
+        assert sortie["status"] == "recorded" and sortie["rappel_possible"] is True
+        [message] = messages.list_messages(etablissement.id)
+        assert message["numero_rappel"] == "06 45 75 05 88"
+        assert message["caller_number"] is None  # le réseau n'a rien dit : on ne l'invente pas
+
+    def test_un_numero_incomplet_est_redemande(self, etablissement):
+        """« 0 6 45 60 » : quatre chiffres sur dix, le premier essai de l'appel 192."""
+        sortie = self._appeler(etablissement, subject="Rappel", _numero=None,
+                               callback_number="0 6 45 60")
+        assert "incomplet" in sortie["error"]
+        assert messages.count_pending(etablissement.id) == 0
 
     def test_sans_objet_l_outil_refuse_sans_faire_echouer_l_appel(self, etablissement):
         sortie = self._appeler(etablissement, subject="")
@@ -130,6 +154,23 @@ class TestLOutilDuModele:
             phone_number="+33100000000", language="fr", greeting="Bonjour.",
             knowledge_base="x"))
         assert "take_message" in prompt
+
+
+class TestNumeroDicte:
+    """Ce que le modèle a compris à l'oral, remis en forme — ou refusé s'il est incomplet."""
+
+    @pytest.mark.parametrize("dicte", ["06 45 75 05 88", "0 6 45 75 0 5 88", "0645750588",
+                                       "+33 6 45 75 05 88", "0033645750588", "06.45.75.05.88"])
+    def test_un_numero_francais_complet(self, dicte):
+        assert messages.numero_dicte(dicte) == ("06 45 75 05 88", None)
+
+    def test_un_numero_etranger(self):
+        assert messages.numero_dicte("+44 20 7946 0958") == ("+442079460958", None)
+
+    @pytest.mark.parametrize("dicte", ["0 6 45 60", "06 45 75 05 8", "", "aucun"])
+    def test_un_numero_incomplet(self, dicte):
+        numero, motif = messages.numero_dicte(dicte)
+        assert numero is None and "incomplet" in motif
 
 
 class TestRGPD:

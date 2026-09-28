@@ -140,7 +140,16 @@ def sujet_et_corps(evenement: str, tenant, donnees: dict) -> tuple[str, str]:
             corps.append(f"Message : {donnees['details']}")
         if donnees.get("customer_name"):
             corps.append(f"De la part de : {donnees['customer_name']}")
-        corps.append(f"Rappeler le : {_telephone(donnees.get('caller_number'))}")
+        rappel, appelant = donnees.get("numero_rappel"), donnees.get("caller_number")
+        if rappel:
+            # Dicté par l'appelant : le dire, pour qu'un numéro mal compris ne passe pas
+            # pour un numéro vérifié.
+            corps.append(f"Rappeler le : {rappel} (numéro donné par l'appelant"
+                         f"{'' if appelant else ', appel masqué'})")
+            if appelant and appelant != rappel:
+                corps.append(f"Numéro de l'appel : {appelant}")
+        else:
+            corps.append(f"Rappeler le : {_telephone(appelant)}")
     elif evenement == "carnet_injoignable":
         # SCRUM-87 : pendant la panne, l'assistante n'enregistre rien et prend des
         # messages. Le restaurateur doit le savoir avant le service, pas après.

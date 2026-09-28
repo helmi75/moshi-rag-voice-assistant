@@ -169,6 +169,11 @@ class DetecteurDeLangue(FrameProcessor):
         self._tour: Optional[dict] = None
         self._tours_sourds = 0
 
+    @property
+    def langue_stt(self) -> str:
+        """La langue demandée au STT en ce moment : celle fixée, sinon le bilingue."""
+        return self._fixee or BILINGUE
+
     def decider(self, mots: Counter) -> Optional[str]:
         """Ajoute une phrase à la fenêtre ; renvoie la langue si elle est tranchée."""
         if not mots:

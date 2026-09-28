@@ -205,6 +205,14 @@ DROP INDEX IF EXISTS idx_reservations_tenant;
 ALTER TABLE tenants ADD COLUMN booking_provider TEXT;
 ALTER TABLE calls ADD COLUMN reservation_externe TEXT;
 """,
+    # v15 — messages.numero_rappel : le numéro DICTÉ par l'appelant pour être rappelé.
+    # Appel 192 (27/09/2026) : numéro masqué, l'assistante a noté « zéro six, quarante-
+    # cinq… » à voix haute, mais le message était déjà parti sans lui — l'équipe ne
+    # pouvait pas rappeler. Colonne à part, jamais mêlée à caller_number : celui-là vient
+    # du réseau et identifie l'appelant ; celui-ci n'est qu'un « rappelez-moi ici ».
+    """
+ALTER TABLE messages ADD COLUMN numero_rappel TEXT;
+""",
 ]
 
 

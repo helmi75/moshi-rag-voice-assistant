@@ -3,6 +3,8 @@
 L'auth se fait par DÉPENDANCES (pas de middleware global) : les webhooks Twilio,
 /ws/voice et /health ne traversent aucune logique d'auth.
 """
+import functools
+import hashlib
 import hmac
 import secrets
 from pathlib import Path
@@ -17,6 +19,30 @@ from ..users import User
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@functools.lru_cache(maxsize=None)
+def _empreinte(nom: str) -> str:
+    try:
+        return hashlib.sha256((STATIC_DIR / nom).read_bytes()).hexdigest()[:10]
+    except OSError:
+        return "0"
+
+
+def statique(nom: str) -> str:
+    """L'adresse d'un fichier de /admin/static, suivie de l'empreinte de son contenu.
+
+    Sans elle, un correctif de feuille de style n'atteint pas le navigateur : le fichier
+    est servi sans en-tête de cache, et le navigateur garde sa copie tant qu'il l'estime
+    fraîche. Constaté le 27/09/2026 : la correction des cases à cocher était en ligne,
+    Helmi voyait encore l'ancienne page. L'empreinte change avec le contenu, donc à
+    chaque déploiement qui le modifie — et seulement alors. Calculée une fois par
+    processus : un déploiement redémarre le conteneur."""
+    return f"/admin/static/{nom}?v={_empreinte(nom)}"
+
+
+templates.env.globals["statique"] = statique
 
 
 def ensure_csrf(request: Request) -> str:

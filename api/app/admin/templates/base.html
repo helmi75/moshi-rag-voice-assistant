@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>{% block title %}Admin{% endblock %} — Helmane</title>
-  <link rel="stylesheet" href="/admin/static/pico.min.css">
-  <link rel="stylesheet" href="/admin/static/admin.css">
-  <script src="/admin/static/htmx.min.js" defer></script>
-  <script src="/admin/static/admin.js" defer></script>
+  <link rel="stylesheet" href="{{ statique('pico.min.css') }}">
+  <link rel="stylesheet" href="{{ statique('admin.css') }}">
+  <script src="{{ statique('htmx.min.js') }}" defer></script>
+  <script src="{{ statique('admin.js') }}" defer></script>
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{ request.session.get("csrf", "") }}"}'>
 {% set shell_user = request.state.user if request.state.user is defined else none %}

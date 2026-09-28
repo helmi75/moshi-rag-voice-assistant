@@ -433,6 +433,10 @@ input[type="checkbox"], input[type="radio"] {
   accent-color: var(--app-accent);
   width: 1.15rem; height: 1.15rem; flex: none;
 }
+/* Une case à cocher est CARRÉE. Le rayon du thème, pensé pour les boutons en pilule,
+   la rendait ronde : on la prenait pour un bouton radio (« ce ne sont pas des coches à
+   cocher », Helmi, 27/09/2026, sur les jours fermés). */
+input[type="checkbox"]:not([role="switch"]) { border-radius: .3rem; }
 input:focus, select:focus, textarea:focus {
   border-color: var(--app-accent) !important;
   box-shadow: 0 0 0 4px var(--app-accent-soft) !important;

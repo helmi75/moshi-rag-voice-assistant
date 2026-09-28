@@ -242,6 +242,7 @@ class JournalDeBord(BaseObserver):
         self._compteurs = {
             "tours": 0, "coupures_du_client": 0, "coupures_du_bot": 0,
             "finales_vides": 0, "revisions_stt": 0,
+            "paroles_rattrapees": 0, "paroles_perdues": 0, "annonces_relancees": 0,
         }
 
     # -- horloge --------------------------------------------------------------
@@ -494,6 +495,20 @@ class JournalDeBord(BaseObserver):
         try:
             self._langue = langue
             self._noter(self._dernier_t, "langue", langue=langue)
+        except Exception:
+            self._tronque = True
+
+    def noter_rattrapage(self, quoi: str, **details) -> None:
+        """Les filets du 27/09/2026 : une voix sans transcription (voice/rattrapage.py),
+        `rattrape` si la seconde transcription l'a comprise, `pas_entendu` sinon ; et
+        `promesse_relancee`, une annonce (« je vérifie ») restée sans outil. Ces
+        compteurs diront si les pertes persistent — et à quel point les filets servent."""
+        try:
+            cle = {"rattrape": "paroles_rattrapees", "pas_entendu": "paroles_perdues",
+                   "promesse_relancee": "annonces_relancees"}.get(quoi)
+            if cle:
+                self._compteurs[cle] += 1
+            self._noter(self._dernier_t, quoi, **details)
         except Exception:
             self._tronque = True
 
