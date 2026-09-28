@@ -7,6 +7,20 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la voix « Marie » de Mistral, au choix, avec son ton (SCRUM-94, 28/09/2026)
+
+### Ajouté
+- **Marie (Voxtral, Mistral)** rejoint le catalogue des voix, en quatre tons : neutre,
+  joyeuse, curieuse, enthousiaste. Chaque ton s'écoute sur la page « Voix & accueil ».
+  Retenue par Helmi au test d'écoute à l'aveugle du 28/09 (dix phrases d'appels réels).
+- **Pas de GPU derrière** : ni réveil de 46 s ni musique d'attente au décroché, premier
+  son d'une réponse en ~0,5 s. La voix coûte ~0,8 centime par appel, contre 8,5 pour le
+  GPU sur les 201 appels enregistrés.
+- Contrôle de supervision **« Voix Voxtral »**, le seizième : clé absente (panne),
+  synthèses échouées dans l'heure (attention).
+- La liaison Twilio ne change pas : seule la voix passe par l'API de Mistral, en flux.
+  Mise en service : `docs/VOXTRAL.md` (une clé `MISTRAL_API_KEY` dans le `.env`).
+
 ## Non publiée — elle écoute mieux, redemande moins, rappelle les numéros masqués (27/09/2026)
 
 Tiré de 19 appels de test (183 à 201) : 27 « Vous êtes toujours là ? », des questions déjà

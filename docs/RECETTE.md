@@ -169,6 +169,19 @@ la laisser ouverte pendant les appels.
 **R1 est le test qui compte** : une réservation que l'assistante annonce et que le carnet ne
 contient pas est la seule faute impardonnable de toute l'intégration.
 
+## V. La voix Marie (Voxtral) — SCRUM-94
+
+Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| V1 | « Voix & accueil » : écouter les quatre tons de Marie | Quatre extraits jouables, en qualité téléphone | |
+| V2 | Choisir « Marie · joyeuse », enregistrer | « Actuellement : Marie · joyeuse » ; l'accueil regénéré s'écoute en quelques secondes | |
+| V3 | Appeler, **à n'importe quelle heure** | L'accueil, puis « Je vous écoute. » tout de suite : **pas de musique d'attente** | |
+| V4 | Réserver une table | Toute la conversation dans la voix de Marie, relances et « pardon » compris ; jamais une autre voix | |
+| V5 | `/supervision` | « Voix Voxtral » : 1 établissement, aucun échec | |
+| V6 | Revenir à une voix Moshi | Tout redevient comme avant (réveil et musique si le GPU dort) | |
+
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 
 | # | Faire | Attendu | OK ? |
