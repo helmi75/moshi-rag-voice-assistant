@@ -224,3 +224,14 @@ class TestLaFicheEtablissement:
     def test_la_creation_garde_ses_champs(self):
         page = _client().get("/admin/tenants/new")
         assert 'name="knowledge_base"' in page.text and 'name="greeting"' in page.text
+
+
+def test_le_conflit_s_affiche_dans_la_page():
+    """htmx 1.9 ne remplace rien sur une réponse 4xx : sans cette exception, le refus
+    « base modifiée entre-temps » (409) resterait invisible et le bouton sans effet."""
+    from pathlib import Path
+
+    import app.admin as admin
+
+    script = (Path(admin.__file__).parent / "static" / "admin.js").read_text()
+    assert "status === 409" in script and "status === 422" in script

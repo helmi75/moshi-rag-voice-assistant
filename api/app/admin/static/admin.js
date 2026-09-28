@@ -12,11 +12,12 @@ document.addEventListener("change", (event) => {
   }
 });
 
-// Une saisie refusée (HTTP 422) revient avec le fragment et son message d'erreur : htmx
-// 1.9 n'affiche pas les réponses 4xx par défaut, et la ligne resterait figée sans dire
+// Une saisie refusée (HTTP 422) ou un conflit (HTTP 409 : la base a changé entre-temps,
+// « Ce que l'IA sait ») revient avec le fragment et son message d'erreur : htmx 1.9
+// n'affiche pas les réponses 4xx par défaut, et la ligne resterait figée sans dire
 // pourquoi l'enregistrement n'a pas eu lieu.
 document.addEventListener("htmx:beforeSwap", (event) => {
-  if (event.detail.xhr.status === 422) {
+  if (event.detail.xhr.status === 422 || event.detail.xhr.status === 409) {
     event.detail.shouldSwap = true;
     event.detail.isError = false;
   }
