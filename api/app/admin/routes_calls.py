@@ -133,7 +133,7 @@ def call_detail(request: Request, call_id: int,
 # ferait répondre 422 à FastAPI avant toute vérification d'autorisation, et
 # `test_admin_security.py` compte un 422 comme « l'autorisation n'a PAS été atteinte »,
 # c'est-à-dire comme une fuite non prouvée. On valide donc à la main, et on renvoie 404.
-_PISTES_SERVIES = ("stereo", "appelant", "assistante")
+_PISTES_SERVIES = ("stereo", "mixte", "appelant", "assistante")
 
 
 def _pistes_presentes(call: dict) -> list[str]:
@@ -156,8 +156,12 @@ def _pistes_presentes(call: dict) -> list[str]:
 
 @router.get("/admin/calls/{call_id}/diagnostic")
 def call_diagnostic(request: Request, call_id: int,
-                          user: User = Depends(deps.current_user)):
-    """Réécouter un appel et lire sa chronologie, tour par tour."""
+                          user: User = Depends(deps.require_superadmin)):
+    """Réécouter un appel et lire sa chronologie, tour par tour.
+
+    Réservé au super-admin (SCRUM-108) : latences, fins de tour, journal de bord — un
+    outil d'équipe technique. Le restaurateur réécoute l'appel et lit la transcription
+    dans la fiche elle-même."""
     call = _load_scoped(call_id, user)
     deps.ensure_csrf(request)
     contexte = _pane_context(request, call)
@@ -195,6 +199,10 @@ async def call_audio(call_id: int, piste: str = "stereo",
             # Appelant à gauche, assistante à droite : on ENTEND qui parle par-dessus
             # qui, ce qu'un mixage laisserait seulement deviner.
             return ulaw.entrelacer(_lire("appelant"), _lire("assistante")), 2
+        if piste == "mixte":
+            # Les deux voix dans une seule piste : ce que réécoute le restaurateur, sur
+            # un téléphone ou avec un seul écouteur (le stéréo lui ferait perdre une voix).
+            return ulaw.mixer(_lire("appelant"), _lire("assistante")), 1
         return _lire(piste), 1
 
     # Lecture et décodage DANS UN THREAD : l'admin tourne dans le même processus que

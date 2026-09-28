@@ -125,3 +125,17 @@ def entrelacer(gauche: bytes, droite: bytes) -> bytes:
     stereo[: g.size, 0] = g
     stereo[: d.size, 1] = d
     return stereo.tobytes()
+
+
+def mixer(une: bytes, autre: bytes) -> bytes:
+    """Deux flux PCM mono → un seul, les voix superposées (SCRUM-108).
+
+    Pour le restaurateur qui réécoute un appel sur son téléphone : le stéréo met une voix
+    dans chaque oreille, et avec un seul écouteur on n'en entend qu'une. Somme écrêtée à
+    l'int16 ; le plus court est complété par du silence."""
+    a = np.frombuffer(une, dtype="<i2").astype(np.int32)
+    b = np.frombuffer(autre, dtype="<i2").astype(np.int32)
+    somme = np.zeros(max(a.size, b.size), dtype=np.int32)
+    somme[: a.size] += a
+    somme[: b.size] += b
+    return np.clip(somme, -32768, 32767).astype("<i2").tobytes()

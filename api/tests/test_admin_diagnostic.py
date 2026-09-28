@@ -202,3 +202,49 @@ class TestLaPageDeDiagnostic:
         _connexion(client)
         assert f"/admin/calls/{avec}/diagnostic" in client.get(f"/admin/calls/{avec}").text
         assert f"/admin/calls/{sans}/diagnostic" not in client.get(f"/admin/calls/{sans}").text
+
+
+class TestLeRestaurateurReecouteSansDiagnostic:
+    """SCRUM-108 : la fiche d'appel du restaurateur = l'enregistrement et la
+    transcription. Le diagnostic (chronologie, latences) est un outil d'équipe."""
+
+    @pytest.fixture()
+    def chez_moi(self):
+        t = tenants.create_tenant("Chez Moi", "+33199001003")
+        moi = users.create_user(f"moi-{t.id}@test.fr", "resto-pass-diag",
+                                users.ROLE_RESTAURATEUR, t.id)
+        yield t, moi
+        tenants.delete_tenant(t.id)
+
+    def test_la_fiche_propose_l_enregistrement_mais_pas_le_diagnostic(self, client, chez_moi):
+        t, moi = chez_moi
+        appel = _appel(t.id, sid="CA-moi", journal=JOURNAL, octets=1000, audio=True)
+        _connexion(client, moi.email, "resto-pass-diag")
+        fiche = client.get(f"/admin/calls/{appel}").text
+        assert f"/admin/calls/{appel}/audio.wav?piste=mixte" in fiche
+        assert "bonjour" in fiche  # la transcription
+        assert f"/admin/calls/{appel}/diagnostic" not in fiche
+        assert client.get(f"/admin/calls/{appel}/diagnostic").status_code == 403
+
+    def test_le_melange_est_une_seule_piste_avec_les_deux_voix(self, client, chez_moi):
+        t, moi = chez_moi
+        appel = _appel(t.id, sid="CA-mix", journal=JOURNAL, octets=1000, audio=True)
+        _connexion(client, moi.email, "resto-pass-diag")
+        reponse = client.get(f"/admin/calls/{appel}/audio.wav?piste=mixte")
+        assert reponse.status_code == 200 and reponse.content[:4] == b"RIFF"
+        assert struct.unpack("<H", reponse.content[22:24])[0] == 1  # mono
+
+    def test_le_super_admin_garde_le_diagnostic(self, client, chez_moi):
+        t, _ = chez_moi
+        appel = _appel(t.id, sid="CA-sa", journal=JOURNAL, octets=1000, audio=True)
+        _connexion(client)
+        assert f"/admin/calls/{appel}/diagnostic" in client.get(f"/admin/calls/{appel}").text
+        assert client.get(f"/admin/calls/{appel}/diagnostic").status_code == 200
+
+
+def test_mixer_superpose_et_ecrete():
+    from app.voice import ulaw
+
+    a = struct.pack("<3h", 30000, 100, -30000)
+    b = struct.pack("<2h", 10000, 50)
+    assert struct.unpack("<3h", ulaw.mixer(a, b)) == (32767, 150, -30000)
