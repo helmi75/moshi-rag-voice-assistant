@@ -251,3 +251,28 @@ class TestJournal:
         assert (compteurs["paroles_rattrapees"], compteurs["paroles_perdues"],
                 compteurs["annonces_relancees"]) == (1, 1, 1)
         assert [e["quoi"] for e in j.evenements] == ["rattrape", "pas_entendu", "promesse_relancee"]
+
+
+class TestLangueDuRattrapage:
+    """Appel 204 (28/09/2026) : rattrapée en bilingue, la première phrase d'un appel est
+    revenue en anglais inventé, et l'assistante a changé de langue pour rien."""
+
+    def _detecteur(self, stt, langue):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(langue_stt=stt, langue=langue)
+
+    def test_jamais_le_bilingue(self, monkeypatch):
+        monkeypatch.delenv("DEEPGRAM_LANGUAGE", raising=False)
+        assert bot.langue_du_rattrapage(self._detecteur("multi", None), "fr") == "fr"
+        assert bot.langue_du_rattrapage(None, "fr") == "fr"
+
+    def test_la_langue_fixee_du_stt_prime(self):
+        assert bot.langue_du_rattrapage(self._detecteur("fr", "fr"), "fr") == "fr"
+
+    def test_un_appel_anglais_se_rattrape_en_anglais(self):
+        assert bot.langue_du_rattrapage(self._detecteur("multi", "en"), "fr") == "en"
+
+    def test_une_langue_imposee_est_respectee(self, monkeypatch):
+        monkeypatch.setenv("DEEPGRAM_LANGUAGE", "en")
+        assert bot.langue_du_rattrapage(None, "fr") == "en"

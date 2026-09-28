@@ -98,6 +98,26 @@ def detection_de_langue() -> bool:
             and not os.getenv("DEEPGRAM_LANGUAGE", "").strip())
 
 
+def langue_du_rattrapage(detecteur, langue_du_lieu: str) -> str:
+    """La langue dans laquelle retranscrire une voix perdue (voice/rattrapage.py).
+
+    Jamais `multi` : sur une phrase courte, le bilingue invente de l'anglais sûr de lui.
+    Appel 204 (28/09/2026) : la première phrase de l'appelant, rattrapée en `multi`, est
+    revenue « All I have taken, can I assist her name for forward? » à 0,71 de confiance,
+    et l'assistante est passée à l'anglais pour rien. Mesuré la veille sur l'appel 199 :
+    « Ouais ouais » donne « Well, what? » en `multi`, « Ouais ouais » en `fr`.
+
+    Donc : la langue fixée du STT ; sinon l'anglais s'il est avéré dans l'appel ; sinon
+    la langue de l'établissement."""
+    if detecteur is not None:
+        if detecteur.langue_stt != "multi":
+            return detecteur.langue_stt
+        if detecteur.langue == "en":
+            return "en"
+    depart = langue_de_depart(langue_du_lieu)
+    return depart if depart != "multi" else langue_du_lieu
+
+
 def langue_de_depart(language: str) -> str:
     """La langue demandée à Deepgram au décroché."""
     forcee = os.getenv("DEEPGRAM_LANGUAGE", "").strip()
@@ -533,7 +553,7 @@ async def run_bot(
 
         rattrapage = RattrapageDeParole(
             transcrire=lambda pcm, taux, langue: transcrire_deepgram(pcm, taux, langue, termes),
-            langue=lambda: detecteur.langue_stt if detecteur is not None else langue_de_depart(language),
+            langue=lambda: langue_du_rattrapage(detecteur, language),
             pardonner=_pardonner,
             noter=lambda quoi, **details: bord.noter_rattrapage(quoi, **details),
         )

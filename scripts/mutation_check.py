@@ -731,6 +731,16 @@ GARDE_FOUS = [
               "montrait encore l'ancienne page",
     ),
     GardeFou(
+        nom="Une voix perdue ne se rattrape jamais en bilingue",
+        fichier="api/app/voice/bot.py",
+        avant="    return depart if depart != \"multi\" else langue_du_lieu",
+        apres="    return depart  # mutation",
+        tests=["test_rattrapage.py"],
+        k="bilingue",
+        panne="appel 204 : « All I have taken… » inventé en bilingue, l'assistante passe à "
+              "l'anglais avec un Français",
+    ),
+    GardeFou(
         nom="Sans clé Mistral, Marie cède la place à une voix qui parle",
         fichier="api/app/voice/voices.py",
         avant="    if voix.fournisseur == VOXTRAL and not voxtral_disponible():",
