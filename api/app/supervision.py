@@ -526,13 +526,13 @@ def _controle_accueils() -> Controle:
     # La sonde doit rester chargeable même dans un contexte qui n'en a pas besoin.
     from .voice import greeting as greeting_mod
 
-    if not greeting_mod.is_moshi_server():
+    liste = [t for t in tenants.list_all() if greeting_mod.pre_rendu_possible(t)]
+    if not liste:
         return Controle(
             "accueils", "Voix d'accueil", OK,
-            "Sans objet : le TTS n'est pas moshi-server.",
+            "Sans objet : ni moshi-server ni Voxtral pour rendre un accueil.",
             mesure={"applicable": False},
         )
-    liste = tenants.list_all()
     manquants = [t.name for t in liste if greeting_mod.cached_greeting_path(t) is None]
     # Le message « rappelez dans quelques minutes » ne sert que GPU introuvable : son
     # absence ne se remarquerait qu'au pire moment, en rendant le silence à l'appelant.
@@ -882,6 +882,42 @@ def _controle_carnets() -> Controle:
     )
 
 
+def _controle_voxtral() -> Controle:
+    """La voix Marie (Voxtral, Mistral) des établissements qui l'ont choisie (SCRUM-97).
+
+    Pas de GPU derrière : pas de réveil ni de capacité à obtenir, mais une panne de
+    Mistral rendrait l'assistante muette phrase après phrase. On lit les échecs des
+    vrais appels de l'heure (relevés par `voice/voxtral_tts.py`), sans sonder Mistral
+    d'ici : chaque sonde serait une synthèse facturée."""
+    from .voice import voices, voxtral_tts
+
+    choisis = [t for t in tenants.list_all() if voices.est_voxtral(getattr(t, "voice", None))]
+    if not choisis:
+        return Controle("voxtral", "Voix Voxtral", OK,
+                        "Sans objet : aucun établissement n'a choisi Marie.",
+                        mesure={"etablissements": 0})
+    noms = ", ".join(t.name for t in choisis[:5])
+    if not voices.voxtral_disponible():
+        return Controle(
+            "voxtral", "Voix Voxtral", PANNE,
+            f"Clé Mistral absente : {len(choisis)} établissement(s) ont choisi Marie.",
+            f"{noms} : MISTRAL_API_KEY manque dans le .env du serveur. Leurs appels "
+            "partent sur la voix Moshi par défaut, avec son réveil de GPU.",
+            mesure={"etablissements": len(choisis), "cle": False})
+    echecs = voxtral_tts.echecs_depuis(3600)
+    if echecs:
+        return Controle(
+            "voxtral", "Voix Voxtral", ATTENTION,
+            f"{len(echecs)} synthèse(s) Voxtral échouée(s) dans l'heure.",
+            f"Dernière erreur : {echecs[-1][1]}. Chaque échec est une phrase que "
+            f"l'appelant n'a pas entendue ({noms}).",
+            mesure={"etablissements": len(choisis), "cle": True, "echecs_1h": len(echecs)})
+    return Controle(
+        "voxtral", "Voix Voxtral", OK,
+        f"{len(choisis)} établissement(s) en voix Marie, aucun échec dans l'heure.",
+        mesure={"etablissements": len(choisis), "cle": True, "echecs_1h": 0})
+
+
 def _age_minutes(iso: Optional[str]) -> Optional[int]:
     instant = horloge.lire_utc(iso) if iso else None
     return int((_maintenant() - instant).total_seconds() // 60) if instant else None
@@ -925,6 +961,7 @@ def controles() -> list[Controle]:
         ("latence", _controle_latence),
         ("twilio", _controle_twilio),
         ("carnets", _controle_carnets),
+        ("voxtral", _controle_voxtral),
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
         ("purge", _controle_purge),

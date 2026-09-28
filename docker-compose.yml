@@ -49,6 +49,10 @@ services:
       # Voix entendue sans aucun mot transcrit : retranscrite à part, sinon « Pardon, je
       # n'ai pas bien entendu » (voice/rattrapage.py). « off » le retire.
       RATTRAPAGE_PAROLE: "${RATTRAPAGE_PAROLE:-on}"
+      # Voix Marie (Voxtral, Mistral) — SCRUM-94. Sans clé, Marie ne se choisit pas et un
+      # établissement qui l'avait choisie retombe sur la voix Moshi par défaut.
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
+      VOXTRAL_MODEL: "${VOXTRAL_MODEL:-voxtral-mini-tts-2603}"
       # Transcription : Deepgram nova-3 en flux — le seul moteur STT depuis le 18/09/2026.
       DEEPGRAM_API_KEY: "${DEEPGRAM_API_KEY:-}"
       # Modèle Deepgram. nova-3 = défaut (bien meilleur sur les noms propres au
