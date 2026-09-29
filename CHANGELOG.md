@@ -7,6 +7,26 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — thème sombre au choix, graphiques au survol, fiche d'une réservation (ASSISTANTE-114 à 116, 29/09/2026)
+
+Retours de Helmi après la recette du sprint 2.
+
+### Ajouté
+- **Thème clair ou sombre au choix** (ASSISTANTE-114) : trois pastilles dans la barre
+  latérale — comme l'appareil (par défaut), clair, sombre. La page bascule aussitôt ; le
+  choix est retenu sur l'appareil et posé par le serveur, sans flash du mauvais thème.
+- **Graphiques interactifs** (ASSISTANTE-115) : au survol, au toucher ou au clavier (les
+  flèches parcourent les jours), une bulle donne la date en toutes lettres et le nombre ;
+  la barre visée reste pleine, les autres s'effacent. Un jour à zéro se survole aussi.
+- **Fiche d'une réservation** (ASSISTANTE-116) : dans la vue du jour, un clic sur une
+  réservation ouvre la réservation, son client (numéro cliquable, ses autres réservations,
+  ses appels) et la conversation qui l'a prise (enregistrement, transcription). Marche
+  aussi pour resOS ; une réservation saisie à la main le dit.
+
+### Corrigé
+- Le bouton « Quitter » reprend son apparence discrète (il prenait le bleu des boutons
+  principaux).
+
 ## Non publiée — Sprint 2 « Admin pro » : une interface restaurateur plus simple (SCRUM-106 à 113, 28/09/2026)
 
 Retours de Helmi sur l'admin, traités dans le sprint 2.
