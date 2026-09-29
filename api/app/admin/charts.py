@@ -1,4 +1,9 @@
-"""Graphiques SVG server-rendered (zéro JS, zéro dépendance).
+"""Graphiques SVG server-rendered (zéro dépendance).
+
+Le rendu est complet sans script. admin.js n'ajoute que la bulle du survol (ASSISTANTE-115) :
+chaque jour est un groupe `.viz-barre` qui porte sa date et sa valeur en toutes lettres
+(`data-quand`, `data-valeur`), avec une cible de la hauteur du graphique — un jour à zéro
+se survole aussi, et viser une barre de 19 unités au doigt ne suffirait pas.
 
 Conventions (skill dataviz) :
 - une série par graphique → pas de légende, le titre nomme la série ;
@@ -6,7 +11,7 @@ Conventions (skill dataviz) :
   thèmes ; le texte porte l'encre texte (muted), jamais la couleur de série ;
 - barres fines, sommet arrondi 4px ancré à la baseline, écart 2px minimum ;
 - labels de valeur directs (règle de « relief » : la série aqua est sous 3:1 sur
-  fond clair, donc les valeurs sont affichées) + <title> natif au survol. Une valeur
+  fond clair, donc les valeurs sont affichées) + la bulle au survol. Une valeur
   au-dessus de CHAQUE barre non nulle tant qu'elle y tient (SCRUM-113 : Helmi lisait
   30 jours à l'œil, seuls le maximum et le dernier jour étaient écrits) ;
 - axe/grille en retrait (une baseline discrète), pas de double axe.
@@ -30,10 +35,21 @@ def _top_rounded_bar(x: float, y: float, w: float, h: float, r: float = 4) -> st
     )
 
 
-def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
+def _compte(valeur: float, unite: tuple[str, str]) -> str:
+    """« 12 appels », « 1 réservation », « 0 appel » : singulier jusqu'à 1, comme en
+    français."""
+    singulier, pluriel = unite
+    return f"{valeur:g} {singulier if valeur <= 1 else pluriel}".strip()
+
+
+def bar_chart(points: list[tuple], *, title: str, series: int = 1,
               width: int = _W, height: int = _H, tone: str = "light",
+              unite: tuple[str, str] = ("", ""),
               empty_label: str = "Aucune donnée sur la période.") -> Markup:
-    """Bar chart une série. points = [(label, valeur)]. series = slot catégoriel (1|2).
+    """Bar chart une série. points = [(label, valeur)] ou [(label, valeur, libellé
+    long)] : le label court va sur l'axe, le long (« Mardi 23 septembre 2026 ») dans la
+    bulle du survol. `unite` = (singulier, pluriel) de la valeur dans la bulle.
+    series = slot catégoriel (1|2).
 
     `tone="dark"` = le graphique est posé sur une surface sombre volontaire (la carte
     « appels du parc »), qui ne suit pas le thème : il bascule alors sur les variables
@@ -47,7 +63,7 @@ def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
             f'<p class="muted">{escape(empty_label)}</p></figure>'
         )
     n = len(points)
-    vmax = max(v for _, v in points) or 1
+    vmax = max(p[1] for p in points) or 1
     plot_w = width - _MARGIN_L * 2
     plot_h = height - _MARGIN_B - _MARGIN_T
     gap = 2 if n <= 40 else 1
@@ -61,8 +77,10 @@ def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
     show_value = bar_w + gap >= 14
     max_i = max(range(n), key=lambda i: points[i][1])
 
+    # role="group" et non "img" : un « img » rend ses enfants muets, or chaque jour est
+    # un élément que le clavier atteint.
     parts = [
-        f'<svg viewBox="0 0 {width} {height}" role="img" '
+        f'<svg viewBox="0 0 {width} {height}" role="group" '
         f'aria-label="{escape(title)} : {n} jours, maximum {vmax:g}" '
         f'style="width:100%;height:auto;font-family:inherit">',
         # Baseline discrète (grille en retrait).
@@ -71,16 +89,25 @@ def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
         f'<text x="{_MARGIN_L}" y="16" fill="var(--viz-text{suffix})" font-size="13" '
         f'font-weight="600">{escape(title)}</text>',
     ]
-    for i, (label, value) in enumerate(points):
+    for i, point in enumerate(points):
+        label, value = point[0], point[1]
+        quand = escape(point[2] if len(point) > 2 else label)
+        texte = escape(_compte(value, unite))
         x = _MARGIN_L + i * (bar_w + gap)
         h = plot_h * (value / vmax)
         y = baseline_y - h
         path = _top_rounded_bar(x, y, bar_w, h)
-        if path:
-            parts.append(
-                f'<path d="{path}" fill="var(--viz-series-{series}{suffix})">'
-                f'<title>{escape(label)} : {value:g}</title></path>'
-            )
+        # Un seul arrêt de tabulation par graphique, le dernier jour : les flèches font
+        # le reste (admin.js).
+        parts.append(
+            f'<g class="viz-barre" role="img" tabindex="{0 if i == n - 1 else -1}" '
+            f'aria-label="{quand} : {texte}" data-quand="{quand}" data-valeur="{texte}">'
+            f'<rect class="viz-cible" x="{x - gap / 2:.1f}" y="{_MARGIN_T}" '
+            f'width="{bar_w + gap:.1f}" height="{plot_h}" fill="transparent"/>'
+            + (f'<path class="viz-marque" d="{path}" '
+               f'fill="var(--viz-series-{series}{suffix})"/>' if path else "")
+            + '</g>'
+        )
         if value and (show_value or i == max_i or i == n - 1):
             parts.append(
                 f'<text class="viz-valeur" x="{x + bar_w / 2:.1f}" y="{y - 4:.1f}" '

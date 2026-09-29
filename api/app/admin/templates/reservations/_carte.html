@@ -1,6 +1,9 @@
 <article class="card cal-carte etat-{{ r.etat }}" id="resa-{{ r.id }}">
   <div class="card-head" style="padding: 0 0 .2rem">
-    <h2><span class="cal-heure-resa">{{ r.time }}</span> {{ r.customer_name or "Sans nom" }}</h2>
+    {# Toute la carte mène à la fiche (ASSISTANTE-116) : le lien s'étend sur la carte
+       (admin.css), les boutons Modifier / Annuler restent au-dessus. #}
+    <h2><a class="cal-lien" href="/admin/tenants/{{ r.tenant_id }}/reservations/{{ r.id | urlencode }}">
+      <span class="cal-heure-resa">{{ r.time }}</span> {{ r.customer_name or "Sans nom" }}</a></h2>
     {# L'état n'est jamais porté par la seule couleur : le mot est écrit. #}
     <span class="chip {{ r.chip }}">{{ r.libelle }}</span>
   </div>

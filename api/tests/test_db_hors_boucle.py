@@ -181,14 +181,18 @@ class TestLAdminNeBloquePasLaBoucle:
                     fautifs.append(traceback.format_stack(limit=3)[0].strip())
                 return originale()
 
-            monkeypatch.setattr(db, "get_conn", get_conn)
             t = essai.id
+            from app import reservations
+
+            resa = reservations.create_reservation(t, "Hors boucle", "2030-03-13", "20:00", 2)
+            monkeypatch.setattr(db, "get_conn", get_conn)
             for page in ["/admin/", "/admin/health", "/admin/calls", "/admin/reservations",
                          "/admin/tenants", f"/admin/tenants/{t}/edit",
                          f"/admin/tenants/{t}/knowledge", f"/admin/tenants/{t}/voice",
                          f"/admin/tenants/{t}/knowledge/fiches/nouvelle",
                          f"/admin/tenants/{t}/knowledge/fiches/0/modifier",
                          f"/admin/tenants/{t}/users",
+                         f"/admin/tenants/{t}/reservations/{resa['id']}",
                          f"/admin/tenants/{t}/greeting/status"]:
                 assert client.get(page).status_code == 200, page
             jeton = client.get("/admin/").text.split('"X-CSRF-Token": "')[1].split('"')[0]

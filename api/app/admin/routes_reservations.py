@@ -8,9 +8,9 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 
-from .. import connecteurs, db, disponibilite, horloge, reservations, tenants
+from .. import calls, connecteurs, db, disponibilite, horloge, reservations, tenants
 from ..users import User
-from . import calendrier, deps
+from . import calendrier, deps, presenters
 
 router = APIRouter()
 
@@ -172,6 +172,68 @@ async def _liste(request: Request, user: User, tenant_id: Optional[int],
             "has_next": len(rows) > PAGE_SIZE,
         },
     )
+
+
+@router.get("/admin/tenants/{tenant_id}/reservations/{ref}")
+async def reservation_fiche(request: Request, tenant_id: int, ref: str,
+                            user: User = Depends(deps.current_user)):
+    """La fiche d'une réservation (ASSISTANTE-116) : la réservation, son client, et la
+    conversation pendant laquelle l'assistante l'a prise. Un clic sur une carte de la
+    vue du jour y mène.
+
+    L'établissement vient de l'URL et passe par `resolve_tenant` ; la réservation doit en
+    plus lui APPARTENIR — sinon un restaurateur lirait celle d'un autre en mettant son
+    propre établissement devant l'identifiant d'une réservation qui n'est pas la sienne."""
+    deps.ensure_csrf(request)
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
+    if connecteurs.est_resos(tenant):
+        try:
+            lue = await connecteurs.pour(tenant).lire(ref)
+        except (connecteurs.Injoignable, connecteurs.Refus) as exc:
+            return deps.templates.TemplateResponse(
+                request, "reservations/fiche.html",
+                {"resa": None, "erreur": f"Réservation resOS illisible ({exc})."},
+                status_code=502)
+        resa = calendrier.resos(lue, tenant.id) if lue else None
+    else:
+        ligne = (await db.hors_boucle(reservations.get_reservation, int(ref))
+                 if ref.isdigit() else None)
+        resa = (calendrier.interne(ligne, tenant.id)
+                if ligne and ligne["tenant_id"] == tenant.id else None)
+    if resa is None:
+        raise HTTPException(status_code=404, detail="Réservation introuvable.")
+    contexte = await db.hors_boucle(_contexte_fiche, request, tenant, resa)
+    return deps.templates.TemplateResponse(request, "reservations/fiche.html", contexte)
+
+
+def _contexte_fiche(request: Request, tenant, resa: dict) -> dict:
+    from .routes_calls import _pane_context
+
+    externe = resa["source"] == "resos"
+    appel = calls.appel_d_une_reservation(tenant.id, resa["id"], externe=externe)
+    # Le numéro du client : celui de la réservation s'il est au format international,
+    # sinon celui de l'appel qui l'a prise (resOS garde le numéro tel qu'il a été saisi).
+    numero = (calls.numero_appelant(resa.get("customer_phone"))
+              or (appel or {}).get("caller_number"))
+    try:
+        quand = horloge.en_toutes_lettres(_date.fromisoformat(resa["date"])).capitalize()
+    except (TypeError, ValueError):
+        quand = resa.get("date") or "Date inconnue"
+    return {
+        "tenant": tenant, "resa": resa, "quand": quand, "numero": numero,
+        "retour": (f"/admin/reservations?vue=jour&jour={resa.get('date') or ''}"
+                   f"#resa-{resa['id']}"),
+        # resOS ne rend que les réservations À VENIR d'un numéro : son historique reste
+        # dans resOS, la fiche le dit plutôt que d'afficher une liste trompeuse.
+        "autres": [] if externe else [
+            calendrier.interne(r, tenant.id)
+            for r in reservations.du_client(tenant.id, resa.get("customer_phone"))
+            if r["id"] != resa["id"]],
+        "appels": [presenters.call_view(c) for c in calls.du_numero(tenant.id, numero)],
+        # La conversation : le panneau de la fiche d'appel, tel quel.
+        **(_pane_context(request, appel) if appel else {}),
+        "fiche": True,
+    }
 
 
 def _fragment(request: Request, user: User, resa: dict, rendu: str, *, edition=False,

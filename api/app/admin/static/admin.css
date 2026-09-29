@@ -82,6 +82,33 @@
   }
 }
 
+/* Sombre CHOISI (ASSISTANTE-114), quel que soit le réglage de l'appareil. Un sélecteur
+   ne peut pas être à la fois dans et hors d'une @media : le jeu est recopié, à l'identique
+   — test_theme.py compare les deux blocs. */
+:root[data-theme="dark"] {
+    --app-bg:          #000000;
+    --app-surface:     #1c1c1e;
+    --app-surface-2:   #2c2c2e;
+    --app-text:        #f5f5f7;
+    --app-muted:       #a1a1a6;
+    --app-faint:       #8e8e93;
+    --app-border:      rgba(255,255,255,.15);
+    --app-hairline:    rgba(255,255,255,.09);
+    --app-accent:      #2997ff;
+    --app-accent-hover:#47a6ff;
+    --app-accent-soft: rgba(41,151,255,.15);
+    --app-good:        #30d18a;
+    --app-good-soft:   rgba(48,209,138,.16);
+    --app-warn:        #ffd426;
+    --app-warn-soft:   rgba(255,212,38,.16);
+    --app-bad:         #ff6961;
+    --app-bad-soft:    rgba(255,105,97,.16);
+    --app-shadow:      0 1px 2px rgba(0,0,0,.4), 0 14px 40px rgba(0,0,0,.55);
+    --app-shadow-sm:   0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.45);
+    --app-sidebar-bg:  rgba(22,22,24,.82);
+    --app-invert-bg:   #2c2c2e;
+}
+
 /* ---- Base --------------------------------------------------------------- */
 body {
   background: var(--app-bg);
@@ -212,13 +239,30 @@ a { color: var(--app-accent); text-underline-offset: 2px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .account form { margin: 0; }
-.logout {
+button.logout {
   padding: .28rem .7rem; font-size: .72rem; font-weight: 500;
   color: var(--app-text); background: var(--app-surface-2);
   border: 1px solid var(--app-border); border-radius: 980px; box-shadow: none;
   width: auto;
 }
-.logout:hover { background: var(--app-border); }
+button.logout:hover { background: var(--app-border); }
+
+/* Thème (ASSISTANTE-114) : trois pastilles, celle en vigueur en relief. Le mot est porté
+   par `aria-pressed` et le texte masqué, jamais par la seule mise en relief. */
+.theme-choix {
+  display: inline-flex; gap: 2px; padding: 2px; margin: 0 .35rem .6rem; width: fit-content;
+  background: var(--app-surface-2); border: 1px solid var(--app-hairline); border-radius: 980px;
+}
+.theme-choix button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 1.7rem; padding: 0; margin: 0;
+  color: var(--app-muted); background: transparent; border: 0; box-shadow: none;
+}
+.theme-choix button:hover { color: var(--app-text); background: transparent; transform: none; }
+.theme-choix button[aria-pressed="true"] {
+  color: var(--app-text); background: var(--app-surface); box-shadow: var(--app-shadow-sm);
+}
+.theme-choix button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 1px; }
 
 /* ---- En-tête de page ---------------------------------------------------- */
 .page-head {
@@ -332,6 +376,9 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
 /* ---- Grilles ------------------------------------------------------------- */
 .split { display: grid; grid-template-columns: 1.3fr 1fr; gap: .9rem; align-items: start; }
 .split-even { grid-template-columns: 1fr 1fr; }
+/* Une colonne de grille ne descend pas sous la largeur de son plus long texte sur une
+   ligne (résumé d'appel) : sans ce plancher à 0, la fiche débordait sur téléphone. */
+.split > * { min-width: 0; }
 .stack { display: flex; flex-direction: column; gap: .9rem; }
 
 /* ---- Surface sombre volontaire ------------------------------------------ */
@@ -400,7 +447,7 @@ button, [type="submit"], [type="button"], [role="button"], a[role="button"] {
   transition: transform .12s ease, background .15s ease, box-shadow .15s ease, filter .15s ease;
 }
 button:not(.secondary):not(.contrast):not(.outline):not(.logout),
-[type="submit"]:not(.secondary):not(.contrast):not(.outline) {
+[type="submit"]:not(.secondary):not(.contrast):not(.outline):not(.logout) {
   background: var(--app-accent); color: var(--app-accent-ink); box-shadow: var(--app-shadow-sm);
 }
 button:hover, [type="submit"]:hover { filter: brightness(1.03); transform: translateY(-1px); }
@@ -532,6 +579,20 @@ tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
 .cal-carte.etat-annulee { opacity: .6; }
 .cal-carte.etat-annulee h2 { text-decoration: line-through; }
 .cal-action { width: auto; margin: 0; padding: .3rem .9rem; font-size: .85rem; }
+/* La carte entière ouvre la fiche (ASSISTANTE-116) : le lien du nom s'étend sur toute
+   la carte ; boutons et liens internes passent au-dessus pour rester cliquables. */
+.cal-carte { position: relative; transition: box-shadow .15s ease, border-color .15s ease; }
+.cal-lien { color: inherit; text-decoration: none; }
+.cal-lien::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.cal-carte:has(.cal-lien:hover) { border-color: var(--app-border); box-shadow: var(--app-shadow); }
+.cal-carte:has(.cal-lien:hover) .cal-lien { text-decoration: underline; text-underline-offset: 3px; }
+.cal-lien:focus-visible { outline: none; }
+.cal-carte:has(.cal-lien:focus-visible) { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.cal-carte .cal-action { position: relative; z-index: 1; }
+/* La fiche d'une réservation. */
+.fiche-texte { font-weight: 500; white-space: pre-line; }
+.fiche-pied { padding: .2rem 1.3rem 1rem; margin: 0; }
+.fiche-titre { padding: 0 1.3rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (max-width: 640px) {
   .cal-jour { min-height: 3.6rem; padding: .3rem .25rem; align-items: center; }
@@ -581,6 +642,31 @@ mark { background: var(--app-accent-soft); color: var(--app-text); border-radius
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .viz-root { --viz-series-1: #2997ff; --viz-series-2: #30d18a; }
 }
+:root[data-theme="dark"] .viz-root { --viz-series-1: #2997ff; --viz-series-2: #30d18a; }
+
+/* Survol (ASSISTANTE-115) : la colonne du jour se teinte, la barre visée reste pleine,
+   les autres s'effacent un peu ; la bulle (admin.js) donne la date et la valeur. Les
+   textes laissent passer le pointeur vers la colonne qu'ils surmontent. */
+.viz-root text { pointer-events: none; }
+.viz-barre { outline: none; }
+.viz-barre .viz-marque { transition: opacity .15s ease; }
+.viz-root svg:has(.viz-barre:hover) .viz-barre:not(:hover) .viz-marque,
+.viz-root svg:has(.viz-barre:focus-visible) .viz-barre:not(:focus-visible) .viz-marque { opacity: .45; }
+.viz-barre:hover .viz-cible, .viz-barre:focus-visible .viz-cible { fill: var(--viz-grid); }
+.viz-dark .viz-barre:hover .viz-cible,
+.viz-dark .viz-barre:focus-visible .viz-cible { fill: var(--viz-grid-on-dark); }
+.viz-barre:focus-visible .viz-cible { stroke: var(--app-accent); stroke-width: 1.5; }
+.viz-bulle {
+  position: fixed; z-index: 300; pointer-events: none;
+  display: flex; flex-direction: column; gap: .05rem;
+  padding: .45rem .7rem; border-radius: var(--app-radius-xs);
+  background: var(--app-surface); color: var(--app-text);
+  border: 1px solid var(--app-border); box-shadow: var(--app-shadow);
+  font-size: .76rem; line-height: 1.3; white-space: nowrap;
+}
+.viz-bulle[hidden] { display: none; }
+.viz-bulle strong { font-size: .95rem; font-weight: 640; font-variant-numeric: tabular-nums; }
+.viz-bulle span { color: var(--app-muted); }
 
 /* ---- Responsive : la barre latérale redevient une barre supérieure ------- */
 @media (max-width: 900px) {
@@ -598,6 +684,7 @@ mark { background: var(--app-accent-soft); color: var(--app-text); border-radius
   .nav-item { font-size: .8rem; padding: .38rem .6rem; }
   .sidebar-foot { margin-top: 0; padding-top: 0; flex-direction: row; align-items: center; gap: .6rem; }
   .line-card { display: none; }
+  .theme-choix { margin: 0; }
   .account { border-top: none; padding: 0; }
   .account-mail { display: none; }
   .main { padding: 1.25rem 1.1rem 2.5rem; }

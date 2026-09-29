@@ -57,16 +57,18 @@ def _delta(current: float, previous: float, *, unit: str = "%",
     return {"label": label, "dir": direction}
 
 
-def _fill_days(stats: list[dict], days: int, key: str) -> list[tuple[str, float]]:
+def _fill_days(stats: list[dict], days: int, key: str) -> list[tuple[str, float, str]]:
     """Série jour par jour, trous compris — `stats_daily` ne renvoie que les jours
-    actifs, et un graphique à trous mentirait sur le rythme réel."""
+    actifs, et un graphique à trous mentirait sur le rythme réel. Chaque jour porte
+    aussi sa date en toutes lettres, pour la bulle du survol (ASSISTANTE-115)."""
     by_day = {s["day"]: s for s in stats}
     today = horloge.aujourd_hui()
     points = []
     for offset in range(days - 1, -1, -1):
         day = today - timedelta(days=offset)
         iso = day.isoformat()
-        points.append((iso[5:], by_day.get(iso, {}).get(key, 0)))
+        points.append((iso[5:], by_day.get(iso, {}).get(key, 0),
+                       horloge.en_toutes_lettres(day).capitalize()))
     return points
 
 
@@ -159,7 +161,7 @@ def _park(request: Request):
     chart = charts.bar_chart(
         _fill_days(daily, _PARK_CHART_DAYS, "n_calls"),
         title=f"Appels du parc · {_PARK_CHART_DAYS} derniers jours",
-        tone="dark", height=150,
+        tone="dark", height=150, unite=("appel", "appels"),
         empty_label="Aucun appel sur la période.",
     )
     return deps.templates.TemplateResponse(
@@ -192,8 +194,9 @@ def _control_room(request: Request, tenant_id: Optional[int]):
     ) if tenant_id else []
     slots = reservations.covers_by_slot(tenant_id, today) if tenant_id else []
     slots_chart = charts.bar_chart(
-        [(s["time"], s["covers"]) for s in slots],
+        [(s["time"], s["covers"], f"Créneau de {s['time']}") for s in slots],
         title="Couverts réservés par créneau, aujourd'hui", series=2, height=160,
+        unite=("couvert", "couverts"),
         empty_label="Aucune réservation pour aujourd'hui.",
     )
     # Son forfait, sur le mois EN COURS — pas sur la fenêtre glissante de 30 jours des
@@ -292,11 +295,13 @@ def _stats_charts(request: Request, scope: Optional[int], days: int):
     days = min(days, 90)
     stats = calls.stats_daily(scope, days=days)
     calls_svg = charts.bar_chart(
-        _fill_days(stats, days, "n_calls"), title="Appels par jour"
+        _fill_days(stats, days, "n_calls"), title="Appels par jour",
+        unite=("appel", "appels"),
     )
     resas_svg = charts.bar_chart(
         _fill_days(stats, days, "n_reservations"),
         title="Réservations par jour", series=2,
+        unite=("réservation", "réservations"),
     )
     return deps.templates.TemplateResponse(
         request, "_charts.html", {"calls_svg": calls_svg, "resas_svg": resas_svg}
