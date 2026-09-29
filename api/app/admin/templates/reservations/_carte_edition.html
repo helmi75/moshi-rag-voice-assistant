@@ -1,0 +1,25 @@
+<article class="card cal-carte" id="resa-{{ r.id }}">
+  {% if error %}
+  <div class="callout" style="background: var(--app-bad-soft)" role="alert">
+    <b style="color: var(--app-bad)">Rien n'a été enregistré</b> {{ error }}
+  </div>
+  {% endif %}
+  <form hx-post="/admin/reservations/{{ r.id }}" hx-target="closest article" hx-swap="outerHTML"
+        style="margin: 0">
+    <input type="hidden" name="rendu" value="carte">
+    <div class="form-grid">
+      <label>Client <input name="customer_name" required value="{{ r.customer_name }}"></label>
+      <label>Téléphone <input name="customer_phone" value="{{ r.customer_phone or '' }}"></label>
+      <label>Date <input type="date" name="date" required value="{{ r.date }}"></label>
+      <label>Heure <input type="time" name="time" required value="{{ r.time }}"></label>
+      <label>Couverts <input type="number" name="party_size" required min="1" value="{{ r.party_size }}"></label>
+      <label>Notes <input name="notes" value="{{ r.notes or '' }}"></label>
+    </div>
+    <div style="display: flex; gap: .5rem">
+      <button type="submit" style="width: auto; margin: 0">Enregistrer</button>
+      <button type="button" class="secondary" style="width: auto; margin: 0"
+              hx-get="/admin/reservations/{{ r.id }}/row?rendu=carte"
+              hx-target="closest article" hx-swap="outerHTML">Retour</button>
+    </div>
+  </form>
+</article>

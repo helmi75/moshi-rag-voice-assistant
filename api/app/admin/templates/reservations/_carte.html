@@ -1,0 +1,24 @@
+<article class="card cal-carte etat-{{ r.etat }}" id="resa-{{ r.id }}">
+  <div class="card-head" style="padding: 0 0 .2rem">
+    <h2><span class="cal-heure-resa">{{ r.time }}</span> {{ r.customer_name or "Sans nom" }}</h2>
+    {# L'état n'est jamais porté par la seule couleur : le mot est écrit. #}
+    <span class="chip {{ r.chip }}">{{ r.libelle }}</span>
+  </div>
+  <p class="kb-body">{{ r.party_size }} couvert{{ "s" if (r.party_size or 0) > 1 }}
+    {%- if r.customer_phone %} · {{ r.customer_phone }}{% endif %}
+    {%- if tenant_names %} · {{ tenant_names.get(r.tenant_id, "") }}{% endif %}</p>
+  {% if r.notes %}<p class="card-sub">{{ r.notes }}</p>{% endif %}
+  {% if r.modifiable %}
+  <div style="display: flex; gap: .5rem; margin-top: .8rem">
+    <button type="button" class="secondary cal-action"
+            hx-get="/admin/reservations/{{ r.id }}/edit?rendu=carte"
+            hx-target="closest article" hx-swap="outerHTML">Modifier</button>
+    <button type="button" class="secondary cal-action"
+            hx-post="/admin/reservations/{{ r.id }}/cancel" hx-vals='{"rendu": "carte"}'
+            hx-confirm="Annuler la réservation de {{ r.customer_name }} ?"
+            hx-target="closest article" hx-swap="outerHTML">Annuler</button>
+  </div>
+  {% elif r.cancelled_at %}
+  <p class="card-sub">Annulée le {{ r.cancelled_at[8:10] }}/{{ r.cancelled_at[5:7] }}/{{ r.cancelled_at[:4] }}.</p>
+  {% endif %}
+</article>

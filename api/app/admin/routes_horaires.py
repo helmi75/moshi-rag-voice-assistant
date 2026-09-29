@@ -1,5 +1,8 @@
 """Horaires d'ouverture par établissement : la grille que l'assistante APPLIQUE.
 
+Affichée et modifiée dans « Ce que l'IA sait » depuis le 28/09/2026 (SCRUM-110,
+routes_connaissances.py) ; ce module garde l'enregistrement.
+
 La fiche « Horaires » de la base de connaissances reste un texte libre, lu par le modèle
 pour renseigner les clients ; cette grille (app/disponibilite.py) est ce qui refuse un
 créneau côté serveur. Les deux doivent dire la même chose — la page le rappelle."""
@@ -13,14 +16,6 @@ from ..users import User
 from . import deps
 
 router = APIRouter()
-
-
-def _contexte(tenant, grille, fermetures: str, erreurs: list[str],
-              brut: str | None = None) -> dict:
-    horaires = disponibilite.charger(tenant.opening_hours if brut is None else brut)
-    return {"tenant": tenant, "grille": grille, "fermetures": fermetures, "erreurs": erreurs,
-            "lettres": disponibilite.en_toutes_lettres(horaires),
-            "source_resos": connecteurs.est_resos(tenant)}
 
 
 async def _horaires_resos(tenant) -> str | None:
@@ -41,42 +36,29 @@ def _grille_saisie(form) -> list[dict]:
 
 
 @router.get("/admin/tenants/{tenant_id}/horaires")
-async def horaires_page(request: Request, tenant_id: int,
-                        user: User = Depends(deps.current_user)):
-    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
-    deps.ensure_csrf(request)
-    brut = await _horaires_resos(tenant) if connecteurs.est_resos(tenant) else tenant.opening_hours
-    horaires = disponibilite.charger(brut)
-    return deps.templates.TemplateResponse(
-        request, "tenants/horaires.html",
-        _contexte(tenant, disponibilite.grille(horaires),
-                  disponibilite.fermetures_en_texte(horaires), [], brut=brut or ""),
-    )
+def horaires_page(tenant_id: int, user: User = Depends(deps.current_user)):
+    """Les horaires se règlent dans « Ce que l'IA sait » (SCRUM-110) : l'ancienne adresse
+    y mène, après la vérification d'accès habituelle."""
+    tenant = deps.resolve_tenant(tenant_id, user)
+    return RedirectResponse(f"/admin/tenants/{tenant.id}/knowledge#horaires", status_code=303)
 
 
 @router.post("/admin/tenants/{tenant_id}/horaires", dependencies=[Depends(deps.verify_csrf)])
 async def horaires_update(request: Request, tenant_id: int,
                           user: User = Depends(deps.current_user)):
+    from .routes_connaissances import rendre_page
+
     tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     if connecteurs.est_resos(tenant):
-        brut = await _horaires_resos(tenant)
-        horaires = disponibilite.charger(brut)
-        return deps.templates.TemplateResponse(
-            request, "tenants/horaires.html",
-            _contexte(tenant, disponibilite.grille(horaires),
-                      disponibilite.fermetures_en_texte(horaires),
-                      ["Ces horaires viennent de resOS : ils se changent dans resOS, "
-                       "rien n'a été enregistré ici."], brut=brut or ""),
-            status_code=409,
-        )
+        return await rendre_page(request, tenant, status_code=409, erreurs=[
+            "Ces horaires viennent de resOS : ils se changent dans resOS, rien n'a été "
+            "enregistré ici."])
     form = await request.form()
     horaires, erreurs = disponibilite.depuis_formulaire(form)
     if erreurs:
-        return deps.templates.TemplateResponse(
-            request, "tenants/horaires.html",
-            _contexte(tenant, _grille_saisie(form), str(form.get("fermetures", "") or ""), erreurs),
-            status_code=422,
-        )
+        return await rendre_page(request, tenant, status_code=422, erreurs=erreurs,
+                                 grille=_grille_saisie(form),
+                                 fermetures=str(form.get("fermetures", "") or ""))
     await db.hors_boucle(tenants.update_tenant, tenant.id,
                          opening_hours=json.dumps(horaires, ensure_ascii=False))
-    return RedirectResponse(f"/admin/tenants/{tenant.id}/horaires", status_code=303)
+    return RedirectResponse(f"/admin/tenants/{tenant.id}/knowledge#horaires", status_code=303)

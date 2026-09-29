@@ -6,7 +6,9 @@ Conventions (skill dataviz) :
   thèmes ; le texte porte l'encre texte (muted), jamais la couleur de série ;
 - barres fines, sommet arrondi 4px ancré à la baseline, écart 2px minimum ;
 - labels de valeur directs (règle de « relief » : la série aqua est sous 3:1 sur
-  fond clair, donc les valeurs sont affichées) + <title> natif au survol ;
+  fond clair, donc les valeurs sont affichées) + <title> natif au survol. Une valeur
+  au-dessus de CHAQUE barre non nulle tant qu'elle y tient (SCRUM-113 : Helmi lisait
+  30 jours à l'œil, seuls le maximum et le dernier jour étaient écrits) ;
 - axe/grille en retrait (une baseline discrète), pas de double axe.
 """
 from html import escape
@@ -54,7 +56,9 @@ def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
 
     # Labels d'axe X : ~6 ticks maxi pour éviter les collisions.
     step = max(1, round(n / 6))
-    show_value = n <= 20  # au-delà : seulement max + dernier (labels sélectifs)
+    # Une valeur par barre tant que la barre est assez large pour « 999 » en taille 10
+    # (30 jours tiennent : ~19 unités par barre) ; au-delà, maximum + dernier seulement.
+    show_value = bar_w + gap >= 14
     max_i = max(range(n), key=lambda i: points[i][1])
 
     parts = [
@@ -79,8 +83,9 @@ def bar_chart(points: list[tuple[str, float]], *, title: str, series: int = 1,
             )
         if value and (show_value or i == max_i or i == n - 1):
             parts.append(
-                f'<text x="{x + bar_w / 2:.1f}" y="{y - 4:.1f}" text-anchor="middle" '
-                f'fill="var(--viz-text-muted{suffix})" font-size="10">{value:g}</text>'
+                f'<text class="viz-valeur" x="{x + bar_w / 2:.1f}" y="{y - 4:.1f}" '
+                f'text-anchor="middle" fill="var(--viz-text-muted{suffix})" font-size="10">'
+                f'{value:g}</text>'
             )
         if i % step == 0 or i == n - 1:
             parts.append(

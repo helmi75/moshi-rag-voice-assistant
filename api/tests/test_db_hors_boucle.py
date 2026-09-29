@@ -186,7 +186,9 @@ class TestLAdminNeBloquePasLaBoucle:
             for page in ["/admin/", "/admin/health", "/admin/calls", "/admin/reservations",
                          "/admin/tenants", f"/admin/tenants/{t}/edit",
                          f"/admin/tenants/{t}/knowledge", f"/admin/tenants/{t}/voice",
-                         f"/admin/tenants/{t}/horaires", f"/admin/tenants/{t}/users",
+                         f"/admin/tenants/{t}/knowledge/fiches/nouvelle",
+                         f"/admin/tenants/{t}/knowledge/fiches/0/modifier",
+                         f"/admin/tenants/{t}/users",
                          f"/admin/tenants/{t}/greeting/status"]:
                 assert client.get(page).status_code == 200, page
             jeton = client.get("/admin/").text.split('"X-CSRF-Token": "')[1].split('"')[0]

@@ -4,18 +4,19 @@
 <div class="page-head">
   <div>
     <h1>{{ tenant.name if tenant else "Nouvel établissement" }}</h1>
-    <p class="lede">Fiche, routage Twilio et base de connaissances injectée au LLM.</p>
+    <p class="lede">{% if tenant %}L'identité de l'établissement. Ce que l'assistante sait se
+       règle dans <a href="/admin/tenants/{{ tenant.id }}/knowledge">Ce que l'IA sait</a>, son
+       accueil dans <a href="/admin/tenants/{{ tenant.id }}/voice">Voix &amp; accueil</a>.
+       {% else %}Identité, routage Twilio et premières informations de l'assistante.{% endif %}</p>
   </div>
-  {% if tenant %}
-  <a role="button" class="secondary" href="/admin/tenants/{{ tenant.id }}/knowledge">Voir les fiches</a>
-  {% endif %}
 </div>
 {% if error %}<p role="alert">{{ error }}</p>{% endif %}
 
 <article class="card" style="max-width: 46rem">
   <form method="post" action="{{ '/admin/tenants/' ~ tenant.id if tenant else '/admin/tenants' }}">
     <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
-    <div class="grid">
+    <h2 class="form-section">Identité</h2>
+    <div class="form-grid">
       <label>Nom
         <input name="name" required value="{{ tenant.name if tenant else '' }}">
       </label>
@@ -26,9 +27,13 @@
           {% endfor %}
         </select>
       </label>
+      <label>Langue
+        <input name="language" value="{{ tenant.language if tenant else 'fr-FR' }}">
+      </label>
     </div>
-    <div class="grid">
-      {% if request.state.user.is_superadmin %}
+    {% if request.state.user.is_superadmin %}
+    <h2 class="form-section">Ligne et formule</h2>
+    <div class="form-grid">
       <label>Numéro Twilio (routage des appels)
         <input name="phone_number" required value="{{ tenant.phone_number if tenant else '' }}"
                placeholder="+33612345678">
@@ -68,19 +73,20 @@
           {% endif %}
         {% endif %}
       </label>
-      {% endif %}
-      <label>Langue
-        <input name="language" value="{{ tenant.language if tenant else 'fr-FR' }}">
-      </label>
-      <label>E-mail de notification
-        <small class="muted">(réservations et messages pris — en plus des comptes)</small>
-        <input name="notify_email" type="email" placeholder="salle@monrestaurant.fr"
-               value="{{ tenant.notify_email if tenant and tenant.notify_email else '' }}">
-      </label>
     </div>
-    <label>Message d'accueil <small class="muted">(lu par la voix IA au décroché ; re-rendu automatique)</small>
-      <input name="greeting" value="{{ tenant.greeting if tenant else '' }}"
-             placeholder="Bonjour, restaurant X. Un instant s'il vous plaît.">
+    {% endif %}
+    <h2 class="form-section">Notifications</h2>
+    <label>E-mail de notification
+      <small class="muted">(réservations et messages pris — en plus des comptes)</small>
+      <input name="notify_email" type="email" placeholder="salle@monrestaurant.fr"
+             value="{{ tenant.notify_email if tenant and tenant.notify_email else '' }}">
+    </label>
+    {# À la création seulement : ensuite, l'accueil vit dans « Voix & accueil » et la base
+       dans « Ce que l'IA sait », modifiable fiche par fiche (SCRUM-111). #}
+    {% if not tenant %}
+    <h2 class="form-section">Premières informations</h2>
+    <label>Message d'accueil <small class="muted">(lu par la voix IA au décroché)</small>
+      <input name="greeting" value="" placeholder="Bonjour, restaurant X.">
     </label>
     <label>Base de connaissances
       <small class="muted">(un bloc par section, commençant par <code>## Titre</code> — horaires, carte, consignes)</small>
@@ -90,6 +96,7 @@
       <small class="muted">{{ "{:,}".format(kb_len).replace(",", " ") }} / {{ "{:,}".format(KB_MAX).replace(",", " ") }} caractères
         — relue à chaque phrase de l'appel : plus elle est longue, plus l'assistante met à répondre.</small>
     </label>
+    {% endif %}
     <button type="submit">Enregistrer</button>
   </form>
 </article>

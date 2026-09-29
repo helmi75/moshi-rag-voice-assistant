@@ -581,9 +581,9 @@ GARDE_FOUS = [
         nom="Les horaires resOS ne se saisissent pas chez nous",
         fichier="api/app/admin/routes_horaires.py",
         avant=("    if connecteurs.est_resos(tenant):\n"
-               "        brut = await _horaires_resos(tenant)\n"
-               "        horaires = disponibilite.charger(brut)"),
-        apres="    if False:  # mutation\n        horaires = None",
+               "        return await rendre_page(request, tenant, status_code=409"),
+        apres=("    if False:  # mutation\n"
+               "        return await rendre_page(request, tenant, status_code=409"),
         tests=["test_carnet_resos.py"],
         k="saisissent",
         panne="un champ modifiable sans effet : le restaurateur croirait avoir changé "
@@ -798,6 +798,33 @@ GARDE_FOUS = [
         k="cle_retiree",
         panne="des établissements en Marie basculés en silence sur la voix Moshi, avec son "
               "réveil de 46 s, sans que personne le sache",
+    ),
+    GardeFou(
+        nom="Fiches : une base modifiée entre-temps n'est pas écrasée",
+        fichier="api/app/admin/routes_connaissances.py",
+        avant="    if version != _version(tenant.knowledge_base):",
+        apres="    if False:  # mutation",
+        tests=["test_connaissances.py"],
+        k="entre_temps or sans_version",
+        panne="deux onglets ouverts : le second enregistrement efface en silence ce que le premier a écrit",
+    ),
+    GardeFou(
+        nom="Calendrier : une annulée ne compte pas",
+        fichier="api/app/admin/calendrier.py",
+        avant='    actives = [r for r in resas if r["etat"] != "annulee"]',
+        apres="    actives = list(resas)  # mutation",
+        tests=["test_calendrier.py"],
+        k="annulee or compte",
+        panne="la journée paraît pleine : le restaurateur prépare des couverts pour des clients qui ne viendront pas",
+    ),
+    GardeFou(
+        nom="Calendrier resOS : toutes les pages sont lues",
+        fichier="api/app/connecteurs/resos.py",
+        avant="        for page in range(PAGES_MAX):",
+        apres="        for page in range(1):  # mutation",
+        tests=["test_calendrier.py"],
+        k="charge",
+        panne="au-delà de 100 réservations dans le mois, des jours pleins s'affichent vides",
     ),
 ]
 

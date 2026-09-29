@@ -12,15 +12,25 @@ document.addEventListener("change", (event) => {
   }
 });
 
-// Une saisie refusée (HTTP 422) revient avec le fragment et son message d'erreur : htmx
-// 1.9 n'affiche pas les réponses 4xx par défaut, et la ligne resterait figée sans dire
+// Une saisie refusée (HTTP 422) ou un conflit (HTTP 409 : la base a changé entre-temps,
+// « Ce que l'IA sait ») revient avec le fragment et son message d'erreur : htmx 1.9
+// n'affiche pas les réponses 4xx par défaut, et la ligne resterait figée sans dire
 // pourquoi l'enregistrement n'a pas eu lieu.
 document.addEventListener("htmx:beforeSwap", (event) => {
-  if (event.detail.xhr.status === 422) {
+  if (event.detail.xhr.status === 422 || event.detail.xhr.status === 409) {
     event.detail.shouldSwap = true;
     event.detail.isError = false;
   }
 });
+
+// Réservations : sur un téléphone, la grille du mois est illisible — la vue du jour
+// s'ouvre d'elle-même, tant qu'aucune vue n'a été choisie (SCRUM-112).
+if (document.querySelector("[data-vue-implicite]")
+    && window.matchMedia("(max-width: 640px)").matches) {
+  const adresse = new URL(window.location.href);
+  adresse.searchParams.set("vue", "jour");
+  window.location.replace(adresse.toString());
+}
 
 // Page « Voix & accueil » : le lecteur fait entendre la voix SÉLECTIONNÉE dans la liste,
 // avant même de l'enregistrer. L'adresse de l'extrait est portée par l'option.

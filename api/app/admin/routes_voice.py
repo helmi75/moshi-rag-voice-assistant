@@ -39,6 +39,25 @@ def _groupes(catalogue) -> list[dict]:
     return list(groupes.values())
 
 
+def _etat_accueil(tenant) -> dict:
+    """Ce que montre le bloc « accueil » : prêt ou non, l'adresse VERSIONNÉE de l'aperçu,
+    et le texte réellement prononcé.
+
+    L'adresse de l'aperçu porte le nom du fichier rendu, qui change avec la voix et le
+    texte (SCRUM-106) : à adresse fixe, le navigateur rejouait sa copie — Helmi
+    entendait encore la voix Moshi alors que le serveur avait rendu l'accueil en voix
+    Mistral. Le texte affiché est celui de `rgpd.accueil` : accueil PUIS mention."""
+    from .. import rgpd
+
+    chemin = greeting_mod.cached_greeting_path(tenant)
+    return {
+        "greeting_ready": chemin is not None,
+        "greeting_version": chemin.stem if chemin is not None else "",
+        "texte_prononce": rgpd.accueil(tenant),
+        "voix_sans_gpu": greeting_mod.voix_sans_gpu(tenant),
+    }
+
+
 def _page(request: Request, tenant, error: Optional[str] = None, status_code: int = 200):
     return deps.templates.TemplateResponse(
         request, "voice/settings.html",
@@ -48,8 +67,7 @@ def _page(request: Request, tenant, error: Optional[str] = None, status_code: in
             "groupes": _groupes(voices.voix_voxtral()),
             "voxtral_disponible": voices.voxtral_disponible(),
             "voice_id": voices.resolve(tenant),
-            "voix_sans_gpu": greeting_mod.voix_sans_gpu(tenant),
-            "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None,
+            **_etat_accueil(tenant),
             "has_custom_music": greeting_mod.hold_music_path(tenant.id)
             != greeting_mod.hold_music_path(None),
             "error": error,
@@ -143,7 +161,8 @@ def greeting_wav(tenant_id: int, user: User = Depends(deps.current_user)):
     path = greeting_mod.cached_greeting_path(tenant)
     if path is None:
         raise HTTPException(status_code=404, detail="Accueil pas encore rendu.")
-    return FileResponse(path, media_type="audio/wav")
+    # L'adresse est versionnée ; « no-cache » protège en plus les anciens liens.
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/admin/tenants/{tenant_id}/greeting/status")
@@ -152,9 +171,7 @@ def greeting_status(request: Request, tenant_id: int,
     tenant = deps.resolve_tenant(tenant_id, user)
     return deps.templates.TemplateResponse(
         request, "voice/_greeting_status.html",
-        {"tenant": tenant,
-         "voix_sans_gpu": greeting_mod.voix_sans_gpu(tenant),
-         "greeting_ready": greeting_mod.cached_greeting_path(tenant) is not None},
+        {"tenant": tenant, **_etat_accueil(tenant)},
     )
 
 

@@ -170,5 +170,5 @@ Décision : **refuser plutôt que mentir**. Aucune réservation n'est gardée ch
 | Manque | Ticket |
 |---|---|
 | Les ouvertures « spéciales » de resOS (jours fériés, événements) ne sont pas lues : sans exemple dans la doc, on n'invente pas leur format. resOS les applique quand même via `bookingFlow/times` | au premier vrai appel |
-| La page Réservations de l'admin et le compteur « réservations » du tableau de bord ne lisent que notre carnet. Les appels, eux, comptent bien ceux qui ont réservé dans resOS | à planifier |
+| Le compteur « réservations » du tableau de bord ne lit que notre carnet (le calendrier des Réservations, lui, lit resOS depuis SCRUM-112 ; la vue Liste reste sur notre carnet). Les appels, eux, comptent bien ceux qui ont réservé dans resOS | à planifier |
 | Le nom du dernier passage n'est pas proposé aux clients resOS : ce serait une requête réseau avant le décroché | à mesurer avec une vraie clé |

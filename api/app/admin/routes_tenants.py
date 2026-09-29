@@ -168,8 +168,8 @@ async def tenant_update(
     phone_number: Optional[str] = Form(None),
     business_type: str = Form("restaurant"),
     language: str = Form("fr-FR"),
-    greeting: str = Form(""),
-    knowledge_base: str = Form(""),
+    greeting: Optional[str] = Form(None),
+    knowledge_base: Optional[str] = Form(None),
     plan: Optional[str] = Form(None),
     notify_email: Optional[str] = Form(None),
     booking_provider: Optional[str] = Form(None),
@@ -181,7 +181,11 @@ async def tenant_update(
     numero, erreur_numero = (_numero(phone_number)
                              if user.is_superadmin and phone_number is not None
                              else (None, None))
-    erreur = erreur_numero or erreur or _base_trop_longue(knowledge_base)
+    # L'accueil et la base ne passent plus par cette fiche (SCRUM-111) : ils se règlent
+    # dans « Voix & accueil » et « Ce que l'IA sait ». Ignorés s'ils arrivent quand même —
+    # un formulaire qui ne les envoie pas ne doit surtout pas les effacer.
+    del greeting, knowledge_base
+    erreur = erreur_numero or erreur
     if erreur:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
@@ -191,8 +195,6 @@ async def tenant_update(
         "name": name.strip(),
         "business_type": business_type.strip(),
         "language": language.strip(),
-        "greeting": greeting.strip() or None,
-        "knowledge_base": knowledge_base,
         "notify_email": adresse,
     }
     # Le numéro de téléphone (routage Twilio) est réservé au super-admin.
@@ -208,7 +210,6 @@ async def tenant_update(
     # hors liste est ignorée, jamais écrite.
     if user.is_superadmin and booking_provider in connecteurs.FOURNISSEURS:
         fields["booking_provider"] = booking_provider
-    greeting_changed = (greeting.strip() or None) != tenant.greeting
     try:
         await db.hors_boucle(tenants.update_tenant, tenant.id, **fields)
     except sqlite3.IntegrityError:
@@ -218,26 +219,8 @@ async def tenant_update(
              "formules": plans.catalogue()},
             status_code=409,
         )
-    if greeting_changed:
-        await _prerender_greeting(tenant.id)
     back = "/admin/tenants" if user.is_superadmin else f"/admin/tenants/{tenant.id}/edit"
     return RedirectResponse(back, status_code=303)
-
-
-@router.get("/admin/tenants/{tenant_id}/knowledge")
-def tenant_knowledge(request: Request, tenant_id: int,
-                           user: User = Depends(deps.current_user)):
-    """« Ce que l'IA sait » : la base de connaissances en fiches (lecture).
-
-    Aucun stockage nouveau — le texte est déjà sectionné par des titres `##`, et
-    c'est ce même texte qui part dans le prompt système."""
-    tenant = deps.resolve_tenant(tenant_id, user)
-    deps.ensure_csrf(request)
-    return deps.templates.TemplateResponse(
-        request, "tenants/knowledge.html",
-        {"tenant": tenant,
-         "sections": tenants.parse_knowledge_sections(tenant.knowledge_base)},
-    )
 
 
 @router.post("/admin/tenants/{tenant_id}/delete", dependencies=[Depends(deps.verify_csrf)])

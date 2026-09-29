@@ -122,8 +122,15 @@ on peut répondre sans réserve.
 
 L'appelant entend, au décroché, après l'accueil du restaurant :
 
-> *« Cet accueil est assuré par un assistant vocal ; votre appel est **enregistré et**
-> traité pour votre réservation. »*
+> *« Je suis l'assistante vocale, cet appel est enregistré. »*
+
+(Sans enregistrement : *« Je suis l'assistante vocale du restaurant. »*)
+
+**Raccourcie le 28/09/2026 (SCRUM-107)** : l'ancienne mention, « Cet accueil est assuré
+par un assistant vocal ; votre appel est enregistré et traité pour votre réservation »,
+occupait 6 des 9 secondes de l'accueil. La nouvelle ne nomme plus de finalité : elle
+renvoie de fait à l'information de second niveau (site). **À valider par Helmi, et par
+un juriste avant le premier client payant.**
 
 Le mot « enregistré » n'apparaît **que si l'enregistrement a réellement lieu** : le même
 interrupteur pilote les deux (`enregistrement.actif()` exige `mention_active()`). On

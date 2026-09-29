@@ -20,6 +20,7 @@ Les réservations, elles, sont supprimées : une réservation anonymisée n'a pl
 ni pour le restaurateur ni pour la statistique.
 """
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -37,10 +38,13 @@ from . import db, horloge
 # politique de confidentialité au téléphone, et une mention qu'on n'écoute pas
 # n'informe personne. C'est une information de premier niveau ; le détail (durées,
 # droits, contact) vit dans `docs/RGPD.md` et sera repris sur la page publique.
-_MENTION_BASE = ("Cet accueil est assuré par un assistant vocal ; "
-                 "votre appel est traité pour votre réservation.")
-_MENTION_ENREGISTRE = ("Cet accueil est assuré par un assistant vocal ; "
-                       "votre appel est enregistré et traité pour votre réservation.")
+#
+# Raccourcie le 28/09/2026 (SCRUM-107) : l'accueil de hello-resto durait ~9 s, dont 6
+# pour la mention. Elle garde les deux informations qui comptent au premier niveau —
+# une machine, un enregistrement — en une phrase de ~3 s. Formulation proposée, À FAIRE
+# VALIDER par Helmi (et par un juriste avant le premier client payant).
+_MENTION_BASE = "Je suis l'assistante vocale du restaurant."
+_MENTION_ENREGISTRE = "Je suis l'assistante vocale, cet appel est enregistré."
 
 # Conservé pour compatibilité de lecture : la mention réellement prononcée dépend de
 # l'état de l'enregistrement, et se lit par `mention()`.
@@ -79,10 +83,29 @@ def accueil(tenant) -> str:
     entre aussi dans la clé de cache du WAV : la modifier invalide les accueils déjà
     rendus, au lieu de laisser tourner l'ancienne version en silence.
     """
-    texte = (getattr(tenant, "greeting", "") or "").strip()
+    texte = " ".join((getattr(tenant, "greeting", "") or "").split())
+    if _sans_attente(tenant):
+        # « Un instant s'il vous plaît » annonçait la musique d'attente du réveil du GPU.
+        # Avec une voix Mistral, rien n'attend : la formule ne fait que rallonger.
+        texte = _UN_INSTANT.sub("", texte).rstrip(" ,;")
+    if texte and texte[-1] not in ".!?…":
+        # Sans point, la voix enchaînait l'accueil et la mention d'une traite.
+        texte += "."
     if not mention_active():
         return texte
     return f"{texte} {mention()}".strip()
+
+
+_UN_INSTANT = re.compile(r"[,.;]?\s*un instant,?\s*s'il vous pla[iî]t\s*[.!]?\s*$", re.IGNORECASE)
+
+
+def _sans_attente(tenant) -> bool:
+    try:
+        from .voice import greeting
+
+        return greeting.voix_sans_gpu(tenant)
+    except Exception:
+        return False
 
 
 def _jours(nom: str, defaut: int) -> int:

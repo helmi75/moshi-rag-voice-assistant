@@ -80,6 +80,36 @@ class TestVoiceSettings:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("audio/wav")
 
+    def test_l_apercu_suit_la_voix_et_dit_le_texte_prononce(self, client, resto, monkeypatch):
+        """SCRUM-106 : à adresse fixe, le navigateur rejouait sa copie — l'ancienne voix
+        et l'ancien texte. L'adresse porte désormais l'empreinte du rendu."""
+        from app import rgpd
+
+        monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
+
+        def rendre(tenant):
+            chemin = greeting_mod._cache_path(tenant)
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            with wave.open(str(chemin), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(8000)
+                w.writeframes(b"\x00\x00" * 800)
+            return chemin
+
+        _login(client)
+        premier = rendre(resto)
+        page = client.get(f"/admin/tenants/{resto.id}/greeting/status").text
+        assert f"greeting.wav?v={premier.stem}" in page
+        assert rgpd.accueil(resto) in page.replace("&#39;", "'")
+        tenants.update_tenant(resto.id, voice="voxtral/fr_marie_happy")
+        second = rendre(tenants.get_by_id(resto.id))
+        assert second.stem != premier.stem
+        assert f"greeting.wav?v={second.stem}" in client.get(
+            f"/admin/tenants/{resto.id}/greeting/status").text
+        assert client.get(f"/admin/tenants/{resto.id}/greeting.wav").headers[
+            "cache-control"] == "no-cache"
+
     def test_greeting_status_fragment(self, client, resto):
         _login(client)
         resp = client.get(f"/admin/tenants/{resto.id}/greeting/status")

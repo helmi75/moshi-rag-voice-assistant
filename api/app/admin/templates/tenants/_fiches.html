@@ -1,0 +1,34 @@
+<section id="fiches">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin: 0 0 .9rem">
+    <div>
+      <h2 style="margin: 0">Fiches</h2>
+      <small class="muted">{{ "{:,}".format(taille).replace(",", " ") }} / {{ "{:,}".format(KB_MAX).replace(",", " ") }}
+        caractères — relues à chaque phrase de l'appel : plus elles sont longues, plus
+        l'assistante met à répondre.</small>
+    </div>
+    <button type="button" class="secondary" style="width: auto; margin: 0"
+            hx-get="/admin/tenants/{{ tenant.id }}/knowledge/fiches/nouvelle"
+            hx-target="#nouvelle-fiche" hx-swap="innerHTML">Ajouter une fiche</button>
+  </div>
+  {% if message %}
+  <div class="callout" role="status"><b>✅ Enregistré</b> {{ message }}</div>
+  {% endif %}
+  {% if erreur %}
+  <div class="callout" style="background: var(--app-bad-soft)" role="alert">
+    <b style="color: var(--app-bad)">Rien n'a été enregistré</b> {{ erreur }}
+  </div>
+  {% endif %}
+  <div id="nouvelle-fiche"></div>
+  <div class="kb-grid">
+    {% for s in sections %}
+    {% set n = loop.index0 %}
+    {% include "tenants/_fiche.html" %}
+    {% else %}
+    <article class="card">
+      <h2>Aucune fiche</h2>
+      <p class="kb-body">L'IA n'a ni carte, ni accès, ni consignes à citer. Ajoutez une fiche :
+         « Restaurant », « Carte », « Accès », « Groupes »…</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>

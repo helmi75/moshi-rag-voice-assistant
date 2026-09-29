@@ -7,9 +7,9 @@ from . import db
 
 DEMO_TENANT_NUMBER = os.getenv("TWILIO_NUMBER", "+33100000000")
 
-# Accueil du tenant démo : finit par « un instant s'il vous plaît » pour enchaîner sur
-# la musique d'attente pendant le réveil du GPU (flux standardiste, voir voice/greeting.py).
-_DEMO_GREETING = "Bonjour, restaurant Le Fouquet's Paris. Un instant s'il vous plaît."
+# Accueil du tenant démo. Plus de « un instant s'il vous plaît » depuis la voix Mistral
+# (SCRUM-107) : il n'y a plus de réveil de GPU à meubler.
+_DEMO_GREETING = "Bonjour, restaurant Le Fouquet's Paris."
 
 _DEMO_KNOWLEDGE_BASE = """\
 ## Restaurant
@@ -62,7 +62,7 @@ def _row_to_tenant(row) -> Tenant:
         business_type=row["business_type"],
         phone_number=row["phone_number"],
         language=row["language"],
-        greeting=row["greeting"] or f"Bonjour, {row['name']}, que puis-je faire pour vous ?",
+        greeting=row["greeting"] or f"Bonjour, {row['name']}.",
         knowledge_base=row["knowledge_base"],
         voice=row["voice"],
         plan=row["plan"],
@@ -100,6 +100,20 @@ def parse_knowledge_sections(knowledge_base: str) -> list[dict]:
             body.append(line)
     flush()
     return sections
+
+
+def assembler_fiches(fiches: list[dict]) -> str:
+    """L'inverse de `parse_knowledge_sections` : des fiches, le texte de la base.
+
+    Chaque fiche redevient un bloc `## Titre` suivi de son texte : c'est ce texte qui part
+    dans le prompt, et le relire donne les mêmes fiches (SCRUM-111). Le préambule sans
+    titre, s'il y en avait un, devient une fiche « Général » comme à l'affichage."""
+    blocs = []
+    for fiche in fiches:
+        titre = " ".join(str(fiche.get("title") or "").split()) or "Sans titre"
+        corps = str(fiche.get("body") or "").strip()
+        blocs.append(f"## {titre}\n{corps}".rstrip())
+    return ("\n\n".join(blocs) + "\n") if blocs else ""
 
 
 def get_by_phone(phone_number: Optional[str]) -> Optional[Tenant]:
