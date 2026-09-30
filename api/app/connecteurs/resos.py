@@ -356,6 +356,17 @@ class ConnecteurResos:
                        if debut <= (b.get("date") or "") <= fin),
                       key=lambda r: (r["date"] or "", r["time"] or ""))
 
+    async def lire(self, reservation_id) -> Optional[dict]:
+        """Une réservation, tous statuts, pour la fiche de l'admin (ASSISTANTE-116). Comme
+        `entre` : une lecture d'écran, pas le chemin d'un appel — ni coupe-circuit ni
+        journal."""
+        if not str(reservation_id or "").strip():
+            return None
+        booking = await self._requete(
+            "GET", f"/bookings/{quote(str(reservation_id), safe='')}",
+            forcer=True, journaliser=False)
+        return _en_reservation(booking) if isinstance(booking, dict) else None
+
     async def verifier(self) -> dict:
         """Le bouton « tester maintenant » : ignore le coupe-circuit."""
         debut = time.monotonic()

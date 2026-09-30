@@ -555,6 +555,33 @@ def appels_avec_enregistrement(avant_jours: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def appel_d_une_reservation(tenant_id: int, reservation_id, *, externe: bool) -> Optional[dict]:
+    """L'appel pendant lequel l'assistante a pris cette réservation (ASSISTANTE-116) :
+    notre carnet la désigne par sa clé (`reservation_id`), resOS par son identifiant
+    (`reservation_externe`). None pour une réservation saisie à la main."""
+    colonne = "reservation_externe" if externe else "reservation_id"
+    with db.get_conn() as conn:
+        row = conn.execute(
+            f"SELECT * FROM calls WHERE tenant_id = ? AND {colonne} = ? "
+            "ORDER BY started_at DESC LIMIT 1",
+            (tenant_id, str(reservation_id) if externe else reservation_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def du_numero(tenant_id: int, numero: Optional[str], limite: int = 10) -> list[dict]:
+    """Les derniers appels de ce numéro chez cet établissement — la fiche d'un client."""
+    if not numero:
+        return []
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM calls WHERE tenant_id = ? AND caller_number = ? "
+            "ORDER BY started_at DESC LIMIT ?",
+            (tenant_id, numero, limite),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def appels_d_un_numero(numero: str) -> list[dict]:
     """Appels rattachés à ce numéro, pour le droit à l'effacement (#88).
 

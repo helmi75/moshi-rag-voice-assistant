@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{# La fiche d'une réservation (ASSISTANTE-116) : la réservation, le client, la
+   conversation. On y arrive en cliquant une carte de la vue du jour. #}
+{% block title %}{{ "Réservation de " ~ (resa.customer_name or "sans nom") if resa else "Réservation" }}{% endblock %}
+{% block content %}
+{% if not resa %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow"><a href="/admin/reservations">← Réservations</a></p>
+    <h1>Réservation</h1>
+  </div>
+</div>
+<div class="callout" style="background: var(--app-bad-soft)">
+  <b>Carnet resOS injoignable</b> {{ erreur }} Réessayez dans un instant.
+</div>
+{% else %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow"><a href="{{ retour }}">← {{ quand }}</a></p>
+    <h1>{{ resa.customer_name or "Sans nom" }}</h1>
+    <p class="lede">{{ quand }}{% if resa.time %} à {{ resa.time }}{% endif %}
+      · {{ resa.party_size or "?" }} couvert{{ "s" if (resa.party_size or 0) > 1 }}
+      {%- if request.state.user.is_superadmin %} · {{ tenant.name }}{% endif %}</p>
+  </div>
+  {# L'état n'est jamais porté par la seule couleur : le mot est écrit. #}
+  <span class="chip {{ resa.chip }}">{{ resa.libelle }}</span>
+</div>
+
+<div class="split">
+  <div class="stack">
+    <section class="card card-flush">
+      <div class="card-head"><h2>La réservation</h2></div>
+      <div class="card-list">
+        <div class="card-row"><span class="row-main"><span class="row-sub">Quand</span>
+          <span class="row-title">{{ quand }}{% if resa.time %} à {{ resa.time }}{% endif %}</span></span></div>
+        <div class="card-row"><span class="row-main"><span class="row-sub">Couverts</span>
+          <span class="row-title">{{ resa.party_size or "—" }}</span></span></div>
+        {% if resa.notes %}
+        <div class="card-row"><span class="row-main"><span class="row-sub">Notes</span>
+          <span class="row-title fiche-texte">{{ resa.notes }}</span></span></div>
+        {% endif %}
+        <div class="card-row"><span class="row-main"><span class="row-sub">Origine</span>
+          <span class="row-title fiche-texte">
+          {%- if call %}Prise au téléphone par l'assistante, le {{ call.date_label[8:10] }}/{{ call.date_label[5:7] }} à {{ call.time_label }}
+          {%- elif resa.source == "resos" %}Enregistrée dans resOS, hors de l'assistante
+          {%- else %}Saisie à la main dans l'admin{% endif %}</span></span></div>
+        {% if resa.cancelled_at %}
+        <div class="card-row"><span class="row-main"><span class="row-sub">Annulée</span>
+          <span class="row-title">le {{ resa.cancelled_at[8:10] }}/{{ resa.cancelled_at[5:7] }}/{{ resa.cancelled_at[:4] }}</span></span></div>
+        {% endif %}
+      </div>
+      {% if resa.modifiable %}
+      <p class="card-sub fiche-pied"><a href="{{ retour }}">Modifier ou annuler dans le calendrier →</a></p>
+      {% elif resa.source == "resos" %}
+      <p class="card-sub fiche-pied">resOS fait foi : elle se modifie dans resOS.</p>
+      {% endif %}
+    </section>
+
+    <section class="card card-flush">
+      <div class="card-head">
+        <div>
+          <h2>Le client</h2>
+          <p class="card-sub">{% if resa.customer_phone %}<a href="tel:{{ resa.customer_phone }}">{{ resa.customer_phone }}</a>
+            {%- else %}Numéro non communiqué{% endif %}</p>
+        </div>
+      </div>
+      <p class="section-label fiche-titre">Ses autres réservations</p>
+      <div class="card-list">
+        {% for r in autres %}
+        <a class="card-row" href="/admin/tenants/{{ tenant.id }}/reservations/{{ r.id }}">
+          <span class="row-main">
+            <span class="row-title">{{ r.date[8:10] }}/{{ r.date[5:7] }}/{{ r.date[:4] }}
+              <span class="row-when">{{ r.time }} · {{ r.party_size }} couvert{{ "s" if (r.party_size or 0) > 1 }}</span></span>
+          </span>
+          <span class="chip {{ r.chip }}">{{ r.libelle }}</span>
+        </a>
+        {% else %}
+        <p class="empty">
+          {%- if resa.source == "resos" %}Son historique est dans resOS.
+          {%- elif not resa.customer_phone %}Sans numéro, ses autres réservations ne se retrouvent pas.
+          {%- else %}Aucune autre : c'est sa première réservation chez vous.{% endif %}</p>
+        {% endfor %}
+      </div>
+      <p class="section-label fiche-titre">Ses appels</p>
+      <div class="card-list">
+        {% for c in appels %}
+        <a class="card-row" href="/admin/calls/{{ c.id }}"{% if call and c.id == call.id %} aria-current="true"{% endif %}>
+          <span class="dot {{ c.dot_class }}" aria-hidden="true"></span>
+          <span class="row-main">
+            <span class="row-title">{{ c.date_label[8:10] }}/{{ c.date_label[5:7] }}/{{ c.date_label[:4] }}
+              <span class="row-when">{{ c.time_label }} · {{ c.duration_label }}
+                {%- if call and c.id == call.id %} · celui de cette réservation{% endif %}</span></span>
+            <span class="row-sub">{{ c.snippet or "Pas de transcription enregistrée." }}</span>
+          </span>
+          <span class="chip {{ c.chip_class }}">{{ c.outcome_label }}</span>
+        </a>
+        {% else %}
+        <p class="empty">{% if numero %}Aucun appel de ce numéro.{% else %}Numéro inconnu : ses appels ne se retrouvent pas.{% endif %}</p>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <section class="card pane">
+    <p class="section-label" style="margin-top: 0">La conversation</p>
+    {% if call %}
+    {% include "calls/_pane.html" %}
+    {% else %}
+    <p class="muted">Aucun appel rattaché : cette réservation a été
+      {{- " enregistrée directement dans resOS" if resa.source == "resos" else " saisie à la main" }}.</p>
+    {% endif %}
+  </section>
+</div>
+{% endif %}
+{% endblock %}

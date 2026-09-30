@@ -183,7 +183,7 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | V6 | « Santé & coûts » après l'appel | Répartition : téléphonie, transcription, compréhension, voix Mistral ; la somme = le total. Le coût de l'appel ≈ 5 c pour 2 min | |
 | V7 | Un établissement qui n'a rien choisi | Il parle avec la voix par défaut du parc (Marie neutre) | |
 
-## P. L'admin du restaurateur — Sprint 2 « Admin pro » (SCRUM-106 à 113)
+## P. L'admin du restaurateur — Sprint 2 « Admin pro » (SCRUM-106 à 113, ASSISTANTE-114 à 116)
 
 À faire avec un **compte restaurateur**, puis une fois en super-admin.
 
@@ -203,6 +203,11 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P12 | Réservations **sur téléphone** | S'ouvre sur la vue du **jour** | |
 | P13 | Établissement en resOS (bac à sable) → Réservations | Les demandes apparaissent « À valider » ; pas de bouton Modifier : resOS fait foi | |
 | P14 | Super-admin → Réservations → « Tous les établissements », puis un seul | Tout le parc (le nom sur chaque carte), puis ce seul établissement | |
+| P15 | Barre latérale (ou barre du haut sur téléphone) : **Sombre**, puis **Clair**, puis **Comme l'appareil** | La page bascule aussitôt, sans rechargement ; le choix tient d'une page à l'autre et après déconnexion (ASSISTANTE-114) | |
+| P16 | Thème **Sombre** : parcourir Salle de contrôle, Appels, Réservations, une fiche | Tout est lisible : graphiques, calendrier, cartes, encadrés | |
+| P17 | Salle de contrôle / Appels : passer la souris sur les barres « Appels par jour » et « Réservations par jour » | Une bulle donne la date en toutes lettres et le nombre (« 4 appels · Samedi 26 septembre 2026 ») ; un jour à zéro aussi. Au doigt : un toucher (ASSISTANTE-115) | |
+| P18 | Réservations → **Jour** → cliquer une réservation prise au téléphone | Sa fiche : la réservation, le client (numéro cliquable, ses autres réservations, ses appels) et la conversation, enregistrement et transcription (ASSISTANTE-116) | |
+| P19 | Même chose sur une réservation saisie à la main ; puis les boutons Modifier / Annuler d'une carte | « Aucun appel rattaché : … saisie à la main » ; les boutons agissent sans ouvrir la fiche | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

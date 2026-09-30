@@ -826,6 +826,34 @@ GARDE_FOUS = [
         k="charge",
         panne="au-delà de 100 réservations dans le mois, des jours pleins s'affichent vides",
     ),
+    GardeFou(
+        nom="Fiche d'une réservation : seulement celles de l'établissement",
+        fichier="api/app/admin/routes_reservations.py",
+        avant='                if ligne and ligne["tenant_id"] == tenant.id else None)',
+        apres="                if ligne else None)  # mutation",
+        tests=["test_fiche_reservation.py"],
+        k="autre",
+        panne="un restaurateur lit la réservation, le numéro et la conversation d'un client "
+              "d'un autre établissement en changeant un chiffre dans l'adresse",
+    ),
+    GardeFou(
+        nom="Thème : le formulaire ne renvoie jamais hors de l'admin",
+        fichier="api/app/admin/routes_preferences.py",
+        avant='        reponse = RedirectResponse(retour if retour.startswith("/admin") else "/admin/",',
+        apres="        reponse = RedirectResponse(retour,  # mutation",
+        tests=["test_theme.py"],
+        k="retour",
+        panne="un lien piégé fait passer un restaurateur connecté vers un faux écran de connexion",
+    ),
+    GardeFou(
+        nom="Thème : seule une valeur connue atteint la page",
+        fichier="api/app/admin/routes_preferences.py",
+        avant="    return choix if choix in THEMES else None",
+        apres="    return choix  # mutation",
+        tests=["test_theme.py"],
+        k="inconnue",
+        panne="un cookie forgé écrit ce qu'il veut dans la balise <html> de chaque page",
+    ),
 ]
 
 

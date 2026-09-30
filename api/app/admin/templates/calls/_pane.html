@@ -12,14 +12,16 @@
   <span class="chip {{ call.chip_class }}">{{ call.outcome_label }}</span>
 </div>
 
-{% if reservation %}
+{# Dans la fiche d'une réservation (ASSISTANTE-116), la réservation est déjà affichée à
+   côté : seuls les encadrés d'échec gardent leur place. #}
+{% if reservation and not fiche %}
 <div class="callout">
   <b>Créé pendant cet appel</b>
   {{ reservation.customer_name }} · {{ reservation.party_size }} couvert(s) ·
   {{ reservation.date }} à {{ reservation.time }}{% if reservation.notes %} · {{ reservation.notes }}{% endif %}
   <a href="/admin/reservations?vue=jour&jour={{ reservation.date }}#resa-{{ reservation.id }}">Voir la réservation</a>
 </div>
-{% elif call.reservation_externe %}
+{% elif call.reservation_externe and not fiche %}
 {# Écrite dans le carnet du restaurant (resOS), pas chez nous : on n'en a que la référence. #}
 <div class="callout">
   <b>Demande de réservation envoyée à resOS pendant cet appel</b>

@@ -199,6 +199,23 @@ def find_by_phone(tenant_id: int, phone: str, *, a_partir_de: Optional[str] = No
     return [dict(r) for r in rows]
 
 
+def du_client(tenant_id: int, phone: Optional[str], limite: int = 10) -> list[dict]:
+    """Toutes les réservations de ce numéro chez cet établissement, passées, à venir et
+    annulées, la plus récente d'abord : l'historique d'un client (ASSISTANTE-116).
+    `find_by_phone` ne rend que les actives à venir — c'est ce que l'assistante peut
+    modifier, pas ce que le restaurateur veut savoir de son client."""
+    phone = (phone or "").strip()
+    if not phone:
+        return []
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM reservations WHERE tenant_id = ? AND customer_phone = ?
+               ORDER BY date DESC, time DESC LIMIT ?""",
+            (tenant_id, phone, limite),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # Le nom relu dans le prompt système vient d'une transcription : seul ce qui RESSEMBLE à
 # un nom passe (lettres, au plus quatre mots séparés par espace, apostrophe ou tiret).
 # Sans ce filtre, une phrase dictée comme « nom » lors d'un appel deviendrait du texte
