@@ -48,6 +48,15 @@ def _carnet_resos(tenant_id) -> bool:
 deps.templates.env.globals["carnet_resos"] = _carnet_resos
 
 
+def _essai_secours(tenant_id: int) -> bool:
+    from .. import renvoi
+
+    return renvoi.essai_en_cours(tenant_id)
+
+
+deps.templates.env.globals["essai_secours"] = _essai_secours
+
+
 def _numero(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     """(numéro normalisé, message d'erreur ou None)."""
     numero = _SEPARATEURS.sub("", saisie or "")
@@ -56,6 +65,26 @@ def _numero(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     return None, (f"Le numéro « {saisie} » doit être au format international, par exemple "
                   "+33612345678 : c'est la forme exacte que Twilio transmet, sinon aucun "
                   "appel n'arriverait à cet établissement.")
+
+
+def _numero_de_secours(saisie: Optional[str], ligne: Optional[str]
+                       ) -> tuple[Optional[str], Optional[str]]:
+    """(numéro normalisé ou None, message d'erreur ou None). Vide = pas de renvoi.
+
+    `ligne` est le numéro Twilio de l'établissement : y renvoyer l'appel le ramènerait
+    chez nous, en boucle, au moment même où l'assistante est en panne."""
+    numero = _SEPARATEURS.sub("", saisie or "")
+    if not numero:
+        return None, None
+    if not _E164.match(numero):
+        return None, (f"Le numéro de secours « {saisie} » doit être au format international, "
+                      "par exemple +33142000000 : c'est lui que Twilio compose en cas de "
+                      "panne.")
+    if ligne and numero == ligne:
+        return None, ("Le numéro de secours ne peut pas être la ligne de l'assistante : "
+                      "l'appel renvoyé reviendrait ici. Indiquez le fixe du restaurant ou le "
+                      "portable du gérant.")
+    return numero, None
 
 
 def _milliers(n: int) -> str:
@@ -81,6 +110,23 @@ def _email_de_notification(saisie: Optional[str]) -> tuple[Optional[str], Option
     if "@" not in adresse or "." not in domaine or " " in adresse:
         return None, f"L'e-mail de notification « {saisie} » n'est pas une adresse valide."
     return adresse, None
+
+
+@router.post("/admin/tenants/{tenant_id}/secours/essai",
+             dependencies=[Depends(deps.verify_csrf), Depends(deps.require_superadmin)])
+async def secours_essai(tenant_id: int, arreter: str = Form(""),
+                        user: User = Depends(deps.current_user)):
+    """Essayer le renvoi sans attendre une panne (ASSISTANTE-118) : pendant trois minutes,
+    les appels de CET établissement sont renvoyés comme si l'assistante était en panne.
+    Réservé au super-admin : pendant l'essai, l'assistante ne prend aucun appel."""
+    from .. import renvoi
+
+    tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
+    if arreter:
+        renvoi.arreter_essai(tenant.id)
+    else:
+        renvoi.signaler_panne(renvoi.ESSAI, tenant.id)
+    return RedirectResponse(f"/admin/tenants/{tenant.id}/edit#secours", status_code=303)
 
 
 @router.get("/admin/tenants")
@@ -113,10 +159,12 @@ async def tenant_create(
     plan: Optional[str] = Form(None),
     notify_email: Optional[str] = Form(None),
     booking_provider: Optional[str] = Form(None),
+    numero_secours: Optional[str] = Form(None),
 ):
     adresse, erreur = _email_de_notification(notify_email)
     numero, erreur_numero = _numero(phone_number)
-    erreur = erreur_numero or erreur or _base_trop_longue(knowledge_base)
+    secours, erreur_secours = _numero_de_secours(numero_secours, numero)
+    erreur = erreur_numero or erreur or erreur_secours or _base_trop_longue(knowledge_base)
     if erreur:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
@@ -144,6 +192,8 @@ async def tenant_create(
         await db.hors_boucle(tenants.update_tenant, tenant.id, booking_provider=booking_provider)
     if adresse:
         await db.hors_boucle(tenants.update_tenant, tenant.id, notify_email=adresse)
+    if secours:
+        await db.hors_boucle(tenants.update_tenant, tenant.id, numero_secours=secours)
     await _prerender_greeting(tenant.id)
     return RedirectResponse("/admin/tenants", status_code=303)
 
@@ -173,6 +223,7 @@ async def tenant_update(
     plan: Optional[str] = Form(None),
     notify_email: Optional[str] = Form(None),
     booking_provider: Optional[str] = Form(None),
+    numero_secours: Optional[str] = Form(None),
 ):
     tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     adresse, erreur = _email_de_notification(notify_email)
@@ -185,7 +236,16 @@ async def tenant_update(
     # dans « Voix & accueil » et « Ce que l'IA sait ». Ignorés s'ils arrivent quand même —
     # un formulaire qui ne les envoie pas ne doit surtout pas les effacer.
     del greeting, knowledge_base
-    erreur = erreur_numero or erreur
+    # FastAPI rend None pour un champ VIDE comme pour un champ absent : or vider le numéro
+    # de secours doit le retirer, et un formulaire qui ne l'envoie pas ne doit pas y
+    # toucher. On lit donc le formulaire lui-même.
+    formulaire = await request.form()
+    secours_envoye = "numero_secours" in formulaire
+    # Comparé à la ligne telle qu'elle SERA après cet enregistrement.
+    secours, erreur_secours = _numero_de_secours(
+        str(formulaire.get("numero_secours") or ""), numero or tenant.phone_number)
+    del numero_secours
+    erreur = erreur_numero or erreur or erreur_secours
     if erreur:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
@@ -197,6 +257,10 @@ async def tenant_update(
         "language": language.strip(),
         "notify_email": adresse,
     }
+    # Le numéro de secours est celui du restaurant : le restaurateur le règle lui-même.
+    # Un formulaire qui ne l'envoie pas ne l'efface pas ; vide, il est retiré.
+    if secours_envoye:
+        fields["numero_secours"] = secours
     # Le numéro de téléphone (routage Twilio) est réservé au super-admin.
     if numero is not None:
         fields["phone_number"] = numero

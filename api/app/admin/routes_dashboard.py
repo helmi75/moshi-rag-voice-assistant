@@ -131,6 +131,13 @@ def _alerts(rows: list[dict]) -> list[dict]:
                 "detail": "L'assistante ne refusera aucun créneau fermé : elle peut enregistrer "
                           "une table un jour de fermeture. Ouvrez « Horaires d'ouverture ».",
             })
+        if not row["tenant"].numero_secours:
+            alerts.append({
+                "level": "warn", "title": f"{name} · pas de numéro de secours",
+                "detail": "Si l'assistante tombe en panne, l'appel ne peut pas être renvoyé "
+                          "vers le restaurant : le client laisse un message. À renseigner "
+                          "dans la fiche de l'établissement.",
+            })
         if not row["stats"]["n_calls"]:
             alerts.append({
                 "level": "info", "title": f"{name} · aucun appel sur 30 jours",
@@ -224,6 +231,7 @@ def _control_room(request: Request, tenant_id: Optional[int]):
             "tenant_id": tenant_id,
             "horaires_ok": tenant is None or disponibilite.est_configure(
                 disponibilite.charger(tenant.opening_hours)),
+            "secours_ok": tenant is None or bool(tenant.numero_secours),
             "days": _WINDOW_DAYS,
         },
     )

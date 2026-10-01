@@ -109,6 +109,18 @@ def _ouvert(horaires: dict, jour: date, t: time) -> bool:
     return any(f < d and t <= f for d, f in horaires["semaine"][veille])
 
 
+def ouvert_a(horaires: Optional[dict], instant: datetime) -> bool:
+    """Le restaurant sert-il à cet instant précis ? Faux un jour de fermeture
+    exceptionnelle. Faux aussi sans horaires renseignés : à qui appelle de décider ce
+    qu'il fait de l'inconnu (app/renvoi.py retient alors une journée par défaut)."""
+    if not est_configure(horaires):
+        return False
+    jour = instant.date()
+    if _ferme_exceptionnellement(horaires, jour):
+        return False
+    return _ouvert(horaires, jour, instant.time().replace(second=0, microsecond=0, tzinfo=None))
+
+
 def _plages_en_lettres(plages) -> str:
     return " et ".join(f"{_h(d)}-{_h(f)}" for d, f in plages) if plages else "fermé"
 

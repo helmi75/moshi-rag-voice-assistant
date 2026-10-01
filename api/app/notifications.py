@@ -34,7 +34,8 @@ from loguru import logger
 
 from . import horloge, taches, users
 
-EVENEMENTS = ("reservation_creee", "reservation_modifiee", "reservation_annulee", "message_pris")
+EVENEMENTS = ("reservation_creee", "reservation_modifiee", "reservation_annulee", "message_pris",
+              "message_vocal")
 
 
 def _config() -> dict:
@@ -150,6 +151,15 @@ def sujet_et_corps(evenement: str, tenant, donnees: dict) -> tuple[str, str]:
                 corps.append(f"Numéro de l'appel : {appelant}")
         else:
             corps.append(f"Rappeler le : {_telephone(appelant)}")
+    elif evenement == "message_vocal":
+        # ASSISTANTE-118 : l'assistante était en panne, le client a parlé au répondeur.
+        # Personne ne lui a rien promis de vive voix : c'est au restaurant de rappeler.
+        sujet = "Message vocal à rappeler — l'assistante était indisponible"
+        corps = [f"L'assistante de {nom_resto} ne pouvait pas répondre : le client a laissé "
+                 f"un message vocal de {donnees.get('secondes') or '?'} s.", "",
+                 f"Rappeler le : {_telephone(donnees.get('caller_number'))}",
+                 "Le message s'écoute dans la fiche de l'appel (lien ci-dessous), quelques "
+                 "instants après cet e-mail."]
     elif evenement == "carnet_injoignable":
         # SCRUM-87 : pendant la panne, l'assistante n'enregistre rien et prend des
         # messages. Le restaurateur doit le savoir avant le service, pas après.

@@ -12,6 +12,21 @@
   <span class="chip {{ call.chip_class }}">{{ call.outcome_label }}</span>
 </div>
 
+{# L'assistante n'a pas pu servir cet appel (ASSISTANTE-118) : ce qu'il est devenu. #}
+{% if call.secours_libelle %}
+<div class="callout" style="background: var(--app-{{ 'bad' if call.outcome == 'unserved' else 'warn' }}-soft)">
+  <b>{% if call.outcome == 'forwarded' %}Appel renvoyé au restaurant
+     {%- elif call.outcome == 'voicemail' %}Le client a laissé un message vocal
+     {%- else %}Panne : le client n'a eu personne{% endif %}</b>
+  L'assistante a passé la main : {{ call.secours_libelle }}.
+  {% if call.outcome == 'forwarded' and call.secours_secondes %}
+  Le restaurant a décroché ({{ call.secours_secondes }} s de communication).
+  {% elif call.outcome == 'unserved' %}
+  Il a raccroché avant que le restaurant décroche, ou sans laisser de message.
+  {% endif %}
+</div>
+{% endif %}
+
 {# Dans la fiche d'une réservation (ASSISTANTE-116), la réservation est déjà affichée à
    côté : seuls les encadrés d'échec gardent leur place. #}
 {% if reservation and not fiche %}

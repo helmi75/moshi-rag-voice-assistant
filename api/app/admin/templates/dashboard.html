@@ -59,6 +59,14 @@
 </div>
 {% endif %}
 
+{% if tenant_id and not secours_ok %}
+<div class="callout" style="background: var(--app-warn-soft)">
+  <b>Pas de numéro de secours</b>
+  Si l'assistante tombe en panne, l'appel ne peut pas être renvoyé vers le restaurant : le
+  client laisse un message. <a href="/admin/tenants/{{ tenant_id }}/edit">Indiquer un numéro</a>.
+</div>
+{% endif %}
+
 <section class="card" style="margin-bottom: .9rem">
   {{ slots_chart }}
 </section>

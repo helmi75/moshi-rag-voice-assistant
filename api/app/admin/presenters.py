@@ -7,7 +7,7 @@ enregistré affiche « Numéro inconnu », pas un numéro plausible.
 import json
 from typing import Optional
 
-from .. import horloge
+from .. import horloge, renvoi
 from ..voice import voices
 
 # Issues d'un appel, telles qu'elles existent réellement en base :
@@ -17,6 +17,10 @@ OUTCOMES = {
     "failed": ("Échec", "chip-bad", "dot-bad"),
     "unfinished": ("Inachevé", "chip-warn", "dot-warn"),
     "info": ("Renseignement", "chip", "dot"),
+    # L'assistante en panne a passé la main (ASSISTANTE-118).
+    "forwarded": ("Renvoyé au restaurant", "chip-warn", "dot-warn"),
+    "voicemail": ("Message vocal", "chip-warn", "dot-warn"),
+    "unserved": ("Panne · client non servi", "chip-bad", "dot-bad"),
 }
 
 
@@ -30,6 +34,10 @@ def voice_label(tenant=None) -> str:
 
 
 def outcome_key(call: dict) -> str:
+    # Passé en secours : c'est ce qu'il est devenu qui compte, avant tout le reste — un
+    # appel renvoyé après une erreur du pipeline n'est pas un « échec » sans suite.
+    if call.get("secours_motif") and call.get("status") in ("forwarded", "voicemail", "unserved"):
+        return call["status"]
     if call.get("status") == "failed":
         return "failed"
     if call.get("reservation_id") or call.get("reservation_externe"):
@@ -88,6 +96,8 @@ def call_view(call: dict) -> dict:
         "snippet": (call.get("summary") or "").strip() or first_customer_line(transcript),
         "transcript": transcript,
         "duration_label": format_duration(call.get("duration_seconds")),
+        # Pourquoi l'assistante a passé la main, en clair (None si elle a servi l'appel).
+        "secours_libelle": renvoi.LIBELLES.get(call.get("secours_motif") or ""),
         "date_label": local.date().isoformat() if local else started[:10],
         "time_label": local.strftime("%H:%M") if local else started[11:16],
     }

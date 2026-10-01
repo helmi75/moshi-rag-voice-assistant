@@ -16,7 +16,8 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, W
 from fastapi.responses import Response
 from loguru import logger
 
-from . import calls, db, llm, supervision, taches, tenants, twilio_signature, users
+from . import (calls, db, llm, messages, notifications, renvoi, supervision, taches, tenants,
+               twilio_signature, users)
 
 
 @asynccontextmanager
@@ -188,7 +189,12 @@ def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "
         f'            <Parameter name="From" value="{escape(from_number)}"/>\n'
         f'            <Parameter name="CallSid" value="{escape(call_sid)}"/>\n'
         "        </Stream>\n"
-        "    </Connect>"
+        "    </Connect>\n"
+        # Twilio ne lit cette ligne que si le flux s'arrête SANS que l'appel soit
+        # raccroché : pipeline effondré, flux injoignable, ou renvoi demandé par
+        # l'assistante en panne (app/renvoi.py). Un appel qui se termine normalement
+        # est raccroché avant, et n'arrive jamais ici.
+        '    <Redirect method="POST">/twilio/suite</Redirect>'
     )
 
 
@@ -269,7 +275,115 @@ async def voice_webhook(
     tenant = await db.hors_boucle(tenants.get_by_phone, To)
     if tenant is None:
         return _raccrocher("Ce numéro n'est pas encore configuré. Au revoir.")
+    # Une panne vient d'être constatée sur un autre appel : celui-ci ne la revit pas, il
+    # est renvoyé d'emblée (ASSISTANTE-118). Passé le délai, un appel retente l'assistante.
+    panne = renvoi.panne_recente(tenant.id)
+    if panne:
+        form = await request.form()
+        return await _secours(tenant, CallSid, From, To, form.get("ForwardedFrom"),
+                              renvoi.ESSAI if panne == renvoi.ESSAI else renvoi.PANNE_RECENTE)
     return _stream_twiml(request, To or "", CallSid or "", From or "")
+
+
+async def _secours(tenant, call_sid: Optional[str], appelant: Optional[str],
+                   ligne: Optional[str], transfere_depuis: Optional[str], motif: str) -> Response:
+    """L'assistante ne sert pas cet appel : il sonne au restaurant, ou le client laisse
+    un message (app/renvoi.py décide). L'appel est noté au journal dans tous les cas."""
+    action, numero = renvoi.decision(tenant, appelant=appelant, transfere_depuis=transfere_depuis)
+    logger.warning(f"[secours] appel {call_sid} (établissement {tenant.id}) : {motif} → "
+                   f"{'renvoi vers le restaurant' if action == renvoi.RENVOI else 'répondeur'}")
+    try:
+        await db.hors_boucle(calls.ouvrir_secours, call_sid, tenant.id,
+                             calls.numero_appelant(appelant), motif)
+    except Exception as exc:  # le journal ne doit jamais empêcher de servir le client
+        logger.warning(f"[secours] journal KO (sans conséquence) : {exc}")
+    if action == renvoi.RENVOI:
+        return _twiml(renvoi.twiml_renvoi(numero, appelant=appelant, ligne=ligne))
+    return _twiml(renvoi.twiml_repondeur())
+
+
+@app.post("/twilio/suite", dependencies=[Depends(twilio_signature.exiger)])
+async def suite_du_flux(
+    request: Request,
+    CallSid: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+    From: Optional[str] = Form(None),
+    ForwardedFrom: Optional[str] = Form(None),
+):
+    """Le flux média s'est arrêté et l'appel est toujours en ligne. S'il s'est terminé
+    normalement, on raccroche ; si l'assistante a demandé le renvoi, ou si le flux ne
+    s'est jamais ouvert chez nous, le client est passé au restaurant."""
+    motif = renvoi.motif_a_la_fin_du_flux(CallSid)
+    if motif is None:
+        return _twiml("    <Hangup/>")
+    tenant = await db.hors_boucle(tenants.get_by_phone, To)
+    if tenant is None:
+        return _twiml("    <Hangup/>")
+    if motif == renvoi.FLUX:
+        renvoi.signaler_panne(renvoi.FLUX)
+    return await _secours(tenant, CallSid, From, To, ForwardedFrom, motif)
+
+
+@app.post("/twilio/secours/fin", dependencies=[Depends(twilio_signature.exiger)])
+async def fin_du_renvoi(
+    CallSid: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+    DialCallStatus: Optional[str] = Form(None),
+    DialCallDuration: Optional[str] = Form(None),
+):
+    """La sonnerie au restaurant a pris fin. Quelqu'un a décroché : l'appel est fini.
+    Personne (occupé, pas de réponse, échec) : le client laisse un message."""
+    if DialCallStatus in ("completed", "answered"):
+        tenant = await db.hors_boucle(tenants.get_by_phone, To)
+        secondes = int(DialCallDuration) if (DialCallDuration or "").isdecimal() else None
+        await db.hors_boucle(
+            lambda: calls.conclure_secours(CallSid, calls.SECOURS_RENVOYE,
+                                           secondes_renvoi=secondes,
+                                           numero=tenant.numero_secours if tenant else None))
+        return _twiml("    <Hangup/>")
+    return _twiml(renvoi.twiml_repondeur())
+
+
+@app.post("/twilio/repondeur", dependencies=[Depends(twilio_signature.exiger)])
+async def message_laisse(
+    CallSid: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+    From: Optional[str] = Form(None),
+    RecordingDuration: Optional[str] = Form(None),
+):
+    """Le client a fini de dicter son message : il est noté, et le restaurant prévenu par
+    e-mail tout de suite — l'audio, lui, arrive un peu après (`/twilio/repondeur/pret`)."""
+    tenant = await db.hors_boucle(tenants.get_by_phone, To)
+    secondes = int(RecordingDuration) if (RecordingDuration or "").isdecimal() else 0
+    if tenant is None or secondes < 1:
+        return _twiml(renvoi.twiml_sans_message())
+    appelant = calls.numero_appelant(From)
+    call_id = await db.hors_boucle(calls.conclure_secours, CallSid, calls.SECOURS_MESSAGE)
+    details = (f"Message vocal de {secondes} s, laissé pendant une panne de l'assistante. "
+               "À écouter dans la fiche de l'appel.")
+    identifiant = await db.hors_boucle(
+        lambda: messages.create_message(tenant.id, "Message vocal à rappeler", details,
+                                        caller_number=appelant, call_id=call_id))
+    notifications.planifier(tenant, "message_vocal", {
+        "message_id": identifiant, "appel_id": call_id, "secondes": secondes,
+        "caller_number": appelant})
+    return _twiml(renvoi.twiml_merci())
+
+
+@app.post("/twilio/repondeur/pret", dependencies=[Depends(twilio_signature.exiger)])
+async def message_pret(
+    CallSid: Optional[str] = Form(None),
+    RecordingSid: Optional[str] = Form(None),
+    RecordingStatus: Optional[str] = Form(None),
+):
+    """Twilio a fini d'écrire le message vocal : on le rapatrie en tâche de fond, puis on
+    l'efface de chez lui (app/repondeur.py). Twilio n'attend rien de cette réponse."""
+    if RecordingStatus == "completed":
+        from . import repondeur
+
+        taches.lancer(repondeur.rapatrier(CallSid, RecordingSid),
+                      nom=f"message vocal de l'appel {CallSid}")
+    return Response(status_code=204)
 
 
 @app.post("/twilio/sms", dependencies=[Depends(twilio_signature.exiger)])
@@ -362,6 +476,10 @@ async def voice_stream(websocket: WebSocket):
         await websocket.close(code=1008)  # policy violation
         return
 
+    # Le flux de cet appel est arrivé jusqu'ici : s'il s'arrête sans rien demander,
+    # `/twilio/suite` saura que c'était une fin normale et non une panne.
+    renvoi.flux_ouvert(call_sid)
+
     # Journal des appels (admin) : best-effort, ne doit JAMAIS faire échouer un appel.
     # L'identifiant rendu nomme les fichiers d'enregistrement (#88) ; à None, l'appel a
     # lieu normalement mais n'est pas enregistré — on n'invente pas de clé de fichier.
@@ -379,6 +497,11 @@ async def voice_stream(websocket: WebSocket):
         # Avec la pile d'appels : c'est l'erreur qu'on aura à diagnostiquer, et le
         # message seul (« 'NoneType' object… ») ne dit jamais où.
         logger.exception(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
+        # Le client est toujours en ligne : à la fermeture du flux, Twilio le passe au
+        # restaurant (ASSISTANTE-118). Les appels suivants de cet établissement aussi,
+        # le temps que l'erreur passe.
+        renvoi.demander(call_sid, renvoi.PIPELINE)
+        renvoi.signaler_panne(renvoi.PIPELINE, tenant.id)
         try:
             await websocket.close(code=1011)
         except RuntimeError:
