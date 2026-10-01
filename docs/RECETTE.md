@@ -180,7 +180,8 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | V3 | Choisir une voix, enregistrer | « Actuellement : … » ; l'accueil regénéré s'écoute en quelques secondes | |
 | V4 | Appeler, **à n'importe quelle heure** | L'accueil, puis « Je vous écoute. » tout de suite : **pas de musique d'attente** | |
 | V5 | Réserver une table | Toute la conversation dans la voix choisie, relances et « pardon » compris | |
-| V6 | « Santé & coûts » après l'appel | Répartition : téléphonie, transcription, compréhension, voix Mistral ; la somme = le total. Le coût de l'appel ≈ 5 c pour 2 min | |
+| V6 | « Santé & coûts » → carte « Répartition du coût » : additionner les montants des lignes | On retombe sur le total écrit sous le titre de la carte. La ligne « Voix Moshi (historique) » ne compte que les appels d'avant la bascule : elle baisse de jour en jour | |
+| V6 bis | Appels → ouvrir un appel **récent** d'environ 2 min (voix Mistral) | Son coût, écrit à côté de sa durée, est d'environ 0,05 $. Ne pas le comparer au « coût moyen par appel » : cette moyenne porte sur 30 jours et compte encore les anciens appels Moshi | |
 | V7 | Un établissement qui n'a rien choisi | Il parle avec la voix par défaut du parc (Marie neutre) | |
 
 ## P. L'admin du restaurateur — Sprint 2 « Admin pro » (SCRUM-106 à 113, ASSISTANTE-114 à 116)
