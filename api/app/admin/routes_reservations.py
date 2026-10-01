@@ -189,15 +189,19 @@ async def reservation_fiche(request: Request, tenant_id: int, ref: str,
     if connecteurs.est_resos(tenant):
         try:
             lue = await connecteurs.pour(tenant).lire(ref)
-        except (connecteurs.Injoignable, connecteurs.Refus) as exc:
+        except connecteurs.Refus:
+            # resOS a LU la demande et l'a rejetée (identifiant mal formé ou périmé) :
+            # réessayer ne changera rien, c'est une réservation introuvable, pas une panne.
+            lue = None
+        except connecteurs.Injoignable as exc:
             return deps.templates.TemplateResponse(
                 request, "reservations/fiche.html",
                 {"resa": None, "erreur": f"Réservation resOS illisible ({exc})."},
                 status_code=502)
         resa = calendrier.resos(lue, tenant.id) if lue else None
     else:
-        ligne = (await db.hors_boucle(reservations.get_reservation, int(ref))
-                 if ref.isdigit() else None)
+        cle = _cle_interne(ref)
+        ligne = await db.hors_boucle(reservations.get_reservation, cle) if cle else None
         resa = (calendrier.interne(ligne, tenant.id)
                 if ligne and ligne["tenant_id"] == tenant.id else None)
     if resa is None:
@@ -206,11 +210,27 @@ async def reservation_fiche(request: Request, tenant_id: int, ref: str,
     return deps.templates.TemplateResponse(request, "reservations/fiche.html", contexte)
 
 
+def _cle_interne(ref: str) -> Optional[int]:
+    """La clé d'une réservation de notre carnet, ou None si `ref` n'en est pas une.
+
+    `str.isdigit()` dit oui à « ² », que `int()` refuse ; et un entier de vingt-cinq
+    chiffres déborde l'INTEGER de SQLite. Les deux donnaient une erreur 500 au lieu
+    d'une réservation introuvable."""
+    if ref.isascii() and ref.isdigit() and len(ref) <= 18:
+        return int(ref)
+    return None
+
+
 def _contexte_fiche(request: Request, tenant, resa: dict) -> dict:
     from .routes_calls import _pane_context
 
     externe = resa["source"] == "resos"
     appel = calls.appel_d_une_reservation(tenant.id, resa["id"], externe=externe)
+    # Le panneau de la fiche d'appel, tel quel — à l'heure du restaurant, comme le reste
+    # de cette page.
+    panneau = _pane_context(request, appel) if appel else {}
+    if panneau:
+        panneau["call"] = presenters.a_l_heure_du_restaurant(panneau["call"])
     # Le numéro du client : celui de la réservation s'il est au format international,
     # sinon celui de l'appel qui l'a prise (resOS garde le numéro tel qu'il a été saisi).
     numero = (calls.numero_appelant(resa.get("customer_phone"))
@@ -219,19 +239,26 @@ def _contexte_fiche(request: Request, tenant, resa: dict) -> dict:
         quand = horloge.en_toutes_lettres(_date.fromisoformat(resa["date"])).capitalize()
     except (TypeError, ValueError):
         quand = resa.get("date") or "Date inconnue"
+    # Le super-admin revient au jour de CET établissement : sans `tenant_id`, il
+    # retombait sur tout le parc — et la page relisait le resOS de chaque établissement.
+    cible = {"vue": "jour", "jour": resa.get("date") or ""}
+    if request.state.user.is_superadmin:
+        cible["tenant_id"] = tenant.id
     return {
         "tenant": tenant, "resa": resa, "quand": quand, "numero": numero,
-        "retour": (f"/admin/reservations?vue=jour&jour={resa.get('date') or ''}"
-                   f"#resa-{resa['id']}"),
+        "retour": f"/admin/reservations?{urlencode(cible)}#resa-{resa['id']}",
+        # « Marquer traité », dans le panneau de l'appel, revient ICI et non à la fiche
+        # de l'appel.
+        "retour_message": request.url.path,
         # resOS ne rend que les réservations À VENIR d'un numéro : son historique reste
         # dans resOS, la fiche le dit plutôt que d'afficher une liste trompeuse.
         "autres": [] if externe else [
             calendrier.interne(r, tenant.id)
             for r in reservations.du_client(tenant.id, resa.get("customer_phone"))
             if r["id"] != resa["id"]],
-        "appels": [presenters.call_view(c) for c in calls.du_numero(tenant.id, numero)],
-        # La conversation : le panneau de la fiche d'appel, tel quel.
-        **(_pane_context(request, appel) if appel else {}),
+        "appels": [presenters.a_l_heure_du_restaurant(presenters.call_view(c))
+                   for c in calls.du_numero(tenant.id, numero)],
+        **panneau,
         "fiche": True,
     }
 

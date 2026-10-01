@@ -7,6 +7,7 @@ enregistré affiche « Numéro inconnu », pas un numéro plausible.
 import json
 from typing import Optional
 
+from .. import horloge
 from ..voice import voices
 
 # Issues d'un appel, telles qu'elles existent réellement en base :
@@ -87,6 +88,21 @@ def call_view(call: dict) -> dict:
         "date_label": started[:10],
         "time_label": started[11:16],
     }
+
+
+def a_l_heure_du_restaurant(vue: dict) -> dict:
+    """La même ligne d'appel, datée au fuseau du restaurant.
+
+    `call_view` découpe `started_at` tel qu'il est stocké, donc en UTC. Sur la fiche
+    d'une réservation, la date de l'appel est écrite dans une phrase (« prise au
+    téléphone le 30/09 à 22:30 ») à côté d'une heure de réservation locale : un appel de
+    00 h 30 à Paris y changeait de jour. Une date illisible reste telle quelle."""
+    instant = horloge.lire_utc(vue.get("started_at"))
+    if instant is None:
+        return vue
+    local = instant.astimezone(horloge.FUSEAU)
+    return {**vue, "date_label": local.date().isoformat(),
+            "time_label": local.strftime("%H:%M")}
 
 
 def parse_journal(raw: Optional[str]) -> Optional[dict]:
