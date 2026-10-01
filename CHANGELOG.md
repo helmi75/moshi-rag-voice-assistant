@@ -7,6 +7,34 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — en cas de panne, l'appel est renvoyé vers le restaurant (ASSISTANTE-118, 01/10/2026)
+
+Demande de Helmi : un client ne doit plus rester sans personne quand l'assistante tombe.
+
+### Ajouté
+- **Numéro de secours** par établissement (« Fiche établissement ») : le fixe du
+  restaurant, sinon le portable du gérant. Réglé par le restaurateur lui-même.
+- **Renvoi en cas de panne.** Quand la voix, le modèle ou la transcription échoue deux
+  fois de suite pendant un appel, ou que le pipeline s'arrête sur une erreur, l'assistante
+  rend la ligne sans raccrocher : le restaurant sonne 15 s pendant ses horaires
+  d'ouverture (une heure d'avance comprise). Pendant trois minutes, les appels suivants
+  sont renvoyés dès le décroché, puis un appel retente l'assistante.
+- **Répondeur** hors horaires, sans numéro de secours, ou si personne ne décroche : le
+  client laisse un message. Le restaurant reçoit un e-mail tout de suite ; le message
+  s'écoute dans la fiche de l'appel. Enregistré par Twilio, il est rapatrié chez nous puis
+  effacé de chez Twilio.
+- **Journal des appels** : « Renvoyé au restaurant », « Message vocal », « Panne · client
+  non servi », avec la raison ; filtre « Pannes ». Le coût compte la communication
+  renvoyée (0,0187 $/min vers un fixe, 0,0404 $/min vers un portable).
+- **Supervision** : contrôle « Appels passés en secours » (panne si un appel y est passé
+  dans les 20 dernières minutes) ; alerte quand un établissement n'a pas de numéro.
+- **Essayer le renvoi** (super-admin) : pendant trois minutes, les appels d'un
+  établissement sont traités comme une panne.
+
+### À faire à la main
+- Le cas « notre serveur ne répond plus du tout » se règle dans la console Twilio
+  (adresse de secours du numéro) : procédure dans docs/TWILIO_SETUP.md §6.
+
 ## Non publiée — thème sombre au choix, graphiques au survol, fiche d'une réservation (ASSISTANTE-114 à 116, 29/09/2026)
 
 Retours de Helmi après la recette du sprint 2.

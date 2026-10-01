@@ -863,6 +863,73 @@ GARDE_FOUS = [
         k="ligne_d_appel or journal or diagnostic",
         panne="le journal des appels est décalé de deux heures : le restaurateur cherche "
               "l'appel de 20 h, il est rangé à 18 h — et à la veille après minuit",
+    ),    GardeFou(
+        nom="Renvoi : un appel terminé normalement n'est jamais renvoyé",
+        fichier="api/app/main.py",
+        avant=('    motif = renvoi.motif_a_la_fin_du_flux(CallSid)\n'
+               '    if motif is None:'),
+        apres=('    motif = renvoi.motif_a_la_fin_du_flux(CallSid) or renvoi.VOIX  # mutation\n'
+               '    if motif is None:'),
+        tests=["test_renvoi.py"],
+        k="termine_normalement",
+        panne="à la fin de CHAQUE conversation réussie, le téléphone du restaurant sonne",
+    ),
+    GardeFou(
+        nom="Renvoi : l'appel ne tourne pas en rond avec la ligne du restaurant",
+        fichier="api/app/renvoi.py",
+        avant='    if secours in ((appelant or "").strip(), (transfere_depuis or "").strip()):',
+        apres="    if False:  # mutation",
+        tests=["test_renvoi.py"],
+        k="tourne_pas_en_rond or renvoye_par_le_fixe",
+        panne="le fixe du restaurant renvoie vers nous, nous le rappelons : l'appel boucle, "
+              "et chaque tour est facturé",
+    ),
+    GardeFou(
+        nom="Renvoi : fermé, on ne fait sonner personne",
+        fichier="api/app/renvoi.py",
+        avant="    if not on_decroche(tenant, instant):",
+        apres="    if False:  # mutation",
+        tests=["test_renvoi.py"],
+        k="ferme_on_prend or hors_horaires or reveille",
+        panne="le portable du gérant sonne à 3 h du matin à chaque panne",
+    ),
+    GardeFou(
+        nom="Renvoi : la ligne n'est pas raccrochée quand l'assistante passe la main",
+        fichier="api/app/voice/bot.py",
+        avant="            if self.garder_la_ligne and isinstance(frame, (EndFrame, CancelFrame)):",
+        apres="            if False:  # mutation",
+        tests=["test_vigie.py"],
+        k="garde_la_ligne",
+        panne="le client est coupé à l'instant où on allait lui passer le restaurant",
+    ),
+    GardeFou(
+        nom="Renvoi : la clôture de l'appel n'efface pas le secours",
+        fichier="api/app/calls.py",
+        avant="                   status = CASE WHEN secours_motif IS NOT NULL THEN status ELSE ? END,",
+        apres="                   status = CASE WHEN 0 THEN status ELSE ? END,",
+        tests=["test_renvoi.py"],
+        k="cloture",
+        panne="un appel renvoyé pour cause de panne s'affiche « terminé normalement » : la "
+              "panne disparaît du journal et de la supervision",
+    ),
+    GardeFou(
+        nom="Renvoi : les adresses de secours exigent la signature de Twilio",
+        fichier="api/app/main.py",
+        avant='@app.post("/twilio/suite", dependencies=[Depends(twilio_signature.exiger)])',
+        apres='@app.post("/twilio/suite")',
+        tests=["test_renvoi.py"],
+        k="signature",
+        panne="n'importe qui fait sonner le restaurant à volonté, à ses frais",
+    ),
+    GardeFou(
+        nom="Répondeur : seul un identifiant d'enregistrement entre dans l'adresse Twilio",
+        fichier="api/app/repondeur.py",
+        avant='        if not _SID.fullmatch(recording_sid or ""):',
+        apres="        if False:  # mutation",
+        tests=["test_repondeur.py"],
+        k="identifiant",
+        panne="une valeur forgée fait appeler une autre ressource de l'API Twilio avec nos "
+              "identifiants — et la fait EFFACER",
     ),
 ]
 

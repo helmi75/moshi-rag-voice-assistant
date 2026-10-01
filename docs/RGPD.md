@@ -26,6 +26,7 @@ infraction et Helmane aussi. C'est le seul point de ce document qui bloque une s
 | Journal des appels (qualité, facturation) | Numéro appelant, horodatage, durée, coût | Intérêt légitime du restaurant (preuve, qualité de service) | Numéro : **90 j** · ligne anonymisée : conservée |
 | Transcription de conversation | Contenu intégral de ce que dit l'appelant | Intérêt légitime (diagnostic technique) | **30 j** |
 | **Enregistrement audio** (#88) | **La voix** de l'appelant et celle de l'assistante, deux pistes séparées | Intérêt légitime : diagnostiquer et corriger la qualité de l'interaction | **30 j, et jamais plus que la transcription** |
+| **Message vocal laissé pendant une panne** (ASSISTANTE-118) | La voix de l'appelant, qui dicte lui-même son message après l'annonce « laissez votre nom, votre numéro et votre demande » | Intérêt légitime du restaurant : rappeler le client que l'assistante n'a pas pu servir | Comme un enregistrement d'appel : **30 j**. Enregistré par Twilio, **rapatrié chez nous puis effacé de chez Twilio** dès qu'il est prêt (`app/repondeur.py`) |
 | Comptes de l'admin | E-mail, empreinte du mot de passe | Exécution du contrat Helmane ↔ restaurant | Durée du contrat |
 
 Durées réglables : `RETENTION_TRANSCRIPT_JOURS`, `RETENTION_NUMERO_JOURS`,

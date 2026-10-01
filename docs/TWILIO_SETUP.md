@@ -69,6 +69,46 @@ docker compose up -d api
 et le webhook du numéro sur `https://xxxx.ngrok-free.app/twilio/voice`. L'URL change à
 chaque lancement de ngrok : console et `.env` avec.
 
+## 6. En cas de panne : le renvoi vers le restaurant (ASSISTANTE-118)
+
+Rien à régler côté Twilio pour les deux premiers cas : c'est l'application qui répond.
+
+| Panne | Ce qui se passe | Où ça se règle |
+|---|---|---|
+| La voix, le modèle ou la transcription lâche **pendant** l'appel (deux échecs de suite) | L'assistante rend la ligne ; Twilio lit la suite du TwiML (`/twilio/suite`) : le restaurant sonne 15 s, sinon répondeur | « Fiche établissement » → **Numéro de secours** |
+| Une panne vient d'être constatée (moins de 3 minutes) | Les appels suivants sont renvoyés dès le décroché, sans revivre le silence | idem |
+| **Notre serveur ne répond plus du tout** (VPS éteint, déploiement en cours) | Twilio n'obtient aucun TwiML : l'appel échoue, **sauf** si le numéro a une adresse de secours | console Twilio, ci-dessous — **pas encore fait** |
+
+Pour le troisième cas, l'adresse de secours doit vivre hors de notre serveur. Dans la
+console Twilio : *TwiML Bins* → créer un bin par numéro, avec le numéro de secours de
+l'établissement :
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say language="fr-FR">Un instant, je vous mets en relation avec le restaurant.</Say>
+  <Dial timeout="15" answerOnBridge="true">+33142000000</Dial>
+  <Say language="fr-FR">Le restaurant ne peut pas vous répondre. Merci de rappeler dans quelques minutes.</Say>
+</Response>
+```
+
+puis *Phone Numbers* → le numéro → *A call comes in* → **Primary handler fails** → ce bin.
+Ce bin ne connaît ni les horaires ni le répondeur : il sonne, et c'est tout. À refaire si
+le numéro de secours change.
+
+**Coût d'un appel renvoyé** (grille Twilio du compte, France, relevée le 01/10/2026) :
+l'appel reçu continue de courir (0,010 $/min) et le renvoi s'y ajoute — 0,0187 $/min vers
+un fixe, 0,0404 $/min vers un portable. Le restaurant voit le numéro du client ; pour un
+appel masqué, notre ligne.
+
+**Boucle** : si le fixe du restaurant est lui-même renvoyé vers notre numéro quand
+personne ne décroche, l'appel reviendrait ici. D'où les 15 s de sonnerie (plus court que
+le renvoi d'un opérateur), et la règle : un appel qui arrive du numéro de secours, ou
+renvoyé par lui, n'y repart jamais.
+
+**Essayer** : « Fiche établissement » → *Essayer le renvoi* (super-admin). Pendant
+3 minutes, les appels de cet établissement sont traités comme une panne.
+
 ## Dépannage
 
 | Symptôme | Cause probable |
