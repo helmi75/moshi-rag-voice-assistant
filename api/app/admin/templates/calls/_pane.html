@@ -56,7 +56,8 @@
   {% if not m.handled_at %}
   <form method="post" action="/admin/messages/{{ m.id }}/traite" style="display:inline">
     <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
-    <input type="hidden" name="retour" value="/admin/calls/{{ call.id }}">
+    {# Dans la fiche d'une réservation, on revient à cette fiche (`retour_message`). #}
+    <input type="hidden" name="retour" value="{{ retour_message or '/admin/calls/' ~ call.id }}">
     <button type="submit" class="secondary" style="padding:.1rem .5rem;font-size:.75rem">
       Marquer traité
     </button>

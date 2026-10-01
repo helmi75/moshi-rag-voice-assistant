@@ -48,19 +48,35 @@ document.addEventListener("change", (event) => {
 // Thème (ASSISTANTE-114) : la page bascule au clic, sans attendre le serveur ; la requête
 // htmx du formulaire ne fait que retenir le choix. Sans htmx, le formulaire part et la
 // page revient déjà dans le bon thème.
+function appliquerTheme(formulaire, valeur) {
+  const racine = document.documentElement;
+  if (valeur === "auto") racine.removeAttribute("data-theme");
+  else racine.setAttribute("data-theme", valeur);
+  document.querySelector('meta[name="color-scheme"]')
+    ?.setAttribute("content", valeur === "auto" ? "light dark" : valeur);
+  for (const bouton of formulaire.querySelectorAll("button[value]")) {
+    bouton.setAttribute("aria-pressed", String(bouton.value === valeur));
+  }
+}
+
 document.addEventListener("click", (event) => {
   const bouton = event.target instanceof Element
     ? event.target.closest(".theme-choix button[value]") : null;
   if (!bouton) return;
-  const racine = document.documentElement;
-  if (bouton.value === "auto") racine.removeAttribute("data-theme");
-  else racine.setAttribute("data-theme", bouton.value);
-  document.querySelector('meta[name="color-scheme"]')
-    ?.setAttribute("content", bouton.value === "auto" ? "light dark" : bouton.value);
-  for (const autre of bouton.form.querySelectorAll("button[value]")) {
-    autre.setAttribute("aria-pressed", String(autre === bouton));
-  }
+  bouton.form.dataset.avant = document.documentElement.getAttribute("data-theme") || "auto";
+  appliquerTheme(bouton.form, bouton.value);
 });
+
+// Le choix n'a pas pu être retenu (session expirée, jeton périmé, réseau coupé) : la page
+// revient au thème d'avant, au lieu d'afficher un thème que la page suivante aurait perdu
+// sans rien dire.
+for (const echec of ["htmx:responseError", "htmx:sendError", "htmx:timeout"]) {
+  document.addEventListener(echec, (event) => {
+    const formulaire = event.target instanceof Element
+      ? event.target.closest(".theme-choix") : null;
+    if (formulaire?.dataset.avant) appliquerTheme(formulaire, formulaire.dataset.avant);
+  });
+}
 
 // Graphiques (ASSISTANTE-115) : au survol, au toucher ou au clavier, une bulle donne la
 // date et la valeur de la barre — un jour sans activité compris. Le texte vient des
@@ -79,6 +95,9 @@ function barreVisee(event) {
 }
 
 function montrerBulle(barre) {
+  // Le <title> du SVG est le repli quand ce script ne tourne pas : ici, il ferait une
+  // seconde infobulle, celle du navigateur, par-dessus la nôtre.
+  barre.querySelector("title")?.remove();
   bulleValeur.textContent = barre.dataset.valeur || "";
   bulleQuand.textContent = barre.dataset.quand || "";
   bulle.hidden = false;
@@ -106,7 +125,9 @@ document.addEventListener("pointerover", (event) => {
   else if (!bulle.hidden) cacherBulle();
 });
 document.addEventListener("pointerout", (event) => {
-  if (!event.relatedTarget) cacherBulle();  // le pointeur quitte la fenêtre
+  // La souris quitte la fenêtre. Au doigt, ce même événement suit CHAQUE levée du doigt :
+  // la bulle se refermait aussitôt posée — elle reste jusqu'au toucher suivant ailleurs.
+  if (event.pointerType === "mouse" && !event.relatedTarget) cacherBulle();
 });
 document.addEventListener("focusin", (event) => {
   const barre = barreVisee(event);

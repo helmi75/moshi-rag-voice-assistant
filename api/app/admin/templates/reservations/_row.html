@@ -11,8 +11,8 @@
   <td>{{ r.notes or "" }}</td>
   <td style="white-space: nowrap">
     {% if r.cancelled_at %}
-    <span class="muted" title="Annulée le {{ r.cancelled_at }}">
-      annulée {{ r.cancelled_at[:10] }}</span>
+    <span class="muted" title="Annulée le {{ r.cancelled_at | jour_paris }} à {{ r.cancelled_at | heure_paris }}">
+      annulée {{ r.cancelled_at | date_paris }}</span>
     {% else %}
     <a href="#" hx-get="/admin/reservations/{{ r.id }}/edit"
        hx-target="closest tr" hx-swap="outerHTML">Modifier</a> ·

@@ -41,12 +41,14 @@
         {% endif %}
         <div class="card-row"><span class="row-main"><span class="row-sub">Origine</span>
           <span class="row-title fiche-texte">
+          {#- Sans appel rattaché, l'origine n'est PAS connue : par SMS, seconde
+              réservation d'un même appel, appel encore en cours ou jamais clôturé… La
+              fiche dit ce qu'elle sait, pas ce qu'elle suppose. -#}
           {%- if call %}Prise au téléphone par l'assistante, le {{ call.date_label[8:10] }}/{{ call.date_label[5:7] }} à {{ call.time_label }}
-          {%- elif resa.source == "resos" %}Enregistrée dans resOS, hors de l'assistante
-          {%- else %}Saisie à la main dans l'admin{% endif %}</span></span></div>
+          {%- else %}Aucun appel rattaché{% endif %}</span></span></div>
         {% if resa.cancelled_at %}
         <div class="card-row"><span class="row-main"><span class="row-sub">Annulée</span>
-          <span class="row-title">le {{ resa.cancelled_at[8:10] }}/{{ resa.cancelled_at[5:7] }}/{{ resa.cancelled_at[:4] }}</span></span></div>
+          <span class="row-title">le {{ resa.cancelled_at | jour_paris }} à {{ resa.cancelled_at | heure_paris }}</span></span></div>
         {% endif %}
       </div>
       {% if resa.modifiable %}
@@ -78,7 +80,9 @@
         <p class="empty">
           {%- if resa.source == "resos" %}Son historique est dans resOS.
           {%- elif not resa.customer_phone %}Sans numéro, ses autres réservations ne se retrouvent pas.
-          {%- else %}Aucune autre : c'est sa première réservation chez vous.{% endif %}</p>
+          {#- Le numéro est comparé tel qu'il est écrit : une autre réservation saisie
+              « 06 11 22 33 44 » ne se retrouve pas depuis « +33611223344 ». -#}
+          {%- else %}Aucune autre réservation trouvée avec ce numéro.{% endif %}</p>
         {% endfor %}
       </div>
       <p class="section-label fiche-titre">Ses appels</p>
@@ -95,7 +99,9 @@
           <span class="chip {{ c.chip_class }}">{{ c.outcome_label }}</span>
         </a>
         {% else %}
-        <p class="empty">{% if numero %}Aucun appel de ce numéro.{% else %}Numéro inconnu : ses appels ne se retrouvent pas.{% endif %}</p>
+        <p class="empty">{% if numero %}Aucun appel de ce numéro.
+          {%- elif resa.customer_phone %}Ses appels ne se retrouvent pas : ce numéro n'est pas écrit au format international (+33…).
+          {%- else %}Numéro inconnu : ses appels ne se retrouvent pas.{% endif %}</p>
         {% endfor %}
       </div>
     </section>
@@ -106,8 +112,8 @@
     {% if call %}
     {% include "calls/_pane.html" %}
     {% else %}
-    <p class="muted">Aucun appel rattaché : cette réservation a été
-      {{- " enregistrée directement dans resOS" if resa.source == "resos" else " saisie à la main" }}.</p>
+    <p class="muted">Aucun appel n'est rattaché à cette réservation : pas de conversation à
+      réécouter ici.</p>
     {% endif %}
   </section>
 </div>

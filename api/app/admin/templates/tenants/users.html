@@ -16,7 +16,7 @@
       {% for a in accounts %}
       <tr>
         <td>{{ a.email }}</td>
-        <td>{{ a.created_at[:10] }}</td>
+        <td>{{ a.created_at | date_paris }}</td>
         <td style="text-align: right">
           <a class="danger" href="#" hx-post="/admin/users/{{ a.id }}/delete"
              hx-confirm="Supprimer le compte {{ a.email }} ?" hx-target="body">Supprimer</a>

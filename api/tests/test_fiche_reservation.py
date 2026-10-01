@@ -90,23 +90,108 @@ class TestLaFiche:
         resa = reservations.create_reservation(tenant.id, "Martin", JOUR, "19:30", 3)
         texte = _client(compte.email, "resto-pass").get(
             _fiche(tenant, resa["id"])).text.replace("&#39;", "'")
-        assert "Aucun appel rattaché" in texte and "saisie à la main" in texte
+        assert "Aucun appel rattaché" in texte
+        assert "Aucun appel n'est rattaché à cette réservation" in texte
         assert "Numéro non communiqué" in texte
         assert "Sans numéro, ses autres réservations ne se retrouvent pas." in texte
 
-    def test_une_premiere_reservation(self, resto):
+    def test_sans_appel_l_origine_n_est_pas_inventee(self, resto):
+        """L'admin ne crée pas de réservation : sans appel rattaché, elle vient d'un SMS,
+        d'un appel encore en cours ou jamais clôturé, ou c'est la seconde d'un même
+        appel. La fiche ne peut pas dire « saisie à la main »."""
+        tenant, compte = resto
+        resa = reservations.create_reservation(tenant.id, "Martin", JOUR, "19:30", 3,
+                                               customer_phone=CLIENT)
+        texte = _client(compte.email, "resto-pass").get(_fiche(tenant, resa["id"])).text
+        assert "saisie à la main" not in texte.lower() and "Saisie à la main" not in texte
+        assert "hors de l" not in texte
+
+    def test_aucune_autre_reservation_sans_rien_affirmer(self, resto):
+        """Le numéro est comparé tel qu'il est écrit : ne rien trouver ne prouve pas que
+        c'est une première réservation."""
         tenant, compte = resto
         resa = reservations.create_reservation(tenant.id, "Petit", JOUR, "19:30", 3,
                                                customer_phone="+33699887766")
         texte = _client(compte.email, "resto-pass").get(
             _fiche(tenant, resa["id"])).text.replace("&#39;", "'")
-        assert "c'est sa première réservation chez vous" in texte
+        assert "Aucune autre réservation trouvée avec ce numéro." in texte
+        assert "première réservation" not in texte
 
-    def test_une_reservation_inconnue(self, resto):
+    def test_un_numero_saisi_a_la_francaise_n_est_pas_dit_inconnu(self, resto):
         tenant, compte = resto
+        resa = reservations.create_reservation(tenant.id, "Petit", JOUR, "19:30", 3,
+                                               customer_phone="06 11 22 33 44")
+        texte = _client(compte.email, "resto-pass").get(
+            _fiche(tenant, resa["id"])).text.replace("&#39;", "'")
+        assert 'href="tel:06 11 22 33 44"' in texte
+        assert "n'est pas écrit au format international" in texte
+        assert "Numéro inconnu" not in texte
+
+    @pytest.mark.parametrize("ref", [99_999_999, "pas-un-nombre", "²", "٣",
+                                     "9" * 25, "-1", "1.0"])
+    def test_une_reservation_inconnue(self, resto, ref):
+        """« ² » passe str.isdigit() et fait échouer int() ; vingt-cinq chiffres débordent
+        l'INTEGER de SQLite : un 404, pas une erreur 500."""
+        tenant, compte = resto
+        assert _client(compte.email, "resto-pass").get(_fiche(tenant, ref)).status_code == 404
+
+    def test_l_appel_est_date_a_l_heure_du_restaurant(self, resto):
+        """Un appel de 00 h 30 à Paris est stocké la veille à 23 h 30 UTC : la fiche ne
+        doit pas dire que la réservation a été prise la veille."""
+        from app import db
+
+        tenant, compte = resto
+        resa = reservations.create_reservation(tenant.id, "Durand", JOUR, "20:00", 2,
+                                               customer_phone=CLIENT)
+        call_id = _appel(tenant, resa["id"])
+        with db.get_conn() as conn:
+            conn.execute("UPDATE calls SET started_at = '2030-01-31T23:30:00Z' WHERE id = ?",
+                         (call_id,))
+        texte = _client(compte.email, "resto-pass").get(
+            _fiche(tenant, resa["id"])).text.replace("&#39;", "'")
+        assert "Prise au téléphone par l'assistante, le 01/02 à 00:30" in texte
+        assert "01/02/2030" in texte and "2030-02-01 00:30" in texte
+        assert "23:30" not in texte and "31/01" not in texte
+
+    def test_marquer_traite_revient_a_la_fiche(self, resto):
+        from app import messages
+
+        tenant, compte = resto
+        resa = reservations.create_reservation(tenant.id, "Durand", JOUR, "20:00", 2,
+                                               customer_phone=CLIENT)
+        call_id = _appel(tenant, resa["id"])
+        message = messages.create_message(tenant.id, "Rappeler pour le menu", call_id=call_id,
+                                          caller_number=CLIENT)
         client = _client(compte.email, "resto-pass")
-        assert client.get(_fiche(tenant, 99_999_999)).status_code == 404
-        assert client.get(_fiche(tenant, "pas-un-nombre")).status_code == 404
+        fiche = _fiche(tenant, resa["id"])
+
+        def retour_du_message(page: str) -> str:
+            formulaire = page.split(f'action="/admin/messages/{message}/traite"')[1]
+            return formulaire.split('name="retour" value="')[1].split('"')[0]
+
+        assert retour_du_message(client.get(fiche).text) == fiche
+        # La fiche de l'appel, elle, garde son propre retour.
+        appel = f"/admin/calls/{call_id}"
+        assert retour_du_message(client.get(appel).text) == appel
+        resp = client.post(f"/admin/messages/{message}/traite", data={"retour": fiche},
+                           follow_redirects=False)
+        assert resp.status_code == 303 and resp.headers["location"] == fiche
+
+
+class TestLeRetour:
+    def test_le_restaurateur_revient_au_jour(self, resto):
+        tenant, compte = resto
+        resa = reservations.create_reservation(tenant.id, "Durand", JOUR, "20:00", 2)
+        page = _client(compte.email, "resto-pass").get(_fiche(tenant, resa["id"])).text
+        assert f'href="/admin/reservations?vue=jour&amp;jour={JOUR}#resa-{resa["id"]}"' in page
+
+    def test_le_super_admin_revient_au_jour_de_cet_etablissement(self, resto):
+        """Sans `tenant_id`, il retombait sur tout le parc."""
+        tenant, _ = resto
+        resa = reservations.create_reservation(tenant.id, "Durand", JOUR, "20:00", 2)
+        page = _client().get(_fiche(tenant, resa["id"])).text
+        assert (f'href="/admin/reservations?vue=jour&amp;jour={JOUR}&amp;tenant_id={tenant.id}'
+                f'#resa-{resa["id"]}"') in page
 
 
 class TestUnRestaurateurChezLui:
@@ -160,6 +245,26 @@ class TestResos:
         assert "Pour quatre personnes, au nom de Lefèvre." in texte
         assert "Son historique est dans resOS." in texte
         assert "Demande de réservation envoyée à resOS" not in texte
+
+    def test_sans_appel_la_fiche_resos_ne_dit_pas_hors_de_l_assistante(self, demo):
+        tenant, etat = demo
+        ref = etat.reserver(date=JOUR, time="20:00", nom="Lefèvre")
+        texte = _client().get(_fiche(tenant, ref)).text.replace("&#39;", "'")
+        assert "Aucun appel rattaché" in texte
+        assert "hors de l'assistante" not in texte and "directement dans resOS" not in texte
+
+    def test_un_identifiant_refuse_par_resos_est_introuvable(self, demo, monkeypatch):
+        """resOS a lu la demande et l'a rejetée (4xx) : ce n'est pas une panne, et
+        « réessayez dans un instant » ferait réessayer pour rien."""
+        from app.connecteurs.resos import ConnecteurResos
+
+        async def refuse(self, reservation_id):
+            raise connecteurs.Refus("identifiant mal formé")
+
+        monkeypatch.setattr(ConnecteurResos, "lire", refuse)
+        tenant, _ = demo
+        page = _client().get(_fiche(tenant, "abc"))
+        assert page.status_code == 404 and "injoignable" not in page.text
 
     def test_resos_injoignable(self, demo):
         tenant, etat = demo

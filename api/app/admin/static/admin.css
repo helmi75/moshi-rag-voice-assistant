@@ -586,9 +586,17 @@ tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
 .cal-lien::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
 .cal-carte:has(.cal-lien:hover) { border-color: var(--app-border); box-shadow: var(--app-shadow); }
 .cal-carte:has(.cal-lien:hover) .cal-lien { text-decoration: underline; text-underline-offset: 3px; }
-.cal-lien:focus-visible { outline: none; }
-.cal-carte:has(.cal-lien:focus-visible) { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+/* L'anneau de focus passe du lien à la carte — seulement là où :has() existe. Ailleurs
+   (Firefox avant 121), le lien garde le sien : sinon le clavier n'aurait plus aucun repère. */
+@supports selector(:has(a)) {
+  .cal-lien:focus-visible { outline: none; }
+  .cal-carte:has(.cal-lien:focus-visible) { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+}
 .cal-carte .cal-action { position: relative; z-index: 1; }
+/* Le numéro et les notes restent du TEXTE, au-dessus du lien : on doit pouvoir les
+   sélectionner et les copier. Ajustés à leur contenu, pour laisser le reste de la ligne
+   à la carte cliquable. */
+.cal-carte .kb-body, .cal-carte .card-sub { position: relative; z-index: 1; width: fit-content; }
 /* La fiche d'une réservation. */
 .fiche-texte { font-weight: 500; white-space: pre-line; }
 .fiche-pied { padding: .2rem 1.3rem 1rem; margin: 0; }

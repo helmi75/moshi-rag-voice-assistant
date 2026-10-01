@@ -21,11 +21,30 @@ Retours de Helmi après la recette du sprint 2.
 - **Fiche d'une réservation** (ASSISTANTE-116) : dans la vue du jour, un clic sur une
   réservation ouvre la réservation, son client (numéro cliquable, ses autres réservations,
   ses appels) et la conversation qui l'a prise (enregistrement, transcription). Marche
-  aussi pour resOS ; une réservation saisie à la main le dit.
+  aussi pour resOS ; sans appel rattaché, la fiche le dit sans supposer d'où elle vient.
+
+### Changé
+- **Tout l'admin est à l'heure de Paris** (01/10). Les appels (journal, salle de contrôle,
+  fiche d'un appel, diagnostic), la date d'annulation d'une réservation, la date de
+  création d'un compte et l'heure du relevé de « Santé & coûts » s'affichaient en UTC :
+  deux heures trop tôt l'été, une l'hiver, et la veille pour ce qui se passe après
+  minuit. La base reste en UTC ; seul l'affichage change.
 
 ### Corrigé
 - Le bouton « Quitter » reprend son apparence discrète (il prenait le bleu des boutons
   principaux).
+- **Après la revue de code du 01/10** (fiche d'une réservation, graphiques, thème) :
+  - une adresse de fiche mal formée (« ² », vingt-cinq chiffres) donnait une erreur 500 :
+    c'est une réservation introuvable ;
+  - la fiche ne dit plus « saisie à la main » ni « première réservation » sans le savoir,
+    et date l'appel à l'heure du restaurant (un appel de 00 h 30 passait à la veille) ;
+  - un identifiant refusé par resOS est « introuvable », pas une panne à réessayer ;
+  - le super-admin revient au jour de l'établissement d'où il venait ; « Marquer
+    traité » depuis la fiche y revient ;
+  - au doigt, la bulle des graphiques ne se referme plus à la levée du doigt ; sans
+    script, chaque jour garde l'infobulle du navigateur ;
+  - un choix de thème qui n'a pas pu être enregistré ne reste pas affiché ;
+  - le numéro et les notes d'une carte du jour se sélectionnent de nouveau.
 
 ## Non publiée — Sprint 2 « Admin pro » : une interface restaurateur plus simple (SCRUM-106 à 113, 28/09/2026)
 

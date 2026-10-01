@@ -7,6 +7,7 @@ enregistré affiche « Numéro inconnu », pas un numéro plausible.
 import json
 from typing import Optional
 
+from .. import horloge
 from ..voice import voices
 
 # Issues d'un appel, telles qu'elles existent réellement en base :
@@ -72,6 +73,9 @@ def call_view(call: dict) -> dict:
     label, chip, dot = OUTCOMES[key]
     transcript = parse_transcript(call.get("transcript"))
     started = call.get("started_at") or ""
+    # À l'heure du restaurant, pas à celle de la base (UTC). Un horodatage illisible
+    # s'affiche tel quel plutôt que de faire tomber la page.
+    local = horloge.au_restaurant(started)
     return {
         **call,
         "outcome": key,
@@ -84,8 +88,8 @@ def call_view(call: dict) -> dict:
         "snippet": (call.get("summary") or "").strip() or first_customer_line(transcript),
         "transcript": transcript,
         "duration_label": format_duration(call.get("duration_seconds")),
-        "date_label": started[:10],
-        "time_label": started[11:16],
+        "date_label": local.date().isoformat() if local else started[:10],
+        "time_label": local.strftime("%H:%M") if local else started[11:16],
     }
 
 

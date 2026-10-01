@@ -106,8 +106,36 @@ def test_le_sombre_choisi_est_le_sombre_automatique():
     choisi = re.search(r':root\[data-theme="dark"\] \{([^}]*)\}', css).group(1)
     assert declarations(auto) == declarations(choisi)
     assert len(declarations(auto)) > 15
+    # Les couleurs des graphiques sont recopiées de la même façon, plus bas.
+    auto = re.search(r':root:not\(\[data-theme="light"\]\) \.viz-root \{([^}]*)\}', css).group(1)
+    choisi = re.search(r':root\[data-theme="dark"\] \.viz-root \{([^}]*)\}', css).group(1)
+    assert declarations(auto) == declarations(choisi) and len(declarations(auto)) == 2
 
 
 def test_la_page_bascule_sans_recharger():
     script = (CSS.parent / "admin.js").read_text()
     assert ".theme-choix button[value]" in script and 'setAttribute("data-theme"' in script
+
+
+def test_un_choix_non_retenu_ne_reste_pas_affiche():
+    """La page bascule avant la réponse du serveur. Si l'enregistrement échoue (jeton
+    périmé, réseau), elle revient au thème d'avant : sinon elle afficherait un thème que
+    la page suivante perd sans rien dire."""
+    script = (CSS.parent / "admin.js").read_text()
+    for echec in ("htmx:responseError", "htmx:sendError", "htmx:timeout"):
+        assert echec in script
+    assert "dataset.avant" in script and "appliquerTheme(formulaire, formulaire.dataset.avant)" in script
+
+
+def test_le_numero_et_les_notes_d_une_carte_restent_selectionnables():
+    """Le lien de la fiche couvre toute la carte : le texte à copier passe au-dessus."""
+    css = CSS.read_text()
+    assert re.search(r"\.cal-carte \.kb-body, \.cal-carte \.card-sub \{[^}]*z-index: 1", css)
+
+
+def test_l_anneau_de_focus_ne_disparait_pas_sans_has():
+    """`outline: none` sur le lien n'est permis que là où la carte peut le reprendre."""
+    css = CSS.read_text()
+    hors_supports = re.sub(r"@supports selector\(:has\(a\)\) \{.*?\n\}", "", css, flags=re.S)
+    assert ".cal-lien:focus-visible { outline: none; }" in css
+    assert ".cal-lien:focus-visible { outline: none; }" not in hors_supports

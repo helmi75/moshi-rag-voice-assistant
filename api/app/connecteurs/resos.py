@@ -277,9 +277,13 @@ class ConnecteurResos:
                 if isinstance(b, dict) and _a_venir(b) and b.get("date", "") >= debut
                 and _chiffres((b.get("guest") or {}).get("phone")) == numero]
 
-    async def _lire(self, reservation_id) -> Optional[dict]:
-        # L'identifiant vient du modèle : échappé, il ne peut pas sortir de /bookings/.
-        booking = await self._requete("GET", f"/bookings/{quote(str(reservation_id), safe='')}")
+    async def _lire(self, reservation_id, *, forcer: bool = False,
+                    journaliser: bool = True) -> Optional[dict]:
+        # L'identifiant vient du modèle ou d'une adresse : échappé, il ne peut pas sortir
+        # de /bookings/. Seul endroit où il se glisse dans un chemin.
+        booking = await self._requete(
+            "GET", f"/bookings/{quote(str(reservation_id), safe='')}",
+            forcer=forcer, journaliser=journaliser)
         return booking if isinstance(booking, dict) else None
 
     async def pour_appelant(self, reservation_id, telephone) -> Optional[dict]:
@@ -362,10 +366,8 @@ class ConnecteurResos:
         journal."""
         if not str(reservation_id or "").strip():
             return None
-        booking = await self._requete(
-            "GET", f"/bookings/{quote(str(reservation_id), safe='')}",
-            forcer=True, journaliser=False)
-        return _en_reservation(booking) if isinstance(booking, dict) else None
+        booking = await self._lire(reservation_id, forcer=True, journaliser=False)
+        return _en_reservation(booking) if booking else None
 
     async def verifier(self) -> dict:
         """Le bouton « tester maintenant » : ignore le coupe-circuit."""
