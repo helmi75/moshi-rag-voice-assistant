@@ -39,6 +39,17 @@ def aujourd_hui() -> date:
     return maintenant().date()
 
 
+def au_restaurant(brut) -> Optional[datetime]:
+    """Un horodatage de la base (stocké en UTC), ramené au fuseau du restaurant. None
+    s'il est illisible.
+
+    Tout ce que l'admin AFFICHE passe par ici : un appel de 00 h 30 à Paris est stocké la
+    veille à 22 h 30, et le restaurateur lisait cette heure-là, deux heures trop tôt et
+    parfois un jour trop tôt."""
+    instant = lire_utc(brut)
+    return instant.astimezone(FUSEAU) if instant else None
+
+
 def en_toutes_lettres(jour: date) -> str:
     return f"{JOURS[jour.weekday()]} {jour.day} {MOIS[jour.month - 1]} {jour.year}"
 

@@ -30,7 +30,7 @@
          15 minutes. Le dire ici évite de croire que cette page EST la surveillance :
          elle n'est qu'une fenêtre dessus, et personne ne la regarde à 3 h du matin. #}
       <p class="card-sub">Contrôles sur {{ supervision.fenetre_jours }} jours, relevés à
-         {{ supervision.mesure_le[11:16] }} UTC. La même mesure alimente l'alerte
+         {{ supervision.mesure_le | heure_paris }} (heure de Paris). La même mesure alimente l'alerte
          extérieure : seul le niveau « panne » réveille quelqu'un.</p>
     </div>
   </div>

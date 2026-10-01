@@ -226,11 +226,8 @@ def _contexte_fiche(request: Request, tenant, resa: dict) -> dict:
 
     externe = resa["source"] == "resos"
     appel = calls.appel_d_une_reservation(tenant.id, resa["id"], externe=externe)
-    # Le panneau de la fiche d'appel, tel quel — à l'heure du restaurant, comme le reste
-    # de cette page.
+    # La conversation : le panneau de la fiche d'appel, tel quel.
     panneau = _pane_context(request, appel) if appel else {}
-    if panneau:
-        panneau["call"] = presenters.a_l_heure_du_restaurant(panneau["call"])
     # Le numéro du client : celui de la réservation s'il est au format international,
     # sinon celui de l'appel qui l'a prise (resOS garde le numéro tel qu'il a été saisi).
     numero = (calls.numero_appelant(resa.get("customer_phone"))
@@ -256,8 +253,7 @@ def _contexte_fiche(request: Request, tenant, resa: dict) -> dict:
             calendrier.interne(r, tenant.id)
             for r in reservations.du_client(tenant.id, resa.get("customer_phone"))
             if r["id"] != resa["id"]],
-        "appels": [presenters.a_l_heure_du_restaurant(presenters.call_view(c))
-                   for c in calls.du_numero(tenant.id, numero)],
+        "appels": [presenters.call_view(c) for c in calls.du_numero(tenant.id, numero)],
         **panneau,
         "fiche": True,
     }

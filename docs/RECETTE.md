@@ -209,6 +209,7 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P18 | Réservations → **Jour** → cliquer une réservation prise au téléphone | Sa fiche : la réservation, le client (numéro cliquable, ses autres réservations, ses appels) et la conversation, enregistrement et transcription (ASSISTANTE-116) | |
 | P19 | Même chose sur une réservation prise par SMS (sans appel) ; puis, sur une carte : les boutons Modifier / Annuler, et sélectionner le numéro à la souris | « Aucun appel rattaché », sans supposer d'où elle vient ; les boutons agissent sans ouvrir la fiche ; le numéro se sélectionne et se copie | |
 | P20 | Sur téléphone : toucher une barre d'un graphique, lever le doigt, toucher la même barre | La bulle reste affichée après la levée du doigt, et revient au second toucher | |
+| P21 | Passer un appel, noter l'heure à sa montre, puis ouvrir Appels | L'appel est à **l'heure de Paris** (la même qu'à la montre), dans le journal, la salle de contrôle et la fiche de l'appel | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

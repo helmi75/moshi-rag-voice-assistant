@@ -22,6 +22,6 @@
             hx-target="closest article" hx-swap="outerHTML">Annuler</button>
   </div>
   {% elif r.cancelled_at %}
-  <p class="card-sub">Annulée le {{ r.cancelled_at[8:10] }}/{{ r.cancelled_at[5:7] }}/{{ r.cancelled_at[:4] }}.</p>
+  <p class="card-sub">Annulée le {{ r.cancelled_at | jour_paris }}.</p>
   {% endif %}
 </article>

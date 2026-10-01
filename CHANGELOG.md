@@ -23,6 +23,13 @@ Retours de Helmi après la recette du sprint 2.
   ses appels) et la conversation qui l'a prise (enregistrement, transcription). Marche
   aussi pour resOS ; sans appel rattaché, la fiche le dit sans supposer d'où elle vient.
 
+### Changé
+- **Tout l'admin est à l'heure de Paris** (01/10). Les appels (journal, salle de contrôle,
+  fiche d'un appel, diagnostic), la date d'annulation d'une réservation, la date de
+  création d'un compte et l'heure du relevé de « Santé & coûts » s'affichaient en UTC :
+  deux heures trop tôt l'été, une l'hiver, et la veille pour ce qui se passe après
+  minuit. La base reste en UTC ; seul l'affichage change.
+
 ### Corrigé
 - Le bouton « Quitter » reprend son apparence discrète (il prenait le bleu des boutons
   principaux).

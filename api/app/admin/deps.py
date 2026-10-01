@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import Depends, Form, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
-from .. import tenants, users
+from .. import horloge, tenants, users
 from ..tenants import Tenant
 from ..users import User
 
@@ -43,6 +43,19 @@ def statique(nom: str) -> str:
 
 
 templates.env.globals["statique"] = statique
+
+
+def _au_restaurant(brut, forme: str) -> str:
+    local = horloge.au_restaurant(brut)
+    return local.strftime(forme) if local else str(brut or "")
+
+
+# Les horodatages de la base sont en UTC : dans une page, ils passent par l'un de ces
+# filtres. Découper la chaîne (`[:10]`, `[11:16]`) affichait l'heure UTC, donc une date
+# d'annulation de la veille pour une annulation faite après minuit.
+templates.env.filters["date_paris"] = lambda brut: _au_restaurant(brut, "%Y-%m-%d")
+templates.env.filters["jour_paris"] = lambda brut: _au_restaurant(brut, "%d/%m/%Y")
+templates.env.filters["heure_paris"] = lambda brut: _au_restaurant(brut, "%H:%M")
 
 
 def ensure_csrf(request: Request) -> str:

@@ -48,7 +48,7 @@
           {%- else %}Aucun appel rattaché{% endif %}</span></span></div>
         {% if resa.cancelled_at %}
         <div class="card-row"><span class="row-main"><span class="row-sub">Annulée</span>
-          <span class="row-title">le {{ resa.cancelled_at[8:10] }}/{{ resa.cancelled_at[5:7] }}/{{ resa.cancelled_at[:4] }}</span></span></div>
+          <span class="row-title">le {{ resa.cancelled_at | jour_paris }} à {{ resa.cancelled_at | heure_paris }}</span></span></div>
         {% endif %}
       </div>
       {% if resa.modifiable %}

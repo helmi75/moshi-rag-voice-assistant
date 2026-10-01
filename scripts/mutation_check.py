@@ -854,6 +854,16 @@ GARDE_FOUS = [
         k="inconnue",
         panne="un cookie forgé écrit ce qu'il veut dans la balise <html> de chaque page",
     ),
+    GardeFou(
+        nom="Admin : les appels s'affichent à l'heure de Paris",
+        fichier="api/app/admin/presenters.py",
+        avant="    local = horloge.au_restaurant(started)",
+        apres="    local = None  # mutation",
+        tests=["test_heure_de_paris.py"],
+        k="ligne_d_appel or journal or diagnostic",
+        panne="le journal des appels est décalé de deux heures : le restaurateur cherche "
+              "l'appel de 20 h, il est rangé à 18 h — et à la veille après minuit",
+    ),
 ]
 
 

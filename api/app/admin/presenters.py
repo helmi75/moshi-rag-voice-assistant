@@ -73,6 +73,9 @@ def call_view(call: dict) -> dict:
     label, chip, dot = OUTCOMES[key]
     transcript = parse_transcript(call.get("transcript"))
     started = call.get("started_at") or ""
+    # À l'heure du restaurant, pas à celle de la base (UTC). Un horodatage illisible
+    # s'affiche tel quel plutôt que de faire tomber la page.
+    local = horloge.au_restaurant(started)
     return {
         **call,
         "outcome": key,
@@ -85,24 +88,9 @@ def call_view(call: dict) -> dict:
         "snippet": (call.get("summary") or "").strip() or first_customer_line(transcript),
         "transcript": transcript,
         "duration_label": format_duration(call.get("duration_seconds")),
-        "date_label": started[:10],
-        "time_label": started[11:16],
+        "date_label": local.date().isoformat() if local else started[:10],
+        "time_label": local.strftime("%H:%M") if local else started[11:16],
     }
-
-
-def a_l_heure_du_restaurant(vue: dict) -> dict:
-    """La même ligne d'appel, datée au fuseau du restaurant.
-
-    `call_view` découpe `started_at` tel qu'il est stocké, donc en UTC. Sur la fiche
-    d'une réservation, la date de l'appel est écrite dans une phrase (« prise au
-    téléphone le 30/09 à 22:30 ») à côté d'une heure de réservation locale : un appel de
-    00 h 30 à Paris y changeait de jour. Une date illisible reste telle quelle."""
-    instant = horloge.lire_utc(vue.get("started_at"))
-    if instant is None:
-        return vue
-    local = instant.astimezone(horloge.FUSEAU)
-    return {**vue, "date_label": local.date().isoformat(),
-            "time_label": local.strftime("%H:%M")}
 
 
 def parse_journal(raw: Optional[str]) -> Optional[dict]:
