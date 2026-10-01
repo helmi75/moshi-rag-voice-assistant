@@ -81,6 +81,37 @@ def test_le_libelle_est_echappe():
     assert "<b onclick" not in svg and "&lt;b onclick=&quot;x&quot;&gt;" in svg
 
 
+def test_sans_script_chaque_jour_garde_son_infobulle():
+    """Sur 90 jours, seuls le maximum et le dernier jour sont écrits : si admin.js ne
+    tourne pas, le <title> du navigateur est le seul accès aux autres valeurs."""
+    points = [(f"j{j}", j % 5, f"Jour {j}") for j in range(90)]
+    svg = str(charts.bar_chart(points, title="t", unite=("appel", "appels")))
+    titres = re.findall(r'<g class="viz-barre"[^>]*><title>([^<]*)</title>', svg)
+    assert len(titres) == 90
+    assert titres[0] == "Jour 0 : 0 appel" and titres[4] == "Jour 4 : 4 appels"
+
+
+def test_la_bulle_remplace_l_infobulle_du_navigateur():
+    """Les deux à la fois feraient deux infobulles superposées."""
+    from pathlib import Path
+
+    import app.admin as admin
+
+    script = (Path(admin.__file__).parent / "static" / "admin.js").read_text()
+    assert 'barre.querySelector("title")?.remove()' in script
+
+
+def test_au_doigt_la_bulle_ne_se_referme_pas_a_la_levee():
+    """Au doigt, `pointerout` suit chaque levée du doigt avec `relatedTarget` nul : seule
+    la SOURIS qui quitte la fenêtre referme la bulle."""
+    from pathlib import Path
+
+    import app.admin as admin
+
+    script = (Path(admin.__file__).parent / "static" / "admin.js").read_text()
+    assert 'event.pointerType === "mouse" && !event.relatedTarget' in script
+
+
 def test_la_bulle_est_branchee():
     from pathlib import Path
 

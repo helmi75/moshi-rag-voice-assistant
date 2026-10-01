@@ -1,9 +1,10 @@
 """Graphiques SVG server-rendered (zéro dépendance).
 
-Le rendu est complet sans script. admin.js n'ajoute que la bulle du survol (ASSISTANTE-115) :
-chaque jour est un groupe `.viz-barre` qui porte sa date et sa valeur en toutes lettres
-(`data-quand`, `data-valeur`), avec une cible de la hauteur du graphique — un jour à zéro
-se survole aussi, et viser une barre de 19 unités au doigt ne suffirait pas.
+Le rendu est complet sans script : chaque jour garde son <title>, l'infobulle du
+navigateur. admin.js la remplace par sa bulle (ASSISTANTE-115) : chaque jour est un groupe
+`.viz-barre` qui porte sa date et sa valeur en toutes lettres (`data-quand`,
+`data-valeur`), avec une cible de la hauteur du graphique — un jour à zéro se survole
+aussi, et viser une barre de 19 unités au doigt ne suffirait pas.
 
 Conventions (skill dataviz) :
 - une série par graphique → pas de légende, le titre nomme la série ;
@@ -102,6 +103,9 @@ def bar_chart(points: list[tuple], *, title: str, series: int = 1,
         parts.append(
             f'<g class="viz-barre" role="img" tabindex="{0 if i == n - 1 else -1}" '
             f'aria-label="{quand} : {texte}" data-quand="{quand}" data-valeur="{texte}">'
+            # Repli sans script : sur 90 jours, seuls le maximum et le dernier jour sont
+            # écrits — sans ce <title>, les autres valeurs seraient hors d'atteinte.
+            f'<title>{quand} : {texte}</title>'
             f'<rect class="viz-cible" x="{x - gap / 2:.1f}" y="{_MARGIN_T}" '
             f'width="{bar_w + gap:.1f}" height="{plot_h}" fill="transparent"/>'
             + (f'<path class="viz-marque" d="{path}" '
