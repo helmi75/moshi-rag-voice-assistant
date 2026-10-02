@@ -20,6 +20,8 @@
   refus : numéros de métropole seulement (ni 08, ni outre-mer, ni étranger), deux rappels
   par numéro et par jour, trois demandes par adresse et par heure, **quinze appels par
   jour pour tout le site**, rien entre 22 h et 8 h, quatre minutes au plus par appel.
+- Si l'assistante vient de tomber en panne, aucun rappel ne part : on ne fait pas
+  entendre un silence à un restaurateur qui l'essaie.
 - `/twilio/rappel`, signée : ce que Twilio lit quand la personne décroche. L'appel n'est
   pas renvoyé vers le restaurant s'il s'interrompt.
 - Un appel passé par Marie est chiffré au **tarif sortant** (0,0404 $/min vers un portable,

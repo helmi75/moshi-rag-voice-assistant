@@ -36,7 +36,7 @@ from typing import Deque, Optional
 import httpx
 from loguru import logger
 
-from . import db, horloge, notifications, taches, tenants
+from . import db, horloge, notifications, renvoi, taches, tenants
 
 # Ce que devient une demande acceptée.
 LANCE = "lance"        # Twilio compose le numéro
@@ -82,6 +82,8 @@ TROP = Reponse(429, "trop", "Trop de demandes depuis votre connexion. Réessayez
 PLAFOND = Reponse(503, "plafond", "Marie a déjà beaucoup rappelé aujourd'hui. Réessayez demain.")
 INACTIF = Reponse(503, "inactif", "Le rappel n'est pas disponible pour le moment.")
 PANNE = Reponse(502, "echec", "L'appel n'a pas pu partir. Réessayez dans un instant.")
+SOUFFRANTE = Reponse(503, "panne", "Marie n'est pas disponible pour le moment. "
+                                   "Réessayez dans quelques minutes.")
 
 
 def _entier(nom: str, defaut: int) -> int:
@@ -297,6 +299,12 @@ async def demander(brut, adresse: str, instant: Optional[datetime] = None) -> Re
         if tenant is None:
             logger.warning("[rappel] aucun établissement de démonstration : rappel impossible")
             return INACTIF
+        if renvoi.panne_recente(tenant.id):
+            # L'assistante vient de tomber en panne (app/renvoi.py) : on n'appelle pas un
+            # restaurateur pour lui faire entendre un silence. Rien n'est inscrit, son
+            # essai du jour reste entier.
+            logger.warning("[rappel] assistante en panne : demande refusée")
+            return SOUFFRANTE
         identifiant, refus = await db.hors_boucle(reserver, numero)
         if refus is not None:
             if refus is PLAFOND:

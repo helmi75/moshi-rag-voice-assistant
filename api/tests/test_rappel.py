@@ -284,6 +284,17 @@ class TestQuandLeRappelEstCoupe:
         assert _demander("06 12 34 56 78") is rappel.INACTIF
         composer.assert_not_awaited()
 
+    def test_assistante_en_panne_on_n_appelle_pas_pour_faire_entendre_un_silence(self, composer):
+        from app import renvoi
+
+        renvoi.signaler_panne(renvoi.VOIX)
+        reponse = _demander("06 12 34 56 78")
+        assert reponse is rappel.SOUFFRANTE and reponse.code == 503
+        composer.assert_not_awaited()
+        assert _demandes() == []          # son essai du jour reste entier
+        renvoi.reinitialiser()
+        assert _demander("06 12 34 56 78") is rappel.OK
+
     def test_sans_etablissement_de_demonstration(self, composer, monkeypatch):
         monkeypatch.setenv("RAPPEL_ETABLISSEMENT", "999999")
         assert _demander("06 12 34 56 78") is rappel.INACTIF
