@@ -7,6 +7,81 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la grille à la minute (ASSISTANTE-120, 02/10/2026)
+
+### Modifié
+- **Les formules se vendent en minutes, plus en appels** (grille validée par Helmi le
+  02/10/2026, prix hors taxes) : Essentiel 89 € pour 250 minutes, Service 149 € pour 600,
+  Maison 349 € pour 1 500. Les concurrents comptent tous en minutes, et le forfait en
+  appels nous faisait porter la durée de chaque appel. Raisonnement, marges et relevé des
+  concurrents dans `docs/TARIFS.md`.
+- **La minute en plus est propre à chaque formule** : 0,35 €, 0,25 € et 0,20 €, à la place
+  de 0,30 € par appel pour tout le monde.
+- **Le forfait se décompte à la seconde**, sur la durée des appels clos du mois.
+- La salle de contrôle, la vue du parc, la fiche établissement et la page d'accueil
+  affichent des minutes. La page annonce « Prix hors taxes ».
+- La page d'accueil traduit chaque forfait en appels (« soit environ 70 appels »), sur la
+  base de 3 min 30 par appel — la durée moyenne de nos 24 appels d'essai, ce que la page
+  dit. `plans.DUREE_APPEL_MIN` est à remplacer par la durée mesurée chez le premier client.
+
+### Corrigé
+- **Vue du parc sur un écran étroit** : les quatre chiffres d'un établissement s'écrasaient
+  sur son nom et ses étiquettes (un mot par ligne sur un téléphone, la dernière colonne
+  hors de l'écran). Ils forment maintenant un bloc qui passe sous le nom.
+
+### Ajouté
+- **Formule Liberté**, sans abonnement : 0,45 € la minute, 10 € de mise en service par
+  numéro. Elle n'a ni plafond ni alerte : l'admin écrit les minutes et le montant du mois.
+- **Un appel rendu pendant une panne n'est pas décompté** : sa durée est celle que le
+  restaurant a passée à son propre téléphone (garde-fou de mutation).
+- **Un appel du banc d'essai n'est pas décompté** non plus : sa durée en base est celle de
+  la connexion, parfois sept heures pour 80 secondes de conversation (garde-fou de mutation).
+
+### Limites connues
+- Rien n'est facturé par le code : le forfait compte et prévient, la facture reste à faire
+  à la main.
+- La mise en service de Liberté et la suspension d'une ligne inactive ne sont pas codées.
+- La formule Maison reste inapplicable tant que rien ne regroupe plusieurs établissements.
+- Un établissement déjà sur Essentiel, Service ou Maison garde sa formule ; son forfait se
+  lit désormais en minutes (250, 600, 1 500 au lieu de 150, 400, 750 appels).
+
+## Non publiée — le site, et Marie qui rappelle (ASSISTANTE-119, 02/10/2026)
+
+### Ajouté
+- **La page d'accueil du site**, servie à la racine (`/`) : `helmane.fr` y redirige déjà.
+  Les prix viennent de `app/plans.py` — l'ancienne page annonçait encore la formule Maison
+  à 249 € pour 1 200 appels. Polices, styles et script sont servis d'ici : la politique de
+  sécurité n'autorise aucune origine tierce.
+- **« Rappelez-moi »** : le visiteur laisse son numéro, Marie l'appelle dans la minute et
+  répond pour l'établissement de démonstration (`app/rappel.py`, décision de Helmi le
+  02/10). C'est la seule route qui fait composer un numéro à un inconnu, donc surtout des
+  refus : numéros de métropole seulement (ni 08, ni outre-mer, ni étranger), deux rappels
+  par numéro et par jour, trois demandes par adresse et par heure, **quinze appels par
+  jour pour tout le site**, rien entre 22 h et 8 h, quatre minutes au plus par appel.
+- Si l'assistante vient de tomber en panne, aucun rappel ne part : on ne fait pas
+  entendre un silence à un restaurateur qui l'essaie.
+- `/twilio/rappel`, signée : ce que Twilio lit quand la personne décroche. L'appel n'est
+  pas renvoyé vers le restaurant s'il s'interrompt.
+- Un appel passé par Marie est chiffré au **tarif sortant** (0,0404 $/min vers un portable,
+  0,0187 vers un fixe, grille Twilio du 01/10/2026) et étiqueté « Rappel du site » au
+  journal. Au plafond, la dépense reste sous 4 $ par jour (quinze appels de quatre
+  minutes vers un portable, autres postes à environ 0,02 $/min).
+- Un e-mail « Demande de rappel depuis le site » à `RAPPEL_NOTIFIER` (sinon `ADMIN_EMAIL`).
+- Migration v18 : table `rappels`, colonne `calls.sortant`. Les demandes sont effacées au
+  bout de 30 jours (`RETENTION_RAPPEL_JOURS`) et par l'effacement à la demande.
+
+### Corrigé à la revue (03/10/2026)
+- Le compteur de demandes par adresse a son propre verrou : il partageait celui de
+  l'inscription en base, et une base occupée aurait figé la boucle qui porte l'audio.
+- « +33 (0)6 12 34 56 78 » est accepté : le zéro entre parenthèses n'est plus compté.
+- Une demande de rappel trop grosse est refusée sur sa taille annoncée, sans être lue.
+
+### Limites connues
+- Aucun vrai rappel n'a encore été passé : le chemin Twilio est testé avec un bouchon.
+- La page n'a pas de mentions légales (éditeur, hébergeur) : elles sont à fournir.
+- Répondeur : si la personne ne décroche pas et que sa messagerie prend l'appel, Marie
+  parle à la messagerie jusqu'à ce que le silence la fasse raccrocher.
+
 ## Non publiée — les consignes du dépôt, tenues par un test (02/10/2026)
 
 ### Ajouté

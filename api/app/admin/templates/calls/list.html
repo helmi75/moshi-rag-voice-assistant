@@ -44,7 +44,7 @@
         <span class="dot {{ c.dot_class }}" aria-hidden="true"></span>
         <span class="row-main">
           <span class="row-title">{{ c.caller }}
-            <span class="row-when">{{ c.date_label }} {{ c.time_label }} · {{ c.duration_label }}</span>
+            <span class="row-when">{% if c.sortant %}Rappel du site · {% endif %}{{ c.date_label }} {{ c.time_label }} · {{ c.duration_label }}</span>
           </span>
           <span class="row-sub">
             {%- if tenant_names %}{{ tenant_names.get(c.tenant_id, c.tenant_id) }} · {% endif -%}

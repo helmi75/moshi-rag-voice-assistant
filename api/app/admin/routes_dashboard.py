@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, db, disponibilite, horloge, plans, quotas, reservations, supervision, tenants
+from .. import calls, db, disponibilite, horloge, quotas, reservations, supervision, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
 from . import charts, deps, presenters
@@ -227,7 +227,6 @@ def _control_room(request: Request, tenant_id: Optional[int]):
             "upcoming": upcoming,
             "slots_chart": slots_chart,
             "quota": conso,
-            "depassement_eur": plans.DEPASSEMENT_EUR,
             "tenant_id": tenant_id,
             "horaires_ok": tenant is None or disponibilite.est_configure(
                 disponibilite.charger(tenant.opening_hours)),

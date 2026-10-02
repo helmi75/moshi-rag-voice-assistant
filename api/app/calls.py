@@ -128,8 +128,12 @@ def estimate_call_cost(duration_seconds: float, journal: Optional[dict] = None) 
 
 
 def start_call(call_sid: Optional[str], tenant_id: int,
-               caller_number: Optional[str] = None) -> Optional[int]:
+               caller_number: Optional[str] = None, sortant: bool = False) -> Optional[int]:
     """Enregistre le début d'appel et renvoie son identifiant.
+
+    `sortant` : c'est nous qui avons appelé (rappel demandé sur le site, app/rappel.py) ;
+    `caller_number` est alors le numéro APPELÉ, et la téléphonie se chiffre au tarif
+    sortant.
 
     ON CONFLICT DO NOTHING : un doublon de webhook ne doit jamais faire échouer l'appel.
     L'identifiant est relu plutôt que pris de `lastrowid`, précisément pour ce cas —
@@ -141,9 +145,9 @@ def start_call(call_sid: Optional[str], tenant_id: int,
     """
     with db.get_conn() as conn:
         conn.execute(
-            """INSERT INTO calls (call_sid, tenant_id, caller_number) VALUES (?, ?, ?)
-               ON CONFLICT(call_sid) DO NOTHING""",
-            (call_sid, tenant_id, caller_number),
+            """INSERT INTO calls (call_sid, tenant_id, caller_number, sortant)
+               VALUES (?, ?, ?, ?) ON CONFLICT(call_sid) DO NOTHING""",
+            (call_sid, tenant_id, caller_number, 1 if sortant else None),
         )
         row = conn.execute(
             "SELECT id FROM calls WHERE call_sid = ?", (call_sid,)
@@ -204,7 +208,8 @@ def finish_call(
         externe, reservation_id = reservation_id, None
     with db.get_conn() as conn:
         row = conn.execute(
-            "SELECT id, started_at FROM calls WHERE call_sid = ?", (call_sid,)
+            "SELECT id, started_at, sortant, caller_number FROM calls WHERE call_sid = ?",
+            (call_sid,)
         ).fetchone()
         if row is None:
             return  # start_call a échoué/absent : ne rien inventer
@@ -214,6 +219,10 @@ def finish_call(
         # Chiffré au tarif du jour, poste par poste, et figé : la répartition de l'admin
         # est la somme de ces colonnes, pas une seconde estimation.
         couts = couts_appel(duration, journal, banc=call_sid.startswith(PREFIXE_BANC))
+        if row["sortant"]:
+            # Un appel que NOUS avons passé (rappel du site) : Twilio le facture au tarif
+            # sortant, selon que le numéro appelé est un fixe ou un portable.
+            couts["telephonie"] = cout_renvoi(duration, row["caller_number"])
         conn.execute(
             """UPDATE calls SET ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                    duration_seconds = ?,

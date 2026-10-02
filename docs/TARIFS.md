@@ -1,138 +1,149 @@
-# Grille tarifaire (#29)
+# Grille tarifaire (#29, ASSISTANTE-120)
 
-Arrêtée le **30/08/2026**. Source de vérité pour le code : `api/app/plans.py`.
+Arrêtée le **02/10/2026** (validée par Helmi), en remplacement de la grille en appels du
+30/08/2026. Source de vérité pour le code : `api/app/plans.py`.
 Ce document explique **pourquoi** ces chiffres, et ce qui les invaliderait.
 
 ## La grille
 
-| Formule | Prix | Appels inclus | Établissements | Pour qui |
-|---|---|---|---|---|
-| **Essentiel** | 89 €/mois | 150 | 1 | Un restaurant qui rate ses appels au coup de feu |
-| **Service** | 149 €/mois | 400 | 1 | Un restaurant qui vit du téléphone, midi et soir |
-| **Maison** | 349 €/mois | 750 | 5 | Un groupe ou une enseigne à plusieurs adresses |
+Prix **hors taxes**. Les minutes sont **décomptées à la seconde**.
 
-**Dépassement : 0,30 € par appel.** Alerte au restaurateur à **80 %** du plafond.
+| Formule | Abonnement | Minutes incluses | Minute en plus | Établissements | Pour qui |
+|---|---|---|---|---|---|
+| **Liberté** | 0 € (10 € de mise en service par numéro, une fois) | aucune | 0,45 € | 1 | Celui qui veut essayer sans s'abonner, ou qui reçoit peu d'appels |
+| **Essentiel** | 89 €/mois | 250 | 0,35 € | 1 | Un restaurant qui rate ses appels au coup de feu |
+| **Service** | 149 €/mois | 600 | 0,25 € | 1 | Un restaurant qui vit du téléphone, midi et soir |
+| **Maison** | 349 €/mois | 1 500 | 0,20 € | 5 | Un groupe ou une enseigne à plusieurs adresses |
 
-Pas d'« illimité ». Jamais. Le plafond est ce qui empêche un établissement à 800 appels
-par mois de manger la marge GPU de tous les autres.
+Alerte au restaurateur à **80 %** du forfait. Le forfait compte, prévient et facture : il
+**ne coupe jamais la ligne** (`api/app/quotas.py`).
+
+Pas d'« illimité ». Jamais. Le coût d'une minute est linéaire, pas le prix.
+
+### Ce qui est décompté
+
+- Le mois **calendaire**, à l'heure du restaurant.
+- La durée de chaque appel clos, à la seconde : trois appels de quarante secondes font
+  deux minutes, pas trois minutes entamées.
+- Un appel compte même sans réservation : il a consommé la même voix et la même
+  transcription.
+- Un appel que l'assistante **a rendu parce qu'elle était en panne** (renvoi vers le
+  restaurant, ASSISTANTE-118) n'est **pas** décompté : sa durée est celle que le
+  restaurant a passée à son propre téléphone.
+- Un appel du **banc d'essai** n'est pas décompté : c'est le nôtre.
+
+### Quand changer de formule
+
+| Passage | Devient moins cher à partir de |
+|---|---|
+| Liberté → Essentiel | 198 minutes par mois (89 € ÷ 0,45 €) |
+| Essentiel → Service | 421 minutes par mois (89 € + 171 min à 0,35 € ≈ 149 €) |
+| Service → Maison | 1 400 minutes par mois (149 € + 800 min à 0,25 € = 349 €) |
+
+La minute en plus baisse à chaque palier, et monter de formule redevient toujours
+avantageux avant d'avoir doublé sa facture. `test_plans.py` tient ces propriétés.
+
+## Pourquoi des minutes, et plus des appels
+
+Jusqu'au 02/10/2026 la grille vendait des appels (150, 400, 750). Deux raisons de changer :
+
+1. **Les concurrents comptent tous en minutes.** Un restaurateur ne pouvait pas comparer
+   « 150 appels » à « 150 minutes ». Et à 3,5 minutes par appel, 150 appels faisaient
+   525 minutes pour 89 € : deux à trois fois ce que donne le marché au même prix.
+2. **Un forfait en appels nous faisait porter la durée.** À 8 minutes de moyenne, la
+   formule Service tombait à 26 % de marge. À la minute, c'est la consommation réelle
+   qui est facturée, quelle que soit la durée d'un appel.
 
 ## Le coût, mesuré et non supposé
 
 | Poste | Tarif | Source |
 |---|---|---|
-| Twilio (entrant) | 0,0085 $/min | mesuré, `scripts/cost_report.py` |
-| Deepgram nova-3 streaming, `multi` | 0,0092 $/min | [deepgram.com/pricing](https://deepgram.com/pricing), vérifié le 30/08/2026 (monolingue : 0,0077) |
-| Modal GPU L4 (voix Moshi) | 0,020 $/min | mesuré |
-| LLM (gemini-flash via OpenRouter) | 0,0035 $/appel | mesuré |
-| Numéro FR | 1,35 $/mois | console Twilio |
+| Twilio, numéro français, appel reçu | 0,01 $ par minute **entamée** | factures des appels 183 à 204 |
+| Deepgram nova-3 en flux, `multi` | 0,0092 $/min | [deepgram.com/pricing](https://deepgram.com/pricing), vérifié le 30/08/2026 |
+| Voix Mistral (Voxtral) | 0,016 $ pour 1 000 caractères, ~320 caractères par minute d'appel | mistral.ai ; mesuré sur les appels 202 à 204 |
+| Modèle de langage (via OpenRouter) | compté par appel, en jetons | **à mesurer** sur un mois d'appels réels ; 0,35 c$ par appel retenu faute de mieux |
+| Numéro français | 1,35 $/mois | console Twilio |
 
-⚠️ **Le tarif Deepgram a été corrigé ce jour-là** : le code portait 0,0058 $, qui est le
-tarif **nova-2**, alors que la production tourne en **nova-3**. Écart de +33 % sur la
-ligne transcription. Repasser `DEEPGRAM_LANGUAGE=multi` ferait remonter le tarif à
-0,0092 $/min — il faudrait alors ajuster `COST_DEEPGRAM_PER_MIN`, sinon l'admin
-sous-estime en silence.
+Relevé du **28/09/2026**, pour un appel de 3,5 minutes : **≈ 9,4 c$, soit ≈ 8,7 c€**
+(1 € = 1,08 $ — le taux dérive, le recalculer avant toute décision qui en dépend).
+Rapporté à la minute : **≈ 2,5 c€**.
 
-**Mise à jour du 19/09/2026** : depuis le 10/09, l'appel **décroche en `multi`** puis se
-fixe sur une langue (`voice/langue.py`). La part facturée en multi n'étant pas mesurée,
-le code retient la **borne haute, 0,0092 $/min**. Les tableaux ci-dessous sont recalculés
-avec ce tarif (+0,4 c€ par appel moyen) : c'est un plafond, pas une mesure.
-
-### Coût d'un appel selon sa durée
-
-| Durée | Coût |
-|---|---|
-| 1,5 min | 5,6 c€ |
-| 2 min | 7,3 c€ |
-| **3,5 min** (moyenne mesurée) | **12,5 c€** |
-| 5 min | 17,8 c€ |
-
-*Taux retenu pour la conversion : 1 € = 1,08 $. Il dérive — le recalculer avant toute
-décision qui en dépend, plutôt que de le figer dans le code.*
-
-### Mise à jour du 28/09/2026 : voix Mistral, coût à la consommation
-
-La voix passe du GPU Moshi (0,020 $/min) à Mistral Voxtral (0,016 $ pour 1 000
-caractères, ~320 caractères par minute d'appel mesurés sur les appels 202 à 204). Twilio
-se lit sur la facture du numéro français : **0,01 $ par minute entamée**. À 3,5 min :
-
-| Poste | Avant (28/09 matin) | Maintenant |
-|---|---|---|
-| Téléphone | 3,0 c$ | 4,0 c$ (4 minutes entamées) |
-| Transcription | 3,2 c$ | 3,2 c$ |
-| Compréhension | 0,35 c$ (forfait) | à mesurer : les jetons sont désormais comptés par appel |
-| Voix | 7,0 c$ (GPU) | ≈ 1,8 c$ |
-| **Total** | **≈ 13,5 c$** | **≈ 9,4 c$ (≈ 8,7 c€), −30 %** |
-
-Les marges ci-dessous sont donc des planchers. À recalculer quand un mois d'appels réels
-aura donné le coût moyen mesuré par l'admin (« Santé & coûts »).
+Un appel court coûte un peu plus cher à la minute que cette moyenne, parce que Twilio
+facture la minute entamée et que nous décomptons à la seconde : environ 3 c€ la minute
+pour un appel de 45 secondes. `test_plans.py` retient une borne haute de **5 c€** et
+exige que chaque minute soit vendue plus du double.
 
 ## Les marges
 
-À 3,5 min de moyenne, numéros compris :
+Formule utilisée à plein, à 2,5 c€ la minute, numéros compris (1,25 € par numéro) :
 
-| Formule | Prix | Coût mensuel | Marge | Tarif implicite |
+| Formule | Prix | Coût mensuel | Marge | Prix de la minute incluse |
 |---|---|---|---|---|
-| Essentiel | 89 € | 20 € | **69 € · 77 %** | 0,59 €/appel |
-| Service | 149 € | 51 € | **98 € · 65 %** | 0,37 €/appel |
-| Maison | 349 € | 100 € | **249 € · 71 %** | 0,47 €/appel |
+| Liberté | 0,45 € la minute | 2,5 c€ la minute | **94 %** | — |
+| Essentiel | 89 € | 7,50 € | **81,50 € · 92 %** | 0,36 € |
+| Service | 149 € | 16,25 € | **132,75 € · 89 %** | 0,25 € |
+| Maison | 349 € | 43,75 € | **305,25 € · 87 %** | 0,23 € |
 
-### Ce qui a été corrigé par rapport à la proposition initiale
+Minute en plus : 93 % de marge à 0,35 €, 90 % à 0,25 €, 87,5 % à 0,20 €.
 
-La formule Maison était proposée à **249 € pour 1 200 appels** : 151 € de coût, soit
-**39 % de marge** — la formule la plus chère à servir était la moins rentable. Ramenée à
-750 appels et 349 €, elle revient dans la norme des deux autres.
+C'est une marge sur les **coûts variables** : ni le serveur, ni le temps de mise en
+service et de support, ni les frais de paiement, ni le coût d'acquisition d'un client.
 
-## Le dépassement, et son incitation à l'envers
-
-**0,30 €/appel = 58 % de marge** au coût mesuré. Mais c'est **moins** que le tarif
-implicite d'Essentiel (0,59 €). Conséquence assumée : un client Essentiel a intérêt à
-déborder plutôt qu'à passer en Service.
-
-- à 300 appels sur Essentiel : 89 € + 45 € = **134 €**, contre 149 € en Service ;
-- la marge tient quand même — **71 %** dans ce cas.
-
-**On perd de l'upsell, pas de la marge.** Passer le dépassement à 0,50 € inverserait
-l'incitation (monter de formule redeviendrait toujours moins cher) au prix d'une facture
-de dépassement plus dure à faire accepter. Décision commerciale, révisable à tout moment
-via `plans.DEPASSEMENT_EUR`.
+Si la minute coûtait le double (5 c€) : 85 %, 79 % et 77 %.
 
 ## Le marché
 
-| Concurrent | Prix |
-|---|---|
-| Accueil IA | 39 à 149 € |
-| Yumcall | 99 € |
-| Nerolia | à partir de 149 € |
-| Loman (US) | ≈ 299 $ + 149 $ d'installation |
-| Slang.ai (US) | à partir de 399 $ |
+Relevé sur les sites des concurrents le **02/10/2026**, prix hors taxes sauf mention.
 
-Essentiel à 89 € se place juste sous Yumcall ; Service à 149 € est au niveau de Nerolia.
-La grille est dans le marché, sans casser les prix.
-
-## 🔴 Le risque, assumé et à lever
-
-**La durée moyenne de 3,5 minutes vient de 24 appels de test**, les nôtres,
-exploratoires. Un vrai « vous êtes ouverts ce soir ? » dure 45 secondes ; à l'inverse une
-réservation à négocier peut durer 6 minutes.
-
-C'est le seul chiffre de ce document qui n'est pas solide, et **c'est celui dont tout
-dépend** :
-
-| Durée moyenne réelle | Essentiel | Service | Maison |
+| Concurrent | Abonnement | Minutes incluses | Minute en plus |
 |---|---|---|---|
-| 2 min | 87 % | 80 % | 83 % |
-| **3,5 min** (retenu) | **78 %** | **67 %** | **72 %** |
-| 5 min | 70 % | 53 % | 61 % |
-| 8 min | 53 % | 26 % | 40 % |
+| Sylen Start | 49 € | 100 | 0,44 € |
+| Sylen Pro | 129 € | 350 | 0,39 € |
+| Sylen Scale | 329 € | 1 000 | 0,35 € |
+| Yumcall | 99 € (carnet de réservations et site inclus ; HT ou TTC non précisé) | 150 | packs : +200 min à 39 €, +500 à 89 €, +1 000 à 159 € |
+| QTable (agent vocal) | 149 €, engagement 3 mois | 200 | non affiché |
 
-**La formule la plus exposée est Service, pas Maison.** C'est contre-intuitif — on
-surveille spontanément la formule la plus chère — mais Service inclut 400 appels pour un
-seul établissement, soit la plus forte densité d'appels par euro facturé. Elle plonge à
-26 % de marge si les appels durent 8 minutes.
+Aucun des trois n'affiche de frais de mise en service.
 
-La grille tient jusqu'à **5 minutes** de moyenne. Au-delà, deux leviers : relever les
-prix, ou raccourcir les appels — le prompt système y joue directement, et c'est le levier
-gratuit.
+Relevé du **30/09/2026**, non relu le 02/10 : Kouver 89 € + 5 €/mois + 0,30 €/min et des
+frais de mise en place ; Limova 140 €/mois + 0,20 €/min ; Zenchef AI Concierge 99 €/mois
+en plus d'un abonnement Zenchef (129 à 249 €), minutes non précisées.
 
-➡️ **À faire dès le premier restaurant pilote (#32)** : mesurer la durée moyenne réelle
-sur 100 appels et revenir ici. `/admin/health` affiche déjà la donnée.
+### La facture du restaurateur, selon ses minutes
+
+| Minutes par mois | Helmane | Sylen | Yumcall |
+|---|---|---|---|
+| 100 | **45 €** (Liberté) | 49 € | 99 € |
+| 200 | **89 €** (Essentiel) | 93 € | 138 € |
+| 350 | **124 €** (Essentiel) | 129 € | 138 € |
+| 500 | **149 €** (Service) | 187,50 € | 188 € |
+| 1 000 | **249 €** (Service) | 329 € | 258 € |
+
+**La seule zone où Helmane n'est pas le moins cher** : entre 1 040 et 1 150 minutes pour
+un seul restaurant, Yumcall coûte jusqu'à 28 € de moins (258 € avec son pack de
+1 000 minutes).
+
+## 🔴 Ce qui n'est pas su
+
+- **Combien de minutes consomme un vrai restaurant.** Aucune mesure : la seule durée
+  connue, 3,5 minutes par appel, vient de 24 appels de test, les nôtres. Le forfait
+  Essentiel (250 minutes) fait environ 70 appels de cette durée ; on ne sait pas si
+  c'est peu ou beaucoup pour un restaurant parisien. La page d'accueil affiche cet
+  équivalent (70, 170, 430 appels) en disant d'où il vient ; il se règle par
+  `plans.DUREE_APPEL_MIN`.
+- **Le coût du modèle de langage par appel**, encore au forfait dans ce calcul.
+- **Si les packs de Yumcall se cumulent**, et comment Sylen décompte ses minutes.
+- **La formule Maison n'est pas applicable** tant que rien ne regroupe plusieurs
+  établissements sous un même client (voir la note en bas de `api/app/quotas.py`) : le
+  compteur est par établissement.
+- **Un client Liberté qui n'appelle plus** coûte le numéro (1,25 € par mois) sans rien
+  rapporter. Règle envisagée, non codée : suspendre la ligne après 60 jours sans appel.
+
+➡️ **À faire dès le premier restaurant pilote (#32)** : relever sur un mois les minutes
+consommées et le coût moyen de la minute (« Santé & coûts »), et revenir ici.
+
+## La grille précédente (30/08 au 02/10/2026)
+
+Essentiel 89 € pour 150 appels, Service 149 € pour 400, Maison 349 € pour 750, et 0,30 €
+par appel au-delà. Marges à 3,5 minutes par appel, au coût du 28/09 : 84 %, 76 % et 80 %.
+Aucun client n'a été facturé sur cette grille.

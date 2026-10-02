@@ -137,6 +137,15 @@ par `horloge.au_restaurant` ou les filtres Jinja `date_paris`, `jour_paris`, `he
 faux resOS dans le processus). Pour un établissement resOS, resOS fait foi : l'admin le
 lit, ne l'écrit pas. `connecteurs/sante.py` porte le coupe-circuit. Voir `docs/RESOS.md`.
 
+### Site et rappel (`api/app/site/`, `rappel.py`)
+
+La racine `/` sert la page d'accueil publique, sans session ni accès à la base ; ses prix
+viennent de `plans.py`. « Rappelez-moi » fait composer un numéro par Twilio à la demande
+d'un inconnu : tout ce qui décide si l'appel part est dans `rappel.demander` (numéros de
+métropole seulement, plafonds par numéro, par adresse et par jour, pas d'appel la nuit).
+Quand la personne décroche, Twilio lit `/twilio/rappel` (signée) ; `run_bot` reçoit
+`demonstration=True` et l'appel est noté `sortant`, chiffré au tarif sortant.
+
 ### Admin (`api/app/admin/`)
 
 FastAPI + Jinja2 + htmx + Pico, rendu côté serveur. **Charger le skill `admin-ui` avant
@@ -164,6 +173,7 @@ Ces règles ne sont pas des conventions : un test échoue si on les oublie.
 | Aucun gabarit ne découpe un horodatage de la base | `test_heure_de_paris.py` |
 | Le thème sombre choisi est identique au sombre automatique | `test_theme.py` |
 | Un nouveau contrôle de supervision est déclaré dans `ATTENDUS`, dans `docs/SUPERVISION.md` et dans le compte du `README.md` | `test_supervision.py`, `test_documentation.py` |
+| La page d'accueil n'a ni script en ligne ni ressource d'un autre site, et ses prix sont ceux de `plans.py` | `test_site.py` |
 | Ce fichier et le skill `admin-ui` ne citent que des fichiers et des noms qui existent | `test_documentation.py` |
 | Chaque protection critique fait rougir un test quand on la retire | `scripts/mutation_check.py` |
 

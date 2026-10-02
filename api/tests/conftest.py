@@ -46,8 +46,10 @@ def _aucune_panne_en_memoire():
     """La mémoire des pannes (app/renvoi.py) vit trois minutes : sans cette remise à
     zéro, un test qui fait tomber le pipeline renverrait vers le restaurant les appels
     de tous les tests suivants, et l'ordre d'exécution déciderait du résultat."""
-    from app import renvoi
+    from app import rappel, renvoi
 
     renvoi.reinitialiser()
+    rappel.reinitialiser()  # les demandes de rappel comptées par adresse, même raison
     yield
     renvoi.reinitialiser()
+    rappel.reinitialiser()

@@ -88,7 +88,7 @@ class TestFenetresAuFuseau:
         return tenant
 
     def test_un_appel_a_minuit_et_demi_compte_dans_le_mois(self, base):
-        assert quotas._appels_du_mois(base.id) == 1
+        assert quotas._du_mois(base.id)[0] == 1
         assert quotas.etat_par_tenant([base])[base.id].appels == 1
 
     def test_la_fenetre_du_jour_le_compte_et_la_veille_non(self, base):

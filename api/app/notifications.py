@@ -220,6 +220,19 @@ async def notifier(tenant, evenement: str, donnees: dict) -> bool:
         return False
 
 
+async def envoyer(adresses: list[str], sujet: str, corps: str) -> bool:
+    """Un e-mail qui ne concerne aucun établissement (une demande de rappel venue du
+    site, app/rappel.py). Même règle que `notifier` : NE LÈVE JAMAIS."""
+    if not actif() or not adresses:
+        return False
+    try:
+        await asyncio.to_thread(_envoyer_sync, adresses, sujet, corps)
+        return True
+    except Exception as exc:
+        logger.warning(f"e-mail « {sujet} » non envoyé ({type(exc).__name__}: {exc})")
+        return False
+
+
 def planifier(tenant, evenement: str, donnees: dict) -> Optional[asyncio.Task]:
     """Ce que `run_tool` appelle : lance l'envoi en tâche de fond et rend la main tout de
     suite. Rien n'est lancé si le SMTP n'est pas configuré."""

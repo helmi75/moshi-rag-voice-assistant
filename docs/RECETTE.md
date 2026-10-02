@@ -81,18 +81,23 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 | # | Test | Attendu | ✅/❌ |
 |---|---|---|---|
 | D1 | Faire **10 appels réalistes** (durée normale, pas d'exploration) | | |
-| D2 | Admin → Santé & coûts → durée moyenne | **C'est LE chiffre.** Toute `docs/TARIFS.md` repose sur 3,5 min mesurées sur 24 appels de test exploratoires | |
-| D3 | Comparer au tableau de sensibilité de `docs/TARIFS.md` | Si > 5 min : la formule **Service** tombe sous 53 % de marge, à revoir | |
+| D2 | Admin → Santé & coûts → durée moyenne et coût moyen | Le coût d'une minute : `docs/TARIFS.md` retient 2,5 c€ (relevé du 28/09, sur des appels de test) | |
+| D3 | Comparer à la borne haute de `docs/TARIFS.md` | Si la minute coûte plus de 5 c€ : la grille est à revoir | |
 | D4 | Blanc médian | Comparer à 1,16 s (mesuré le 30/07) | |
 
-## E. Plafond et facturation — #31
+## E. Forfait et facturation — #31, ASSISTANTE-120 (grille à la minute)
 
 | # | Test | Attendu | ✅/❌ |
 |---|---|---|---|
 | E1 | Admin → fiche établissement | Le sélecteur de **Formule** apparaît (super-admin seulement) | |
 | E2 | Se connecter en restaurateur | Le sélecteur **n'apparaît pas** | |
-| E3 | Salle de contrôle | Carte « Forfait », compteur du **mois calendaire** | |
-| E4 | Éprouver le plafond sans passer 150 appels : sur le VPS, `SUPERVISION_*` n'y peut rien — il faut une formule de test à faible plafond, ou insérer des lignes `calls` du mois en cours directement en base | Alerte à 80 %, puis « Plafond dépassé » avec le montant — **et la ligne continue de répondre** | |
+| E3 | Salle de contrôle | Carte « Forfait », compteur du **mois calendaire**, en **minutes** (« 12 minute(s) d'appel ce mois-ci sur 250 incluses, en 5 appel(s) ») | |
+| E4 | Éprouver le forfait sans passer 250 minutes : attribuer la formule à un établissement de test, ou insérer en base des lignes `calls` du mois en cours avec leur `duration_seconds` | Alerte à 80 %, puis « Forfait dépassé » avec les minutes et le montant — **et la ligne continue de répondre** | |
+| E5 | Passer un appel d'une minute environ, raccrocher, recharger la salle de contrôle | Le compteur a avancé de la durée de l'appel, **à la seconde** (pas d'une minute entière par appel) | |
+| E6 | Fiche établissement → Formule | Quatre formules, en minutes : « Liberté — sans abonnement, 0.45 € la minute », « Essentiel — 89 €/mois, 250 minutes »… | |
+| E7 | Attribuer **Liberté** à un établissement de test, puis ouvrir sa salle de contrôle | « Formule Liberté · Sans abonnement », les minutes et le montant du mois ; **ni barre, ni plafond, ni alerte** | |
+| E8 | Vue du parc, sur un ordinateur puis sur un téléphone | « min ce mois-ci » : `12/250` avec un forfait, `12` sans forfait ; les quatre chiffres sont **sous** le nom de l'établissement, rien ne se chevauche | |
+| E9 | Un appel renvoyé vers le restaurant pendant une panne (recette S) | Il **n'ajoute aucune minute** au forfait | |
 
 **E4 est la décision produit du 30/08** : atteindre le plafond ne coupe jamais la ligne.
 
@@ -228,6 +233,26 @@ l'établissement. Il faut deux téléphones : celui qui appelle, et celui du num
 | S7 | Relancer l'essai **hors horaires** (ou retirer le numéro de secours), appeler | Le répondeur tout de suite, sans faire sonner personne | |
 | S8 | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
 | S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
+
+## W. Le site et « Rappelez-moi » (ASSISTANTE-119)
+
+Chaque rappel est un vrai appel sortant, facturé : W5 à W9 suffisent, inutile de les
+répéter. Il faut un portable français de métropole.
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| W1 | Ouvrir `https://helmane.fr` sur un ordinateur | Arrive sur `https://app.helmane.fr/` ; la page s'affiche avec ses polices et ses dessins ; dans la console du navigateur (F12), aucune ligne rouge « Content Security Policy » | |
+| W2 | La même page sur un téléphone, jusqu'en bas ; puis en mode clair et en mode sombre | Rien ne déborde, rien n'est illisible ; les prix sont ceux de la grille : 89 € pour 250 minutes, 149 € pour 600, 349 € pour 1 500, la minute en plus à 0,35 / 0,25 / 0,20 € ; sous chaque forfait, « soit environ 70 / 170 / 430 appels » ; sous les trois cartes, le bandeau Liberté à 0,45 € la minute ; en bas, « Prix hors taxes » et la durée sur laquelle les appels sont calculés (3 min 30) | |
+| W3 | Saisir `06 12 34`, puis *Rappelez-moi* | « Ce numéro semble incomplet » ; rien ne part | |
+| W4 | Saisir un numéro en `08` | « Ce numéro n'est pas un numéro français de métropole » | |
+| W5 | Entre 8 h et 22 h, saisir son portable | « Votre téléphone va sonner » ; il sonne en moins de dix secondes et affiche la ligne de démonstration | |
+| W6 | Décrocher | Sans blanc : « Bonjour, c'est Marie, l'assistante vocale d'Helmane. Vous avez demandé à être rappelé… », puis la mention d'enregistrement | |
+| W7 | Réserver une table, puis demander « c'est quoi Helmane ? » | La table est enregistrée dans le carnet de l'établissement de démonstration ; elle répond qu'elle est là pour la démonstration et renvoie au site, sans rien inventer | |
+| W8 | Admin → Appels | L'appel porte « Rappel du site » ; sa téléphonie est au tarif sortant (0,0404 $ par minute entamée vers un portable) | |
+| W9 | Redemander un rappel deux fois avec le même numéro | Le deuxième sonne ; le troisième est refusé : « Marie a déjà rappelé ce numéro aujourd'hui » | |
+| W10 | Ne pas décrocher (à faire au deuxième rappel de W9) | Le téléphone sonne 25 s puis s'arrête ; aucun appel au journal | |
+| W11 | Après 22 h, saisir son portable | « Marie rappelle entre 8 h et 22 h » ; le téléphone ne sonne pas | |
+| W12 | Boîte de `ADMIN_EMAIL` | Un e-mail « Demande de rappel depuis le site » par rappel passé | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

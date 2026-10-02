@@ -109,10 +109,40 @@ renvoyé par lui, n'y repart jamais.
 **Essayer** : « Fiche établissement » → *Essayer le renvoi* (super-admin). Pendant
 3 minutes, les appels de cet établissement sont traités comme une panne.
 
+## 7. « Rappelez-moi » : les appels que Marie passe (ASSISTANTE-119)
+
+Le site (`/`) propose au visiteur de laisser son numéro : l'application demande alors à
+Twilio de l'appeler (`app/rappel.py`), en présentant la ligne de l'établissement de
+démonstration. Quand la personne décroche, Twilio lit `/twilio/rappel` — signée comme
+les autres — et l'appel rejoint le pipeline habituel.
+
+**À vérifier dans la console Twilio, une fois** : *Voice → Settings → Geo permissions* —
+la France doit être autorisée en sortie. Sans cela, Twilio refuse de composer et la page
+répond « L'appel n'a pas pu partir ».
+
+**Réglages** (`.env`, tous facultatifs) :
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `RAPPEL_ACTIF` | `1` | `0` : la page reste, plus aucun appel ne part |
+| `RAPPEL_ETABLISSEMENT` | celui de `TWILIO_NUMBER` | identifiant de l'établissement de démonstration |
+| `RAPPEL_MAX_PAR_JOUR` | `15` | plafond du site entier sur 24 h : c'est lui qui borne la facture |
+| `RAPPEL_PAR_NUMERO_PAR_JOUR` | `2` | rappels d'un même numéro sur 24 h |
+| `RAPPEL_PAR_ADRESSE_PAR_HEURE` | `3` | demandes acceptées depuis une même adresse |
+| `RAPPEL_DUREE_MAX_SECONDES` | `240` | Twilio coupe l'appel au-delà |
+| `RAPPEL_HEURES` | `8-22` | plage où Marie rappelle, à l'heure de Paris |
+| `RAPPEL_NOTIFIER` | `ADMIN_EMAIL` | qui reçoit « Demande de rappel depuis le site » |
+
+**Ce que ça coûte** (grille Twilio relevée le 01/10/2026) : 0,0404 $ par minute entamée
+vers un portable, 0,0187 $ vers un fixe, au lieu de 0,010 $ pour un appel reçu. Seuls les
+numéros de métropole sont composés : ni surtaxés, ni outre-mer, ni étrangers.
+
 ## Dépannage
 
 | Symptôme | Cause probable |
 |---|---|
+| « L'appel n'a pas pu partir » sur le site | Twilio a refusé de composer : permissions géographiques, solde, ou `TWILIO_NUMBER` qui n'est pas un numéro du compte |
+| « Le rappel n'est pas disponible » sur le site | `RAPPEL_ACTIF=0`, ou il manque `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` ou `PUBLIC_URL`, ou aucun établissement ne porte `TWILIO_NUMBER` |
 | Erreur 11200 / 11205 dans *Monitor* | l'application n'est pas joignable à cette URL (DNS, Caddy, tunnel arrêté) |
 | Réponse 403, sonde « toutes les requêtes refusées » | `PUBLIC_URL` ne correspond pas à l'URL de la console, ou jeton Twilio périmé : remettre `TWILIO_SIGNATURE=log` le temps de corriger |
 | « Ce numéro n'est pas encore configuré » | le numéro n'est déclaré sur aucun établissement, ou pas au format `+33…` |

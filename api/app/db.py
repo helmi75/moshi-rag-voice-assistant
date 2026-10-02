@@ -286,6 +286,24 @@ ALTER TABLE tenants ADD COLUMN numero_secours TEXT;
 ALTER TABLE calls ADD COLUMN secours_motif TEXT;
 ALTER TABLE calls ADD COLUMN secours_secondes INTEGER;
 """,
+    # v18 — ASSISTANTE-119 : « Rappelez-moi » sur le site, Marie appelle le numéro laissé.
+    #  - `rappels` : une ligne par demande ACCEPTÉE. C'est elle qui tient les plafonds
+    #    (par numéro, par jour) : comptés sur le journal des appels, ils laisseraient
+    #    faire sonner dix fois un numéro qui ne décroche pas. Une demande refusée
+    #    (numéro invalide, plafond atteint) n'est pas écrite : rien à conserver.
+    #  - `calls.sortant` : l'appel est parti de chez nous. Twilio le facture au tarif
+    #    sortant, deux à quatre fois celui d'un appel reçu.
+    """
+CREATE TABLE IF NOT EXISTS rappels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero TEXT,
+    statut TEXT NOT NULL,
+    call_sid TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_rappels_date ON rappels(created_at);
+ALTER TABLE calls ADD COLUMN sortant INTEGER;
+""",
 ]
 
 

@@ -27,6 +27,7 @@ infraction et Helmane aussi. C'est le seul point de ce document qui bloque une s
 | Transcription de conversation | Contenu intégral de ce que dit l'appelant | Intérêt légitime (diagnostic technique) | **30 j** |
 | **Enregistrement audio** (#88) | **La voix** de l'appelant et celle de l'assistante, deux pistes séparées | Intérêt légitime : diagnostiquer et corriger la qualité de l'interaction | **30 j, et jamais plus que la transcription** |
 | **Message vocal laissé pendant une panne** (ASSISTANTE-118) | La voix de l'appelant, qui dicte lui-même son message après l'annonce « laissez votre nom, votre numéro et votre demande » | Intérêt légitime du restaurant : rappeler le client que l'assistante n'a pas pu servir | Comme un enregistrement d'appel : **30 j**. Enregistré par Twilio, **rapatrié chez nous puis effacé de chez Twilio** dès qu'il est prêt (`app/repondeur.py`) |
+| **Demande de rappel laissée sur le site** (ASSISTANTE-119) | Le numéro saisi par le visiteur, l'heure, ce que l'appel est devenu. **Responsable : Helmane** (ce n'est pas la donnée d'un restaurant client) | Consentement : le visiteur saisit lui-même son numéro pour être rappelé | **30 j** (`RETENTION_RAPPEL_JOURS`) ; l'appel lui-même suit les lignes ci-dessus |
 | Comptes de l'admin | E-mail, empreinte du mot de passe | Exécution du contrat Helmane ↔ restaurant | Durée du contrat |
 
 Durées réglables : `RETENTION_TRANSCRIPT_JOURS`, `RETENTION_NUMERO_JOURS`,
@@ -106,6 +107,7 @@ supprimerait le transfert le plus volumineux (tout l'audio).
 |---|---|
 | Accès / portabilité | ⚠️ Manuel : requête SQL sur `calls` et `reservations` |
 | **Effacement** (art. 17) | ✅ `rgpd.effacer_appelant("+336…")` — anonymise les appels, supprime les réservations |
+| Effacement d'une demande de rappel | ✅ même fonction : `rgpd.effacer_appelant` efface aussi les lignes de `rappels` |
 | Rectification | ✅ Édition d'une réservation dans l'admin |
 | Opposition | ⚠️ À traiter au cas par cas avec le restaurateur |
 

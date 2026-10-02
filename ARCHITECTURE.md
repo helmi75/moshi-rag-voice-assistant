@@ -146,6 +146,7 @@ retrait est prévu (`docs/VOXTRAL.md`).
 | Requête forgée sur les webhooks ou le flux | `X-Twilio-Signature` vérifiée (`twilio_signature.py`), URL publique reconstruite depuis `PUBLIC_URL` ; mode `log` pour observer avant `enforce` |
 | GPU de secours utilisé par un tiers | clé privée `MOSHI_TTS_API_KEY` posée au démarrage du conteneur Modal |
 | Assistante en panne, client sans personne | renvoi vers le restaurant ou répondeur (`renvoi.py`) ; les adresses de secours exigent elles aussi la signature Twilio |
+| Rappel demandé sur le site, détourné pour faire sonner un tiers ou gonfler la facture | numéros de métropole seulement, plafonds par numéro, par adresse et par jour, pas d'appel la nuit, durée bornée par Twilio (`rappel.py`) ; JSON de notre origine seulement |
 | Admin | session signée, CSRF, bcrypt, limitation des tentatives, cloisonnement par établissement (`deps.resolve_tenant`), CSP stricte (Caddy) |
 | Exposition réseau | API liée à `127.0.0.1`, seul Caddy est public ; pare-feu `ufw` |
 | Données personnelles | purges automatiques, droit à l'effacement, numéro tronqué dans les journaux |

@@ -142,6 +142,13 @@ def jours_reservation() -> int:
     return _jours("RETENTION_RESERVATION_JOURS", 365)
 
 
+# Une demande de rappel laissée sur le site (app/rappel.py) : le numéro ne sert qu'à ce
+# rappel et aux plafonds des 24 heures suivantes. Un mois laisse le temps de comprendre
+# un abus signalé après coup, pas davantage.
+def jours_rappel() -> int:
+    return _jours("RETENTION_RAPPEL_JOURS", 30)
+
+
 @dataclass(frozen=True)
 class Purge:
     """Ce que la purge a RÉELLEMENT fait. Des compteurs, pas un « ok » : une purge qui
@@ -197,6 +204,9 @@ def purger() -> Purge:
                WHERE created_at < ? AND caller_number IS NOT NULL""",
             (horloge.il_y_a(jours_numero()),),
         )
+    from . import rappel
+
+    rappel.purger(jours_rappel())
     resultat = Purge(
         transcripts=max(0, transcripts),
         numeros=max(0, numeros),
@@ -337,6 +347,9 @@ def effacer_appelant(numero: str) -> Purge:
         messages_effaces = conn.execute(
             "DELETE FROM messages WHERE caller_number = ?", (numero,)
         ).rowcount
+    from . import rappel
+
+    rappel.oublier(numero)
     return Purge(
         transcripts=max(0, appels), numeros=max(0, appels),
         reservations=max(0, reservations),
