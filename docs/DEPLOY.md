@@ -91,7 +91,10 @@ https://assistant.mondomaine.fr/twilio/voice   (HTTP POST)
 ```
 Fini ngrok. L'URL ne changera plus.
 
-## 6 — Modal (TTS GPU)
+## 6 — Modal (voix de secours Moshi, facultatif)
+
+> Depuis le 28/09/2026 la voix vient de Mistral : cette étape ne sert qu'à garder la voix
+> de **secours**, utilisée seulement si `MISTRAL_API_KEY` manque. Son retrait est prévu.
 
 Le serveur Modal est déjà en **région EU** par défaut (`MODAL_REGION=eu`). Redéployer si besoin :
 ```bash
