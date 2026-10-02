@@ -350,8 +350,8 @@
     <div class="shell">
       <div class="tete tete--c">
         <p class="sur">Les formules</p>
-        <h2>Un prix par mois, un nombre d'appels.</h2>
-        <p>Pas d'« illimité » : le plafond prévient, il ne coupe jamais votre ligne.</p>
+        <h2>Un prix par mois, des minutes d'appel.</h2>
+        <p>Pas d'« illimité » : le forfait prévient, il ne coupe jamais votre ligne.</p>
       </div>
       <div class="formules">
         {% for f in formules %}
@@ -360,14 +360,26 @@
           <div><h3>{{ f.label }}</h3><p class="formule__qui">{{ f.argument }}</p></div>
           <div class="formule__prix">{{ f.prix_mensuel_eur }} €<small>par mois</small></div>
           <ul>
-            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>{{ f.appels_inclus }} appels par mois</li>
+            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>{{ f.minutes_incluses | euros }} minutes par mois</li>
             <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>{% if f.etablissements_inclus == 1 %}1 établissement{% else %}Jusqu'à {{ f.etablissements_inclus }} établissements{% endif %}</li>
-            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>Au-delà : {{ depassement }} € par appel</li>
+            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>Au-delà : {{ f.minute_supp_eur | euros }} € la minute</li>
           </ul>
           <a class="btn {% if f.id == phare %}btn--go{% else %}btn--line{% endif %}" href="#haut" data-vers-rappel>Être rappelé</a>
         </article>
         {% endfor %}
       </div>
+      {% for f in sans_forfait %}
+      <article class="formule formule--libre">
+        <div class="formule__tete"><h3>{{ f.label }}</h3><p class="formule__qui">{{ f.argument }}</p></div>
+        <div class="formule__prix">{{ f.minute_supp_eur | euros }} €<small>la minute</small></div>
+        <ul>
+          <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>Aucun abonnement, aucun forfait</li>
+          <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>{% if f.etablissements_inclus == 1 %}1 établissement{% else %}Jusqu'à {{ f.etablissements_inclus }} établissements{% endif %}</li>
+          {% if f.mise_en_service_eur %}<li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>Mise en service : {{ f.mise_en_service_eur | euros }} € par numéro, une fois</li>{% endif %}
+        </ul>
+        <a class="btn btn--line" href="#haut" data-vers-rappel>Être rappelé</a>
+      </article>
+      {% endfor %}
       <div class="inclus">
         <b>Dans toutes les formules :</b>
         <span>réservations, modifications, annulations</span>
@@ -377,7 +389,7 @@
         <span>enregistrement et transcription</span>
         <span>voix au choix</span>
       </div>
-      <p class="pied-prix">Alerte à {{ seuil }} % de votre plafond, pour ne rien découvrir sur la facture. 14 jours d'essai, sans engagement. Tarif fondateur : les dix premiers restaurants gardent le prix de leur formule.</p>
+      <p class="pied-prix">Prix hors taxes. Les minutes sont décomptées à la seconde. Alerte à {{ seuil }} % de votre forfait, pour ne rien découvrir sur la facture. 14 jours d'essai, sans engagement. Tarif fondateur : les dix premiers restaurants gardent le prix de leur formule.</p>
     </div>
   </section>
 

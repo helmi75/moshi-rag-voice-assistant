@@ -33,7 +33,7 @@
             {% if v.greeting_ready %}<span class="chip chip-good">Voix prête</span>
             {% else %}<span class="chip chip-warn">Voix à rendre</span>{% endif %}
             {% if v.quota.niveau == 'depassement' %}
-            <span class="chip chip-bad">Plafond dépassé · {{ "%.2f" | format(v.quota.montant_eur) }} €</span>
+            <span class="chip chip-bad">Forfait dépassé · {{ "%.2f" | format(v.quota.montant_eur) }} €</span>
             {% elif v.quota.niveau == 'alerte' %}
             <span class="chip chip-warn">{{ v.quota.part_affichable }} % du forfait</span>
             {% endif %}
@@ -44,10 +44,12 @@
         <span class="row-metric"><b>{{ v.stats.capture_rate }} %</b><span>captation</span></span>
         {# Forfait : le mois CALENDAIRE, pas la fenêtre de 30 jours des colonnes
            voisines — c'est la maille de facturation. Le libellé le dit explicitement,
-           sinon deux chiffres d'appels côte à côte sur des périodes différentes se
+           sinon deux chiffres côte à côte sur des périodes différentes se
            lisent comme une incohérence. #}
-        <span class="row-metric"><b>{{ v.quota.appels }}/{{ v.quota.inclus }}</b>
-          <span>forfait du mois</span></span>
+        {# La colonne est étroite : l'unité va dans le libellé, pas à côté du chiffre. #}
+        <span class="row-metric"><b>{{ v.quota.minutes_affichables }}
+          {%- if not v.quota.formule.sans_forfait %}/{{ v.quota.inclus }}{% endif %}</b>
+          <span>min ce mois-ci</span></span>
         <span class="row-metric"><b>{{ money(v.stats.total_cost) }}</b><span>coût {{ days }} j</span></span>
       </a>
       {% else %}

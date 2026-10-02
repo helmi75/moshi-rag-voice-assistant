@@ -112,27 +112,53 @@ class TestLaPolitiqueDeSecurite:
 
 
 class TestLesPrixSontCeuxDeLaGrille:
-    def test_chaque_formule_affiche_son_prix_et_son_plafond(self, page):
-        for formule in plans.catalogue():
-            bloc = re.search(rf"<h3>{formule.label}</h3>.*?</article>", page, flags=re.S)
-            assert bloc, formule.label
-            assert f"{formule.prix_mensuel_eur} €" in bloc.group(0)
-            assert f"{formule.appels_inclus} appels par mois" in bloc.group(0)
-            assert formule.argument in bloc.group(0)
-            assert "Au-delà : 0,30 € par appel" in bloc.group(0)
+    @staticmethod
+    def _bloc(page: str, formule) -> str:
+        bloc = re.search(rf"<h3>{formule.label}</h3>.*?</article>", page, flags=re.S)
+        assert bloc, formule.label
+        return bloc.group(0)
 
-    def test_le_depassement_et_le_seuil_d_alerte(self, page):
-        assert plans.DEPASSEMENT_EUR == 0.30 and "0,30 €" in page
+    def test_chaque_abonnement_affiche_son_prix_et_ses_minutes(self, page):
+        abonnements = [f for f in plans.catalogue() if not f.sans_forfait]
+        assert len(abonnements) >= 3
+        for formule in abonnements:
+            bloc = self._bloc(page, formule)
+            assert f"{formule.prix_mensuel_eur} €<small>par mois" in bloc
+            assert f"{site._euros(formule.minutes_incluses)} minutes par mois" in bloc
+            assert formule.argument in bloc
+            assert f"Au-delà : {site._euros(formule.minute_supp_eur)} € la minute" in bloc
+
+    def test_la_formule_sans_abonnement_affiche_sa_minute(self, page):
+        libres = [f for f in plans.catalogue() if f.sans_forfait]
+        assert libres, "plus de formule sans abonnement : le test ne vérifie rien"
+        for formule in libres:
+            bloc = self._bloc(page, formule)
+            assert f"{site._euros(formule.minute_supp_eur)} €<small>la minute" in bloc
+            assert "Aucun abonnement" in bloc and "par mois" not in bloc
+            assert (f"Mise en service : {formule.mise_en_service_eur} € par numéro, "
+                    "une fois") in bloc
+
+    def test_la_page_ne_vend_plus_des_appels(self, page):
+        """La grille compte en minutes depuis le 02/10/2026 : un « appels par mois » ou
+        un « par appel » resté sur la page vendrait une formule qui n'existe plus."""
+        formules = page[page.index('id="formules"'):]
+        assert "appels par mois" not in formules and "par appel" not in formules
+
+    def test_le_hors_taxes_la_seconde_et_le_seuil_d_alerte(self, page):
+        assert "Prix hors taxes" in page
+        assert "décomptées à la seconde" in page
         assert f"Alerte à {round(plans.SEUIL_ALERTE * 100)} %" in page
 
     def test_un_changement_de_grille_change_la_page(self, client, monkeypatch):
         chere = plans.Formule(id="essentiel", label="Essentiel", prix_mensuel_eur=95,
-                              appels_inclus=180, etablissements_inclus=1, argument="Test.")
-        monkeypatch.setattr(plans, "CATALOGUE", (chere,) + plans.CATALOGUE[1:])
-        monkeypatch.setattr(plans, "DEPASSEMENT_EUR", 0.45)
+                              minutes_incluses=1180, minute_supp_eur=0.55,
+                              etablissements_inclus=1, argument="Test.")
+        autres = tuple(f for f in plans.CATALOGUE if f.id != "essentiel")
+        monkeypatch.setattr(plans, "CATALOGUE", (chere,) + autres)
         page = client.get("/").text
-        assert "95 €" in page and "180 appels par mois" in page and "0,45 €" in page
-        assert "89 €" not in page and "0,30 €" not in page
+        assert "95 €" in page and "0,55 €" in page
+        assert f"{site._euros(1180)} minutes par mois" in page
+        assert "89 €" not in page and "0,35 €" not in page
         # Le calcul du manque à gagner retranche la même formule.
         assert 'data-formule="95"' in page and "− 95 €" in page
 

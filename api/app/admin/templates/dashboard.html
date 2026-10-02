@@ -26,28 +26,42 @@
    facturation. Les mélanger ferait douter de la facture. #}
 {% set etat = {'ok':        {'classe': '',                  'chip': 'chip-good', 'mot': 'Dans le forfait'},
                'alerte':    {'classe': 'meter-alerte',      'chip': 'chip-warn', 'mot': 'Bientôt au plafond'},
-               'depassement': {'classe': 'meter-depassement', 'chip': 'chip-bad', 'mot': 'Plafond dépassé'}}[quota.niveau] %}
+               'depassement': {'classe': 'meter-depassement', 'chip': 'chip-bad', 'mot': 'Forfait dépassé'}}[quota.niveau] %}
+{% set minute_supp = "%.2f" | format(quota.formule.minute_supp_eur) %}
 <section class="card">
   <div class="card-head">
     <div>
+      {% if quota.formule.sans_forfait %}
+      {# Rien d'inclus : ni plafond, ni barre. On écrit ce qui sera facturé. #}
+      <h2>Formule {{ quota.formule.label }}
+        <span class="chip chip-good">Sans abonnement</span></h2>
+      <p class="card-sub">{{ quota.minutes_affichables }} minute(s) d'appel ce mois-ci,
+        en {{ quota.appels }} appel(s), soit {{ "%.2f" | format(quota.montant_eur) }} € à
+        facturer. Chaque minute est facturée {{ minute_supp }} €, décomptée à la seconde.
+      </p>
+      {% else %}
       <h2>Forfait {{ quota.formule.label }}
         <span class="chip {{ etat.chip }}">{{ etat.mot }}</span></h2>
-      <p class="card-sub">{{ quota.appels }} appel(s) ce mois-ci sur {{ quota.inclus }} inclus.
+      <p class="card-sub">{{ quota.minutes_affichables }} minute(s) d'appel ce mois-ci sur
+        {{ quota.inclus }} incluses, en {{ quota.appels }} appel(s).
         {% if quota.hors_forfait %}
-        <b>{{ quota.hors_forfait }} appel(s) hors forfait</b>, soit
+        <b>{{ quota.hors_forfait_affichable }} minute(s) hors forfait</b>, soit
         {{ "%.2f" | format(quota.montant_eur) }} € à facturer.
         Votre ligne n'a pas été coupée et ne le sera pas : un appel manqué coûte plus
-        cher qu'un appel facturé.
+        cher qu'une minute facturée.
         {% else %}
-        Au-delà, chaque appel est facturé {{ "%.2f" | format(depassement_eur) }} €.
+        Au-delà, chaque minute est facturée {{ minute_supp }} €, décomptée à la seconde.
         {% endif %}
       </p>
+      {% endif %}
     </div>
   </div>
+  {% if not quota.formule.sans_forfait %}
   <div class="meter {{ etat.classe }}" role="img"
-       aria-label="{{ quota.appels }} appels sur {{ quota.inclus }} inclus">
+       aria-label="{{ quota.minutes_affichables }} minutes sur {{ quota.inclus }} incluses">
     <i style="width: {{ quota.part_affichable }}%"></i>
   </div>
+  {% endif %}
 </section>
 {% endif %}
 

@@ -5,7 +5,8 @@ y déclencher est un rappel — dont tous les refus sont dans `app/rappel.py`.
 
 Les prix affichés viennent de `app/plans.py`. L'ancienne page de vente annonçait la
 formule Maison à 249 € pour 1 200 appels, des semaines après que la grille l'eut passée à
-349 € pour 750 : une page qui recopie des prix finit par mentir.
+349 € pour 750 : une page qui recopie des prix finit par mentir. Le 02/10/2026 la grille
+est passée des appels aux minutes, et la page a suivi sans qu'on y recopie un chiffre.
 """
 import hashlib
 import json
@@ -53,14 +54,20 @@ def _euros(montant: float) -> str:
     return f"{montant:.2f}".replace(".", ",")
 
 
+templates.env.filters["euros"] = _euros
+
+
 @router.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def accueil(request: Request):
     premiere = plans.defaut()
+    catalogue = plans.catalogue()
     return templates.TemplateResponse(request, "accueil.html", {
-        "formules": plans.catalogue(),
+        # Les abonnements font les trois cartes ; ce qui se vend sans forfait a son
+        # bandeau à part : ce n'est pas « une carte de plus » mais un autre choix.
+        "formules": [f for f in catalogue if not f.sans_forfait],
+        "sans_forfait": [f for f in catalogue if f.sans_forfait],
         "phare": PHARE,
         "premiere": premiere,
-        "depassement": _euros(plans.DEPASSEMENT_EUR),
         "seuil": round(plans.SEUIL_ALERTE * 100),
         "net_exemple": _euros(_CA_EXEMPLE - premiere.prix_mensuel_eur),
     })
