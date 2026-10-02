@@ -7,6 +7,25 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — les consignes du dépôt, tenues par un test (02/10/2026)
+
+### Ajouté
+- **`CLAUDE.md`** : les commandes, le cycle de travail (branche, tests, revue, fusion,
+  déploiement, recette), l'architecture, les règles que les tests imposent, les pièges du
+  moteur d'appel, et quels documents croire.
+- **`test_documentation.py`** : `CLAUDE.md` et le guide de l'admin ne peuvent plus citer un
+  fichier, une fonction ou un test qui n'existe pas ; le nombre de contrôles de
+  supervision annoncé dans la documentation doit être le vrai.
+
+### Corrigé
+- Le guide de l'admin (`.claude/skills/admin-ui`) demandait `asyncio.create_task`,
+  annonçait des graphiques sans script et donnait une commande de test qui ne pouvait pas
+  tourner. Il gagne l'heure de Paris, le thème sombre, les pièges rencontrés et la façon
+  de vérifier un rendu.
+- `README.md` et `ARCHITECTURE.md` présentaient encore Moshi comme la voix : c'est
+  Mistral depuis le 28/09. Ajout du renvoi en cas de panne et du carnet resOS ;
+  « 14 contrôles » devient 17. Les documents historiques sont signalés comme tels.
+
 ## Non publiée — en cas de panne, l'appel est renvoyé vers le restaurant (ASSISTANTE-118, 01/10/2026)
 
 Demande de Helmi : un client ne doit plus rester sans personne quand l'assistante tombe.
