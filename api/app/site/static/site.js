@@ -5,9 +5,11 @@
   /* ---- le rappel : le numéro part à /rappel, et Marie appelle ---- */
   function chiffres(brut) {
     var s = String(brut || "").replace(/[\s.\-()]/g, "");
-    if (s.indexOf("+33") === 0) s = "0" + s.slice(3);
-    if (s.indexOf("0033") === 0) s = "0" + s.slice(4);
-    return s;
+    if (s.indexOf("+33") === 0) s = s.slice(3);
+    else if (s.indexOf("0033") === 0) s = s.slice(4);
+    else return s;
+    /* « +33 (0)6 … » : le zéro entre parenthèses s'écrit, il ne se compose pas */
+    return "0" + (s.charAt(0) === "0" ? s.slice(1) : s);
   }
   function lisible(s) { return s.replace(/(\d{2})(?=\d)/g, "$1 ").trim(); }
 

@@ -12,6 +12,7 @@ import hashlib
 import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
@@ -100,6 +101,23 @@ def _meme_origine(request: Request) -> bool:
     return True
 
 
+async def _corps_borne(request: Request) -> Optional[bytes]:
+    """Le corps de la demande s'il tient dans `_CORPS_MAX`, sinon None — sans le charger.
+    `request.body()` lirait tout avant qu'on regarde la taille : sur une route ouverte à
+    tout le monde, un envoi de plusieurs centaines de mégaoctets finirait dans la mémoire
+    du processus qui porte les appels."""
+    annonce = request.headers.get("content-length", "")
+    if annonce and (not annonce.isdigit() or int(annonce) > _CORPS_MAX):
+        return None
+    morceaux, total = [], 0
+    async for morceau in request.stream():
+        total += len(morceau)
+        if total > _CORPS_MAX:
+            return None
+        morceaux.append(morceau)
+    return b"".join(morceaux)
+
+
 def _reponse(resultat: rappel.Reponse) -> JSONResponse:
     return JSONResponse({"etat": resultat.etat, "message": resultat.message},
                         status_code=resultat.code)
@@ -118,8 +136,8 @@ async def demander_un_rappel(request: Request):
     if not _meme_origine(request):
         return JSONResponse({"etat": "origine", "message": "Demande refusée."}, status_code=403)
     try:
-        brut = await request.body()
-        corps = json.loads(brut) if len(brut) <= _CORPS_MAX else None
+        brut = await _corps_borne(request)
+        corps = json.loads(brut) if brut is not None else None
     except ValueError:
         corps = None
     if not isinstance(corps, dict):

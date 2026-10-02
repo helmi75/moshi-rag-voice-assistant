@@ -61,6 +61,10 @@ ACCUEIL = ("Bonjour, c'est Marie, l'assistante vocale d'Helmane. Vous avez deman
            "restaurant {nom} : réservez une table, par exemple.")
 
 _verrou = threading.Lock()
+# Un verrou à part pour le compteur par adresse : il se prend sur la boucle d'événements,
+# qui porte l'audio des appels. Avec celui de `reserver`, tenu pendant toute une écriture
+# SQLite, une base occupée aurait figé la boucle jusqu'à cinq secondes.
+_verrou_adresses = threading.Lock()
 _par_adresse: dict[str, Deque[float]] = defaultdict(deque)
 _ADRESSES_MAX = 5000
 
@@ -134,10 +138,13 @@ def normaliser(brut) -> Optional[str]:
     """Le numéro au format international (`+33612345678`) si c'est un numéro de
     métropole qu'on accepte de composer, sinon None."""
     numero = re.sub(r"[\s.\-()  ]", "", str(brut or ""))
-    if numero.startswith("+33"):
-        numero = "0" + numero[3:]
-    elif numero.startswith("0033"):
-        numero = "0" + numero[4:]
+    for indicatif in ("+33", "0033"):
+        if numero.startswith(indicatif):
+            # « +33 (0)6 12 34 56 78 » : le zéro entre parenthèses s'écrit, il ne se
+            # compose pas. On en retire un seul.
+            reste = numero[len(indicatif):]
+            numero = "0" + (reste[1:] if reste.startswith("0") else reste)
+            break
     if not _METROPOLE.fullmatch(numero) or numero[1:].startswith(_OUTRE_MER):
         return None
     return "+33" + numero[1:]
@@ -188,7 +195,7 @@ def adresse_bloquee(adresse: str) -> bool:
     """Compte cette demande pour cette adresse, et dit si elle dépasse le plafond horaire.
     En mémoire : un redémarrage l'efface, le plafond du jour (en base) reste."""
     maintenant = time.monotonic()
-    with _verrou:
+    with _verrou_adresses:
         if len(_par_adresse) > _ADRESSES_MAX:
             # Un balayage depuis des milliers d'adresses ne doit pas faire grossir la
             # mémoire du processus qui porte les appels : on oublie les plus anciennes.
@@ -260,7 +267,7 @@ def oublier(numero: str) -> int:
 
 def reinitialiser() -> None:
     """Oublie les demandes comptées par adresse — réservé aux tests."""
-    with _verrou:
+    with _verrou_adresses:
         _par_adresse.clear()
 
 

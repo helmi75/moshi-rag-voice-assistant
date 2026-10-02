@@ -77,6 +77,9 @@ class TestLesNumerosQuOnCompose:
         ("06.12.34.56.78", "+33612345678"),
         ("+33 6 12 34 56 78", "+33612345678"),
         ("0033612345678", "+33612345678"),
+        ("+33 (0)6 12 34 56 78", "+33612345678"),   # le zéro entre parenthèses
+        ("+33 06 12 34 56 78", "+33612345678"),
+        ("0033 (0)1 42 68 53 00", "+33142685300"),
         ("01 42 68 53 00", "+33142685300"),
         ("09 72 10 10 10", "+33972101010"),
         ("07 81 23 45 67", "+33781234567"),
@@ -209,6 +212,21 @@ class TestLesPlafonds:
         assert quatrieme is rappel.TROP and quatrieme.code == 429
         assert composer.await_count == 3
         assert _demander("06 12 34 56 79", "198.51.100.9") is rappel.OK
+
+    def test_le_compteur_par_adresse_n_attend_pas_la_base(self):
+        """`adresse_bloquee` tourne sur la boucle d'événements. Si elle partageait le
+        verrou de `reserver`, tenu pendant une écriture SQLite, une base occupée figerait
+        l'audio des appels en cours."""
+        import threading
+
+        resultat = []
+        with rappel._verrou:  # une réservation est en train d'écrire
+            fil = threading.Thread(target=lambda: resultat.append(rappel.adresse_bloquee("203.0.113.9")),
+                                   daemon=True)
+            fil.start()
+            fil.join(2)
+            assert not fil.is_alive(), "le compteur par adresse attend le verrou de la base"
+        assert resultat == [False]
 
     def test_le_compteur_par_adresse_ne_grossit_pas_sans_fin(self, monkeypatch):
         monkeypatch.setattr(rappel, "_ADRESSES_MAX", 50)
@@ -348,6 +366,19 @@ class TestLaRoute:
                                        '{"numero": "' + "0" * 3000 + '"}'])
     def test_un_corps_illisible_ou_trop_gros(self, client, composer, corps):
         r = client.post("/rappel", content=corps, headers=JSON)
+        assert r.status_code == 400
+        composer.assert_not_awaited()
+
+    def test_un_envoi_enorme_n_est_pas_charge_en_memoire(self, client, composer, monkeypatch):
+        """La taille annoncée suffit à refuser : le corps n'est pas lu."""
+        from starlette.requests import Request
+
+        async def interdit(self):
+            raise AssertionError("le corps a été lu en entier")
+            yield b""  # pragma: no cover
+
+        monkeypatch.setattr(Request, "stream", interdit)
+        r = client.post("/rappel", content=b"0" * 50_000, headers=JSON)
         assert r.status_code == 400
         composer.assert_not_awaited()
 
