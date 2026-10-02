@@ -248,8 +248,23 @@ réservation est impossible : prends un message.
 """
 
 
+def _section_demonstration(tenant: Tenant) -> str:
+    """Le rappel demandé sur le site (app/rappel.py) : c'est l'assistante qui appelle, et
+    la personne au bout du fil est un restaurateur qui l'essaie. Sans cette section, le
+    modèle traite « c'est quoi Helmane ? » comme une question sur le restaurant et
+    répond qu'il ne sait pas."""
+    return f"""# Démonstration
+C'est TOI qui as appelé : cette personne a demandé un essai sur le site d'Helmane, et
+elle joue un client de « {tenant.name} ». Traite sa demande exactement comme un vrai
+appel. Si elle te parle d'Helmane (prix, abonnement, fonctionnement) : dis que tu es là
+pour la démonstration, que tout est sur le site helmane.fr, et propose de continuer
+l'essai. N'invente rien sur Helmane.
+
+"""
+
+
 def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None,
-                        numero_masque: bool = False) -> str:
+                        numero_masque: bool = False, demonstration: bool = False) -> str:
     """Prompt système de l'assistante téléphonique.
 
     Il est ré-envoyé à CHAQUE tour : chaque phrase ajoutée se paie en latence et en
@@ -259,6 +274,7 @@ def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None,
     `appelant` : le nom de la dernière réservation faite depuis ce numéro
     (connecteurs : `dernier_nom`), ou None.
     `numero_masque` : l'appel n'a pas de numéro — il faut en demander un pour rappeler.
+    `demonstration` : l'appel est un rappel demandé sur le site (app/rappel.py).
     """
     numero = ("Le numéro est MASQUÉ : demande-le (voir « Appelant »)." if numero_masque
               else "Le numéro est DÉJÀ enregistré :\n   ne le demande pas.")
@@ -304,7 +320,7 @@ Un jour déjà passé désigne le prochain à venir. Une heure d'aujourd'hui dé
 se réserve pas : propose la suivante. Si la date reste ambiguë, fais préciser : « Samedi
 quinze août, c'est bien ça ? ».
 
-{disponibilite.section_prompt(getattr(tenant, 'opening_hours', None))}{_section_appelant(appelant)}{_section_numero_masque() if numero_masque else ""}# Réservation — dans l'ordre
+{disponibilite.section_prompt(getattr(tenant, 'opening_hours', None))}{_section_appelant(appelant)}{_section_numero_masque() if numero_masque else ""}{_section_demonstration(tenant) if demonstration else ""}# Réservation — dans l'ordre
 1. Il te faut QUATRE informations : nom, date, heure, nombre de personnes. Demande
    celles qui manquent, une par une. Ce qui a été dit UNE fois est acquis, même après
    un refus : s'il change le jour, GARDE l'heure, le nombre et le nom (« Vendredi,

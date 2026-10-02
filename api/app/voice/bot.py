@@ -513,8 +513,12 @@ async def run_bot(
     tenant: Tenant,
     caller_number: str | None = None,
     call_id: int | None = None,
+    demonstration: bool = False,
 ) -> None:
     """Construit et exécute le pipeline Pipecat pour un appel Twilio Media Streams.
+
+    `demonstration` : l'appel est un rappel demandé sur le site (app/rappel.py) — c'est
+    l'assistante qui a appelé, le prompt le lui dit.
 
     `caller_number` : numéro de l'appelant (Twilio From), rattaché d'office à toute
     réservation créée pendant l'appel.
@@ -638,7 +642,8 @@ async def run_bot(
         except Exception as exc:
             logger.warning(f"nom du dernier passage introuvable (sans conséquence): {exc}")
     prompt_systeme = llm.build_system_prompt(
-        tenant, appelant=nom_connu, numero_masque=not (caller_number or "").strip())
+        tenant, appelant=nom_connu, numero_masque=not (caller_number or "").strip(),
+        demonstration=demonstration)
 
     # Journal des appels : collecte les réservations créées pendant CET appel.
     created_reservations: list[int | str] = []

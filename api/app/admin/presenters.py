@@ -98,6 +98,9 @@ def call_view(call: dict) -> dict:
         "duration_label": format_duration(call.get("duration_seconds")),
         # Pourquoi l'assistante a passé la main, en clair (None si elle a servi l'appel).
         "secours_libelle": renvoi.LIBELLES.get(call.get("secours_motif") or ""),
+        # C'est Marie qui a appelé : un rappel demandé sur le site (app/rappel.py). Le
+        # numéro affiché est alors celui de la personne APPELÉE.
+        "sortant": bool(call.get("sortant")),
         "date_label": local.date().isoformat() if local else started[:10],
         "time_label": local.strftime("%H:%M") if local else started[11:16],
     }

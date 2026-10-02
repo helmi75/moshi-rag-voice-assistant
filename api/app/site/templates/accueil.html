@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Helmane — Le standard qui décroche pendant le service</title>
+<meta name="description" content="L'assistante téléphonique des restaurants : Marie prend les réservations, les modifie et note les messages pendant que vous êtes en salle. Laissez votre numéro, elle vous rappelle.">
+<meta name="color-scheme" content="dark light">
+<meta property="og:title" content="Helmane — Le téléphone sonne. Marie décroche.">
+<meta property="og:description" content="L'assistante téléphonique des restaurants. Elle prend les réservations, les modifie, note les messages.">
+<meta property="og:type" content="website">
+<link rel="icon" href="{{ statique('favicon.svg') }}" type="image/svg+xml">
+<link rel="preload" href="/site/static/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{ statique('site.css') }}">
+<script src="{{ statique('site.js') }}" defer></script>
+</head>
+<body>
+{# Page d'accueil publique (ASSISTANTE-119). Aucun script ni gestionnaire en ligne : la
+   politique de sécurité de Caddy (script-src 'self') les bloquerait. Les prix viennent
+   de app/plans.py : la page ne peut pas annoncer autre chose que la grille en vigueur. #}
+<!-- Les trois personnages, dessinés pour Helmane -->
+<svg class="reserve" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="p-marie" viewBox="0 0 120 120">
+      <path d="M29 60c0-23 13-38 31-38s31 15 31 38v20c0 7-6 8-9 4V60H38v24c-3 4-9 3-9-4z" fill="#5B3523"/>
+      <path d="M20 122c0-19 17-30 40-30s40 11 40 30z" fill="#FF9B3D"/>
+      <rect x="51" y="78" width="18" height="18" rx="7" fill="#EDB78F"/>
+      <path d="M46 93c4 8 24 8 28 0" stroke="#FFD7A8" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <ellipse cx="60" cy="59" rx="23" ry="25.5" fill="#F7CDA9"/>
+      <path d="M37 56c1-17 11-26 23-26 14 0 23 10 24 26-9-2-15-7-19-15-5 9-15 14-28 15z" fill="#5B3523"/>
+      <ellipse cx="51" cy="61" rx="3.3" ry="4.2" fill="#2B1A12"/><ellipse cx="69" cy="61" rx="3.3" ry="4.2" fill="#2B1A12"/>
+      <circle cx="52.3" cy="59.4" r="1.2" fill="#FFFFFF"/><circle cx="70.3" cy="59.4" r="1.2" fill="#FFFFFF"/>
+      <circle cx="44.5" cy="69" r="4.4" fill="#F0907D" opacity=".5"/><circle cx="75.5" cy="69" r="4.4" fill="#F0907D" opacity=".5"/>
+      <path d="M52.5 70c3.5 4.6 11.500 4.600 15 0" stroke="#8E3F2C" stroke-width="2.600" fill="none" stroke-linecap="round"/>
+      <path d="M34 60c0-18 11-31 26-31s26 13 26 31" stroke="#231611" stroke-width="4.200" fill="none" stroke-linecap="round"/>
+      <rect x="28.500" y="54" width="10" height="18" rx="5" fill="#231611"/><rect x="81.500" y="54" width="10" height="18" rx="5" fill="#231611"/>
+      <path d="M33 72c0 11 8 15 17 15" stroke="#231611" stroke-width="3.200" fill="none" stroke-linecap="round"/>
+      <rect x="48" y="83.500" width="10" height="7" rx="3.500" fill="#231611"/>
+    </symbol>
+    <symbol id="p-chef" viewBox="0 0 120 120">
+      <path d="M18 122c0-19 18-30 42-30s42 11 42 30z" fill="#F8F4EC"/>
+      <path d="M60 96v26" stroke="#DAD2C5" stroke-width="2"/>
+      <circle cx="51" cy="106" r="2.400" fill="#C8BFB1"/><circle cx="69" cy="106" r="2.400" fill="#C8BFB1"/>
+      <circle cx="51" cy="116" r="2.400" fill="#C8BFB1"/><circle cx="69" cy="116" r="2.400" fill="#C8BFB1"/>
+      <rect x="51" y="78" width="18" height="16" rx="7" fill="#D39C76"/>
+      <path d="M44 91l16 10 16-10-5-5H49z" fill="#FF9B3D"/>
+      <ellipse cx="60" cy="62" rx="23" ry="24" fill="#E3B08A"/>
+      <path d="M35 46c-10-3-11-19 0-22 3-11 17-14 25-6 8-8 22-5 25 6 11 3 10 19 0 22v8H35z" fill="#FFFFFF"/>
+      <rect x="35" y="45" width="50" height="10" rx="2.500" fill="#ECE5DA"/>
+      <path d="M46 63c2-3.200 6.500-3.200 8.500 0M65.500 63c2-3.200 6.500-3.200 8.500 0" stroke="#2B1A12" stroke-width="2.600" fill="none" stroke-linecap="round"/>
+      <circle cx="44.500" cy="70" r="4.200" fill="#E08A6F" opacity=".45"/><circle cx="75.500" cy="70" r="4.200" fill="#E08A6F" opacity=".45"/>
+      <path d="M47 73c4-4.500 9.500-3.500 13-.5 3.500-3 9-4 13 .5-4 3.500-9.500 3.500-13 1.200-3.500 2.300-9 2.300-13-1.200z" fill="#4B2E1F"/>
+      <path d="M55 78.500c3 2.500 7 2.500 10 0" stroke="#8E3F2C" stroke-width="2.200" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="p-client" viewBox="0 0 120 120">
+      <path d="M20 122c0-19 17-30 40-30s40 11 40 30z" fill="#3F8191"/>
+      <rect x="51" y="78" width="18" height="18" rx="7" fill="#B37449"/>
+      <ellipse cx="60" cy="59" rx="23" ry="25.500" fill="#C98B5F"/>
+      <path d="M35 57c-4-21 9-33 25-33s29 11 25 33c-3-9-9-14-16-16-9 4-21 5-34 16z" fill="#1E1411"/>
+      <circle cx="40" cy="38" r="8" fill="#1E1411"/><circle cx="54" cy="29" r="9" fill="#1E1411"/><circle cx="70" cy="30" r="9" fill="#1E1411"/><circle cx="82" cy="40" r="8" fill="#1E1411"/>
+      <ellipse cx="51" cy="61" rx="3.300" ry="4.200" fill="#1E1411"/><ellipse cx="69" cy="61" rx="3.300" ry="4.200" fill="#1E1411"/>
+      <circle cx="52.300" cy="59.400" r="1.200" fill="#FFFFFF"/><circle cx="70.300" cy="59.400" r="1.200" fill="#FFFFFF"/>
+      <path d="M53 71c3.500 4 10.500 4 14 0" stroke="#6E2F20" stroke-width="2.600" fill="none" stroke-linecap="round"/>
+      <path d="M99 122c1-16-1-32-9-50" stroke="#3F8191" stroke-width="14" stroke-linecap="round" fill="none"/>
+      <rect x="80" y="45" width="12" height="28" rx="4.500" fill="#15100D" transform="rotate(9 86 59)"/>
+      <ellipse cx="89" cy="68" rx="7.500" ry="8.500" fill="#C98B5F"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="shell top__in">
+    <a class="marque" href="#haut">
+      <span class="marque__logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.600 10.800c1.200 2.400 3.200 4.400 5.600 5.600l1.900-1.900c.3-.3.7-.4 1-.2 1.100.4 2.300.6 3.500.6.600 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.300 21 3 13.700 3 4.600c0-.6.4-1 1-1h3.300c.6 0 1 .4 1 1 0 1.200.2 2.400.6 3.500.1.400 0 .8-.2 1z"/></svg></span>
+      Helmane
+    </a>
+    <nav>
+      <a class="lien" href="#appel">Un appel</a>
+      <a class="lien" href="#talents">Ce qu'elle fait</a>
+      <a class="lien" href="#formules">Formules</a>
+      <a class="lien" href="#questions">Questions</a>
+      <a class="lien" href="/admin/login">Espace client</a>
+      <a class="btn btn--go btn--small" href="#haut" data-vers-rappel>Être rappelé</a>
+    </nav>
+  </div>
+</header>
+
+<main id="haut">
+
+  <!-- ============ HÉROS ============ -->
+  <section class="heros">
+    <div class="shell">
+      <span class="pill"><span class="dot" aria-hidden="true"></span>Ligne ouverte 24 h sur 24 · pour les restaurants</span>
+      <h1>Le téléphone sonne.<br><span class="accent">Marie décroche.</span></h1>
+      <p class="heros__sous">
+        L'assistante téléphonique des restaurants. Elle prend les réservations,
+        les modifie, note les messages. Vous, vous restez en salle.
+      </p>
+
+      <div class="rappel-zone">
+        <span class="perso perso--marie" aria-hidden="true"><svg><use href="#p-marie"/></svg></span>
+        <span class="onde" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+
+        <div class="bulle bulle--g" aria-hidden="true">
+          <span class="perso"><svg><use href="#p-client"/></svg></span>
+          <span><b>« Une table pour cinq, samedi »</b><span>19 h 47, en plein service</span></span>
+        </div>
+        <div class="bulle bulle--d" aria-hidden="true">
+          <span class="perso"><svg><use href="#p-chef"/></svg></span>
+          <span><b>Vous n'avez pas quitté la salle</b><span>La table est déjà dans le carnet</span></span>
+        </div>
+
+        <form class="rappel" id="rappel-haut" novalidate>
+          <div data-etat="saisie">
+            <p class="rappel__titre">Laissez votre numéro, Marie vous rappelle
+              <small>Dans la minute. Vous jouez le client, elle répond comme pour un vrai restaurant.</small></p>
+            <div class="rappel__champ">
+              <label for="tel-haut">Votre numéro de téléphone</label>
+              <input type="tel" id="tel-haut" name="tel" inputmode="tel" autocomplete="tel" placeholder="06 12 34 56 78" required>
+              <input class="rappel__piege" type="text" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
+              <button class="btn btn--go" type="submit">
+                <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.300" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.600 10.800c1.200 2.400 3.200 4.400 5.600 5.600l1.900-1.900c.3-.3.7-.4 1-.2 1.100.4 2.300.6 3.500.6.600 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.300 21 3 13.700 3 4.600c0-.6.4-1 1-1h3.300c.6 0 1 .4 1 1 0 1.200.2 2.400.6 3.500.1.400 0 .8-.2 1z"/></svg>
+                Rappelez-moi
+              </button>
+            </div>
+            <p class="rappel__erreur" role="alert" hidden></p>
+            <p class="rappel__aide">Votre numéro ne sert qu'à ce rappel. Sans engagement.</p>
+            <noscript><p class="rappel__erreur">Le rappel a besoin de JavaScript : activez-le pour laisser votre numéro.</p></noscript>
+          </div>
+          <div class="rappel__fait" data-etat="fait" role="status" hidden>
+            <b>Marie vous appelle.</b>
+            <p><span data-message></span> <span data-numero></span></p>
+            <button class="btn btn--line btn--small" type="button" data-retour>Modifier le numéro</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="gages">
+        <span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>Vous gardez votre numéro</span>
+        <span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>14 jours d'essai</span>
+        <span><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>Carnet hébergé à Paris</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LA SCÈNE ============ -->
+  <section class="scene">
+    <div class="shell scene__in">
+      <div class="role">
+        <span class="perso" aria-hidden="true"><svg><use href="#p-client"/></svg></span>
+        <div><b>Le client appelle</b><p>À l'heure qui l'arrange : pendant le coup de feu, le lundi de fermeture, à minuit.</p></div>
+      </div>
+      <div class="role">
+        <span class="perso perso--marie" aria-hidden="true"><svg><use href="#p-marie"/></svg></span>
+        <div><b>Marie répond</b><p>Au nom de votre établissement, en français, avec ce que vous lui avez appris.</p></div>
+      </div>
+      <div class="role">
+        <span class="perso" aria-hidden="true"><svg><use href="#p-chef"/></svg></span>
+        <div><b>Vous restez en salle</b><p>La réservation arrive dans votre carnet, et un e-mail vous prévient.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ UN APPEL ============ -->
+  <section class="bande bande--2" id="appel">
+    <div class="shell appel">
+      <div>
+        <div class="tete">
+          <p class="sur">Un appel, du début à la fin</p>
+          <h2>Une conversation, pas un menu à touches.</h2>
+          <p>Elle écoute, demande ce qui manque, vérifie avant de promettre, et récapitule à voix haute.</p>
+        </div>
+        <ul>
+          <li><span><b>Elle se présente</b> comme assistante vocale dès le décroché. Personne n'est trompé.</span></li>
+          <li><span><b>Elle vérifie vos horaires</b> avant d'accepter un créneau. Un jour de fermeture est refusé.</span></li>
+          <li><span><b>Elle n'annonce « c'est enregistré »</b> qu'une fois la table réellement inscrite.</span></li>
+        </ul>
+        <a class="btn btn--go" href="#haut" data-vers-rappel>L'entendre maintenant</a>
+      </div>
+
+      <div class="combine" id="combine">
+        <div class="combine__haut">
+          <span class="perso perso--marie" aria-hidden="true"><svg><use href="#p-marie"/></svg></span>
+          <span><b>Marie · Le Bouchon Doré</b><span><span class="dot" aria-hidden="true"></span>Appel en cours, 19 h 47</span></span>
+          <button class="btn btn--line btn--small" type="button" id="rejouer">Rejouer</button>
+        </div>
+        <div class="fil" role="log" aria-label="Exemple de conversation téléphonique">
+          <p class="tour tour--marie">Bonjour, Le Bouchon Doré. Je suis l'assistante vocale, cet appel est enregistré.</p>
+          <p class="tour tour--client">Bonsoir, je voudrais réserver pour samedi soir.</p>
+          <p class="tour tour--marie">Avec plaisir. Pour combien de personnes, et à quelle heure ?</p>
+          <p class="tour tour--client">On sera cinq, vers vingt heures trente.</p>
+          <p class="tour tour--outil"><span class="dot" aria-hidden="true"></span>Elle vérifie vos horaires d'ouverture</p>
+          <p class="tour tour--marie">C'est possible. À quel nom ?</p>
+          <p class="tour tour--client">Bertrand.</p>
+          <p class="tour tour--marie">Samedi, vingt heures trente, cinq personnes au nom de Bertrand. Je confirme ?</p>
+          <p class="tour tour--client">Oui, parfait.</p>
+          <p class="tour tour--marie">C'est enregistré. Bonne soirée !</p>
+        </div>
+        <div class="resa">
+          <span class="resa__coche" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg></span>
+          <span><b>Bertrand · samedi 20 h 30 · 5 couverts</b><span>Inscrite dans votre carnet, e-mail envoyé à la salle</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CE QU'ELLE FAIT ============ -->
+  <section class="bande" id="talents">
+    <div class="shell">
+      <div class="tete tete--c">
+        <p class="sur">Pendant que vous êtes en salle</p>
+        <h2>Tout ce que Marie fait au téléphone.</h2>
+      </div>
+      <div class="talents">
+        <article class="talent">
+          <div class="talent__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v3M17 2v3M3.500 9h17M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 15l2 2 4-4"/></svg></div>
+          <h3>Elle prend la réservation</h3>
+          <p>Date, heure, couverts, nom. Elle demande ce qui manque et vérifie le créneau sur vos horaires avant de confirmer.</p>
+        </article>
+        <article class="talent">
+          <div class="talent__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.700-5.700L20 8.500M20 4v4.500h-4.500M20 12a8 8 0 0 1-13.700 5.700L4 15.500M4 20v-4.500h4.500"/></svg></div>
+          <h3>Elle modifie et annule</h3>
+          <p>Elle retrouve la réservation grâce au numéro de l'appelant, change l'heure ou le nombre de couverts, ou l'annule.</p>
+        </article>
+        <article class="talent">
+          <div class="talent__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5zM14 4v5h5M8.500 13h7M8.500 16.500h5"/></svg></div>
+          <h3>Elle prend les messages</h3>
+          <p>Un fournisseur, une candidature, une demande particulière : c'est noté, avec le numéro où rappeler.</p>
+        </article>
+        <article class="talent">
+          <div class="talent__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.500 9.500a2.600 2.600 0 1 1 3.600 2.400c-.7.300-1.100.900-1.100 1.600M12 17h.01"/></svg></div>
+          <h3>Elle répond aux questions</h3>
+          <p>Horaires, adresse, carte, accès. Uniquement ce que vous avez écrit dans sa fiche : elle n'invente rien.</p>
+        </article>
+        <article class="talent">
+          <div class="talent__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg></div>
+          <h3>Elle vous prévient</h3>
+          <p>Un e-mail à chaque réservation prise, modifiée ou annulée, et à chaque message laissé pour l'équipe.</p>
+        </article>
+        <article class="talent">
+          <div class="talent__ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zM6 11a6 6 0 0 0 12 0M12 19v2"/></svg></div>
+          <h3>Elle garde une trace</h3>
+          <p>Chaque appel se réécoute et se relit dans votre espace : l'enregistrement et la transcription, à côté de la réservation.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ L'ESPACE ============ -->
+  <section class="bande bande--2">
+    <div class="shell espace">
+      <div>
+        <div class="tete">
+          <p class="sur">Votre espace</p>
+          <h2>Votre carnet tient dans votre poche.</h2>
+          <p>Le lendemain matin, vous ouvrez votre téléphone : tout ce que Marie a pris est là.</p>
+        </div>
+        <ul>
+          <li><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.400" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg><span><b>Un calendrier, au mois, à la semaine, au jour</b><span>Réservations et couverts par service, jours de fermeture grisés.</span></span></li>
+          <li><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.400" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg><span><b>Chaque réservation avec sa conversation</b><span>Un clic sur une table ouvre l'appel qui l'a prise et la fiche du client.</span></span></li>
+          <li><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.400" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg><span><b>Ce que Marie sait, vous le corrigez vous-même</b><span>Horaires, carte, consignes : une fiche à modifier, effet au prochain appel.</span></span></li>
+          <li><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.400" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg><span><b>Vous utilisez déjà resOS ?</b><span>Marie écrit directement dans votre carnet resOS. Un autre logiciel : parlons-en.</span></span></li>
+        </ul>
+      </div>
+
+      <div class="ecran" aria-label="Exemple d'écran : les réservations du jour">
+        <p class="ecran__note">Exemple d'écran</p>
+        <div class="ecran__jour"><b>Samedi 3 octobre</b><span>4 tables · 13 couverts</span></div>
+        <p class="ecran__h">12 h</p>
+        <div class="fiche"><div class="fiche__l1"><time>12:30</time>Martin<em>Confirmée</em></div><small>2 couverts</small></div>
+        <p class="ecran__h">19 h</p>
+        <div class="fiche"><div class="fiche__l1"><time>19:30</time>Leroy<em>Confirmée</em></div><small>2 couverts · 06 •• •• •• 12</small></div>
+        <p class="ecran__h">20 h</p>
+        <div class="fiche fiche--marie">
+          <div class="fiche__l1"><time>20:30</time>Bertrand<em>Confirmée</em></div>
+          <small>5 couverts · 06 •• •• •• 34</small>
+          <div class="fiche__appel"><span class="perso perso--marie" aria-hidden="true"><svg><use href="#p-marie"/></svg></span>Prise par Marie à 19 h 47 · écouter l'appel</div>
+        </div>
+        <p class="ecran__h">21 h</p>
+        <div class="fiche"><div class="fiche__l1"><time>21:00</time>Petit<em>Confirmée</em></div><small>4 couverts · Anniversaire</small></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MISE EN ROUTE ============ -->
+  <section class="bande">
+    <div class="shell">
+      <div class="tete">
+        <p class="sur">La mise en route</p>
+        <h2>Trois étapes, et votre ligne ne sonne plus dans le vide.</h2>
+      </div>
+      <div class="etapes">
+        <div class="etape">
+          <h3>On remplit sa fiche</h3>
+          <p>Vos horaires, votre carte, vos consignes de salle. C'est tout ce que Marie saura, et rien d'autre.</p>
+        </div>
+        <div class="etape">
+          <h3>Vous l'appelez</h3>
+          <p>Vous jouez le client, vous essayez de la piéger. Elle ne prend aucun vrai appel avant que vous soyez convaincu.</p>
+        </div>
+        <div class="etape">
+          <h3>Vous renvoyez votre ligne</h3>
+          <p>Votre numéro ne change pas. Vous le renvoyez vers Marie, tout le temps ou seulement quand personne ne décroche.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CALCUL ============ -->
+  <section class="bande bande--2">
+    <div class="shell">
+      <div class="tete">
+        <p class="sur">Le calcul</p>
+        <h2>Combien vaut un appel que personne ne prend ?</h2>
+        <p>Réglez les curseurs sur votre réalité. Ce sont vos chiffres, pas les nôtres.</p>
+      </div>
+      <div class="calcul">
+        <div class="reglages">
+          <div class="reglage">
+            <label for="manques">Appels manqués par jour <output id="manques-v" for="manques">6</output></label>
+            <input type="range" id="manques" min="1" max="25" value="6" step="1">
+          </div>
+          <div class="reglage">
+            <label for="part">Qui auraient réservé <output id="part-v" for="part">50 %</output></label>
+            <input type="range" id="part" min="10" max="90" value="50" step="5">
+          </div>
+          <div class="reglage">
+            <label for="addition">Addition moyenne par couvert <output id="addition-v" for="addition">32 €</output></label>
+            <input type="range" id="addition" min="12" max="120" value="32" step="1">
+          </div>
+          <div class="reglage">
+            <label for="couverts">Couverts par réservation <output id="couverts-v" for="couverts">2,5</output></label>
+            <input type="range" id="couverts" min="10" max="60" value="25" step="1">
+          </div>
+        </div>
+        <div class="ticket" aria-live="polite" data-formule="{{ premiere.prix_mensuel_eur }}">
+          <div class="ticket__l"><span>Réservations récupérées</span><b id="t-resas">90 par mois</b></div>
+          <div class="ticket__l"><span>Couverts</span><b id="t-couverts">225</b></div>
+          <div class="ticket__l"><span>Chiffre d'affaires repris</span><b id="t-ca">7 200 €</b></div>
+          <div class="ticket__l"><span>Formule {{ premiere.label }}</span><b>− {{ premiere.prix_mensuel_eur }} €</b></div>
+          <div class="ticket__total"><span>Net, par mois</span><strong id="t-net">{{ net_exemple }} €</strong></div>
+          <p class="ticket__fin">Estimation à partir de vos propres chiffres, sur 30 jours. Nous ne promettons pas un résultat : nous promettons que le téléphone est décroché.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FORMULES ============ -->
+  <section class="bande" id="formules">
+    <div class="shell">
+      <div class="tete tete--c">
+        <p class="sur">Les formules</p>
+        <h2>Un prix par mois, un nombre d'appels.</h2>
+        <p>Pas d'« illimité » : le plafond prévient, il ne coupe jamais votre ligne.</p>
+      </div>
+      <div class="formules">
+        {% for f in formules %}
+        <article class="formule{% if f.id == phare %} formule--phare{% endif %}">
+          {% if f.id == phare %}<span class="formule__badge">Midi et soir</span>{% endif %}
+          <div><h3>{{ f.label }}</h3><p class="formule__qui">{{ f.argument }}</p></div>
+          <div class="formule__prix">{{ f.prix_mensuel_eur }} €<small>par mois</small></div>
+          <ul>
+            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>{{ f.appels_inclus }} appels par mois</li>
+            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>{% if f.etablissements_inclus == 1 %}1 établissement{% else %}Jusqu'à {{ f.etablissements_inclus }} établissements{% endif %}</li>
+            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>Au-delà : {{ depassement }} € par appel</li>
+          </ul>
+          <a class="btn {% if f.id == phare %}btn--go{% else %}btn--line{% endif %}" href="#haut" data-vers-rappel>Être rappelé</a>
+        </article>
+        {% endfor %}
+      </div>
+      <div class="inclus">
+        <b>Dans toutes les formules :</b>
+        <span>réservations, modifications, annulations</span>
+        <span>messages pour l'équipe</span>
+        <span>e-mails de notification</span>
+        <span>calendrier et fiches</span>
+        <span>enregistrement et transcription</span>
+        <span>voix au choix</span>
+      </div>
+      <p class="pied-prix">Alerte à {{ seuil }} % de votre plafond, pour ne rien découvrir sur la facture. 14 jours d'essai, sans engagement. Tarif fondateur : les dix premiers restaurants gardent le prix de leur formule.</p>
+    </div>
+  </section>
+
+  <!-- ============ LIMITES ============ -->
+  <section class="bande bande--2">
+    <div class="shell">
+      <div class="tete">
+        <p class="sur">Ce qu'elle ne fera jamais</p>
+        <h2>Une assistante qui invente coûte plus cher qu'un téléphone qui sonne.</h2>
+        <p>Voici ce qui lui est interdit, par construction.</p>
+      </div>
+      <div class="limites">
+        <div class="limite">
+          <span class="limite__non" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.600" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+          <div><h3>Garantir un plat sans allergène</h3><p>Elle note la demande et renvoie vers l'équipe, qui vérifie en cuisine.</p></div>
+        </div>
+        <div class="limite">
+          <span class="limite__non" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.600" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+          <div><h3>Inventer un prix ou un plat</h3><p>Si l'information n'est pas dans sa fiche, elle le dit et propose de faire rappeler.</p></div>
+        </div>
+        <div class="limite">
+          <span class="limite__non" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.600" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+          <div><h3>Accorder une remise</h3><p>Aucun geste commercial, aucune promesse d'arrangement : ces décisions restent les vôtres.</p></div>
+        </div>
+        <div class="limite">
+          <span class="limite__non" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.600" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+          <div><h3>Dire « c'est noté » dans le vide</h3><p>Elle n'annonce une réservation enregistrée qu'après l'avoir réellement inscrite.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUESTIONS ============ -->
+  <section class="bande" id="questions">
+    <div class="shell">
+      <div class="tete tete--c">
+        <p class="sur">Questions</p>
+        <h2>Ce qu'on nous demande avant de signer.</h2>
+      </div>
+      <div class="faq">
+        <details open>
+          <summary>Est-ce qu'on entend que c'est une machine ?</summary>
+          <p>Elle le dit elle-même : « Je suis l'assistante vocale », dès le décroché. La voix est française et naturelle, et les heures sont dites comme on les dit, « vingt heures trente ». Nous ne faisons pas semblant.</p>
+        </details>
+        <details>
+          <summary>Je garde mon numéro ?</summary>
+          <p>Oui. Rien ne change pour vos clients ni sur vos supports. Vous renvoyez votre ligne vers Marie avec le renvoi d'appel de votre opérateur, en permanence ou seulement quand personne ne décroche.</p>
+        </details>
+        <details>
+          <summary>Et si elle ne comprend pas ?</summary>
+          <p>Elle fait répéter. Si la demande sort de ce qu'elle sait traiter, ou si l'appelant réclame quelqu'un, elle prend le message avec le numéro où rappeler et vous le transmet.</p>
+        </details>
+        <details>
+          <summary>Les appels sont-ils enregistrés ?</summary>
+          <p>Oui, et l'appelant en est prévenu dès l'accueil. Vous réécoutez chaque appel dans votre espace, avec sa transcription. Les enregistrements ne sont conservés qu'un temps limité.</p>
+        </details>
+        <details>
+          <summary>J'ai déjà un logiciel de réservation.</summary>
+          <p>Si c'est resOS, Marie écrit directement dedans et resOS reste votre carnet. Pour un autre logiciel, dites-nous lequel : nous vous dirons franchement ce qui est possible aujourd'hui.</p>
+        </details>
+        <details>
+          <summary>Où sont mes réservations ?</summary>
+          <p>Dans votre espace Helmane, sur un serveur hébergé à Paris. Les données de vos clients ne servent qu'à votre service.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FINAL ============ -->
+  <section class="bande bande--2 final">
+    <div class="shell">
+      <h2>Écoutez-la avant vos clients.</h2>
+      <p>Laissez votre numéro. Marie vous rappelle dans la minute, et vous l'essayez comme un client.</p>
+      <div class="rappel-zone">
+        <span class="perso perso--marie" aria-hidden="true"><svg><use href="#p-marie"/></svg></span>
+        <form class="rappel" id="rappel-bas" novalidate>
+          <div data-etat="saisie">
+            <div class="rappel__champ">
+              <label for="tel-bas">Votre numéro de téléphone</label>
+              <input type="tel" id="tel-bas" name="tel" inputmode="tel" autocomplete="tel" placeholder="06 12 34 56 78" required>
+              <input class="rappel__piege" type="text" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
+              <button class="btn btn--go" type="submit">Rappelez-moi</button>
+            </div>
+            <p class="rappel__erreur" role="alert" hidden></p>
+            <p class="rappel__aide">Votre numéro ne sert qu'à ce rappel. Sans engagement.</p>
+            <noscript><p class="rappel__erreur">Le rappel a besoin de JavaScript : activez-le pour laisser votre numéro.</p></noscript>
+          </div>
+          <div class="rappel__fait" data-etat="fait" role="status" hidden>
+            <b>Marie vous appelle.</b>
+            <p><span data-message></span> <span data-numero></span></p>
+            <button class="btn btn--line btn--small" type="button" data-retour>Modifier le numéro</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="shell pied">
+  <a class="marque marque--pied" href="#haut">Helmane</a>
+  <span>L'assistante téléphonique des restaurants.</span>
+  <a href="/admin/login">Espace client</a>
+  <span>helmane.fr · Carnet hébergé à Paris</span>
+</footer>
+</body>
+</html>

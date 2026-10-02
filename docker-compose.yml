@@ -156,6 +156,20 @@ services:
       COST_TWILIO_PER_MIN:
       COST_TWILIO_RENVOI_FIXE_PER_MIN:
       COST_TWILIO_RENVOI_MOBILE_PER_MIN:
+      # « Rappelez-moi » sur le site (ASSISTANTE-119, api/app/rappel.py) : Marie appelle
+      # le numéro laissé. RAPPEL_ACTIF=0 coupe les appels sans retirer la page.
+      # RAPPEL_MAX_PAR_JOUR borne la facture : c'est le seul plafond qui tient face à
+      # quelqu'un qui s'acharne. RAPPEL_ETABLISSEMENT = l'identifiant de l'établissement
+      # de démonstration ; vide = celui de TWILIO_NUMBER.
+      RAPPEL_ACTIF: "${RAPPEL_ACTIF:-1}"
+      RAPPEL_ETABLISSEMENT: "${RAPPEL_ETABLISSEMENT:-}"
+      RAPPEL_MAX_PAR_JOUR: "${RAPPEL_MAX_PAR_JOUR:-15}"
+      RAPPEL_PAR_NUMERO_PAR_JOUR: "${RAPPEL_PAR_NUMERO_PAR_JOUR:-2}"
+      RAPPEL_PAR_ADRESSE_PAR_HEURE: "${RAPPEL_PAR_ADRESSE_PAR_HEURE:-3}"
+      RAPPEL_DUREE_MAX_SECONDES: "${RAPPEL_DUREE_MAX_SECONDES:-240}"
+      RAPPEL_HEURES: "${RAPPEL_HEURES:-8-22}"
+      RAPPEL_NOTIFIER: "${RAPPEL_NOTIFIER:-}"
+      RETENTION_RAPPEL_JOURS: "${RETENTION_RAPPEL_JOURS:-30}"
       COST_DEEPGRAM_PER_MIN:
       COST_MODAL_PER_MIN:
       COST_LLM_PER_CALL:

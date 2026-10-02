@@ -16,8 +16,8 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, W
 from fastapi.responses import Response
 from loguru import logger
 
-from . import (calls, db, llm, messages, notifications, renvoi, supervision, taches, tenants,
-               twilio_signature, users)
+from . import (calls, db, llm, messages, notifications, rappel, renvoi, supervision, taches,
+               tenants, twilio_signature, users)
 
 
 @asynccontextmanager
@@ -70,6 +70,13 @@ app.mount("/admin/static", StaticFiles(directory=str(admin_pkg.STATIC_DIR)), nam
 app.include_router(admin_pkg.public_router)
 app.include_router(admin_pkg.admin_router)
 
+# --- Site vitrine (ASSISTANTE-119) : la page d'accueil et « Rappelez-moi » --------------
+# Public, sans session ni CSRF : rien n'y est lu ni écrit au nom d'un compte.
+from . import site as site_pkg
+
+app.mount("/site/static", StaticFiles(directory=str(site_pkg.STATIC_DIR)), name="site_static")
+app.include_router(site_pkg.router)
+
 
 async def _partager_le_modele_de_fin_de_tour():
     """Charge le modèle smart-turn une seule fois pour tout le processus (#40).
@@ -104,6 +111,11 @@ async def _prerender_greetings():
 
             for tenant in tenants.list_all():
                 await greeting_mod.ensure_greeting_wav(tenant)
+            # L'accueil du rappel (app/rappel.py), dans la voix de l'établissement de
+            # démonstration : la personne rappelée décroche, Marie parle sans blanc.
+            demo = rappel.etablissement() if rappel.actif() else None
+            if demo is not None:
+                await greeting_mod.ensure_greeting_wav(rappel.pour_la_demonstration(demo))
         except Exception as exc:
             logger.warning(f"Pré-rendu des accueils échoué (repli TTS live au 1er appel): {exc}")
 
@@ -172,7 +184,13 @@ def _stream_ws_url(request: Request) -> str:
     return f"wss://{request.url.netloc}/ws/voice"
 
 
-def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "") -> Response:
+def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "",
+                  demonstration: bool = False) -> Response:
+    """Le TwiML qui branche l'appel sur le pipeline.
+
+    `demonstration` : un rappel demandé sur le site (app/rappel.py). Le flux le saura
+    par un paramètre, et l'appel n'est PAS renvoyé vers le restaurant s'il s'arrête : la
+    personne rappelée n'a pas demandé à parler à la salle."""
     ws_url = _stream_ws_url(request)
     # Log explicite : si Twilio ne joint pas cette URL (mauvais tunnel ngrok, http
     # au lieu de wss...), le flux média ne se connecte jamais et l'appel raccroche.
@@ -182,19 +200,25 @@ def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "
     appelant = f"…{from_number[-2:]}" if from_number else "masqué"
     logger.info(f"[stream] TwiML Media Stream → {ws_url}  (To={to}, From={appelant}, "
                 f"CallSid={call_sid})")
-    return _twiml(
+    flux = (
         "    <Connect>\n"
         f'        <Stream url="{escape(ws_url)}">\n'
         f'            <Parameter name="To" value="{escape(to)}"/>\n'
         f'            <Parameter name="From" value="{escape(from_number)}"/>\n'
         f'            <Parameter name="CallSid" value="{escape(call_sid)}"/>\n'
-        "        </Stream>\n"
+        + ('            <Parameter name="Rappel" value="1"/>\n' if demonstration else "")
+        + "        </Stream>\n"
         "    </Connect>\n"
+    )
+    if demonstration:
+        return _twiml(flux + "    <Hangup/>")
+    return _twiml(
+        flux
         # Twilio ne lit cette ligne que si le flux s'arrête SANS que l'appel soit
         # raccroché : pipeline effondré, flux injoignable, ou renvoi demandé par
         # l'assistante en panne (app/renvoi.py). Un appel qui se termine normalement
         # est raccroché avant, et n'arrive jamais ici.
-        '    <Redirect method="POST">/twilio/suite</Redirect>'
+        + '    <Redirect method="POST">/twilio/suite</Redirect>'
     )
 
 
@@ -386,6 +410,25 @@ async def message_pret(
     return Response(status_code=204)
 
 
+@app.post("/twilio/rappel", dependencies=[Depends(twilio_signature.exiger)])
+async def rappel_decroche(
+    request: Request,
+    CallSid: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+):
+    """Le restaurateur rappelé depuis le site vient de décrocher (app/rappel.py) : Twilio
+    demande quoi faire de l'appel. Pour un appel sortant, `To` est le numéro APPELÉ —
+    celui du restaurateur ; l'établissement est celui de la démonstration.
+
+    Signée comme les autres : sans cela, n'importe qui ferait ouvrir un flux — et payer
+    le modèle — en visant cette adresse."""
+    tenant = await db.hors_boucle(rappel.etablissement)
+    if tenant is None:
+        return _twiml("    <Hangup/>")
+    return _stream_twiml(request, tenant.phone_number, CallSid or "", To or "",
+                         demonstration=True)
+
+
 @app.post("/twilio/sms", dependencies=[Depends(twilio_signature.exiger)])
 async def sms_webhook(
     Body: str = Form(...),
@@ -469,6 +512,8 @@ async def voice_stream(websocket: WebSocket):
     custom = start.get("customParameters") or {}
     to_number = custom.get("To")
     from_number = calls.numero_appelant(custom.get("From"))
+    # Posé par `/twilio/rappel`, une route signée : un appelant ne peut pas le forger.
+    demonstration = custom.get("Rappel") == "1"
 
     tenant = await db.hors_boucle(tenants.get_by_phone, to_number)
     if tenant is None or not stream_sid:
@@ -485,14 +530,20 @@ async def voice_stream(websocket: WebSocket):
     # lieu normalement mais n'est pas enregistré — on n'invente pas de clé de fichier.
     call_id = None
     try:
-        call_id = await db.hors_boucle(calls.start_call, call_sid, tenant.id, from_number)
+        call_id = await db.hors_boucle(calls.start_call, call_sid, tenant.id, from_number,
+                                       demonstration)
+        if demonstration:
+            await db.hors_boucle(rappel.noter_decroche, call_sid)
     except Exception as exc:
         logger.warning(f"[calls] start_call KO (sans conséquence): {exc}")
+    if demonstration:
+        tenant = rappel.pour_la_demonstration(tenant)
 
     run_bot = _get_bot_runner()
     try:
         await run_bot(websocket, stream_sid, call_sid, tenant,
-                      caller_number=from_number, call_id=call_id)
+                      caller_number=from_number, call_id=call_id,
+                      demonstration=demonstration)
     except Exception as exc:
         # Avec la pile d'appels : c'est l'erreur qu'on aura à diagnostiquer, et le
         # message seul (« 'NoneType' object… ») ne dit jamais où.
