@@ -7,6 +7,35 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le site, et Marie qui rappelle (ASSISTANTE-119, 02/10/2026)
+
+### Ajouté
+- **La page d'accueil du site**, servie à la racine (`/`) : `helmane.fr` y redirige déjà.
+  Les prix viennent de `app/plans.py` — l'ancienne page annonçait encore la formule Maison
+  à 249 € pour 1 200 appels. Polices, styles et script sont servis d'ici : la politique de
+  sécurité n'autorise aucune origine tierce.
+- **« Rappelez-moi »** : le visiteur laisse son numéro, Marie l'appelle dans la minute et
+  répond pour l'établissement de démonstration (`app/rappel.py`, décision de Helmi le
+  02/10). C'est la seule route qui fait composer un numéro à un inconnu, donc surtout des
+  refus : numéros de métropole seulement (ni 08, ni outre-mer, ni étranger), deux rappels
+  par numéro et par jour, trois demandes par adresse et par heure, **quinze appels par
+  jour pour tout le site**, rien entre 22 h et 8 h, quatre minutes au plus par appel.
+- `/twilio/rappel`, signée : ce que Twilio lit quand la personne décroche. L'appel n'est
+  pas renvoyé vers le restaurant s'il s'interrompt.
+- Un appel passé par Marie est chiffré au **tarif sortant** (0,0404 $/min vers un portable,
+  0,0187 vers un fixe, grille Twilio du 01/10/2026) et étiqueté « Rappel du site » au
+  journal. Au plafond, la dépense reste sous 4 $ par jour (quinze appels de quatre
+  minutes vers un portable, autres postes à environ 0,02 $/min).
+- Un e-mail « Demande de rappel depuis le site » à `RAPPEL_NOTIFIER` (sinon `ADMIN_EMAIL`).
+- Migration v18 : table `rappels`, colonne `calls.sortant`. Les demandes sont effacées au
+  bout de 30 jours (`RETENTION_RAPPEL_JOURS`) et par l'effacement à la demande.
+
+### Limites connues
+- Aucun vrai rappel n'a encore été passé : le chemin Twilio est testé avec un bouchon.
+- La page n'a pas de mentions légales (éditeur, hébergeur) : elles sont à fournir.
+- Répondeur : si la personne ne décroche pas et que sa messagerie prend l'appel, Marie
+  parle à la messagerie jusqu'à ce que le silence la fasse raccrocher.
+
 ## Non publiée — les consignes du dépôt, tenues par un test (02/10/2026)
 
 ### Ajouté

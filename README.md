@@ -39,6 +39,7 @@ Détail des choix : [ARCHITECTURE.md](ARCHITECTURE.md).
 | Horaires d'ouverture appliqués par le serveur, fermetures exceptionnelles | `app/disponibilite.py`, admin « Ce que l'IA sait » |
 | Carnet de réservations : le nôtre, ou celui de resOS (lu et écrit par son API) | `app/connecteurs/`, [docs/RESOS.md](docs/RESOS.md) |
 | En cas de panne : renvoi vers le numéro de secours du restaurant, sinon message vocal | `app/renvoi.py`, `app/repondeur.py`, `app/voice/vigie.py` |
+| Site vitrine à la racine, et « Rappelez-moi » : l'assistante appelle le numéro laissé | `app/site/`, `app/rappel.py` |
 | Nom du dernier passage proposé au lieu d'être redemandé | `reservations.dernier_nom` |
 | Messages pris pour l'équipe, rappels à faire | `app/messages.py` |
 | E-mail au restaurateur à chaque réservation, modification, annulation, message | `app/notifications.py` (SMTP) |
@@ -100,6 +101,8 @@ api/
     connecteurs/         carnet de réservations : interne, resOS, faux resOS de test
     tenants.py reservations.py messages.py calls.py users.py   données (SQLite)
     renvoi.py repondeur.py                                     assistante en panne
+    site/                page d'accueil publique (prix lus dans plans.py)
+    rappel.py            « Rappelez-moi » : l'appel sortant et tous ses plafonds
     disponibilite.py horloge.py notifications.py twilio_signature.py
     supervision.py rgpd.py quotas.py plans.py taches.py db.py
     requirements.txt     l'intention ; requirements.lock : les versions exactes installées

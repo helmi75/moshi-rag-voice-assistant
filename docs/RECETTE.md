@@ -229,6 +229,26 @@ l'établissement. Il faut deux téléphones : celui qui appelle, et celui du num
 | S8 | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
 | S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
 
+## W. Le site et « Rappelez-moi » (ASSISTANTE-119)
+
+Chaque rappel est un vrai appel sortant, facturé : W5 à W9 suffisent, inutile de les
+répéter. Il faut un portable français de métropole.
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| W1 | Ouvrir `https://helmane.fr` sur un ordinateur | Arrive sur `https://app.helmane.fr/` ; la page s'affiche avec ses polices et ses dessins ; dans la console du navigateur (F12), aucune ligne rouge « Content Security Policy » | |
+| W2 | La même page sur un téléphone, jusqu'en bas ; puis en mode clair et en mode sombre | Rien ne déborde, rien n'est illisible ; les prix sont ceux de la grille (89, 149, 349 € ; 0,30 € au-delà) | |
+| W3 | Saisir `06 12 34`, puis *Rappelez-moi* | « Ce numéro semble incomplet » ; rien ne part | |
+| W4 | Saisir un numéro en `08` | « Ce numéro n'est pas un numéro français de métropole » | |
+| W5 | Entre 8 h et 22 h, saisir son portable | « Votre téléphone va sonner » ; il sonne en moins de dix secondes et affiche la ligne de démonstration | |
+| W6 | Décrocher | Sans blanc : « Bonjour, c'est Marie, l'assistante vocale d'Helmane. Vous avez demandé à être rappelé… », puis la mention d'enregistrement | |
+| W7 | Réserver une table, puis demander « c'est quoi Helmane ? » | La table est enregistrée dans le carnet de l'établissement de démonstration ; elle répond qu'elle est là pour la démonstration et renvoie au site, sans rien inventer | |
+| W8 | Admin → Appels | L'appel porte « Rappel du site » ; sa téléphonie est au tarif sortant (0,0404 $ par minute entamée vers un portable) | |
+| W9 | Redemander un rappel deux fois avec le même numéro | Le deuxième sonne ; le troisième est refusé : « Marie a déjà rappelé ce numéro aujourd'hui » | |
+| W10 | Ne pas décrocher (à faire au deuxième rappel de W9) | Le téléphone sonne 25 s puis s'arrête ; aucun appel au journal | |
+| W11 | Après 22 h, saisir son portable | « Marie rappelle entre 8 h et 22 h » ; le téléphone ne sonne pas | |
+| W12 | Boîte de `ADMIN_EMAIL` | Un e-mail « Demande de rappel depuis le site » par rappel passé | |
+
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 
 | # | Faire | Attendu | OK ? |
