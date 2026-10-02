@@ -142,6 +142,22 @@ class TestDepassement:
             assert plans.cout_depassement_eur(f, minutes) == 0.0
 
 
+class TestEquivalentEnAppels:
+    """Un ordre de grandeur pour le restaurateur, pas une mesure : arrondi à la dizaine."""
+
+    def test_la_grille_en_appels(self):
+        assert plans.DUREE_APPEL_MIN == 3.5  # docs/TARIFS.md : 24 appels d'essai
+        assert [plans.appels_equivalents(f.minutes_incluses)
+                for f in plans.catalogue() if not f.sans_forfait] == [70, 170, 430]
+
+    @pytest.mark.parametrize("minutes", [100, 250, 333, 600, 1500])
+    def test_toujours_une_dizaine_ronde(self, minutes):
+        assert plans.appels_equivalents(minutes) % 10 == 0
+
+    def test_sans_minute_aucun_appel(self):
+        assert plans.appels_equivalents(0) == 0
+
+
 class TestSansForfait:
     def test_la_formule_sans_abonnement_existe_et_n_inclut_rien(self):
         liberte = plans.get("liberte")

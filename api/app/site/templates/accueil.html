@@ -360,7 +360,7 @@
           <div><h3>{{ f.label }}</h3><p class="formule__qui">{{ f.argument }}</p></div>
           <div class="formule__prix">{{ f.prix_mensuel_eur }} €<small>par mois</small></div>
           <ul>
-            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>{{ f.minutes_incluses | euros }} minutes par mois</li>
+            <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg><span>{{ f.minutes_incluses | euros }} minutes par mois <small>soit environ {{ en_appels(f.minutes_incluses) | euros }} appels</small></span></li>
             <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>{% if f.etablissements_inclus == 1 %}1 établissement{% else %}Jusqu'à {{ f.etablissements_inclus }} établissements{% endif %}</li>
             <li><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.800" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg>Au-delà : {{ f.minute_supp_eur | euros }} € la minute</li>
           </ul>
@@ -389,7 +389,7 @@
         <span>enregistrement et transcription</span>
         <span>voix au choix</span>
       </div>
-      <p class="pied-prix">Prix hors taxes. Les minutes sont décomptées à la seconde. Alerte à {{ seuil }} % de votre forfait, pour ne rien découvrir sur la facture. 14 jours d'essai, sans engagement. Tarif fondateur : les dix premiers restaurants gardent le prix de leur formule.</p>
+      <p class="pied-prix">Prix hors taxes. Les minutes sont décomptées à la seconde. Le nombre d'appels est un ordre de grandeur, calculé sur {{ duree_appel }} par appel : la durée moyenne de nos appels d'essai. Alerte à {{ seuil }} % de votre forfait, pour ne rien découvrir sur la facture. 14 jours d'essai, sans engagement. Tarif fondateur : les dix premiers restaurants gardent le prix de leur formule.</p>
     </div>
   </section>
 

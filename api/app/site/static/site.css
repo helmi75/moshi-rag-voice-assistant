@@ -380,6 +380,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); height: 1.5rem; 
 .formule ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .6rem; font-size: .96rem; }
 .formule li { display: flex; gap: .6rem; align-items: baseline; }
 .formule li svg { color: var(--accent); flex: none; transform: translateY(2px); }
+.formule li small { display: block; color: var(--muted); font-size: .86rem; }
 .formule .btn { margin-top: auto; }
 /* Sans abonnement : un bandeau sous les trois cartes, pas une quatrième carte — ce n'est
    pas une formule de plus, c'est l'autre façon de payer. */

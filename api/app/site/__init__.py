@@ -57,6 +57,12 @@ def _euros(montant: float) -> str:
 templates.env.filters["euros"] = _euros
 
 
+def _duree(minutes: float) -> str:
+    """3.5 → « 3 min 30 », 4 → « 4 min »."""
+    secondes = round(minutes * 60)
+    return f"{secondes // 60} min {secondes % 60:02d}" if secondes % 60 else f"{secondes // 60} min"
+
+
 @router.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def accueil(request: Request):
     premiere = plans.defaut()
@@ -68,6 +74,8 @@ def accueil(request: Request):
         "sans_forfait": [f for f in catalogue if f.sans_forfait],
         "phare": PHARE,
         "premiere": premiere,
+        "en_appels": plans.appels_equivalents,
+        "duree_appel": _duree(plans.DUREE_APPEL_MIN),
         "seuil": round(plans.SEUIL_ALERTE * 100),
         "net_exemple": _euros(_CA_EXEMPLE - premiere.prix_mensuel_eur),
     })

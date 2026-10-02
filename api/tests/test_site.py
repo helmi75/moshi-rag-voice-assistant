@@ -138,11 +138,27 @@ class TestLesPrixSontCeuxDeLaGrille:
             assert (f"Mise en service : {formule.mise_en_service_eur} € par numéro, "
                     "une fois") in bloc
 
+    def test_chaque_forfait_est_traduit_en_appels(self, page):
+        """Demandé par Helmi le 03/10/2026 : « 250 minutes » ne dit rien à un
+        restaurateur. L'équivalent vient de `plans.py`, et la page dit sur quoi il repose."""
+        for formule in (f for f in plans.catalogue() if not f.sans_forfait):
+            attendu = site._euros(plans.appels_equivalents(formule.minutes_incluses))
+            assert f"soit environ {attendu} appels" in self._bloc(page, formule)
+        assert "calculé sur 3 min 30 par appel" in page
+        assert "nos appels d'essai" in page  # un ordre de grandeur, pas une promesse
+
+    def test_l_equivalent_suit_la_duree_retenue(self, client, monkeypatch):
+        monkeypatch.setattr(plans, "DUREE_APPEL_MIN", 2.0)
+        page = client.get("/").text
+        essentiel = plans.get("essentiel")
+        assert f"soit environ {essentiel.minutes_incluses // 2 // 10 * 10} appels" in page
+        assert "calculé sur 2 min par appel" in page
+
     def test_la_page_ne_vend_plus_des_appels(self, page):
         """La grille compte en minutes depuis le 02/10/2026 : un « appels par mois » ou
         un « par appel » resté sur la page vendrait une formule qui n'existe plus."""
         formules = page[page.index('id="formules"'):]
-        assert "appels par mois" not in formules and "par appel" not in formules
+        assert "appels par mois" not in formules and "€ par appel" not in formules
 
     def test_le_hors_taxes_la_seconde_et_le_seuil_d_alerte(self, page):
         assert "Prix hors taxes" in page

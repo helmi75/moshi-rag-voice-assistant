@@ -26,6 +26,18 @@ from typing import Optional
 # le restaurateur découvrirait le dépassement sur sa facture.
 SEUIL_ALERTE = 0.80
 
+# Durée moyenne d'un appel, en minutes : 3 min 30, mesurées sur 24 appels d'ESSAI — les
+# nôtres (docs/TARIFS.md). Elle ne sert qu'à traduire un forfait en « environ N appels »
+# pour le restaurateur ; rien n'est facturé avec. À remplacer par la durée mesurée chez le
+# premier restaurant : un vrai « vous êtes ouverts ce soir ? » dure 45 secondes.
+DUREE_APPEL_MIN = 3.5
+
+
+def appels_equivalents(minutes: int) -> int:
+    """Le nombre d'appels que représente un forfait, arrondi à la dizaine : c'est un
+    ordre de grandeur, et « 71 appels » ferait croire à une mesure."""
+    return int(round(minutes / DUREE_APPEL_MIN / 10.0) * 10)
+
 
 @dataclass(frozen=True)
 class Formule:
