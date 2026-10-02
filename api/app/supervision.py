@@ -917,6 +917,47 @@ def _controle_voxtral() -> Controle:
         mesure={"etablissements": len(liste), "cle": True, "echecs_1h": 0})
 
 
+# Un appel passé en secours depuis moins de vingt minutes : la panne est peut-être encore
+# là. La sonde extérieure passe toutes les quinze minutes : elle ne la manque pas.
+_SECOURS_RECENT_MINUTES = 20
+
+
+def _controle_secours() -> Controle:
+    """Les appels que l'assistante n'a pas pu servir (ASSISTANTE-118) : renvoyés au
+    restaurant, passés au répondeur, ou repartis sans personne. Chacun est un client qui
+    n'a pas eu l'assistante — et le signe d'une panne que les autres contrôles peuvent
+    ne pas voir (un fournisseur qui lâche dix minutes ne laisse rien dans la base)."""
+    from . import renvoi
+
+    sans_numero = [t.name for t in tenants.list_all() if not t.numero_secours]
+    recents = calls.secours_recents(24)
+    par_issue = {s: sum(1 for a in recents if a["status"] == s) for s in calls.STATUTS_SECOURS}
+    mesure = {"secours_24h": len(recents), "renvoyes": par_issue[calls.SECOURS_RENVOYE],
+              "messages": par_issue[calls.SECOURS_MESSAGE],
+              "non_servis": par_issue[calls.SECOURS_NON_SERVI],
+              "sans_numero_de_secours": len(sans_numero)}
+    if recents:
+        dernier = recents[0]
+        age = _age_minutes(dernier["started_at"])
+        motif = renvoi.LIBELLES.get(dernier["secours_motif"], dernier["secours_motif"])
+        resume = (f"{len(recents)} appel(s) passé(s) en secours sur 24 h : "
+                  f"{mesure['renvoyes']} renvoyé(s) au restaurant, {mesure['messages']} "
+                  f"message(s), {mesure['non_servis']} sans personne.")
+        detail = f"Le dernier il y a {age} min : {motif}."
+        niveau = PANNE if age is not None and age <= _SECOURS_RECENT_MINUTES else ATTENTION
+        return Controle("secours", "Appels passés en secours", niveau, resume, detail, mesure)
+    if sans_numero:
+        return Controle(
+            "secours", "Appels passés en secours", ATTENTION,
+            f"Aucun appel en secours sur 24 h, mais {len(sans_numero)} établissement(s) sans "
+            "numéro de secours.",
+            f"En cas de panne, leurs clients ne peuvent que laisser un message : "
+            f"{', '.join(sans_numero[:5])}. À renseigner dans la fiche de l'établissement.",
+            mesure)
+    return Controle("secours", "Appels passés en secours", OK,
+                    "Aucun appel passé en secours sur 24 h.", mesure=mesure)
+
+
 def _age_minutes(iso: Optional[str]) -> Optional[int]:
     instant = horloge.lire_utc(iso) if iso else None
     return int((_maintenant() - instant).total_seconds() // 60) if instant else None
@@ -961,6 +1002,7 @@ def controles() -> list[Controle]:
         ("twilio", _controle_twilio),
         ("carnets", _controle_carnets),
         ("voxtral", _controle_voxtral),
+        ("secours", _controle_secours),
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
         ("purge", _controle_purge),

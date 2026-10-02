@@ -274,6 +274,18 @@ UPDATE calls SET estimated_cost =
     cout_telephonie + cout_transcription + cout_voix + cout_comprehension
   WHERE cout_telephonie IS NOT NULL;
 """,
+    # v17 — ASSISTANTE-118 : en cas de panne, l'appel est renvoyé vers le restaurant.
+    #  - `numero_secours` : la ligne qui sonne alors (le fixe, sinon le portable du
+    #    gérant). NULL = pas de renvoi possible, on prend un message.
+    #  - `secours_motif` : pourquoi l'assistante a passé la main (voix, modèle,
+    #    transcription, pipeline, flux) — NULL pour un appel qu'elle a traité.
+    #  - `secours_secondes` : la durée de la communication renvoyée, facturée par Twilio
+    #    en plus de l'appel reçu.
+    """
+ALTER TABLE tenants ADD COLUMN numero_secours TEXT;
+ALTER TABLE calls ADD COLUMN secours_motif TEXT;
+ALTER TABLE calls ADD COLUMN secours_secondes INTEGER;
+""",
 ]
 
 

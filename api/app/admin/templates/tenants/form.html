@@ -81,6 +81,18 @@
       <input name="notify_email" type="email" placeholder="salle@monrestaurant.fr"
              value="{{ tenant.notify_email if tenant and tenant.notify_email else '' }}">
     </label>
+    {# ASSISTANTE-118 : quand l'assistante est en panne, l'appel sonne ici pendant les
+       horaires d'ouverture ; sinon — ou si personne ne décroche — on prend un message. #}
+    <h2 class="form-section">En cas de panne</h2>
+    <label>Numéro de secours
+      <small class="muted">(le fixe du restaurant, sinon le portable du gérant — jamais la ligne de l'assistante)</small>
+      <input name="numero_secours" type="tel" placeholder="+33142000000"
+             value="{{ tenant.numero_secours if tenant and tenant.numero_secours else '' }}">
+      <small class="muted">Si l'assistante ne peut plus répondre, l'appel est renvoyé vers ce
+        numéro pendant vos horaires d'ouverture. En dehors, ou si personne ne décroche, le
+        client laisse un message que vous recevez par e-mail. Sans numéro : toujours le
+        message.</small>
+    </label>
     {# À la création seulement : ensuite, l'accueil vit dans « Voix & accueil » et la base
        dans « Ce que l'IA sait », modifiable fiche par fiche (SCRUM-111). #}
     {% if not tenant %}
@@ -99,5 +111,27 @@
     {% endif %}
     <button type="submit">Enregistrer</button>
   </form>
+  {# Essayer le renvoi sans attendre une panne (ASSISTANTE-118). Formulaire à part : il
+     ne doit rien enregistrer de la fiche. Super-admin seulement — pendant l'essai,
+     l'assistante ne prend aucun appel de cet établissement. #}
+  {% if tenant and request.state.user.is_superadmin %}
+  <form method="post" action="/admin/tenants/{{ tenant.id }}/secours/essai" id="secours"
+        style="margin-top: 1.4rem">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <h2 class="form-section">Essayer le renvoi</h2>
+    {% if essai_secours(tenant.id) %}
+    <p class="card-sub" role="status"><b>Essai en cours.</b> Pendant 3 minutes, les appels de
+      cet établissement sont traités comme une panne : appelez sa ligne maintenant.</p>
+    <input type="hidden" name="arreter" value="1">
+    <button type="submit" class="secondary" style="width: auto">Arrêter l'essai</button>
+    {% else %}
+    <p class="card-sub">Pendant 3 minutes, les appels de cet établissement sont traités comme
+      si l'assistante était en panne : ils sonnent au numéro de secours pendant les horaires
+      d'ouverture, sinon le client laisse un message. L'assistante ne répond pas pendant
+      l'essai : à faire hors service.</p>
+    <button type="submit" class="secondary" style="width: auto">Essayer le renvoi</button>
+    {% endif %}
+  </form>
+  {% endif %}
 </article>
 {% endblock %}

@@ -37,3 +37,17 @@ os.environ["SUPERVISION_TWILIO_SECONDES"] = "0"
 os.environ["RETENTION_INTERVALLE_SECONDES"] = "0"
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _aucune_panne_en_memoire():
+    """La mémoire des pannes (app/renvoi.py) vit trois minutes : sans cette remise à
+    zéro, un test qui fait tomber le pipeline renverrait vers le restaurant les appels
+    de tous les tests suivants, et l'ordre d'exécution déciderait du résultat."""
+    from app import renvoi
+
+    renvoi.reinitialiser()
+    yield
+    renvoi.reinitialiser()

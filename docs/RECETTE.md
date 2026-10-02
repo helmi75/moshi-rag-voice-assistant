@@ -180,7 +180,8 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | V3 | Choisir une voix, enregistrer | « Actuellement : … » ; l'accueil regénéré s'écoute en quelques secondes | |
 | V4 | Appeler, **à n'importe quelle heure** | L'accueil, puis « Je vous écoute. » tout de suite : **pas de musique d'attente** | |
 | V5 | Réserver une table | Toute la conversation dans la voix choisie, relances et « pardon » compris | |
-| V6 | « Santé & coûts » après l'appel | Répartition : téléphonie, transcription, compréhension, voix Mistral ; la somme = le total. Le coût de l'appel ≈ 5 c pour 2 min | |
+| V6 | « Santé & coûts » → carte « Répartition du coût » : additionner les montants des lignes | On retombe sur le total écrit sous le titre de la carte. La ligne « Voix Moshi (historique) » ne compte que les appels d'avant la bascule : elle baisse de jour en jour | |
+| V6 bis | Appels → ouvrir un appel **récent** d'environ 2 min (voix Mistral) | Son coût, écrit à côté de sa durée, est d'environ 0,05 $. Ne pas le comparer au « coût moyen par appel » : cette moyenne porte sur 30 jours et compte encore les anciens appels Moshi | |
 | V7 | Un établissement qui n'a rien choisi | Il parle avec la voix par défaut du parc (Marie neutre) | |
 
 ## P. L'admin du restaurateur — Sprint 2 « Admin pro » (SCRUM-106 à 113, ASSISTANTE-114 à 116)
@@ -210,6 +211,23 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P19 | Même chose sur une réservation prise par SMS (sans appel) ; puis, sur une carte : les boutons Modifier / Annuler, et sélectionner le numéro à la souris | « Aucun appel rattaché », sans supposer d'où elle vient ; les boutons agissent sans ouvrir la fiche ; le numéro se sélectionne et se copie | |
 | P20 | Sur téléphone : toucher une barre d'un graphique, lever le doigt, toucher la même barre | La bulle reste affichée après la levée du doigt, et revient au second toucher | |
 | P21 | Passer un appel, noter l'heure à sa montre, puis ouvrir Appels | L'appel est à **l'heure de Paris** (la même qu'à la montre), dans le journal, la salle de contrôle et la fiche de l'appel | |
+
+## S. En cas de panne : le renvoi vers le restaurant (ASSISTANTE-118)
+
+À faire **hors service** : pendant un essai, l'assistante ne prend aucun appel de
+l'établissement. Il faut deux téléphones : celui qui appelle, et celui du numéro de secours.
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| S1 | « Fiche établissement » → **Numéro de secours** : saisir la ligne de l'assistante | Refusé : « l'appel renvoyé reviendrait ici » | |
+| S2 | Saisir le fixe du restaurant (ou le portable du gérant), enregistrer | Enregistré ; l'alerte « Pas de numéro de secours » disparaît de la salle de contrôle | |
+| S3 | Super-admin → *Essayer le renvoi*, puis appeler la ligne **pendant les horaires d'ouverture** | « Un instant, je vous mets en relation avec le restaurant », puis le téléphone de secours sonne et affiche **le numéro de l'appelant** | |
+| S4 | Décrocher, parler, raccrocher. Ouvrir Appels | L'appel est « Renvoyé au restaurant », avec la durée de la communication ; son coût compte la téléphonie des deux lignes | |
+| S5 | Relancer l'essai, appeler, **ne pas décrocher** | Après 15 s de sonnerie : « Notre assistante ne peut pas vous répondre… », bip. Laisser un message | |
+| S6 | Attendre une minute, ouvrir Appels | « Message vocal », un rappel à traiter, et le message s'écoute dans la fiche de l'appel ; un e-mail « Message vocal à rappeler » est arrivé | |
+| S7 | Relancer l'essai **hors horaires** (ou retirer le numéro de secours), appeler | Le répondeur tout de suite, sans faire sonner personne | |
+| S8 | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
+| S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

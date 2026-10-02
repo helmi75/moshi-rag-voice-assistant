@@ -18,7 +18,7 @@ from typing import Optional
 
 from loguru import logger
 
-from .. import llm, taches
+from .. import llm, renvoi, taches
 from ..tenants import Tenant
 from .rattrapage import PARDON, pardon
 
@@ -454,6 +454,58 @@ def build_function_schemas():
     ]
 
 
+def serialiseur_twilio(stream_sid: str, call_sid: Optional[str]):
+    """Le sérialiseur Twilio de Pipecat, qui sait aussi NE PAS raccrocher.
+
+    Le sien raccroche l'appel (API Twilio) dès que le pipeline s'arrête. C'est ce qu'on
+    veut à la fin d'une conversation, pas quand l'assistante en panne rend la ligne pour
+    qu'elle sonne au restaurant (ASSISTANTE-118) : raccrocher couperait le client au
+    moment précis où on allait enfin lui passer quelqu'un. `garder_la_ligne` est levé
+    juste avant d'arrêter le pipeline ; Twilio lit alors la suite du TwiML."""
+    from pipecat.frames.frames import CancelFrame, EndFrame
+    from pipecat.serializers.twilio import TwilioFrameSerializer
+
+    class Serialiseur(TwilioFrameSerializer):
+        garder_la_ligne = False
+
+        async def serialize(self, frame):
+            if self.garder_la_ligne and isinstance(frame, (EndFrame, CancelFrame)):
+                return None
+            return await super().serialize(frame)
+
+    # Le raccrochage automatique en fin de session nécessite les identifiants
+    # Twilio ; sans eux (dev/tests), on le désactive au lieu de planter.
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID") or None
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN") or None
+    return Serialiseur(
+        stream_sid=stream_sid,
+        call_sid=call_sid,
+        account_sid=account_sid,
+        auth_token=auth_token,
+        params=TwilioFrameSerializer.InputParams(
+            auto_hang_up=bool(account_sid and auth_token)
+        ),
+    )
+
+
+def passer_la_main(maillon: str, *, call_sid: Optional[str], tenant_id: int,
+                   serializer, task) -> None:
+    """La vigie a vu deux échecs de suite sur la voix, le modèle ou la transcription : le
+    client attend dans le silence. On rend la ligne SANS raccrocher — Twilio lit alors la
+    suite du TwiML, qui fait sonner le restaurant ou prend un message (app/renvoi.py).
+    Les appels suivants sont renvoyés d'emblée, le temps que la panne passe."""
+    logger.warning(f"[secours] appel {call_sid} (établissement {tenant_id}) : "
+                   f"{renvoi.LIBELLES[maillon]} — l'assistante passe la main.")
+    # Avant toute attente : si Pipecat arrête déjà le pipeline (erreur fatale), le
+    # raccrochage automatique ne doit pas passer devant.
+    serializer.garder_la_ligne = True
+    renvoi.demander(call_sid, maillon)
+    renvoi.signaler_panne(maillon, tenant_id)
+    # Hors de l'observateur : arrêter le pipeline depuis sa propre file d'observation
+    # reviendrait à s'attendre soi-même.
+    taches.lancer(task.cancel(), nom=f"renvoi de l'appel {call_sid}")
+
+
 async def run_bot(
     websocket,
     stream_sid: str,
@@ -483,7 +535,6 @@ async def run_bot(
         LLMContextAggregatorPair,
         LLMUserAggregatorParams,
     )
-    from pipecat.serializers.twilio import TwilioFrameSerializer
     from pipecat.services.openai.llm import OpenAILLMService
     from pipecat.transports.websocket.fastapi import (
         FastAPIWebsocketParams,
@@ -493,19 +544,7 @@ async def run_bot(
     # "fr-FR" (Twilio/tenant) -> "fr" (Deepgram)
     language = (tenant.language or "fr-FR").split("-")[0]
 
-    # Le raccrochage automatique en fin de session nécessite les identifiants
-    # Twilio ; sans eux (dev/tests), on le désactive au lieu de planter.
-    account_sid = os.getenv("TWILIO_ACCOUNT_SID") or None
-    auth_token = os.getenv("TWILIO_AUTH_TOKEN") or None
-    serializer = TwilioFrameSerializer(
-        stream_sid=stream_sid,
-        call_sid=call_sid,
-        account_sid=account_sid,
-        auth_token=auth_token,
-        params=TwilioFrameSerializer.InputParams(
-            auto_hang_up=bool(account_sid and auth_token)
-        ),
-    )
+    serializer = serialiseur_twilio(stream_sid, call_sid)
 
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
@@ -834,9 +873,16 @@ async def run_bot(
     _voix_appel = voices_mod.get(voices_mod.resolve(tenant))
     if _voix_appel is not None:
         bord.noter_voix(_voix_appel.fournisseur, _voix_appel.id)
+    async def _passer_la_main(maillon: str) -> None:
+        passer_la_main(maillon, call_sid=call_sid, tenant_id=tenant.id,
+                       serializer=serializer, task=task)
+
+    from .vigie import Vigie
+
+    vigie = Vigie(_passer_la_main)
     task = PipelineTask(
         pipeline,
-        observers=[latence, bord],
+        observers=[latence, bord, vigie],
         params=PipelineParams(
             # Twilio Media Streams est en 8 kHz : caler tout le pipeline dessus
             # évite des rééchantillonnages inutiles.

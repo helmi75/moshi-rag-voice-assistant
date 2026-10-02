@@ -10,8 +10,9 @@ code, dont les commentaires portent la raison de chaque garde-fou.
 Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.py                    │
                  │                        ├─ /twilio/voice|sms|webhook  (signés)     │
                  │                        ├─ /ws/voice ─▶ Pipecat  api/app/voice/    │
-                 │                        │     Deepgram ─▶ LLM (OpenRouter) ─▶ voix │──▶ Modal (GPU L4)
-                 │                        ├─ /admin      (Jinja2 + htmx)             │    moshi-server
+                 │                        │     Deepgram ─▶ LLM (OpenRouter) ─▶ voix │──▶ Mistral (Voxtral)
+                 │                        ├─ /twilio/suite … (assistante en panne)   │    secours : Modal (GPU L4)
+                 │                        ├─ /admin      (Jinja2 + htmx)             │
                  │                        └─ /health, /supervision                   │
                  │                     SQLite (volume api_data) · enregistrements    │
                  └───────────────────────────────────────────────────────────────────┘
@@ -29,7 +30,8 @@ Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.p
 ## Le chemin d'un appel
 
 1. `POST /twilio/voice` — signature Twilio vérifiée, établissement résolu, TwiML
-   `<Connect><Stream>` avec le numéro appelant en paramètre.
+   `<Connect><Stream>` avec le numéro appelant en paramètre, suivi d'un
+   `<Redirect>/twilio/suite` que Twilio ne lit que si le flux s'arrête sans raccrochage.
 2. `WS /ws/voice` — signature de la poignée de main vérifiée **avant** `accept()` ; le
    numéro appelant passe par `calls.numero_appelant` (un appel masqué n'a pas de numéro),
    l'appel est ouvert en base, puis `voice/bot.run_bot`.
@@ -43,14 +45,26 @@ Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.p
    choix de l'établissement, en HTTPS et en flux, sans GPU (`voice/voxtral_tts.py`,
    `docs/VOXTRAL.md`). Sans clé Mistral, voix de secours Moshi sur Modal
    (`voice/moshi_server_tts.py`), dont l'abandon est prévu.
-4. L'accueil est un WAV pré-rendu par établissement : l'appelant l'entend tout de suite,
-   même quand le GPU se réveille ; la musique d'attente meuble le réveil. Il est
+4. L'accueil est un WAV pré-rendu par établissement : l'appelant l'entend tout de suite
+   (avec la voix de secours Moshi, la musique d'attente meuble le réveil du GPU). Il est
    pré-inscrit au contexte du modèle **parce qu'il ne traverse pas le pipeline** ; tout
    ce que dit le TTS du pipeline, l'agrégateur l'inscrit seul (`bot.amorce_assistante`).
 5. À la fin : durée, transcription, latences par tour et journal de bord en base ;
    enregistrement deux pistes si activé (`voice/enregistrement.py`) ; puis, hors du
    chemin d'appel, une phrase de résumé (`resume.py`) qui remplace l'extrait brut dans
    la liste des appels.
+
+6. **Si l'assistante tombe en panne** (`renvoi.py`, ASSISTANTE-118) : un observateur
+   (`voice/vigie.py`) compte les erreurs de la voix, du modèle et de la transcription ;
+   à la deuxième de suite sur le même maillon — ou si le pipeline s'effondre —
+   l'assistante rend la ligne **sans raccrocher**. Twilio lit alors `/twilio/suite` : le
+   numéro de secours de l'établissement sonne 15 s pendant ses horaires d'ouverture,
+   sinon le client laisse un message (`repondeur.py` le rapatrie avec nos
+   enregistrements, puis l'efface de chez Twilio). Pendant trois minutes, les appels
+   suivants sont renvoyés dès le décroché. **Aucune commande n'est envoyée à Twilio
+   pendant la panne** : c'est lui qui vient chercher la suite, donc le mécanisme tient
+   même si notre accès à son API est la panne. Ce que ce mécanisme ne couvre pas : un
+   serveur qui ne répond plus du tout (`docs/TWILIO_SETUP.md` §6).
 
 **Règle d'architecture** : le cerveau (`llm.py`, `reservations.py`, `messages.py`)
 ignore le transport. `llm.run_tool` est le seul point où un outil touche aux données,
@@ -85,9 +99,9 @@ user_version` (`db._MIGRATIONS` ; une migration livrée ne se réécrit jamais).
 
 | Table | Contenu |
 |---|---|
-| `tenants` | établissements : numéro, fiche, accueil, voix, formule, horaires (JSON), e-mail de notification |
+| `tenants` | établissements : numéro, fiche, accueil, voix, formule, horaires (JSON), e-mail de notification, carnet de réservations, numéro de secours |
 | `reservations` | réservations ; une annulée **reste**, horodatée (`cancelled_at`) |
-| `calls` | journal des appels : durée, transcription, latences, journal de bord |
+| `calls` | journal des appels : durée, transcription, latences, journal de bord, coût par poste, et ce qu'est devenu un appel passé en secours |
 | `messages` | messages pris pour l'équipe, à rappeler |
 | `users` | super-admin et restaurateurs (bcrypt) |
 | `supervision` | ardoise des mesures (relève Twilio, purge, sonde d'écriture) |
@@ -98,7 +112,9 @@ user_version` (`db._MIGRATIONS` ; une migration livrée ne se réécrit jamais).
   `synchronous=NORMAL`.
 - **Heure du restaurant** : stockage en UTC, mais toutes les bornes (« aujourd'hui »,
   « ce mois-ci », « 30 derniers jours ») sont calculées à l'heure de Paris
-  (`horloge.py`). Un appel à 00 h 30 le 1er compte dans le bon mois.
+  (`horloge.py`). Un appel à 00 h 30 le 1er compte dans le bon mois. **Tout ce que
+  l'admin affiche** passe aussi par là (`horloge.au_restaurant`, filtres `date_paris`,
+  `jour_paris`, `heure_paris`) : un gabarit ne découpe jamais un horodatage de la base.
 - **Tâches de fond** : toutes passent par `taches.lancer` (référence retenue, exception
   journalisée, arrêt propre dans le `lifespan`).
 
@@ -110,19 +126,26 @@ de passage manqué) et moins cher qu'un index vectoriel. Chemin d'upgrade le jou
 établissement aura des documents volumineux : ingestion → découpage → embeddings, et
 `build_system_prompt` injecte les passages retrouvés. L'interface ne change pas.
 
-### Pourquoi Moshi « speech-to-speech » a été abandonné, et pas la voix Moshi
+### Pourquoi Moshi a été abandonné, en deux temps
 
-Le projet a démarré sur Moshi full-duplex : pas d'appel d'outil fiable, impossible à
-contraindre à la fiche du restaurant — or c'est le produit. On garde la **voix** Moshi
-1.6B de Kyutai, servie par `moshi-server` (le serveur de production d'unmute.sh), en
-simple étage TTS d'un pipeline STT → LLM → TTS qu'on contrôle.
+Le projet a démarré sur Moshi full-duplex (« speech-to-speech ») : pas d'appel d'outil
+fiable, impossible à contraindre à la fiche du restaurant — or c'est le produit. D'où le
+pipeline STT → LLM → TTS qu'on contrôle, où Moshi n'était plus que la **voix** (Moshi
+1.6B de Kyutai, servie par `moshi-server` sur un GPU Modal).
+
+Le 28/09/2026, la voix elle-même est passée à Mistral (Voxtral) : un GPU loué coûtait la
+moitié d'un appel, mettait jusqu'à 46 s à se réveiller, et Modal n'en trouvait pas
+toujours (pannes de capacité des 23, 24 et 25/09). Voxtral se facture au caractère et
+répond sans réveil. Moshi reste la voix de secours quand la clé Mistral manque ; son
+retrait est prévu (`docs/VOXTRAL.md`).
 
 ## Sécurité
 
 | Menace | Parade |
 |---|---|
 | Requête forgée sur les webhooks ou le flux | `X-Twilio-Signature` vérifiée (`twilio_signature.py`), URL publique reconstruite depuis `PUBLIC_URL` ; mode `log` pour observer avant `enforce` |
-| GPU utilisé par un tiers | clé privée `MOSHI_TTS_API_KEY` posée au démarrage du conteneur Modal |
+| GPU de secours utilisé par un tiers | clé privée `MOSHI_TTS_API_KEY` posée au démarrage du conteneur Modal |
+| Assistante en panne, client sans personne | renvoi vers le restaurant ou répondeur (`renvoi.py`) ; les adresses de secours exigent elles aussi la signature Twilio |
 | Admin | session signée, CSRF, bcrypt, limitation des tentatives, cloisonnement par établissement (`deps.resolve_tenant`), CSP stricte (Caddy) |
 | Exposition réseau | API liée à `127.0.0.1`, seul Caddy est public ; pare-feu `ufw` |
 | Données personnelles | purges automatiques, droit à l'effacement, numéro tronqué dans les journaux |
@@ -130,7 +153,7 @@ simple étage TTS d'un pipeline STT → LLM → TTS qu'on contrôle.
 
 ## Exploitation
 
-- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 14
+- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 17
   contrôles, une seule source pour l'écran « Santé & coûts » et la sonde `/supervision`.
   « Pas de mesure » n'est jamais un feu vert.
 - **Garde-fous** : chaque protection critique a un test qui rougit quand on la retire

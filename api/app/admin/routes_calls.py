@@ -17,6 +17,7 @@ FILTERS = [
     ("message", "Rappel promis"),
     ("info", "Sans réservation"),
     ("failed", "Échecs"),
+    ("secours", "Pannes"),
 ]
 
 

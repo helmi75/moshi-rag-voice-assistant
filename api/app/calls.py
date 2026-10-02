@@ -9,7 +9,7 @@ import json
 import math
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from . import db, horloge
@@ -37,6 +37,13 @@ _COST_LLM_SORTIE = float(os.getenv("COST_LLM_SORTIE_PAR_MILLION", "2.50")) / 1e6
 _COST_LLM_PER_CALL = float(os.getenv("COST_LLM_PER_CALL", "0.0035"))
 _COST_VOIX_PAR_CARACTERE = float(os.getenv("COST_VOIX_PAR_MILLE_CARACTERES", "0.016")) / 1000
 _COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
+# Renvoi vers le restaurant en cas de panne (ASSISTANTE-118) : une SECONDE communication,
+# sortante, en plus de l'appel reçu. Grille Twilio du compte (API Pricing, France,
+# 01/10/2026) : 0,0187 $/min vers un fixe, 0,0404 $/min vers un portable quand le numéro
+# présenté est européen. Présenté hors d'Europe, le portable passe à 0,1603 $/min : on
+# ne le chiffre pas ici (appelants étrangers, rares) — c'est la facture qui le dira.
+_COST_RENVOI_FIXE = float(os.getenv("COST_TWILIO_RENVOI_FIXE_PER_MIN", "0.0187"))
+_COST_RENVOI_MOBILE = float(os.getenv("COST_TWILIO_RENVOI_MOBILE_PER_MIN", "0.0404"))
 
 POSTES = ("telephonie", "transcription", "comprehension", "voix")
 
@@ -209,7 +216,9 @@ def finish_call(
         couts = couts_appel(duration, journal, banc=call_sid.startswith(PREFIXE_BANC))
         conn.execute(
             """UPDATE calls SET ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
-                   duration_seconds = ?, status = ?, transcript = ?,
+                   duration_seconds = ?,
+                   status = CASE WHEN secours_motif IS NOT NULL THEN status ELSE ? END,
+                   transcript = ?,
                    reservation_id = ?, reservation_externe = ?, estimated_cost = ?,
                    turn_latencies = ?, journal = ?, recording_bytes = ?,
                    cout_telephonie = ?, cout_transcription = ?, cout_comprehension = ?,
@@ -233,6 +242,107 @@ def finish_call(
     return row["id"]
 
 
+# ---- Secours (ASSISTANTE-118) : l'assistante en panne passe la main -------------------
+# Ce que devient un appel qu'elle n'a pas pu servir. `unserved` est l'état de départ,
+# posé dès que le secours s'ouvre : il ne reste que si le client a raccroché avant que
+# le restaurant décroche ou sans laisser de message.
+SECOURS_NON_SERVI, SECOURS_RENVOYE, SECOURS_MESSAGE = "unserved", "forwarded", "voicemail"
+STATUTS_SECOURS = (SECOURS_NON_SERVI, SECOURS_RENVOYE, SECOURS_MESSAGE)
+
+
+def cout_renvoi(secondes: float, numero: Optional[str]) -> float:
+    """La communication vers le restaurant, à la minute entamée. Un numéro français en
+    06 ou 07 est un portable ; un numéro étranger est chiffré au tarif du portable, la
+    borne haute des deux."""
+    if not secondes or secondes <= 0:
+        return 0.0
+    numero = numero or ""
+    fixe = numero.startswith("+33") and numero[3:4] not in ("6", "7")
+    tarif = _COST_RENVOI_FIXE if fixe else _COST_RENVOI_MOBILE
+    return round(math.ceil(secondes / 60.0) * tarif, 6)
+
+
+def ouvrir_secours(call_sid: Optional[str], tenant_id: int, caller_number: Optional[str],
+                   motif: str) -> Optional[int]:
+    """L'assistante passe la main sur cet appel. Crée sa ligne s'il n'a jamais atteint le
+    pipeline (renvoyé dès le décroché), note le motif, et le clôt à l'instant : s'il n'y
+    a pas de suite (le client raccroche pendant la sonnerie), il ne reste pas « en
+    cours »."""
+    if not call_sid:
+        return None
+    with db.get_conn() as conn:
+        conn.execute(
+            """INSERT INTO calls (call_sid, tenant_id, caller_number) VALUES (?, ?, ?)
+               ON CONFLICT(call_sid) DO NOTHING""",
+            (call_sid, tenant_id, caller_number),
+        )
+        row = conn.execute("SELECT id, started_at, ended_at FROM calls WHERE call_sid = ?",
+                           (call_sid,)).fetchone()
+        if row is None:
+            return None
+        conn.execute("UPDATE calls SET secours_motif = COALESCE(secours_motif, ?), status = ? "
+                     "WHERE id = ?", (motif, SECOURS_NON_SERVI, row["id"]))
+    conclure_secours(call_sid, SECOURS_NON_SERVI)
+    return row["id"]
+
+
+def conclure_secours(call_sid: Optional[str], statut: str, *,
+                     secondes_renvoi: Optional[int] = None,
+                     numero: Optional[str] = None) -> Optional[int]:
+    """Ce qu'est devenu l'appel passé en secours, sa durée à cet instant, et son coût :
+    l'appel reçu court toujours pendant le renvoi, et le renvoi s'y ajoute. Les autres
+    postes (transcription, modèle, voix) restent ceux que le pipeline a chiffrés."""
+    if not call_sid or statut not in STATUTS_SECOURS:
+        return None
+    with db.get_conn() as conn:
+        row = conn.execute(
+            """SELECT id, started_at, secours_secondes, cout_transcription,
+                      cout_comprehension, cout_voix FROM calls WHERE call_sid = ?""",
+            (call_sid,)).fetchone()
+        if row is None:
+            return None
+        debut = horloge.lire_utc(row["started_at"])
+        duree = max(0.0, (datetime.now(timezone.utc) - debut).total_seconds()) if debut else 0.0
+        renvoi = secondes_renvoi if secondes_renvoi is not None else row["secours_secondes"]
+        telephonie = (round(math.ceil(duree / 60.0) * _COST_TWILIO_PER_MIN, 6)
+                      + cout_renvoi(renvoi or 0, numero))
+        autres = [row["cout_transcription"] or 0.0, row["cout_comprehension"] or 0.0,
+                  row["cout_voix"] or 0.0]
+        conn.execute(
+            """UPDATE calls SET status = ?, secours_secondes = ?,
+                   ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), duration_seconds = ?,
+                   cout_telephonie = ?, cout_transcription = ?, cout_comprehension = ?,
+                   cout_voix = ?, estimated_cost = ?
+               WHERE id = ?""",
+            (statut, renvoi, duree, telephonie, *autres, telephonie + sum(autres), row["id"]),
+        )
+    return row["id"]
+
+
+def par_sid(call_sid: Optional[str]) -> Optional[dict]:
+    """L'appel désigné par l'identifiant de Twilio (ses rappels ne connaissent que lui)."""
+    if not call_sid:
+        return None
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT id, tenant_id FROM calls WHERE call_sid = ?",
+                           (call_sid,)).fetchone()
+    return dict(row) if row else None
+
+
+def secours_recents(heures: int = 24) -> list[dict]:
+    """Les appels passés en secours depuis `heures` heures : la matière du contrôle de
+    supervision. Un seul suffit à dire que des clients n'ont pas eu l'assistante. Les
+    essais lancés depuis l'admin n'en sont pas : personne n'est tombé en panne."""
+    depuis = horloge.utc_iso(datetime.now(timezone.utc) - timedelta(hours=heures))
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, tenant_id, started_at, status, secours_motif FROM calls
+               WHERE secours_motif IS NOT NULL AND secours_motif != 'essai'
+                 AND started_at >= ?
+               ORDER BY started_at DESC""", (depuis,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 # Issues filtrables depuis l'admin. Elles décrivent l'état RÉEL des colonnes ; il n'y
 # a pas de catégorie « à rappeler », rien ne la matérialise en base.
 # Une réservation prise pendant l'appel : dans notre carnet (reservation_id, clé
@@ -249,6 +359,9 @@ OUTCOME_FILTERS = {
     # « info », au même titre qu'une question d'horaires — et le restaurateur n'avait
     # aucun moyen de savoir qu'on s'était engagé en son nom.
     "message": "EXISTS (SELECT 1 FROM messages m WHERE m.call_id = calls.id)",
+    # L'assistante n'a pas pu servir l'appel : renvoyé au restaurant, message vocal, ou
+    # client reparti sans personne (ASSISTANTE-118).
+    "secours": "secours_motif IS NOT NULL",
 }
 
 
