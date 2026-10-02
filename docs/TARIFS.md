@@ -127,7 +127,9 @@ un seul restaurant, Yumcall coûte jusqu'à 28 € de moins (258 € avec son pa
 - **Combien de minutes consomme un vrai restaurant.** Aucune mesure : la seule durée
   connue, 3,5 minutes par appel, vient de 24 appels de test, les nôtres. Le forfait
   Essentiel (250 minutes) fait environ 70 appels de cette durée ; on ne sait pas si
-  c'est peu ou beaucoup pour un restaurant parisien.
+  c'est peu ou beaucoup pour un restaurant parisien. La page d'accueil affiche cet
+  équivalent (70, 170, 430 appels) en disant d'où il vient ; il se règle par
+  `plans.DUREE_APPEL_MIN`.
 - **Le coût du modèle de langage par appel**, encore au forfait dans ce calcul.
 - **Si les packs de Yumcall se cumulent**, et comment Sylen décompte ses minutes.
 - **La formule Maison n'est pas applicable** tant que rien ne regroupe plusieurs

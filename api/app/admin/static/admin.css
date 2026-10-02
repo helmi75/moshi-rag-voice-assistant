@@ -318,6 +318,19 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
 .row-metric { flex: none; text-align: right; min-width: 4.5rem; }
 .row-metric b { display: block; font-size: .875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .row-metric span { display: block; font-size: .72rem; color: var(--app-faint); }
+/* Vue du parc : quatre chiffres par établissement. Dans une carte étroite (téléphone, ou
+   écran partagé avec « À traiter ») ils ne tenaient pas à côté du nom : le nom passait à
+   un mot par ligne et ses étiquettes glissaient sous les chiffres. Le bloc descend alors
+   sur sa propre ligne. */
+.parc-liste { container-type: inline-size; }
+.row-metrics { flex: none; display: flex; gap: .85rem; }
+@container (max-width: 40rem) {
+  .parc-liste .card-row { flex-wrap: wrap; }
+  .parc-liste .row-metrics {
+    flex: 1 1 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem;
+  }
+  .parc-liste .row-metric { text-align: left; min-width: 0; }
+}
 .row-time {
   flex: none; width: 3.4rem; font-size: 1rem; font-weight: 600;
   color: var(--app-accent); font-variant-numeric: tabular-nums; letter-spacing: -0.02em;

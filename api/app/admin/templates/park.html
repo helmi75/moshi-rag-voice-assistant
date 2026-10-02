@@ -24,7 +24,7 @@
       <h2>Établissements</h2>
       <a class="card-link" href="/admin/tenants">Tout gérer</a>
     </div>
-    <div class="card-list">
+    <div class="card-list parc-liste">
       {% for v in venues %}
       <a class="card-row" href="/admin/?tenant_id={{ v.tenant.id }}">
         <span class="avatar" aria-hidden="true">{{ v.initials }}</span>
@@ -40,6 +40,9 @@
           </span>
           <span class="row-sub">{{ v.tenant.business_type }} · {{ v.tenant.phone_number }}</span>
         </span>
+        {# Les quatre chiffres forment un bloc : quand la carte est étroite, il passe
+           sous le nom au lieu de s'écraser dessus (admin.css, `.parc-liste`). #}
+        <span class="row-metrics">
         <span class="row-metric"><b>{{ v.stats.n_calls }}</b><span>appels {{ days }} j</span></span>
         <span class="row-metric"><b>{{ v.stats.capture_rate }} %</b><span>captation</span></span>
         {# Forfait : le mois CALENDAIRE, pas la fenêtre de 30 jours des colonnes
@@ -51,6 +54,7 @@
           {%- if not v.quota.formule.sans_forfait %}/{{ v.quota.inclus }}{% endif %}</b>
           <span>min ce mois-ci</span></span>
         <span class="row-metric"><b>{{ money(v.stats.total_cost) }}</b><span>coût {{ days }} j</span></span>
+        </span>
       </a>
       {% else %}
       <p class="empty">Aucun établissement. <a href="/admin/tenants/new">Créez le premier</a>.</p>

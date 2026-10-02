@@ -96,7 +96,7 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 | E5 | Passer un appel d'une minute environ, raccrocher, recharger la salle de contrôle | Le compteur a avancé de la durée de l'appel, **à la seconde** (pas d'une minute entière par appel) | |
 | E6 | Fiche établissement → Formule | Quatre formules, en minutes : « Liberté — sans abonnement, 0.45 € la minute », « Essentiel — 89 €/mois, 250 minutes »… | |
 | E7 | Attribuer **Liberté** à un établissement de test, puis ouvrir sa salle de contrôle | « Formule Liberté · Sans abonnement », les minutes et le montant du mois ; **ni barre, ni plafond, ni alerte** | |
-| E8 | Vue du parc | Colonne « min ce mois-ci » : `12/250` avec un forfait, `12` sans forfait | |
+| E8 | Vue du parc, sur un ordinateur puis sur un téléphone | « min ce mois-ci » : `12/250` avec un forfait, `12` sans forfait ; les quatre chiffres sont **sous** le nom de l'établissement, rien ne se chevauche | |
 | E9 | Un appel renvoyé vers le restaurant pendant une panne (recette S) | Il **n'ajoute aucune minute** au forfait | |
 
 **E4 est la décision produit du 30/08** : atteindre le plafond ne coupe jamais la ligne.
@@ -242,7 +242,7 @@ répéter. Il faut un portable français de métropole.
 | # | Faire | Attendu | OK ? |
 |---|---|---|---|
 | W1 | Ouvrir `https://helmane.fr` sur un ordinateur | Arrive sur `https://app.helmane.fr/` ; la page s'affiche avec ses polices et ses dessins ; dans la console du navigateur (F12), aucune ligne rouge « Content Security Policy » | |
-| W2 | La même page sur un téléphone, jusqu'en bas ; puis en mode clair et en mode sombre | Rien ne déborde, rien n'est illisible ; les prix sont ceux de la grille : 89 € pour 250 minutes, 149 € pour 600, 349 € pour 1 500, la minute en plus à 0,35 / 0,25 / 0,20 € ; sous les trois cartes, le bandeau Liberté à 0,45 € la minute ; « Prix hors taxes » en bas | |
+| W2 | La même page sur un téléphone, jusqu'en bas ; puis en mode clair et en mode sombre | Rien ne déborde, rien n'est illisible ; les prix sont ceux de la grille : 89 € pour 250 minutes, 149 € pour 600, 349 € pour 1 500, la minute en plus à 0,35 / 0,25 / 0,20 € ; sous chaque forfait, « soit environ 70 / 170 / 430 appels » ; sous les trois cartes, le bandeau Liberté à 0,45 € la minute ; en bas, « Prix hors taxes » et la durée sur laquelle les appels sont calculés (3 min 30) | |
 | W3 | Saisir `06 12 34`, puis *Rappelez-moi* | « Ce numéro semble incomplet » ; rien ne part | |
 | W4 | Saisir un numéro en `08` | « Ce numéro n'est pas un numéro français de métropole » | |
 | W5 | Entre 8 h et 22 h, saisir son portable | « Votre téléphone va sonner » ; il sonne en moins de dix secondes et affiche la ligne de démonstration | |

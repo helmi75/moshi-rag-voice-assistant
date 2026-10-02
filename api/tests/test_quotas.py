@@ -398,6 +398,19 @@ class TestAffichage:
         page = self._texte(client.get("/admin/"))
         assert f"<b>12/{essentiel.minutes_incluses}</b> <span>min ce mois-ci</span>" in page
 
+    def test_les_chiffres_du_parc_forment_un_bloc_qui_passe_sous_le_nom(self, client,
+                                                                         etablissement):
+        """Sur un téléphone, les quatre chiffres s'écrasaient sur le nom et ses
+        étiquettes : ils sont groupés, et la feuille de style les descend d'une ligne."""
+        import pathlib
+        page = client.get("/admin/").text
+        assert 'class="card-list parc-liste"' in page
+        assert page.count('class="row-metrics"') == page.count('class="card-row" href="/admin/?tenant_id=')
+        feuille = (pathlib.Path(__file__).resolve().parents[1] / "app" / "admin" / "static"
+                   / "admin.css").read_text(encoding="utf-8")
+        assert ".parc-liste { container-type: inline-size; }" in feuille
+        assert ".parc-liste .card-row { flex-wrap: wrap; }" in feuille
+
     def test_le_parc_n_invente_pas_de_plafond_sans_forfait(self, client, etablissement):
         tenants.update_tenant(etablissement.id, plan="liberte")
         _appels(etablissement.id, 1, secondes=12 * 60.0, prefixe="AFF-PL")

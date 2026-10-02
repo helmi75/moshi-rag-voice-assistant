@@ -20,6 +20,14 @@
 - **Le forfait se décompte à la seconde**, sur la durée des appels clos du mois.
 - La salle de contrôle, la vue du parc, la fiche établissement et la page d'accueil
   affichent des minutes. La page annonce « Prix hors taxes ».
+- La page d'accueil traduit chaque forfait en appels (« soit environ 70 appels »), sur la
+  base de 3 min 30 par appel — la durée moyenne de nos 24 appels d'essai, ce que la page
+  dit. `plans.DUREE_APPEL_MIN` est à remplacer par la durée mesurée chez le premier client.
+
+### Corrigé
+- **Vue du parc sur un écran étroit** : les quatre chiffres d'un établissement s'écrasaient
+  sur son nom et ses étiquettes (un mot par ligne sur un téléphone, la dernière colonne
+  hors de l'écran). Ils forment maintenant un bloc qui passe sous le nom.
 
 ### Ajouté
 - **Formule Liberté**, sans abonnement : 0,45 € la minute, 10 € de mise en service par
