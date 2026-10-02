@@ -448,6 +448,15 @@ GARDE_FOUS = [
         panne="le restaurant paierait à la minute le temps passé à son propre téléphone pendant NOTRE panne",
     ),
     GardeFou(
+        nom="Un appel du banc d'essai n'est pas décompté du forfait",
+        fichier="api/app/quotas.py",
+        avant='_DECOMPTES += f" AND COALESCE(call_sid, \'\') NOT LIKE \'{calls.PREFIXE_BANC}%\'"',
+        apres="_DECOMPTES += ''  # mutation",
+        tests=["test_quotas.py"],
+        k="banc",
+        panne="un seul essai du banc, connexion restée ouverte sept heures, ajouterait 420 minutes au forfait d'un client",
+    ),
+    GardeFou(
         nom="La clé publique du serveur de voix est signalée",
         fichier="api/app/supervision.py",
         avant='    if cle and cle != "public_token":',

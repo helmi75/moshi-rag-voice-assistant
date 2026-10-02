@@ -90,6 +90,27 @@ class TestComptage:
         c = quotas.etat(resto)
         assert c.appels == 1 and c.minutes == 0
 
+    def test_un_appel_du_banc_d_essai_n_est_pas_decompte(self, resto):
+        """Le banc est le nôtre, et sa connexion peut rester ouverte des heures : compté
+        à la minute, un seul essai dépasserait le forfait d'un client."""
+        from app import calls
+
+        _appels(resto.id, 2)
+        _appels(resto.id, 1, secondes=7 * 3600.0, prefixe=calls.PREFIXE_BANC)
+        c = quotas.etat(resto)
+        assert c.appels == 2 and c.minutes == pytest.approx(2.0)
+        du_parc = quotas.etat_par_tenant([resto])[resto.id]
+        assert du_parc.appels == 2 and du_parc.minutes == pytest.approx(2.0)
+
+    def test_un_appel_sans_identifiant_compte(self, resto):
+        """Un filtre sur l'identifiant ne doit pas faire disparaître les appels qui n'en
+        ont pas : en SQL, NULL ne ressemble à rien, et ne « diffère » de rien non plus."""
+        with db.get_conn() as conn:
+            conn.execute(
+                "INSERT INTO calls (call_sid, tenant_id, started_at, duration_seconds) "
+                "VALUES (NULL, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), 120)", (resto.id,))
+        assert quotas.etat(resto).minutes == pytest.approx(2.0)
+
     def test_un_appel_rendu_pendant_une_panne_n_est_pas_decompte(self, resto):
         """L'assistante n'a pas servi l'appel : sa durée est celle que le restaurant a
         passée à son propre téléphone. La compter ferait payer notre panne au client."""

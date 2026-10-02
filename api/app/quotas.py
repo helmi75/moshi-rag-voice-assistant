@@ -21,7 +21,7 @@ en UTC croyait encore au mois précédent, et l'appel changeait de facture.
 """
 from dataclasses import dataclass
 
-from . import db, horloge, plans
+from . import calls, db, horloge, plans
 
 OK = "ok"
 ALERTE = "alerte"
@@ -31,6 +31,10 @@ DEPASSEMENT = "depassement"
 # rendu parce qu'elle était en panne (`secours_motif`, ASSISTANTE-118) dure le temps que
 # le restaurant passe à son propre téléphone : le lui facturer ferait payer notre panne.
 _DECOMPTES = "started_at >= ? AND secours_motif IS NULL"
+# Les appels du banc d'essai sont les nôtres, et leur durée en base est celle de la
+# connexion : sept heures au compteur pour 80 secondes de conversation (appels 82 à 87
+# du 10/09/2026). Un seul ajouterait 420 minutes au forfait d'un client.
+_DECOMPTES += f" AND COALESCE(call_sid, '') NOT LIKE '{calls.PREFIXE_BANC}%'"
 
 
 @dataclass(frozen=True)

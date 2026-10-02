@@ -34,6 +34,8 @@
   numéro. Elle n'a ni plafond ni alerte : l'admin écrit les minutes et le montant du mois.
 - **Un appel rendu pendant une panne n'est pas décompté** : sa durée est celle que le
   restaurant a passée à son propre téléphone (garde-fou de mutation).
+- **Un appel du banc d'essai n'est pas décompté** non plus : sa durée en base est celle de
+  la connexion, parfois sept heures pour 80 secondes de conversation (garde-fou de mutation).
 
 ### Limites connues
 - Rien n'est facturé par le code : le forfait compte et prévient, la facture reste à faire
@@ -67,6 +69,12 @@
 - Un e-mail « Demande de rappel depuis le site » à `RAPPEL_NOTIFIER` (sinon `ADMIN_EMAIL`).
 - Migration v18 : table `rappels`, colonne `calls.sortant`. Les demandes sont effacées au
   bout de 30 jours (`RETENTION_RAPPEL_JOURS`) et par l'effacement à la demande.
+
+### Corrigé à la revue (03/10/2026)
+- Le compteur de demandes par adresse a son propre verrou : il partageait celui de
+  l'inscription en base, et une base occupée aurait figé la boucle qui porte l'audio.
+- « +33 (0)6 12 34 56 78 » est accepté : le zéro entre parenthèses n'est plus compté.
+- Une demande de rappel trop grosse est refusée sur sa taille annoncée, sans être lue.
 
 ### Limites connues
 - Aucun vrai rappel n'a encore été passé : le chemin Twilio est testé avec un bouchon.

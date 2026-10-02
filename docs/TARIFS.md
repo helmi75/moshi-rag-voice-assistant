@@ -30,6 +30,7 @@ Pas d'« illimité ». Jamais. Le coût d'une minute est linéaire, pas le prix.
 - Un appel que l'assistante **a rendu parce qu'elle était en panne** (renvoi vers le
   restaurant, ASSISTANTE-118) n'est **pas** décompté : sa durée est celle que le
   restaurant a passée à son propre téléphone.
+- Un appel du **banc d'essai** n'est pas décompté : c'est le nôtre.
 
 ### Quand changer de formule
 
