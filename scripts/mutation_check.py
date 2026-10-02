@@ -160,7 +160,7 @@ GARDE_FOUS = [
         apres="    if plans.get(plan) is not None:  # mutation",
         tests=["test_quotas.py"],
         k="formule or choisit",
-        panne="un restaurateur s'attribuerait la formule à 750 appels : élévation de "
+        panne="un restaurateur s'attribuerait la formule à 1 500 minutes : élévation de "
               "privilège qui ne ressemble pas à une faille, et qui coûte de l'argent",
     ),
     GardeFou(
@@ -437,6 +437,15 @@ GARDE_FOUS = [
         tests=["test_horloge.py"],
         k="mois",
         panne="le compteur de forfait additionnerait tous les mois : plafond atteint le 3, facture fausse",
+    ),
+    GardeFou(
+        nom="Un appel rendu pendant une panne n'est pas décompté du forfait",
+        fichier="api/app/quotas.py",
+        avant='_DECOMPTES = "started_at >= ? AND secours_motif IS NULL"',
+        apres='_DECOMPTES = "started_at >= ?"  # mutation',
+        tests=["test_quotas.py"],
+        k="panne",
+        panne="le restaurant paierait à la minute le temps passé à son propre téléphone pendant NOTRE panne",
     ),
     GardeFou(
         nom="La clé publique du serveur de voix est signalée",

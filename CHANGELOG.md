@@ -7,6 +7,34 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la grille à la minute (ASSISTANTE-120, 02/10/2026)
+
+### Modifié
+- **Les formules se vendent en minutes, plus en appels** (grille validée par Helmi le
+  02/10/2026, prix hors taxes) : Essentiel 89 € pour 250 minutes, Service 149 € pour 600,
+  Maison 349 € pour 1 500. Les concurrents comptent tous en minutes, et le forfait en
+  appels nous faisait porter la durée de chaque appel. Raisonnement, marges et relevé des
+  concurrents dans `docs/TARIFS.md`.
+- **La minute en plus est propre à chaque formule** : 0,35 €, 0,25 € et 0,20 €, à la place
+  de 0,30 € par appel pour tout le monde.
+- **Le forfait se décompte à la seconde**, sur la durée des appels clos du mois.
+- La salle de contrôle, la vue du parc, la fiche établissement et la page d'accueil
+  affichent des minutes. La page annonce « Prix hors taxes ».
+
+### Ajouté
+- **Formule Liberté**, sans abonnement : 0,45 € la minute, 10 € de mise en service par
+  numéro. Elle n'a ni plafond ni alerte : l'admin écrit les minutes et le montant du mois.
+- **Un appel rendu pendant une panne n'est pas décompté** : sa durée est celle que le
+  restaurant a passée à son propre téléphone (garde-fou de mutation).
+
+### Limites connues
+- Rien n'est facturé par le code : le forfait compte et prévient, la facture reste à faire
+  à la main.
+- La mise en service de Liberté et la suspension d'une ligne inactive ne sont pas codées.
+- La formule Maison reste inapplicable tant que rien ne regroupe plusieurs établissements.
+- Un établissement déjà sur Essentiel, Service ou Maison garde sa formule ; son forfait se
+  lit désormais en minutes (250, 600, 1 500 au lieu de 150, 400, 750 appels).
+
 ## Non publiée — le site, et Marie qui rappelle (ASSISTANTE-119, 02/10/2026)
 
 ### Ajouté
