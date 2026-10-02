@@ -24,7 +24,7 @@ docker run --rm --tmpfs /tmp:exec -v "$PWD:/repo" -w /repo/api moshi-rag-voice-a
 # Un fichier, un test : même commande, en finissant par
 #   python -m pytest tests/test_renvoi.py -q -k tourne_pas_en_rond
 
-# Contrôle par mutation : retire chaque garde-fou, exige qu'un test rougisse.
+# Contrôle par mutation (environ 8 minutes) : retire chaque garde-fou, exige qu'un test rougisse.
 # Il modifie puis restaure les sources : il refuse un arbre non committé.
 docker run --rm --tmpfs /tmp:exec -v "$PWD:/repo" -w /repo moshi-rag-voice-assistant-api sh -c \
   "apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq git >/dev/null 2>&1; \
