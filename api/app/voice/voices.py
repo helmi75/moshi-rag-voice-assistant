@@ -106,7 +106,9 @@ CATALOGUE: tuple[Voice, ...] = (
 
 # --- Les voix de Mistral -----------------------------------------------------------
 
-VOIX_PAR_DEFAUT = "voxtral/fr_marie_neutral"
+# Marie enthousiaste depuis le 03/10/2026, à la demande de Helmi (c'était Marie neutre).
+# S'applique à tout établissement qui n'a pas choisi de voix, et au rappel du site.
+VOIX_PAR_DEFAUT = "voxtral/fr_marie_excited"
 _INSTANTANE = Path(__file__).with_name("voxtral_voix.json")
 _LANGUES = {"fr_fr": "Français", "en_us": "Anglais (États-Unis)",
             "en_gb": "Anglais (Royaume-Uni)"}
@@ -246,7 +248,7 @@ def _secours_moshi() -> str:
 
 def default_id() -> str:
     """Voix des établissements qui n'ont rien choisi : VOIX_PAR_DEFAUT si c'est une voix
-    Mistral du catalogue, sinon Marie neutre. Sans clé Mistral : le secours Moshi."""
+    Mistral du catalogue, sinon Marie enthousiaste. Sans clé Mistral : le secours Moshi."""
     if not voxtral_disponible():
         return _secours_moshi()
     configured = os.getenv("VOIX_PAR_DEFAUT", "").strip()
