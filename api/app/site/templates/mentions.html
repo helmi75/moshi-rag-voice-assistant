@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mentions légales — Helmane</title>
+<meta name="description" content="Mentions légales du site Helmane : éditeur, hébergeur et données personnelles.">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex">
+<link rel="icon" href="{{ statique('favicon.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ statique('site.css') }}">
+</head>
+<body>
+{# Mentions légales (loi pour la confiance dans l'économie numérique, art. 6-III, et
+   RGPD art. 13). Les durées viennent de app/rgpd.py, l'hébergeur et l'éditeur de
+   app/site/__init__.py : la page ne recopie aucun chiffre. #}
+<header class="shell legal__tete">
+  <a class="marque" href="/">Helmane</a>
+  <a class="lien" href="/">Retour à l'accueil</a>
+</header>
+
+<main class="shell legal">
+  <h1>Mentions légales</h1>
+
+  <section>
+    <h2>Éditeur du site</h2>
+    <p>Le site <b>helmane.fr</b> et le service Helmane sont édités par{% if editeur.nom %} <b>{{ editeur.nom }}</b>{% else %} Helmane{% endif %}.</p>
+    {% if editeur.statut or editeur.siren or editeur.adresse or editeur.email or editeur.directeur %}
+    <ul>
+      {% if editeur.statut %}<li>Statut : {{ editeur.statut }}</li>{% endif %}
+      {% if editeur.siren %}<li>SIREN : {{ editeur.siren }}</li>{% endif %}
+      {% if editeur.adresse %}<li>Adresse : {{ editeur.adresse }}</li>{% endif %}
+      {% if editeur.email %}<li>Contact : {{ editeur.email }}</li>{% endif %}
+      {% if editeur.directeur %}<li>Directeur de la publication : {{ editeur.directeur }}</li>{% endif %}
+    </ul>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Hébergeur</h2>
+    <p><b>{{ hebergeur.nom }}</b>, {{ hebergeur.adresse }} ({{ hebergeur.site }}).
+      Le serveur qui fait tourner Helmane est situé à {{ hebergeur.serveur }}.</p>
+  </section>
+
+  <section>
+    <h2>Données personnelles</h2>
+    <p>Le responsable du traitement est l'éditeur du site.</p>
+
+    <h3>La demande de rappel</h3>
+    <p>Le numéro que vous laissez sert uniquement à vous rappeler pour une démonstration, et
+      à vérifier qu'un même numéro n'est pas rappelé plus de deux fois par jour. Il est
+      effacé au bout de {{ jours_rappel }} jours. L'adresse IP de la demande sert à limiter
+      le nombre de demandes par heure ; elle n'est pas enregistrée dans notre base.</p>
+
+    <h3>L'appel de démonstration</h3>
+    <p>Comme tout appel pris par l'assistante, il est enregistré et transcrit, et vous en
+      êtes prévenu au début de l'appel. L'enregistrement est conservé {{ jours_enregistrement }}
+      jours, la transcription {{ jours_transcript }} jours, et votre numéro {{ jours_numero }}
+      jours. Une réservation faite pendant la démonstration est enregistrée dans le carnet
+      d'un restaurant fictif.</p>
+
+    <h3>Les prestataires</h3>
+    <p>Pour passer et comprendre l'appel, Helmane fait appel à Twilio (téléphonie), Deepgram
+      (transcription), OpenRouter (compréhension du langage) et Mistral (voix). Twilio,
+      Deepgram et OpenRouter traitent ces données aux États-Unis.</p>
+
+    <h3>Vos droits</h3>
+    <p>Vous pouvez demander l'accès à vos données, leur rectification ou leur effacement, et
+      vous opposer à leur traitement{% if editeur.email %}, en écrivant à {{ editeur.email }}{% endif %}.
+      Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>
+  </section>
+
+  <section>
+    <h2>Cookies et mesure d'audience</h2>
+    <p>Ce site ne dépose aucun cookie et ne mesure pas son audience. L'espace client, lui,
+      utilise un cookie de session, nécessaire à la connexion.</p>
+  </section>
+
+  <section>
+    <h2>Propriété intellectuelle</h2>
+    <p>Les textes, les dessins et la marque Helmane appartiennent à l'éditeur. Les polices
+      Inter et Inter Tight sont distribuées sous licence SIL Open Font License.</p>
+  </section>
+</main>
+
+<footer class="shell pied">
+  <a class="marque marque--pied" href="/">Helmane</a>
+  <span>L'assistante téléphonique des restaurants.</span>
+  <a href="/admin/login">Espace client</a>
+  <a href="/mentions-legales">Mentions légales</a>
+  <span>helmane.fr · Carnet hébergé à Paris</span>
+</footer>
+</body>
+</html>

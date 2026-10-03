@@ -7,6 +7,23 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — mentions légales, démonstration fictive, voix par défaut (03/10/2026)
+
+### Ajouté
+- **Page « Mentions légales »** (`/mentions-legales`, lien en pied de page) : hébergeur
+  (Hostinger, relevé le 03/10/2026), données personnelles du rappel et de l'appel de
+  démonstration, durées lues dans `rgpd.py`, prestataires, droits, cookies. L'identité de
+  l'éditeur (`site.EDITEUR`) reste à fournir : la page n'affiche que les champs remplis.
+
+### Modifié
+- **Le restaurant de démonstration est fictif : « Le Bouchon Doré »**, bistrot du 11e.
+  C'était le Fouquet's, avec sa vraie adresse et son vrai standard, que l'assistante
+  donnait à qui l'essayait. Renommé en production le 03/10/2026 ; le semis d'une base
+  neuve suit.
+- **Voix par défaut : Marie enthousiaste** (c'était Marie neutre), pour tout établissement
+  qui n'a pas choisi de voix — dont celui du rappel du site.
+- La page d'accueil ne promet plus 14 jours d'essai.
+
 ## Non publiée — la grille à la minute (ASSISTANTE-120, 02/10/2026)
 
 ### Modifié

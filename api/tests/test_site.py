@@ -188,6 +188,57 @@ class TestLesPrixSontCeuxDeLaGrille:
         assert site._euros(montant) == attendu
 
 
+class TestLesMentionsLegales:
+    @pytest.fixture()
+    def mentions(self, client) -> str:
+        reponse = client.get("/mentions-legales")
+        assert reponse.status_code == 200
+        return reponse.text.replace("&#39;", "'")
+
+    def test_l_accueil_y_mene(self, page):
+        assert '<a href="/mentions-legales">Mentions légales</a>' in page
+
+    def test_publique_sans_cookie_ni_base(self, client, monkeypatch):
+        from app import db
+
+        def interdit(*_a, **_k):
+            raise AssertionError("les mentions légales ont ouvert la base")
+
+        monkeypatch.setattr(db, "get_conn", interdit)
+        reponse = client.get("/mentions-legales")
+        assert reponse.status_code == 200 and "set-cookie" not in reponse.headers
+        assert client.head("/mentions-legales").status_code == 200
+
+    def test_ni_script_en_ligne_ni_ressource_d_un_autre_site(self, mentions):
+        assert not re.search(r"<script\b", mentions)
+        assert not re.search(r"\son[a-z]+\s*=", mentions)
+        assert re.findall(r"""(?:src|href|action)\s*=\s*["'](https?:)?//[^"']+""", mentions) == []
+
+    def test_l_hebergeur(self, mentions):
+        assert "Hostinger International Limited" in mentions
+        assert "Larnaca" in mentions and "Paris (France)" in mentions
+
+    def test_les_durees_sont_celles_que_la_purge_applique(self, client, monkeypatch):
+        """La page ne doit pas promettre une durée que `rgpd.py` n'applique pas."""
+        monkeypatch.setenv("RETENTION_RAPPEL_JOURS", "12")
+        monkeypatch.setenv("RETENTION_NUMERO_JOURS", "45")
+        page = client.get("/mentions-legales").text
+        assert "effacé au bout de 12 jours" in page and "votre numéro 45" in page
+
+    def test_ni_cookie_ni_mesure_d_audience_annonces(self, mentions):
+        assert "ne dépose aucun cookie" in mentions
+
+    def test_l_editeur_affiche_ce_qui_est_rempli_et_rien_d_autre(self, client, monkeypatch):
+        vide = client.get("/mentions-legales").text
+        assert "None" not in vide and "SIREN :" not in vide
+        monkeypatch.setitem(site.EDITEUR, "nom", "Jeanne Exemple")
+        monkeypatch.setitem(site.EDITEUR, "siren", "000 000 000")
+        monkeypatch.setitem(site.EDITEUR, "email", "contact@exemple.test")
+        page = client.get("/mentions-legales").text
+        assert "<b>Jeanne Exemple</b>" in page and "SIREN : 000 000 000" in page
+        assert "en écrivant à contact@exemple.test" in page
+
+
 class TestCeQueLaPagePromet:
     def test_elle_ne_promet_pas_le_restaurant_du_visiteur(self, page):
         """Marie rappelle en répondant pour l'établissement de démonstration : la page ne
@@ -198,6 +249,10 @@ class TestCeQueLaPagePromet:
 
     def test_plus_aucune_trace_de_la_maquette(self, page):
         assert "maquette" not in page.lower()
+
+    def test_plus_d_essai_de_14_jours(self, page):
+        """Retiré le 03/10/2026 à la demande de Helmi : rien ne l'applique."""
+        assert "14 jours" not in page and "jours d'essai" not in page
 
     def test_ni_temoignage_ni_chiffre_de_clientele(self, page):
         for invente in ("témoignage", "restaurants nous font confiance", "clients satisfaits",

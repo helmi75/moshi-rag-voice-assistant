@@ -253,6 +253,9 @@ répéter. Il faut un portable français de métropole.
 | W10 | Ne pas décrocher (à faire au deuxième rappel de W9) | Le téléphone sonne 25 s puis s'arrête ; aucun appel au journal | |
 | W11 | Après 22 h, saisir son portable | « Marie rappelle entre 8 h et 22 h » ; le téléphone ne sonne pas | |
 | W12 | Boîte de `ADMIN_EMAIL` | Un e-mail « Demande de rappel depuis le site » par rappel passé | |
+| W13 | Pied de page → *Mentions légales* | La page s'ouvre, en clair et en sombre ; l'hébergeur est Hostinger ; les durées annoncées (30 jours pour la demande, 90 pour le numéro) ; l'identité de l'éditeur est complète **une fois fournie** | |
+| W14 | Relire le haut de la page et le bas des formules | Plus aucune promesse de « 14 jours d'essai » | |
+| W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 
