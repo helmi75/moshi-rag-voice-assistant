@@ -63,6 +63,17 @@ class Consommation:
         return round(self.minutes)
 
     @property
+    def consomme_lisible(self) -> str:
+        """« 23 secondes », « 1 minute », « 212 minutes ». Sous la minute, un arrondi
+        écrirait « 0 minute » après un vrai appel, et ferait croire qu'il n'a pas compté
+        (appel 219 du 03/10/2026 : 23 secondes)."""
+        secondes = round(self.minutes * 60)
+        if secondes < 60:
+            return f"{secondes} seconde{'s' if secondes > 1 else ''}"
+        minutes = round(self.minutes)
+        return f"{minutes} minute{'s' if minutes > 1 else ''}"
+
+    @property
     def hors_forfait_affichable(self) -> int:
         """Vingt secondes au-delà du forfait ne s'affichent pas « 0 minute » à côté d'un
         montant : dès qu'il y a quelque chose à facturer, on écrit au moins 1."""

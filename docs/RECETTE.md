@@ -91,7 +91,7 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 |---|---|---|---|
 | E1 | Admin → fiche établissement | Le sélecteur de **Formule** apparaît (super-admin seulement) | |
 | E2 | Se connecter en restaurateur | Le sélecteur **n'apparaît pas** | |
-| E3 | Salle de contrôle | Carte « Forfait », compteur du **mois calendaire**, en **minutes** (« 12 minute(s) d'appel ce mois-ci sur 250 incluses, en 5 appel(s) ») | |
+| E3 | Salle de contrôle | Carte « Forfait », compteur du **mois calendaire**, en **minutes** (« 12 minutes d'appel ce mois-ci sur 250 minutes incluses, en 5 appel(s) » ; sous la minute, en secondes) | |
 | E4 | Éprouver le forfait sans passer 250 minutes : attribuer la formule à un établissement de test, ou insérer en base des lignes `calls` du mois en cours avec leur `duration_seconds` | Alerte à 80 %, puis « Forfait dépassé » avec les minutes et le montant — **et la ligne continue de répondre** | |
 | E5 | Passer un appel d'une minute environ, raccrocher, recharger la salle de contrôle | Le compteur a avancé de la durée de l'appel, **à la seconde** (pas d'une minute entière par appel) | |
 | E6 | Fiche établissement → Formule | Quatre formules, en minutes : « Liberté — sans abonnement, 0.45 € la minute », « Essentiel — 89 €/mois, 250 minutes »… | |
@@ -187,7 +187,7 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | V5 | Réserver une table | Toute la conversation dans la voix choisie, relances et « pardon » compris | |
 | V6 | « Santé & coûts » → carte « Répartition du coût » : additionner les montants des lignes | On retombe sur le total écrit sous le titre de la carte. La ligne « Voix Moshi (historique) » ne compte que les appels d'avant la bascule : elle baisse de jour en jour | |
 | V6 bis | Appels → ouvrir un appel **récent** d'environ 2 min (voix Mistral) | Son coût, écrit à côté de sa durée, est d'environ 0,05 $. Ne pas le comparer au « coût moyen par appel » : cette moyenne porte sur 30 jours et compte encore les anciens appels Moshi | |
-| V7 | Un établissement qui n'a rien choisi | Il parle avec la voix par défaut du parc (Marie neutre) | |
+| V7 | Un établissement qui n'a rien choisi | Il parle avec la voix par défaut du parc (Marie enthousiaste depuis le 03/10/2026) | |
 
 ## P. L'admin du restaurateur — Sprint 2 « Admin pro » (SCRUM-106 à 113, ASSISTANTE-114 à 116)
 

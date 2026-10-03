@@ -8,6 +8,7 @@ et chacune a son test :
    ne peut pas relire sa facture ;
 3. **il compte des minutes, à la seconde** — ce que la grille vend depuis le 02/10/2026.
 """
+import re
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -386,10 +387,26 @@ class TestAffichage:
         essentiel = plans.get("essentiel")
         page = self._texte(client.get(f"/admin/?tenant_id={etablissement.id}"))
         assert "Forfait Essentiel" in page and "Dans le forfait" in page
-        assert (f"3 minute(s) d'appel ce mois-ci sur {essentiel.minutes_incluses} "
-                "incluses, en 2 appel(s)") in page
+        assert (f"3 minutes d'appel ce mois-ci sur {essentiel.minutes_incluses} "
+                "minutes incluses, en 2 appel(s)") in page
         assert f"chaque minute est facturée {essentiel.minute_supp_eur:.2f} €" in page
-        assert f'aria-label="3 minutes sur {essentiel.minutes_incluses} incluses"' in page
+        assert f'aria-label="3 minutes sur {essentiel.minutes_incluses} minutes incluses"' in page
+
+    def test_un_appel_court_s_affiche_en_secondes(self, client, etablissement):
+        """Appel 219 du 03/10/2026 : 23 secondes. « 0 minute » aurait fait croire qu'il
+        n'avait pas compté."""
+        tenants.update_tenant(etablissement.id, plan="essentiel")
+        _appels(etablissement.id, 1, secondes=23.0, prefixe="AFF-C")
+        page = self._texte(client.get(f"/admin/?tenant_id={etablissement.id}"))
+        assert "23 secondes d'appel ce mois-ci" in page
+        assert not re.search(r"(?<![0-9])0 minute", page)  # « 250 minutes » n'en est pas
+
+    @pytest.mark.parametrize("secondes,attendu", [(1, "1 seconde"), (59.4, "59 secondes"),
+                                                  (60, "1 minute"), (95, "2 minutes"),
+                                                  (12_725, "212 minutes")])
+    def test_la_consommation_se_lit_a_l_unite_pres(self, secondes, attendu):
+        c = quotas._consommation(plans.get("essentiel"), 1, secondes)
+        assert c.consomme_lisible == attendu
 
     def test_le_depassement_s_ecrit_en_minutes_et_en_euros(self, client, etablissement):
         service = plans.get("service")
