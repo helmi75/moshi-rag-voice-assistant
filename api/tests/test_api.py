@@ -77,13 +77,20 @@ class TestTenantRouting:
             assert tenants.list_all() == []
             monkeypatch.delenv("SEED_DEMO")
             tenants.seed_demo_tenant()
-            assert [t.name for t in tenants.list_all()] == ["Le Fouquet's Paris"]
+            assert [t.name for t in tenants.list_all()] == ["Le Bouchon Doré"]
+
+    def test_le_restaurant_de_demonstration_n_est_pas_une_vraie_enseigne(self):
+        """Jusqu'au 03/10/2026 la démonstration était le Fouquet's, avec son adresse et son
+        standard : l'assistante donnait le numéro d'une enseigne réelle à qui l'essayait."""
+        for texte in (tenants._DEMO_NOM, tenants._DEMO_GREETING, tenants._DEMO_KNOWLEDGE_BASE):
+            assert "Fouquet" not in texte and "Champs-Élysées" not in texte
+        assert "01 40 69 60 50" not in tenants._DEMO_KNOWLEDGE_BASE
 
     def test_seed_preserves_customized_greeting(self):
         """Un accueil personnalisé (greeting_customized=1) ne doit JAMAIS être écrasé au
         redémarrage : sinon le restaurateur reperd son accueil à chaque restart du conteneur."""
         demo = tenants.get_by_phone(DEMO_NUMBER)
-        custom = "Bonjour et bienvenue au Fouquet's, un instant s'il vous plaît."
+        custom = "Bonjour et bienvenue au Bouchon Doré, un instant s'il vous plaît."
         tenants.update_tenant(demo.id, greeting=custom, greeting_customized=1)
         tenants.seed_demo_tenant()  # simule un redémarrage
         assert tenants.get_by_id(demo.id).greeting == custom
