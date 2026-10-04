@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="{{ statique('admin.css') }}">
   <script src="{{ statique('htmx.min.js') }}" defer></script>
   <script src="{{ statique('admin.js') }}" defer></script>
+  {# Sans script, le bouton du menu ne peut rien ouvrir : la navigation reste dépliée. #}
+  <noscript><style>.menu { display: flex !important; } .menu-bouton { display: none !important; }</style></noscript>
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{ request.session.get("csrf", "") }}"}'>
 {% set shell_user = request.state.user if request.state.user is defined else none %}
@@ -34,7 +36,14 @@
       </span>
       <span class="brand-name">Helmane</span>
     </a>
+    {# Téléphone : la navigation se range derrière ce bouton (admin.js le branche). #}
+    <button type="button" class="menu-bouton outline" data-menu aria-expanded="false" aria-controls="menu">
+      <svg class="menu-ouvrir" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      <svg class="menu-fermer" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      <span class="sr-only">Menu</span>
+    </button>
 
+    <div class="menu" id="menu">
     {% if shell_user.is_superadmin %}
     <div class="ctx-card ctx-super">
       <span class="ctx-role">Super-admin</span>
@@ -144,6 +153,7 @@
           <button class="logout" type="submit" title="Déconnexion">Quitter</button>
         </form>
       </div>
+    </div>
     </div>
   </aside>
   {% endif %}

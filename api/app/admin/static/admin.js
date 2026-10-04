@@ -153,3 +153,29 @@ document.addEventListener("keydown", (event) => {
   cible.setAttribute("tabindex", "0");
   cible.focus();
 });
+
+// Menu du téléphone : le bouton aux trois barres déroule la navigation et la referme.
+// L'état est porté par `data-ouvert` sur la barre (la feuille de style fait le reste) et
+// par `aria-expanded` sur le bouton. Échap et un toucher hors de la barre referment.
+function basculerMenu(ouvrir) {
+  const barre = document.querySelector(".sidebar");
+  const bouton = document.querySelector("[data-menu]");
+  if (!barre || !bouton) return;
+  barre.toggleAttribute("data-ouvert", ouvrir);
+  bouton.setAttribute("aria-expanded", ouvrir ? "true" : "false");
+}
+document.addEventListener("click", (event) => {
+  const barre = document.querySelector(".sidebar");
+  if (!barre || !(event.target instanceof Element)) return;
+  if (event.target.closest("[data-menu]")) {
+    basculerMenu(!barre.hasAttribute("data-ouvert"));
+  } else if (barre.hasAttribute("data-ouvert") && !event.target.closest(".sidebar")) {
+    basculerMenu(false);
+  }
+});
+document.addEventListener("keydown", (event) => {
+  const barre = document.querySelector(".sidebar");
+  if (event.key !== "Escape" || !barre || !barre.hasAttribute("data-ouvert")) return;
+  basculerMenu(false);
+  document.querySelector("[data-menu]")?.focus();
+});

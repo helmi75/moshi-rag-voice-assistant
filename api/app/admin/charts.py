@@ -11,8 +11,8 @@ Conventions (skill dataviz) :
 - couleurs par variables CSS (--viz-series-*) définies dans admin.css pour les deux
   thèmes ; le texte porte l'encre texte (muted), jamais la couleur de série ;
 - barres fines, sommet arrondi 4px ancré à la baseline, écart 2px minimum ;
-- labels de valeur directs (règle de « relief » : la série aqua est sous 3:1 sur
-  fond clair, donc les valeurs sont affichées) + la bulle au survol. Une valeur
+- labels de valeur directs + la bulle au survol (depuis le 04/10/2026 les deux séries,
+  orange et bleu canard, tiennent 3:1 sur leur surface ; les valeurs restent). Une valeur
   au-dessus de CHAQUE barre non nulle tant qu'elle y tient (SCRUM-113 : Helmi lisait
   30 jours à l'œil, seuls le maximum et le dernier jour étaient écrits) ;
 - axe/grille en retrait (une baseline discrète), pas de double axe.
