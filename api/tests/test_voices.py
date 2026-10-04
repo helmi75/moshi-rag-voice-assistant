@@ -52,7 +52,7 @@ class TestCatalogue:
         assert all("/" not in v.label for v in voices.catalogue())
 
     def test_la_voix_par_defaut_est_au_catalogue(self):
-        assert voices.get(voices.VOIX_PAR_DEFAUT).label == "Marie · neutre"
+        assert voices.get(voices.VOIX_PAR_DEFAUT).label == "Marie · enthousiaste"
 
     def test_les_voix_moshi_de_secours_viennent_d_un_dossier_embarque(self):
         """Élargir EMBEDDED_FOLDERS suppose d'élargir VOICE_FOLDERS dans

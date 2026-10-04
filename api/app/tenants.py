@@ -7,26 +7,30 @@ from . import db
 
 DEMO_TENANT_NUMBER = os.getenv("TWILIO_NUMBER", "+33100000000")
 
-# Accueil du tenant démo. Plus de « un instant s'il vous plaît » depuis la voix Mistral
-# (SCRUM-107) : il n'y a plus de réveil de GPU à meubler.
-_DEMO_GREETING = "Bonjour, restaurant Le Fouquet's Paris."
+# Le restaurant de démonstration est FICTIF. Jusqu'au 03/10/2026 c'était le Fouquet's,
+# avec sa vraie adresse et son vrai numéro : l'assistante donnait le standard d'une
+# enseigne réelle à qui l'essayait, et le rappel du site (app/rappel.py) la nommait.
+# Plus de « un instant s'il vous plaît » depuis la voix Mistral (SCRUM-107) : il n'y a
+# plus de réveil de GPU à meubler.
+_DEMO_NOM = "Le Bouchon Doré"
+_DEMO_GREETING = f"Bonjour, {_DEMO_NOM}."
 
-_DEMO_KNOWLEDGE_BASE = """\
+_DEMO_KNOWLEDGE_BASE = f"""\
 ## Restaurant
-Le Fouquet's Paris, 99 avenue des Champs-Élysées, au sein de l'hôtel Barrière.
-Téléphone : 01 40 69 60 50.
+{_DEMO_NOM}, bistrot parisien dans le 11e arrondissement. Cuisine de bistrot, produits de saison.
 
 ## Horaires
-Ouvert tous les jours. Petit-déjeuner dès 7h30, service continu jusqu'à 23h30.
-Brunch le week-end de 11h30 à 15h.
+Du mardi au samedi : déjeuner de 12h à 14h30, dîner de 19h à 22h30.
+Fermé le dimanche et le lundi.
 
 ## Menus
-Formule déjeuner à partir de 78 €. Options sans gluten et végétariennes disponibles.
-Terrasse chauffée toute l'année.
+Le midi : entrée et plat, ou plat et dessert, 24 € ; entrée, plat et dessert, 29 €.
+Le soir, à la carte : plats de 19 à 32 €.
+Un plat végétarien chaque jour. Sans gluten sur demande.
 
 ## Réservations
-Tables de 1 à 12 personnes. Au-delà de 12 personnes, orienter vers le service groupes
-au 01 40 69 60 50.
+Tables de 1 à 10 personnes. Au-delà de 10 personnes, prendre un message pour le responsable.
+Terrasse de 20 places aux beaux jours, sans réservation.
 """
 
 
@@ -225,7 +229,7 @@ def seed_demo_tenant() -> None:
             """INSERT INTO tenants (name, business_type, phone_number, language, greeting, knowledge_base)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (
-                "Le Fouquet's Paris",
+                _DEMO_NOM,
                 "restaurant",
                 DEMO_TENANT_NUMBER,
                 "fr-FR",

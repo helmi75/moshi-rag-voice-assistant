@@ -7,6 +7,50 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — essai de GPT-Live, la voix-à-voix d'OpenAI (04/10/2026)
+
+### Ajouté
+- **`voice/live.py`** : pour les établissements nommés dans `GPT_LIVE_ETABLISSEMENTS`, et
+  eux seuls, l'appel est relayé à GPT-Live au format du téléphone (µ-law 8 kHz), sans
+  Pipecat. Elle écoute pendant qu'elle parle. GPT-Live n'est que la voix : le cerveau
+  reste `google/gemini-2.5-flash` (décision de Helmi), qui raisonne sur la conversation
+  entendue et appelle nos outils, toujours par `llm.run_tool` avec tous leurs refus.
+- Si la session ne s'ouvre pas (clé, crédit, réseau, plus de quatre secondes), l'appel est
+  servi par le pipeline habituel. Si elle tombe en cours d'appel, le renvoi vers le
+  restaurant joue comme pour toute panne.
+- L'appel est au journal : transcription des deux côtés, blanc ressenti tour par tour
+  (comparable à celui du pipeline), enregistrement deux pistes, coût réel : 0,05 $ la
+  minute de voix (tarif d'OpenAI du 04/10/2026) et les jetons du cerveau à leur tarif.
+- `scripts/essai_conversation_gpt_live.py` : une réservation complète jouée contre le vrai
+  GPT-Live, sans téléphone. Trois essais : réservation créée à chaque fois, 0,062 à
+  0,065 $ la minute, réponses 0,2 à 0,4 s après la fin de la phrase du client.
+- `scripts/essai_voix_gpt_live.py` : un extrait en français par voix, pour choisir à
+  l'oreille.
+- `docs/TEMPS_REEL.md` : l'étude des huit technologies et le compte rendu de l'essai.
+
+### Ce que l'essai a déjà appris
+- 22 voix sont ouvertes au compte ; « brise » et « sillage », citées dans la référence
+  d'OpenAI, sont refusées. Aucune voix n'est annoncée comme française.
+- La consigne d'accueil ne fait pas toujours parler le modèle : l'accueil lui est redonné
+  au bout de 2,5 s de silence.
+
+## Non publiée — mentions légales, démonstration fictive, voix par défaut (03/10/2026)
+
+### Ajouté
+- **Page « Mentions légales »** (`/mentions-legales`, lien en pied de page) : hébergeur
+  (Hostinger, relevé le 03/10/2026), données personnelles du rappel et de l'appel de
+  démonstration, durées lues dans `rgpd.py`, prestataires, droits, cookies. L'identité de
+  l'éditeur (`site.EDITEUR`) reste à fournir : la page n'affiche que les champs remplis.
+
+### Modifié
+- **Le restaurant de démonstration est fictif : « Le Bouchon Doré »**, bistrot du 11e.
+  C'était le Fouquet's, avec sa vraie adresse et son vrai standard, que l'assistante
+  donnait à qui l'essayait. Renommé en production le 03/10/2026 ; le semis d'une base
+  neuve suit.
+- **Voix par défaut : Marie enthousiaste** (c'était Marie neutre), pour tout établissement
+  qui n'a pas choisi de voix — dont celui du rappel du site.
+- La page d'accueil ne promet plus 14 jours d'essai.
+
 ## Non publiée — la grille à la minute (ASSISTANTE-120, 02/10/2026)
 
 ### Modifié

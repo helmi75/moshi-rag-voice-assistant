@@ -91,7 +91,7 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 |---|---|---|---|
 | E1 | Admin → fiche établissement | Le sélecteur de **Formule** apparaît (super-admin seulement) | |
 | E2 | Se connecter en restaurateur | Le sélecteur **n'apparaît pas** | |
-| E3 | Salle de contrôle | Carte « Forfait », compteur du **mois calendaire**, en **minutes** (« 12 minute(s) d'appel ce mois-ci sur 250 incluses, en 5 appel(s) ») | |
+| E3 | Salle de contrôle | Carte « Forfait », compteur du **mois calendaire**, en **minutes** (« 12 minutes d'appel ce mois-ci sur 250 minutes incluses, en 5 appel(s) » ; sous la minute, en secondes) | |
 | E4 | Éprouver le forfait sans passer 250 minutes : attribuer la formule à un établissement de test, ou insérer en base des lignes `calls` du mois en cours avec leur `duration_seconds` | Alerte à 80 %, puis « Forfait dépassé » avec les minutes et le montant — **et la ligne continue de répondre** | |
 | E5 | Passer un appel d'une minute environ, raccrocher, recharger la salle de contrôle | Le compteur a avancé de la durée de l'appel, **à la seconde** (pas d'une minute entière par appel) | |
 | E6 | Fiche établissement → Formule | Quatre formules, en minutes : « Liberté — sans abonnement, 0.45 € la minute », « Essentiel — 89 €/mois, 250 minutes »… | |
@@ -187,7 +187,7 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | V5 | Réserver une table | Toute la conversation dans la voix choisie, relances et « pardon » compris | |
 | V6 | « Santé & coûts » → carte « Répartition du coût » : additionner les montants des lignes | On retombe sur le total écrit sous le titre de la carte. La ligne « Voix Moshi (historique) » ne compte que les appels d'avant la bascule : elle baisse de jour en jour | |
 | V6 bis | Appels → ouvrir un appel **récent** d'environ 2 min (voix Mistral) | Son coût, écrit à côté de sa durée, est d'environ 0,05 $. Ne pas le comparer au « coût moyen par appel » : cette moyenne porte sur 30 jours et compte encore les anciens appels Moshi | |
-| V7 | Un établissement qui n'a rien choisi | Il parle avec la voix par défaut du parc (Marie neutre) | |
+| V7 | Un établissement qui n'a rien choisi | Il parle avec la voix par défaut du parc (Marie enthousiaste depuis le 03/10/2026) | |
 
 ## P. L'admin du restaurateur — Sprint 2 « Admin pro » (SCRUM-106 à 113, ASSISTANTE-114 à 116)
 
@@ -253,6 +253,29 @@ répéter. Il faut un portable français de métropole.
 | W10 | Ne pas décrocher (à faire au deuxième rappel de W9) | Le téléphone sonne 25 s puis s'arrête ; aucun appel au journal | |
 | W11 | Après 22 h, saisir son portable | « Marie rappelle entre 8 h et 22 h » ; le téléphone ne sonne pas | |
 | W12 | Boîte de `ADMIN_EMAIL` | Un e-mail « Demande de rappel depuis le site » par rappel passé | |
+| W13 | Pied de page → *Mentions légales* | La page s'ouvre, en clair et en sombre ; l'hébergeur est Hostinger ; les durées annoncées (30 jours pour la demande, 90 pour le numéro) ; l'identité de l'éditeur est complète **une fois fournie** | |
+| W14 | Relire le haut de la page et le bas des formules | Plus aucune promesse de « 14 jours d'essai » | |
+| W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
+
+## T. L'essai GPT-Live, la voix-à-voix d'OpenAI (`docs/TEMPS_REEL.md`)
+
+Sur l'établissement nommé dans `GPT_LIVE_ETABLISSEMENTS`, et lui seul. Chaque minute coûte
+0,05 $ à OpenAI en plus de Twilio. Faire les mêmes appels sur un établissement resté sur
+le pipeline habituel : c'est la comparaison qui compte.
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| T1 | Écouter les extraits de `local/essai-gpt-live/` | Une voix retenue pour son français ; elle est posée dans `GPT_LIVE_VOIX` | |
+| T2 | Appeler l'établissement à l'essai | L'accueil de l'établissement, mention d'information comprise, en moins de trois secondes ; au journal du conteneur : « [gpt-live] appel … » | |
+| T3 | Réserver une table | Une phrase d'attente (« Je vérifie… »), puis la confirmation ; la table est dans le carnet, avec le numéro de l'appelant | |
+| T4 | Lui couper la parole au milieu d'une phrase | Elle se tait aussitôt et écoute | |
+| T5 | Hésiter : « Alors… ce serait pour… euh… samedi » | Elle attend la fin, sans répondre dans le blanc | |
+| T6 | Demander un jour de fermeture | Refus, et une autre proposition : le refus vient du serveur | |
+| T7 | Parler anglais | Elle répond en anglais | |
+| T8 | « Non merci, au revoir » | Elle prend congé, et la ligne est raccrochée deux secondes après | |
+| T9 | Admin → Appels → cet appel | Les deux côtés de la conversation, l'enregistrement, et le coût : voix = durée × 0,05 $, transcription à zéro, cerveau = les jetons de Gemini | |
+| T10 | Appeler un établissement hors essai | Marie, comme d'habitude | |
+| T11 | Dix appels de chaque côté, puis « Santé & coûts » | Le blanc médian et le coût par minute des deux, côte à côte : c'est le verdict de l'essai | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

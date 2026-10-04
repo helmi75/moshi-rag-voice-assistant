@@ -19,7 +19,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
-from .. import plans, rappel
+from .. import plans, rappel, rgpd
 from ..admin import throttle
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -79,6 +79,42 @@ def accueil(request: Request):
         "duree_appel": _duree(plans.DUREE_APPEL_MIN),
         "seuil": round(plans.SEUIL_ALERTE * 100),
         "net_exemple": _euros(_CA_EXEMPLE - premiere.prix_mensuel_eur),
+    })
+
+
+# L'éditeur du site (loi pour la confiance dans l'économie numérique, art. 6-III). Rien
+# n'est inventé ici : chaque champ vide est à fournir par Helmi, et la page n'affiche que
+# ce qui est rempli.
+EDITEUR = {
+    "nom": "",        # nom et prénom, ou raison sociale
+    "statut": "",     # « entrepreneur individuel », « SAS au capital de … € »…
+    "siren": "",
+    "adresse": "",
+    "email": "",      # sert aussi aux demandes sur les données personnelles
+    "directeur": "",  # directeur de la publication
+}
+
+# Relevé le 03/10/2026 dans les conditions générales de Hostinger (l'entité qui sert la
+# France) ; le lieu du serveur est celui du registre de docs/RGPD.md.
+HEBERGEUR = {
+    "nom": "Hostinger International Limited",
+    "adresse": "61 Lordou Vironos Street, 6023 Larnaca, Chypre",
+    "site": "hostinger.fr",
+    "serveur": "Paris (France)",
+}
+
+
+@router.api_route("/mentions-legales", methods=["GET", "HEAD"], response_class=HTMLResponse)
+def mentions_legales(request: Request):
+    """Publique et sans base, comme l'accueil. Les durées de conservation sont celles que
+    `rgpd.py` applique vraiment : la page ne peut pas en promettre d'autres."""
+    return templates.TemplateResponse(request, "mentions.html", {
+        "editeur": EDITEUR,
+        "hebergeur": HEBERGEUR,
+        "jours_rappel": rgpd.jours_rappel(),
+        "jours_enregistrement": rgpd.jours_enregistrement(),
+        "jours_transcript": rgpd.jours_transcript(),
+        "jours_numero": rgpd.jours_numero(),
     })
 
 

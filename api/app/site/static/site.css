@@ -423,3 +423,14 @@ input[type="range"] { width: 100%; accent-color: var(--accent); height: 1.5rem; 
 .pied a:not(.marque):hover { color: var(--ink); }
 .marque--pied { font-size: 1.05rem; }
 @media (max-width: 600px) { .pied span:last-child { margin-left: 0; } }
+
+/* ---------- mentions légales ---------- */
+.legal__tete { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding-block: 1.4rem; }
+.legal { max-width: calc(70ch + 2 * var(--gutter)); padding-block: 1.5rem 3.5rem; display: flex; flex-direction: column; gap: 2.2rem; }
+.legal h1 { font-size: clamp(2.2rem, 1.6rem + 2.4vw, 3.2rem); }
+.legal section { display: flex; flex-direction: column; gap: .7rem; }
+.legal h2 { font-size: 1.45rem; }
+.legal h3 { font-size: 1.05rem; margin-top: .5rem; }
+.legal p, .legal li { color: var(--muted); line-height: 1.65; }
+.legal ul { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: .3rem; }
+.legal b { color: var(--ink); }

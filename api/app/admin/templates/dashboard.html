@@ -35,15 +35,15 @@
       {# Rien d'inclus : ni plafond, ni barre. On écrit ce qui sera facturé. #}
       <h2>Formule {{ quota.formule.label }}
         <span class="chip chip-good">Sans abonnement</span></h2>
-      <p class="card-sub">{{ quota.minutes_affichables }} minute(s) d'appel ce mois-ci,
+      <p class="card-sub">{{ quota.consomme_lisible }} d'appel ce mois-ci,
         en {{ quota.appels }} appel(s), soit {{ "%.2f" | format(quota.montant_eur) }} € à
         facturer. Chaque minute est facturée {{ minute_supp }} €, décomptée à la seconde.
       </p>
       {% else %}
       <h2>Forfait {{ quota.formule.label }}
         <span class="chip {{ etat.chip }}">{{ etat.mot }}</span></h2>
-      <p class="card-sub">{{ quota.minutes_affichables }} minute(s) d'appel ce mois-ci sur
-        {{ quota.inclus }} incluses, en {{ quota.appels }} appel(s).
+      <p class="card-sub">{{ quota.consomme_lisible }} d'appel ce mois-ci sur
+        {{ quota.inclus }} minutes incluses, en {{ quota.appels }} appel(s).
         {% if quota.hors_forfait %}
         <b>{{ quota.hors_forfait_affichable }} minute(s) hors forfait</b>, soit
         {{ "%.2f" | format(quota.montant_eur) }} € à facturer.
@@ -58,7 +58,7 @@
   </div>
   {% if not quota.formule.sans_forfait %}
   <div class="meter {{ etat.classe }}" role="img"
-       aria-label="{{ quota.minutes_affichables }} minutes sur {{ quota.inclus }} incluses">
+       aria-label="{{ quota.consomme_lisible }} sur {{ quota.inclus }} minutes incluses">
     <i style="width: {{ quota.part_affichable }}%"></i>
   </div>
   {% endif %}
