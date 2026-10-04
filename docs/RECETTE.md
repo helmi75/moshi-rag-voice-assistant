@@ -257,6 +257,26 @@ répéter. Il faut un portable français de métropole.
 | W14 | Relire le haut de la page et le bas des formules | Plus aucune promesse de « 14 jours d'essai » | |
 | W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
 
+## T. L'essai GPT-Live, la voix-à-voix d'OpenAI (`docs/TEMPS_REEL.md`)
+
+Sur l'établissement nommé dans `GPT_LIVE_ETABLISSEMENTS`, et lui seul. Chaque minute coûte
+0,05 $ à OpenAI en plus de Twilio. Faire les mêmes appels sur un établissement resté sur
+le pipeline habituel : c'est la comparaison qui compte.
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| T1 | Écouter les extraits de `local/essai-gpt-live/` | Une voix retenue pour son français ; elle est posée dans `GPT_LIVE_VOIX` | |
+| T2 | Appeler l'établissement à l'essai | L'accueil de l'établissement, mention d'information comprise, en moins de trois secondes ; au journal du conteneur : « [gpt-live] appel … » | |
+| T3 | Réserver une table | Une phrase d'attente (« Je vérifie… »), puis la confirmation ; la table est dans le carnet, avec le numéro de l'appelant | |
+| T4 | Lui couper la parole au milieu d'une phrase | Elle se tait aussitôt et écoute | |
+| T5 | Hésiter : « Alors… ce serait pour… euh… samedi » | Elle attend la fin, sans répondre dans le blanc | |
+| T6 | Demander un jour de fermeture | Refus, et une autre proposition : le refus vient du serveur | |
+| T7 | Parler anglais | Elle répond en anglais | |
+| T8 | « Non merci, au revoir » | Elle prend congé, et la ligne est raccrochée deux secondes après | |
+| T9 | Admin → Appels → cet appel | Les deux côtés de la conversation, l'enregistrement, et le coût : voix = durée × 0,05 $, transcription à zéro, cerveau = les jetons de Gemini | |
+| T10 | Appeler un établissement hors essai | Marie, comme d'habitude | |
+| T11 | Dix appels de chaque côté, puis « Santé & coûts » | Le blanc médian et le coût par minute des deux, côte à côte : c'est le verdict de l'essai | |
+
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 
 | # | Faire | Attendu | OK ? |

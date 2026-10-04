@@ -1022,6 +1022,17 @@ GARDE_FOUS = [
         k="formulaire_classique",
         panne="un formulaire caché sur un autre site déclencherait des rappels sans permission",
     ),
+    # ---- Essai GPT-Live : il ne s'allume que pour les établissements nommés ---------------
+    GardeFou(
+        nom="GPT-Live : un établissement hors essai ne passe jamais par OpenAI",
+        fichier="api/app/voice/live.py",
+        avant="    return bool(tenant is not None and cle() and tenant.id in etablissements())",
+        apres="    return bool(tenant is not None and cle())  # mutation",
+        tests=["test_live.py"],
+        k="par_defaut or nommes or hors_essai",
+        panne="tous les appels de tous les restaurants partiraient chez OpenAI, voix du client "
+              "comprise, dès qu'une clé existe",
+    ),
 ]
 
 

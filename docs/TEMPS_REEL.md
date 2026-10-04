@@ -173,6 +173,148 @@ mini, où l'information vient d'articles tiers.
 
 Budget de l'essai : une heure d'appels sur GPT-Live-1 coûte environ 4 $.
 
+## L'essai, tel qu'il est codé (04/10/2026)
+
+Helmi a dit « lance l'essai » le 04/10/2026 et posé une clé OpenAI. Ce qui existe :
+
+- **`api/app/voice/live.py`** : pour les établissements de `GPT_LIVE_ETABLISSEMENTS`,
+  l'appel est relayé à GPT-Live. Sans Pipecat, finalement : GPT-Live accepte le format du
+  téléphone (µ-law 8 kHz) et rend un flux continu, silences compris, au rythme de la
+  parole — il n'y a rien à détecter ni à assembler, et monter Pipecat de version aurait
+  touché tous les appels.
+- **GPT-Live n'est que la voix. Le cerveau reste le nôtre** : `google/gemini-2.5-flash`
+  par OpenRouter (décision de Helmi, 04/10/2026). GPT-Live confie le travail, notre
+  modèle raisonne sur la conversation entendue et appelle les outils par
+  `llm.run_tool` — les refus du serveur restent les mêmes —, et ce qu'il rend est donné
+  à dire. `GPT_LIVE_MODELE=gpt-6-luna` confie ce rôle à OpenAI, pour comparer.
+- Si la session ne s'ouvre pas en quatre secondes, l'appel suit le pipeline habituel.
+- Au journal : transcription, blanc ressenti par tour, enregistrement, coût réel.
+
+### Ce que l'API a montré
+
+Vérifié le 04/10/2026 avec la clé du compte, depuis un conteneur jetable :
+
+| Constat | Détail |
+|---|---|
+| Format du téléphone | `audio/pcmu` à 8 000 Hz accepté tel quel |
+| Langue | aucun réglage de langue : elle se pilote par les consignes |
+| Voix ouvertes | 22 : marin, cedar, alloy, ash, ballad, coral, echo, sage, shimmer, verse, quartz, ripple, vesper, willow, stone, gleam, meridian, bossa, tempo, beacon, delta, cinder |
+| Voix fermées | « brise » et « sillage » (citées dans la référence d'OpenAI), « arbor » (ChatGPT) : refusées |
+| Cerveau | le nôtre (travail confié au client) ou un modèle d'OpenAI (`gpt-6-luna`, `gpt-5.6-luna`) : les deux modes sont acceptés et ont abouti à une réservation |
+| Ouverture de l'appel | la consigne « dis l'accueil » ne suffit pas toujours : six voix sur huit sont restées muettes au premier lot. L'accueil redonné comme propos à dire (`session.commentary.append`) a fait parler toutes les voix, mot pour mot |
+
+### Les voix en français
+
+Les 22 voix ont dit la même phrase d'accueil et de réservation (`scripts/essai_voix_gpt_live.py`,
+extraits dans `local/essai-gpt-live/`, hors dépôt). Chaque extrait a été retranscrit par
+Deepgram nova-3 en français : **toutes sont comprises** (0 à 3 mots mal transcrits sur 44,
+souvent le nom propre), et toutes sont reconnues comme du français. Cette mesure écarte
+une voix inintelligible ; **elle ne dit rien de l'accent**, qui se juge à l'oreille.
+
+| Voix | Style annoncé par OpenAI | Débit | Mots mal transcrits |
+|---|---|---|---|
+| `marin` | aucun (voix générale) | 185 mots/min | 1 sur 44 |
+| `cedar` | aucun (voix générale) | 206 mots/min | 2 sur 44 |
+| `alloy` | aucun (voix générale) | 189 mots/min | 1 sur 44 |
+| `ash` | aucun (voix générale) | 162 mots/min | 0 sur 44 |
+| `ballad` | aucun (voix générale) | 178 mots/min | 1 sur 44 |
+| `coral` | aucun (voix générale) | 178 mots/min | 0 sur 44 |
+| `echo` | aucun (voix générale) | 188 mots/min | 0 sur 44 |
+| `sage` | aucun (voix générale) | 159 mots/min | 2 sur 44 |
+| `shimmer` | aucun (voix générale) | 172 mots/min | 0 sur 44 |
+| `verse` | aucun (voix générale) | 189 mots/min | 2 sur 44 |
+| `quartz` | anglais australien | 157 mots/min | 2 sur 44 |
+| `ripple` | anglais australien | 196 mots/min | 0 sur 44 |
+| `vesper` | anglais britannique | 207 mots/min | 0 sur 44 |
+| `willow` | anglais irlandais | 151 mots/min | 0 sur 44 |
+| `stone` | anglais irlandais | 197 mots/min | 0 sur 44 |
+| `gleam` | anglais nord-américain | 210 mots/min | 0 sur 44 |
+| `meridian` | anglais nord-américain | 207 mots/min | 0 sur 44 |
+| `bossa` | portugais du Brésil | 197 mots/min | 1 sur 44 |
+| `tempo` | portugais du Brésil | 187 mots/min | 1 sur 44 |
+| `beacon` | anglais philippin | 204 mots/min | 0 sur 44 |
+| `delta` | anglais du sud des États-Unis | 167 mots/min | 2 sur 44 |
+| `cinder` | anglais du sud des États-Unis | 160 mots/min | 3 sur 44 |
+
+Aucune voix n'est annoncée comme française. Les dix premières n'ont pas de style régional
+déclaré ; les douze suivantes en ont un, étranger au français. Sur le forum d'OpenAI
+(15 au 19/09/2026), `marin` est citée comme la meilleure en français. À écouter d'abord :
+`marin`, `coral`, `sage`, `shimmer`, puis `cedar` et `alloy`.
+
+Les voix sur mesure (clonage, avec enregistrement de consentement) existent mais sont
+réservées aux « clients éligibles », et la page d'OpenAI ne les annonce pour GPT-Live
+qu'avec des accents anglais.
+
+### Ce que coûte un appel, mesuré
+
+`scripts/essai_conversation_gpt_live.py` joue une réservation complète à travers
+`voice/live.py`, contre le vrai GPT-Live : un faux Twilio envoie les répliques d'un client
+au format du téléphone, `llm.run_tool` est le vrai, la base est jetable. Trois
+conversations le 04/10/2026, voix `marin`, cerveau `google/gemini-2.5-flash` :
+
+| | Conversation 1 | Conversation 2 | Conversation 3 |
+|---|---|---|---|
+| Durée de l'appel | 45,3 s | 41,8 s | 44,3 s |
+| Voix GPT-Live (session facturée) | 3,33 c$ (40 s) | 3,08 c$ (37 s) | 3,25 c$ (39 s) |
+| Cerveau Gemini (4 générations) | 0,44 c$ | 0,44 c$ | 0,35 c$ |
+| Twilio (une minute entamée) | 1,00 c$ | 1,00 c$ | 1,00 c$ |
+| **Total** | **4,77 c$** | **4,52 c$** | **4,60 c$** |
+| **Par minute** | **0,063 $** | **0,065 $** | **0,062 $** |
+| Réservation créée, raccroché par l'assistante | oui | oui | oui |
+| Blanc avant ses réponses | 0,2 s · 0,2 s | elle enchaîne avant la fin du dernier mot | 0,4 s · 0,2 s |
+
+Le coût du cerveau calculé par nos tarifs (0,30 $ le million de jetons d'entrée, 0,03 $ en
+cache, 2,50 $ en sortie) est, au cent-millième près, celui qu'OpenRouter dit avoir
+facturé. Les secondes de session sont celles qu'OpenAI annonce à la fermeture ; la clé
+du compte n'a pas le droit de lire la facturation (`api.usage.read`), le montant débité
+se vérifie sur platform.openai.com.
+
+**Face à la chaîne actuelle** (0,031 $ la minute, mesuré sur 7 vrais appels le 01/10) :
+
+| Poste, par minute d'un appel de 3,5 min | Chaîne actuelle | GPT-Live + Gemini |
+|---|---|---|
+| Twilio | 1,1 c$ | 1,1 c$ |
+| Transcription (Deepgram) | 0,9 c$ | — |
+| Voix | 0,5 c$ (Mistral) | 4,9 c$ (GPT-Live) |
+| Cerveau (Gemini 2.5 Flash) | ≈ 0,5 c$ | ≈ 0,2 c$ |
+| **Total** | **3,1 c$ · 2,9 c€** | **6,3 c$ · 5,8 c€** |
+
+L'appel de 3,5 minutes est extrapolé des trois mesures (session = appel moins 5 s,
+deux séries de travail confié) : 21,9 c$ contre 10,9 c$, **le double**.
+
+| Formule à plein | Coût actuel | Coût GPT-Live | En plus par mois | Marge |
+|---|---|---|---|---|
+| Essentiel (89 €, 250 min) | 8,43 € | 15,73 € | + 7,30 € | 91 % → 82 % |
+| Service (149 €, 600 min) | 18,47 € | 35,99 € | + 17,52 € | 88 % → 76 % |
+| Maison (349 €, 1 500 min) | 49,31 € | 93,11 € | + 43,81 € | 86 % → 73 % |
+
+Minute en plus : 83 % de marge à 0,35 €, 77 % à 0,25 €, 71 % à 0,20 € ; Liberté 87 %.
+Pas d'abonnement chez OpenAI : tout est à l'usage. 1 € = 1,08 $.
+
+**Ce que ces mesures ne disent pas** : ce sont trois réservations d'une quarantaine de
+secondes avec un client de synthèse qui ne coupe pas la parole et parle sans bruit de
+fond. Le blanc est lu sur les horodatages de la transcription d'OpenAI (pas de 200 ms),
+pas mesuré sur le son. Un vrai appel de plusieurs minutes, une modification, un appel
+en anglais, un nom épelé : rien de cela n'a été joué.
+
+Défauts vus pendant ces essais et corrigés : le cerveau d'OpenAI réclamait un numéro de
+rappel déjà connu (champ retiré) ; la phrase d'attente était dite deux fois (consigne
+ajoutée au cerveau). Vu et laissé : l'accueil est parfois suivi d'une phrase de son cru
+(« Que puis-je faire pour vous ? »).
+
+### Pour allumer l'essai
+
+1. Choisir la voix à l'oreille (`local/essai-gpt-live/`), la poser dans `GPT_LIVE_VOIX`.
+2. Poser dans le `.env` du serveur `GPT_LIVE_ETABLISSEMENTS=` suivi de l'identifiant de
+   l'établissement d'essai, puis déployer.
+3. Recette T1 à T11 (`docs/RECETTE.md`).
+
+Pour l'éteindre : vider `GPT_LIVE_ETABLISSEMENTS`.
+
+**Non vérifié à ce jour** : aucun appel téléphonique n'est passé par GPT-Live. Le relais,
+les outils et la clôture sont éprouvés contre une doublure qui joue le protocole ; la
+conversation réelle, la tenue du français et le coût mesuré restent à constater.
+
 ## Sources (relevées le 04/10/2026)
 
 - OpenAI : [tarifs](https://developers.openai.com/api/docs/pricing),
