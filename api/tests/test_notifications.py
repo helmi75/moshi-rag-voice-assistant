@@ -1,13 +1,14 @@
 """Notifications au restaurateur (app/notifications.py) : prévenu, sans jamais gêner l'appel.
 
 SMTP entièrement doublé : aucun réseau. Ce qu'on vérifie : l'envoi et ses destinataires,
-qu'une panne SMTP ne remonte jamais, que les outils déclenchent bien la notification (et
+qu'une panne SMTP ne remonte jamais, qu'une connexion refusée se retente, que les outils déclenchent bien la notification (et
 seulement quand ils ont écrit), et le contenu lisible d'un e-mail."""
 import asyncio
 import json
 import smtplib
+import ssl
 from datetime import date, datetime, time, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,6 +29,7 @@ def smtp(monkeypatch):
     monkeypatch.setenv("SMTP_FROM", "assistante@exemple.fr")
     monkeypatch.setenv("SMTP_SSL", "0")
     monkeypatch.setenv("PUBLIC_URL", "https://app.exemple.fr")
+    monkeypatch.setattr(notifications, "_PAUSE_ENTRE_TENTATIVES", 0)   # les tests n'attendent pas
 
 
 @pytest.fixture()
@@ -92,6 +94,46 @@ class TestEnvoi:
         with patch("smtplib.SMTP") as mock_smtp:
             assert asyncio.run(notifications.notifier(vide, "message_pris", {"subject": "x"})) is False
         mock_smtp.assert_not_called()
+
+
+class TestUneConnexionRefuseeSeRetente:
+    """Le 04/10/2026, une réservation modifiée n'a prévenu personne : le serveur de
+    messagerie a refusé la poignée de main TLS, et on n'essayait qu'une fois. Mesuré le
+    même jour depuis le serveur : 2 connexions refusées sur 60, la suivante passe."""
+
+    @pytest.fixture(autouse=True)
+    def _sur_465(self, smtp, monkeypatch):
+        monkeypatch.setenv("SMTP_SSL", "1")
+        monkeypatch.setenv("SMTP_PORT", "465")
+
+    def _refus(self):
+        return ssl.SSLError(1, "[SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version")
+
+    def test_une_poignee_de_main_refusee_et_l_e_mail_part_a_la_tentative_suivante(self, resto):
+        with patch("smtplib.SMTP_SSL", side_effect=[self._refus(), DEFAULT]) as mock_ssl:
+            assert asyncio.run(notifications.notifier(resto, "message_pris", {"subject": "x"})) is True
+        assert mock_ssl.call_count == 2
+        _serveur_double(mock_ssl).send_message.assert_called_once()
+
+    def test_trois_refus_de_suite_et_l_e_mail_est_perdu_sans_rien_lever(self, resto):
+        with patch("smtplib.SMTP_SSL", side_effect=self._refus()) as mock_ssl:
+            assert asyncio.run(notifications.notifier(resto, "message_pris", {"subject": "x"})) is False
+        assert mock_ssl.call_count == 3
+
+    def test_un_mot_de_passe_refuse_ne_se_retente_pas(self, resto):
+        """Il ne deviendra pas bon tout seul, et insister peut faire bloquer la boîte."""
+        with patch("smtplib.SMTP_SSL") as mock_ssl:
+            _serveur_double(mock_ssl).login.side_effect = smtplib.SMTPAuthenticationError(535, b"refuse")
+            assert asyncio.run(notifications.notifier(resto, "message_pris", {"subject": "x"})) is False
+        assert mock_ssl.call_count == 1
+
+    def test_un_message_en_cours_de_remise_ne_se_rejoue_pas(self, resto):
+        """Coupé pendant la remise, on ne sait pas si le serveur l'a pris : le rejouer
+        ferait arriver deux fois la même réservation chez le restaurateur."""
+        with patch("smtplib.SMTP_SSL") as mock_ssl:
+            _serveur_double(mock_ssl).send_message.side_effect = smtplib.SMTPServerDisconnected("coupé")
+            assert asyncio.run(notifications.notifier(resto, "message_pris", {"subject": "x"})) is False
+        assert mock_ssl.call_count == 1
 
 
 class TestNeCasseJamaisLAppel:
