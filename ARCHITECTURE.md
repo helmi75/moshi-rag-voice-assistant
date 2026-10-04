@@ -143,7 +143,7 @@ retrait est prévu (`docs/VOXTRAL.md`).
 
 | Menace | Parade |
 |---|---|
-| Requête forgée sur les webhooks ou le flux | `X-Twilio-Signature` vérifiée (`twilio_signature.py`), URL publique reconstruite depuis `PUBLIC_URL` ; mode `log` pour observer avant `enforce` |
+| Requête forgée sur les webhooks ou le flux | `X-Twilio-Signature` vérifiée (`twilio_signature.py`), URL publique reconstruite depuis `PUBLIC_URL` ; mode `log` pour observer avant `enforce` ; un jeton par région de Twilio (`twilio_region.py`), chacun accepté |
 | GPU de secours utilisé par un tiers | clé privée `MOSHI_TTS_API_KEY` posée au démarrage du conteneur Modal |
 | Assistante en panne, client sans personne | renvoi vers le restaurant ou répondeur (`renvoi.py`) ; les adresses de secours exigent elles aussi la signature Twilio |
 | Rappel demandé sur le site, détourné pour faire sonner un tiers ou gonfler la facture | numéros de métropole seulement, plafonds par numéro, par adresse et par jour, pas d'appel la nuit, durée bornée par Twilio (`rappel.py`) ; JSON de notre origine seulement |

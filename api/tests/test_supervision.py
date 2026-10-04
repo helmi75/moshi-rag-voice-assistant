@@ -505,6 +505,46 @@ class TestTwilio:
         valeur, _ = supervision.relire("twilio")
         assert valeur == {"erreur": "HTTP 401"}
 
+    def test_les_alertes_se_relevent_dans_chaque_region(self, base, monkeypatch):
+        """Chaque région de Twilio tient son journal (ASSISTANTE-123) : ne lire que
+        l'américain après une bascule, c'est un « 0 erreur » vert sur une ligne morte."""
+        import asyncio
+
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-test")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "jeton-americain")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", "jeton-irlandais")
+        demandes: list = []
+
+        class _Reponse:
+            def __init__(self, alertes):
+                self.alertes = alertes
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"alerts": self.alertes}
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, adresse, params=None, auth=None):
+                demandes.append((adresse, auth))
+                irlande = "dublin.ie1" in adresse
+                return _Reponse([{"error_code": "11200"}] * (2 if irlande else 1))
+
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_twilio())
+        assert demandes == [
+            ("https://monitor.twilio.com/v1/Alerts", ("AC-test", "jeton-americain")),
+            ("https://monitor.dublin.ie1.twilio.com/v1/Alerts", ("AC-test", "jeton-irlandais"))]
+        valeur, _ = supervision.relire("twilio")
+        assert valeur == {"erreurs": 3, "codes": {"11200": 3}}
+
     def test_une_releve_figee_est_signalee(self, base):
         """Une tâche de fond morte laisserait un « 0 erreur » éternellement vert."""
         supervision.noter("twilio", {"erreurs": 0, "codes": {}})

@@ -161,6 +161,67 @@ class TestPoigneeDeMainWs:
         assert run_bot.await_count == 1
 
 
+class TestDeuxRegions:
+    """Un appel traité en Irlande est signé par le jeton irlandais, un SMS par
+    l'américain (ASSISTANTE-123) : les deux servent en même temps."""
+    IRLANDAIS = "jeton-irlandais"
+    APPEL = {"CallSid": "CA1", "To": DEMO_NUMBER}
+
+    def _appeler(self, client, jeton):
+        signature = signer("http://testserver/twilio/voice", self.APPEL, jeton=jeton)
+        return client.post("/twilio/voice", data=self.APPEL,
+                           headers={"X-Twilio-Signature": signature}).status_code
+
+    def test_un_appel_traite_en_irlande_passe_et_se_compte(self, client, monkeypatch):
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", self.IRLANDAIS)
+        assert self._appeler(client, self.IRLANDAIS) == 200
+        assert twilio_signature.compteurs()["regions"] == {"ie1": 1}
+
+    def test_le_jeton_americain_signe_toujours(self, client, monkeypatch):
+        """Les SMS restent traités aux États-Unis, et le retour arrière doit marcher
+        sans redéployer."""
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", self.IRLANDAIS)
+        assert self._appeler(client, JETON) == 200
+        assert twilio_signature.compteurs()["regions"] == {"us1": 1}
+
+    def test_sans_le_jeton_irlandais_un_appel_d_irlande_est_refuse(self, client):
+        """LE risque de la bascule : le numéro passe en Irlande, l'application n'a pas le
+        jeton, et plus un appel n'aboutit. scripts/twilio_region.py sonde avant de basculer."""
+        assert self._appeler(client, self.IRLANDAIS) == 403
+        assert twilio_signature.compteurs()["refusees"] == 1
+
+    def test_une_signature_forgee_reste_refusee_avec_deux_jetons(self, client, monkeypatch):
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", self.IRLANDAIS)
+        assert self._appeler(client, "pas-le-bon") == 403
+
+    def test_un_jeton_irlandais_vide_ne_signe_rien(self, client, monkeypatch):
+        """Une variable posée mais vide ne doit pas devenir une clé que tout le monde connaît."""
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", "  ")
+        assert self._appeler(client, "") == 403 and self._appeler(client, "  ") == 403
+
+    def test_le_flux_media_signe_par_l_irlande_demarre(self, client, monkeypatch):
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", self.IRLANDAIS)
+        run_bot = AsyncMock()
+        bonne = signer("wss://testserver/ws/voice", jeton=self.IRLANDAIS)
+        with patch("app.main._get_bot_runner", return_value=run_bot):
+            with client.websocket_connect("/ws/voice", headers={"X-Twilio-Signature": bonne}) as ws:
+                ws.send_text(_start())
+                _attendre(lambda: run_bot.await_count == 1)
+        assert run_bot.await_count == 1
+        assert twilio_signature.compteurs()["regions"] == {"ie1": 1}
+
+    def test_la_supervision_dit_d_ou_viennent_les_appels(self, client, monkeypatch):
+        """Après une bascule, c'est ce compteur qui prouve qu'elle a pris."""
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", self.IRLANDAIS)
+        self._appeler(client, JETON)
+        assert "us1" not in supervision._controle_signatures().resume
+        self._appeler(client, self.IRLANDAIS)
+        controle = supervision._controle_signatures()
+        assert controle.niveau == supervision.OK
+        assert "ie1 : 1" in controle.resume and "us1 : 1" in controle.resume
+        assert controle.mesure["regions"] == {"us1": 1, "ie1": 1}
+
+
 class TestModes:
     def test_log_laisse_passer_et_compte(self, client, monkeypatch):
         monkeypatch.setenv("TWILIO_SIGNATURE", "log")
@@ -172,7 +233,8 @@ class TestModes:
     def test_off_ne_verifie_rien(self, client, monkeypatch):
         monkeypatch.setenv("TWILIO_SIGNATURE", "off")
         assert client.post("/twilio/voice", data={"CallSid": "CA1", "To": DEMO_NUMBER}).status_code == 200
-        assert twilio_signature.compteurs() == {"acceptees": 0, "refusees": 0, "derniere_refusee": None}
+        assert twilio_signature.compteurs() == {"acceptees": 0, "refusees": 0,
+                                                "derniere_refusee": None, "regions": {}}
 
     def test_le_defaut_est_enforce_quand_le_jeton_existe(self, monkeypatch):
         monkeypatch.delenv("TWILIO_SIGNATURE", raising=False)

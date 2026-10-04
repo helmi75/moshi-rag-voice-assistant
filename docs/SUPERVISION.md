@@ -41,8 +41,8 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
 | Base de données | Volume plein ou en lecture seule. Il **écrit** vraiment : lire prouve que la base répond, pas qu'elle accepte encore une réservation | oui |
-| Configuration du chemin d'appel | Une des quatre variables du chemin d'appel manque (`OPENROUTER_API_KEY`, `PUBLIC_WS_URL`, `DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`), ou `PUBLIC_WS_URL` contient une espace — l'appel raccroche alors sans un mot | oui |
-| Signature des requêtes Twilio | Jeton absent ou vérification coupée (attention) ; en `log`, des requêtes qui seraient refusées (attention : vérifier `PUBLIC_URL`) ; en `enforce`, **toutes** refusées = l'URL publique n'est plus celle que Twilio signe, plus un appel n'aboutit | oui, si tout est refusé |
+| Configuration du chemin d'appel | Une des quatre variables du chemin d'appel manque (`OPENROUTER_API_KEY`, `PUBLIC_WS_URL`, `DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`), ou `PUBLIC_WS_URL` contient une espace — l'appel raccroche alors sans un mot. Attention seulement : `TWILIO_REGION` demande une région dont le jeton n'est pas posé (l'application se replie sur `us1`) | oui |
+| Signature des requêtes Twilio | Jeton absent ou vérification coupée (attention) ; en `log`, des requêtes qui seraient refusées (attention : vérifier `PUBLIC_URL`) ; en `enforce`, **toutes** refusées = l'URL publique n'est plus celle que Twilio signe, plus un appel n'aboutit. Compte par région (`us1`, `ie1`) dès que l'Irlande a signé une requête | oui, si tout est refusé |
 | Jeton du serveur de voix | `MOSHI_TTS_API_KEY` vide ou égale à `public_token`, la clé de démonstration connue de tous : qui trouve l'URL Modal fait tourner le GPU à nos frais | non |
 | Appels muets | Appel `completed`, plus de 15 s, **aucune réponse venue du modèle** : l'accueil pré-rendu, la reprise et les relances ne comptent pas, puisqu'ils partent sans lui. Voit la panne LLM du 30/07 comme la panne GPU du 23/09 | si majoritaire, **ou si les 3 derniers appels n'ont rien obtenu** |
 | Appels en échec | Le pipeline a levé une erreur pendant l'appel | si majoritaire |

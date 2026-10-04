@@ -108,6 +108,10 @@ Twilio ─▶ POST /twilio/voice (signé) ─▶ TwiML <Connect><Stream>, puis <
   Voir `docs/TEMPS_REEL.md`.
 - Voix : `voxtral_tts.py` (Mistral, catalogue dans `voices.py`). `moshi_server_tts.py`
   et `deploy/modal_moshi_server.py` (GPU Modal) ne sont plus qu'un secours à retirer.
+- Région : Twilio traite un appel aux États-Unis (`us1`) ou en Irlande (`ie1`), et chaque
+  région a son jeton et son API. Tout appel à l'API Twilio passe par `twilio_region.py`
+  (`hote`, `identifiants`), jamais par `api.twilio.com` écrit en dur ; la signature
+  accepte le jeton de chaque région. Basculer un numéro : `scripts/twilio_region.py`.
 - Panne : `renvoi.py` (décision, TwiML, mémoire des pannes), `voice/vigie.py` (deux
   erreurs de suite sur la voix, le modèle ou la transcription), `repondeur.py` (message
   vocal rapatrié de chez Twilio). L'assistante rend la ligne **sans raccrocher** et

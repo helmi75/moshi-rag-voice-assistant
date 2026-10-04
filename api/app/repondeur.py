@@ -13,7 +13,6 @@ l'essentiel : il a été prévenu par e-mail, avec le numéro à rappeler.
 """
 import asyncio
 import io
-import os
 import re
 import wave
 from typing import Optional
@@ -22,7 +21,7 @@ import httpx
 import numpy as np
 from loguru import logger
 
-from . import calls, db
+from . import calls, db, twilio_region
 from .voice import enregistrement, ulaw
 
 # L'identifiant vient d'une requête signée par Twilio, mais c'est lui qui entre dans
@@ -31,12 +30,6 @@ _SID = re.compile(r"RE[0-9a-f]{32}")
 _DELAI = httpx.Timeout(30.0, connect=5.0)
 _SILENCE = b"\xff"  # un échantillon de silence en µ-law
 _TAUX = 8000
-
-
-def _identifiants() -> Optional[tuple[str, str]]:
-    sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-    jeton = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-    return (sid, jeton) if sid and jeton else None
 
 
 def en_ulaw(wav: bytes) -> bytes:
@@ -84,8 +77,12 @@ async def rapatrier(call_sid: Optional[str], recording_sid: Optional[str]) -> bo
         if not _SID.fullmatch(recording_sid or ""):
             logger.warning(f"[répondeur] identifiant d'enregistrement inattendu : {recording_sid!r}")
             return False
-        identifiants = _identifiants()
-        if identifiants is None:
+        # Le message est rangé dans la région qui a traité l'appel (app/twilio_region.py).
+        # On ne sait pas laquelle : on demande à celle qu'on a choisie, puis à l'autre.
+        acces = [(twilio_region.hote(region), twilio_region.identifiants(region))
+                 for region in twilio_region.ordre()]
+        acces = [(hote, identifiants) for hote, identifiants in acces if identifiants]
+        if not acces:
             logger.warning("[répondeur] identifiants Twilio absents : le message reste chez Twilio")
             return False
         appel = await db.hors_boucle(calls.par_sid, call_sid)
@@ -96,20 +93,24 @@ async def rapatrier(call_sid: Optional[str], recording_sid: Optional[str]) -> bo
         if libre is not None and libre < enregistrement.disque_minimal_mo():
             logger.warning("[répondeur] disque presque plein : le message reste chez Twilio")
             return False
-        adresse = (f"https://api.twilio.com/2010-04-01/Accounts/{identifiants[0]}"
-                   f"/Recordings/{recording_sid}")
-        async with httpx.AsyncClient(timeout=_DELAI, auth=identifiants) as client:
-            reponse = await client.get(adresse + ".wav")
-            reponse.raise_for_status()
-            message = await asyncio.to_thread(en_ulaw, reponse.content)
-            octets = await asyncio.to_thread(_ranger, appel["tenant_id"], appel["id"], message)
-            await db.hors_boucle(_noter, appel["id"], octets)
-            # Effacé de chez Twilio seulement une fois écrit chez nous.
-            efface = await client.delete(adresse + ".json")
-            if efface.status_code >= 400:
-                logger.warning(f"[répondeur] message rangé, mais Twilio garde sa copie "
-                               f"(HTTP {efface.status_code}) : {recording_sid}")
-                return False
+        for hote, identifiants in acces:
+            adresse = (f"{hote}/2010-04-01/Accounts/{identifiants[0]}"
+                       f"/Recordings/{recording_sid}")
+            async with httpx.AsyncClient(timeout=_DELAI, auth=identifiants) as client:
+                reponse = await client.get(adresse + ".wav")
+                if reponse.status_code == 404 and (hote, identifiants) != acces[-1]:
+                    continue
+                reponse.raise_for_status()
+                message = await asyncio.to_thread(en_ulaw, reponse.content)
+                octets = await asyncio.to_thread(_ranger, appel["tenant_id"], appel["id"], message)
+                await db.hors_boucle(_noter, appel["id"], octets)
+                # Effacé de chez Twilio seulement une fois écrit chez nous.
+                efface = await client.delete(adresse + ".json")
+                if efface.status_code >= 400:
+                    logger.warning(f"[répondeur] message rangé, mais Twilio garde sa copie "
+                                   f"(HTTP {efface.status_code}) : {recording_sid}")
+                    return False
+            break
         logger.info(f"[répondeur] message de l'appel {appel['id']} rapatrié "
                     f"({len(message) / _TAUX:.0f} s)")
         return True

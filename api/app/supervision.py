@@ -29,7 +29,7 @@ from typing import Optional
 
 from pathlib import Path as _Path
 
-from . import calls, db, horloge, tenants
+from . import calls, db, horloge, tenants, twilio_region
 
 # --- Niveaux -----------------------------------------------------------------
 # Ordonnés : `pire()` prend le maximum. « attention » = dégradé mais le standard
@@ -215,6 +215,17 @@ def _controle_configuration() -> Controle:
             "pas ouvrir le flux média : l'appel raccroche sans un mot.",
             mesure={"public_ws_url_valide": False},
         )
+    # Rien ne casse (l'application se replie sur us1), mais la latence qu'on croyait
+    # gagner ne l'est pas — et sans ce contrôle, personne ne le verrait.
+    anomalie = twilio_region.anomalie()
+    if anomalie:
+        return Controle(
+            "configuration", "Configuration du chemin d'appel", ATTENTION,
+            anomalie,
+            "Poser le jeton de la région dans le .env (console Twilio → API keys & tokens, "
+            "région Ireland), ou retirer TWILIO_REGION. Voir docs/TWILIO_SETUP.md.",
+            mesure={"twilio_region": twilio_region.demandee()},
+        )
     return Controle(
         "configuration", "Configuration du chemin d'appel", OK,
         f"{len(requis)} variable(s) requise(s), toutes présentes.",
@@ -254,6 +265,10 @@ def _controle_signatures() -> Controle:
             mesure=mesure,
         )
     total = compteurs["acceptees"] + compteurs["refusees"]
+    # Par région dès que l'Irlande a signé : c'est la preuve qu'une bascule a pris.
+    par_region = compteurs.get("regions") or {}
+    regions = (" (" + ", ".join(f"{region} : {n}" for region, n in sorted(par_region.items())) + ")"
+               if set(par_region) - {twilio_region.DEFAUT} else "")
     if total == 0:
         return Controle(
             "signatures", titre, OK,
@@ -296,7 +311,7 @@ def _controle_signatures() -> Controle:
         )
     return Controle(
         "signatures", titre, OK,
-        f"{compteurs['acceptees']} requête(s) signées, aucune refusée.",
+        f"{compteurs['acceptees']} requête(s) signées{regions}, aucune refusée.",
         mesure=mesure,
     )
 
@@ -1060,9 +1075,6 @@ def resume(etat_courant: dict) -> str:
 
 # --- Relève des alertes Twilio (tâche de fond) -------------------------------
 
-_TWILIO_ALERTES_URL = "https://monitor.twilio.com/v1/Alerts"
-
-
 def twilio_intervalle_secondes() -> int:
     """0 désactive la relève. 15 min : l'API Monitor est gratuite en lecture, mais
     interroger un tiers en boucle depuis un service en ligne est une mauvaise
@@ -1079,21 +1091,26 @@ async def rafraichir_twilio() -> None:
     """
     import httpx
 
-    sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-    token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-    if not sid or not token:
+    # Chaque région tient son propre journal (app/twilio_region.py) : les alertes d'un
+    # appel traité en Irlande ne se lisent pas aux États-Unis, où restent celles des SMS.
+    acces = [(twilio_region.hote(region, "monitor"), twilio_region.identifiants(region))
+             for region in twilio_region.ordre()]
+    acces = [(hote, identifiants) for hote, identifiants in acces if identifiants]
+    if not acces:
         await db.hors_boucle(noter, "twilio", {"erreur": "identifiants Twilio absents"})
         return
     depuis = (_maintenant() - timedelta(days=fenetre_jours())).strftime("%Y-%m-%dT%H:%M:%SZ")
+    alertes: list = []
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            reponse = await client.get(
-                _TWILIO_ALERTES_URL,
-                params={"StartDate": depuis, "PageSize": 50},
-                auth=(sid, token),
-            )
-        reponse.raise_for_status()
-        alertes = reponse.json().get("alerts", []) or []
+            for hote, identifiants in acces:
+                reponse = await client.get(
+                    hote + "/v1/Alerts",
+                    params={"StartDate": depuis, "PageSize": 50},
+                    auth=identifiants,
+                )
+                reponse.raise_for_status()
+                alertes += reponse.json().get("alerts", []) or []
     except httpx.HTTPStatusError as exc:
         # Twilio A répondu, et son code dit quoi faire : 401 = identifiants à renouveler,
         # 429 = trop de relèves, 5xx = panne chez eux. « L'API n'a pas répondu » aurait

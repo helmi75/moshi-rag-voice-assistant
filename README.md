@@ -104,6 +104,7 @@ api/
     site/                page d'accueil publique (prix lus dans plans.py)
     rappel.py            « Rappelez-moi » : l'appel sortant et tous ses plafonds
     disponibilite.py horloge.py notifications.py twilio_signature.py
+    twilio_region.py     la région où Twilio traite les appels (us1, ie1) : jeton et API
     supervision.py rgpd.py quotas.py plans.py taches.py db.py
     requirements.txt     l'intention ; requirements.lock : les versions exactes installées
   tests/

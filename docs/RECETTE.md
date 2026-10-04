@@ -261,6 +261,24 @@ répéter. Il faut un portable français de métropole.
 | W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
 | W16 | Regarder l'onglet du navigateur et le haut de la page, sur le site puis dans l'espace client (ASSISTANTE-124) | Le logo est une **toque de chef** orange avec trois barres de voix dedans, plus un combiné de téléphone ; il reste net en tout petit dans l'onglet ; dans l'espace client, il est lisible en clair comme en sombre | |
 
+## X. Les appels traités en Irlande (ASSISTANTE-123)
+
+Marche à suivre : `docs/TWILIO_SETUP.md` § 8. À faire **hors service**. Le gain attendu
+(environ 65 ms par réplique, mesuré sur le réseau) ne se lit pas dans nos fiches d'appel.
+
+| # | Faire | Attendu | OK ? |
+|---|---|---|---|
+| X1 | Jeton irlandais posé et déployé, **avant** toute bascule : appeler la ligne | L'assistante répond comme avant ; « Signature des requêtes Twilio » : aucune refusée | |
+| X2 | `python3 scripts/twilio_region.py +33…` | « appels traités en : us1 », et les réglages du numéro lisibles dans les deux régions | |
+| X3 | `… --preparer ie1`, puis relire l'état | Les mêmes webhooks en `ie1` qu'en `us1` | |
+| X4 | `… --basculer ie1`, attendre cinq minutes, appeler | L'assistante répond ; la signature compte des requêtes `ie1` ; l'appel est au journal de la console Twilio, région Ireland | |
+| X5 | Poser `TWILIO_REGION=ie1`, redéployer, prendre une réservation complète et raccrocher | Tout se passe comme avant ; à l'oreille, les réponses ne sont pas plus lentes | |
+| X6 | Refaire S5 et S6 (message vocal pendant un essai de renvoi) | Le message s'écoute dans la fiche de l'appel | |
+| X7 | « Rappelez-moi » sur le site | Le téléphone sonne : l'Irlande a le droit d'appeler la France | |
+| X8 | Envoyer un SMS à la ligne | L'assistante répond (les SMS restent signés par `us1`) | |
+| X9 | Le lendemain : « Santé & coûts » | « Alertes Twilio » relevées sans erreur ; le coût Twilio de la facture au tarif attendu | |
+| X10 | Si quelque chose cloche : `… --basculer us1` | L'assistante répond de nouveau, sans redéploiement | |
+
 ## T. L'essai GPT-Live, la voix-à-voix d'OpenAI (`docs/TEMPS_REEL.md`)
 
 Sur l'établissement nommé dans `GPT_LIVE_ETABLISSEMENTS`, et lui seul. Chaque minute coûte

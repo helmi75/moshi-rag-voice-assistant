@@ -19,6 +19,33 @@
 
 Non fait : la recherche d'antériorité à l'INPI, et les fichiers pour l'impression.
 
+## Non publiée — les appels peuvent être traités en Irlande (ASSISTANTE-123, 04/10/2026)
+
+Le numéro français est traité par Twilio aux États-Unis (`voice_region: us1`, relevé le
+04/10/2026) : la voix traverse l'Atlantique à chaque réplique. Depuis le serveur de
+Paris, 83 ms d'aller-retour vers la Virginie contre 19 ms vers l'Irlande. Ce lot rend la
+bascule possible ; **il ne bascule rien** — elle se décide et se fait chez Twilio.
+
+### Ajouté
+- **`twilio_region.py`** : chaque région de Twilio a son jeton et son API.
+  `TWILIO_AUTH_TOKEN_IE1` porte le jeton irlandais, `TWILIO_REGION` dit à quelle région
+  l'application s'adresse (défaut `us1`). Une région demandée sans son jeton se replie
+  sur `us1`, et la supervision le signale.
+- La signature accepte le jeton de chaque région posée : un appel traité en Irlande est
+  signé par le jeton irlandais, un SMS par l'américain. La supervision compte par région.
+- Raccrochage, rappel du site et relève des alertes s'adressent à la bonne région ; un
+  message vocal est cherché dans la région choisie, puis dans l'autre.
+- **`scripts/twilio_region.py`** : lit la région d'un numéro, recopie ses webhooks dans
+  l'autre région, bascule et revient. Il refuse de basculer tant que l'application
+  n'accepte pas une requête signée par le jeton de la région visée.
+- `docs/TWILIO_SETUP.md` § 8 (marche à suivre et retour arrière), recette X.
+
+### Vérifié, et pas vérifié
+- Essayé en lecture seule sur le vrai numéro ; le jeton américain est bien refusé par
+  l'API irlandaise (401).
+- **Pas essayé** : tout ce qui demande le jeton irlandais (préparation, sonde, bascule),
+  un appel réellement traité en Irlande, le tarif et les permissions de sortie en `ie1`.
+
 ## Non publiée — essai de GPT-Live, la voix-à-voix d'OpenAI (04/10/2026)
 
 ### Ajouté

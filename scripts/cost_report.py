@@ -65,9 +65,13 @@ def twilio_inbound_calls_since(iso_date: str, after_ts: str) -> list:
     from email.utils import parsedate_to_datetime
 
     sid, tok = os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"]
+    hote = "api.twilio.com"
+    # Le journal des appels vit dans la région qui les traite (api/app/twilio_region.py).
+    if os.getenv("TWILIO_REGION", "").strip().lower() == "ie1" and os.getenv("TWILIO_AUTH_TOKEN_IE1"):
+        tok, hote = os.environ["TWILIO_AUTH_TOKEN_IE1"], "api.dublin.ie1.twilio.com"
     number = os.getenv("TWILIO_NUMBER", "")
     after = datetime.fromisoformat(after_ts)
-    url = (f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json"
+    url = (f"https://{hote}/2010-04-01/Accounts/{sid}/Calls.json"
            f"?StartTime%3E={iso_date}&PageSize=100")
     d = _get(url, auth=(sid, tok))
     calls = []
