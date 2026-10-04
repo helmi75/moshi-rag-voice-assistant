@@ -61,6 +61,8 @@ _SILENCE_MAXIMAL = 45.0
 _DELAI_DU_CERVEAU = 20.0
 # L'enregistreur absorbe des tranches, pas des trames : on lui en donne cinq par seconde.
 _TRANCHE_ENREGISTREMENT = 1600
+_SILENCE_ULAW = b"\xff"                 # un échantillon de silence, au format du téléphone
+_OCTETS_PAR_SECONDE = 8000             # µ-law 8 kHz : un octet par échantillon
 
 
 def cle() -> str:
@@ -274,6 +276,10 @@ class Appel:
         self.accueil_relance = False
         self._dernier_son = {"user": 0.0, "assistant": 0.0}
         self._tampons = {"appelant": bytearray(), "assistante": bytearray()}
+        self._ecrits = {"appelant": 0, "assistante": 0}   # octets par piste, calage compris
+        self._horloge = time.monotonic
+        self._decroche: Optional[float] = None   # l'instant du décroché, à notre horloge
+        self.file_de_la_ligne = {"max": 0, "fin": 0}   # octets envoyés, pas encore joués
         self.enregistreur = None
 
     # -- Twilio → GPT-Live ---------------------------------------------------------------
@@ -542,8 +548,34 @@ class Appel:
         if self.enregistreur is None:
             return
         try:
+            son = base64.b64decode(charge_b64)
+            maintenant = self._horloge()
+            if piste == "appelant":
+                # Twilio envoie 20 ms toutes les 20 ms depuis le décroché, silences compris :
+                # la trame qui finit à l'octet N a été dite N/8000 s après le décroché. La
+                # plus ponctuelle de toutes dit donc quand il a eu lieu — celles qui ont
+                # attendu (pendant l'ouverture de la session, ou un à-coup) ne le reculent pas.
+                decroche = maintenant - (self._ecrits["appelant"] + len(son)) / _OCTETS_PAR_SECONDE
+                if self._decroche is None or decroche < self._decroche:
+                    self._decroche = decroche
+            elif self._decroche is not None:
+                # Les deux fichiers sont rejoués côte à côte depuis leur premier octet, et
+                # OpenAI n'envoie rien tant que la session s'ouvre et que l'accueil se
+                # prépare. Sans ce calage, sa voix était collée au début du fichier : à la
+                # réécoute, l'assistante répondait avant la question (Helmi, 04/10/2026 ;
+                # mesuré : 2,5 s d'avance au premier mot, 4 s en fin d'appel). On fait ce que
+                # fait la ligne : un son est joué à son arrivée, ou à la suite du précédent.
+                retard = round((maintenant - self._decroche) * _OCTETS_PAR_SECONDE) - self._ecrits["assistante"]
+                if retard > 0:
+                    son = _SILENCE_ULAW * retard + son
+                # Le flux d'OpenAI est continu : un son arrivé d'un bloc après un à-coup
+                # n'est jamais rattrapé, la ligne le joue à la suite et tout ce que dit
+                # l'assistante ensuite est entendu d'autant plus tard. On le mesure.
+                self.file_de_la_ligne["fin"] = max(0, -retard)
+                self.file_de_la_ligne["max"] = max(self.file_de_la_ligne["max"], -retard)
+            self._ecrits[piste] += len(son)
             tampon = self._tampons[piste]
-            tampon += base64.b64decode(charge_b64)
+            tampon += son
             if len(tampon) >= _TRANCHE_ENREGISTREMENT:
                 self.enregistreur.ecrire(piste, ulaw.decoder(bytes(tampon)))
                 tampon.clear()
@@ -596,6 +628,11 @@ class Appel:
                   if f["role"] == "assistant" and f["debut"] is not None]
         return int(min(debuts)) if debuts else None
 
+    def _file_ms(self, quand: str) -> Optional[int]:
+        if self.enregistreur is None or self._decroche is None:
+            return None
+        return round(self.file_de_la_ligne[quand] * 1000 / _OCTETS_PAR_SECONDE)
+
     def journal(self, etat_enregistrement: dict) -> dict:
         """Le journal de bord, dans la forme que l'admin sait lire (voice/journal.py)."""
         blancs = self.blancs_ms()
@@ -609,7 +646,10 @@ class Appel:
             "consommation": {**self.jetons, "secondes_voix": self.secondes_voix,
                              "cout_cerveau_annonce": self.cout_annonce},
             "compteurs": {"blanc_median_ms": sorted(blancs)[len(blancs) // 2] if blancs else None,
-                          "outils": len(self.outils_appeles)},
+                          "outils": len(self.outils_appeles),
+                          # Pas de mesure sans enregistrement : c'est lui qui tient l'horloge.
+                          "file_ligne_max_ms": self._file_ms("max"),
+                          "file_ligne_fin_ms": self._file_ms("fin")},
             "tours": [], "evenements": [],
         }
 

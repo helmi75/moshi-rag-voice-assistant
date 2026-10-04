@@ -12,7 +12,8 @@ Ce qu'on tient :
   raisonne sur la conversation entendue, et ce qu'il rend est donné à dire ;
 - un outil passe toujours par `llm.run_tool`, avec le numéro de l'appelant ; confié à un
   modèle d'OpenAI (`GPT_LIVE_MODELE`), son résultat lui est rendu avant de continuer ;
-- l'appel est au journal : transcription, blancs, coût aux tarifs d'OpenAI.
+- l'appel est au journal : transcription, blancs, coût aux tarifs d'OpenAI ;
+- à la réécoute, la voix de l'assistante tombe à l'instant où elle a parlé.
 """
 import asyncio
 import base64
@@ -28,7 +29,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app import calls, db, llm, reservations, tenants
 from app.main import app
-from app.voice import live
+from app.voice import live, ulaw
 
 DEMO_NUMBER = "+33100000000"
 SON_CLIENT = base64.b64encode(b"\xff" * 160).decode()       # 20 ms de silence µ-law
@@ -623,9 +624,143 @@ class TestLAccueilEtLEnregistrement:
         from app.voice import enregistrement
 
         # 12 trames de 160 octets par piste, écrites en µ-law : rien n'est resté en tampon.
-        for piste in enregistrement.PISTES:
-            assert enregistrement.chemin(tenant.id, ligne["id"], piste).stat().st_size == 12 * 160
-        assert ligne["recording_bytes"] == 2 * 12 * 160
+        # Celle de l'assistante peut en plus porter le silence qui la cale sur l'appelant.
+        tailles = {piste: enregistrement.chemin(tenant.id, ligne["id"], piste).stat().st_size
+                   for piste in enregistrement.PISTES}
+        assert tailles["appelant"] == 12 * 160
+        assert 12 * 160 <= tailles["assistante"] <= 24 * 160
+        assert ligne["recording_bytes"] == sum(tailles.values())
+
+
+class _Bandes:
+    """Ce que l'enregistreur écrirait, gardé en mémoire : une suite d'octets par piste."""
+
+    def __init__(self):
+        self.pistes = {"appelant": bytearray(), "assistante": bytearray()}
+
+    def ecrire(self, piste: str, pcm16: bytes) -> None:
+        self.pistes[piste] += ulaw.encoder(pcm16)
+
+
+TRAME = 160                                   # 20 ms au téléphone
+VOIX = b"\x10" * TRAME                        # un son net, que µ-law rend à l'identique
+AUTRE_VOIX = b"\x20" * TRAME
+
+
+class TestLesDeuxVoixSontCalees:
+    """Les deux pistes sont rejouées côte à côte depuis leur premier octet. Celle de
+    l'appelant avance sans trou depuis le décroché ; OpenAI n'envoie rien tant que la
+    session s'ouvre. Sans calage, la voix de l'assistante était collée au début de son
+    fichier : à la réécoute, elle répondait avant la question (Helmi, 04/10/2026)."""
+
+    def _appel(self):
+        appel = live.Appel(None, None, "MZ", "CA", None, None, None)
+        appel.enregistreur = _Bandes()
+        self.heure = 1000.0                       # l'horloge de l'appel, qu'on avance à la main
+        appel._horloge = lambda: self.heure
+        return appel
+
+    def _le_client(self, appel, trames: int, en_retard: float = 0.0) -> None:
+        """Des trames de 20 ms, chacune reçue à l'instant où elle finit — ou `en_retard`."""
+        self.heure += en_retard
+        for _ in range(trames):
+            self.heure += 0.02
+            appel._enregistrer("appelant", base64.b64encode(b"\xff" * TRAME).decode())
+        self.heure -= en_retard
+
+    def _elle_dit(self, appel, son: bytes, trames: int, a_la_cadence: bool = True) -> None:
+        for _ in range(trames):
+            appel._enregistrer("assistante", base64.b64encode(son).decode())
+            if a_la_cadence:
+                self.heure += 0.02
+
+    def _bande(self, appel) -> bytes:
+        appel.vider_les_tampons()
+        return bytes(appel.enregistreur.pistes["assistante"])
+
+    def test_son_premier_mot_tombe_a_l_instant_ou_elle_l_a_dit(self):
+        appel = self._appel()
+        self._le_client(appel, 100)                                # 2 s depuis le décroché
+        self._elle_dit(appel, VOIX, 10)
+        bande = self._bande(appel)
+        assert bande.find(VOIX) == 100 * TRAME
+        assert bande[:100 * TRAME] == b"\xff" * (100 * TRAME)
+
+    def test_les_trames_accumulees_pendant_l_ouverture_ne_faussent_pas_le_decroche(self):
+        """La session met 1,5 s à s'ouvrir : les 75 premières trames arrivent d'un bloc."""
+        appel = self._appel()
+        self.heure += 1.5
+        for _ in range(75):
+            appel._enregistrer("appelant", base64.b64encode(b"\xff" * TRAME).decode())
+        self._le_client(appel, 25)                                 # puis à la cadence
+        self._elle_dit(appel, VOIX, 5)
+        assert self._bande(appel).find(VOIX) == 100 * TRAME
+
+    def test_un_silence_d_openai_ne_decale_pas_ce_qui_suit(self):
+        appel = self._appel()
+        self._le_client(appel, 1)
+        self._elle_dit(appel, VOIX, 10, a_la_cadence=False)
+        self._le_client(appel, 60)                                 # 1,2 s sans rien d'OpenAI
+        self._elle_dit(appel, AUTRE_VOIX, 5)
+        bande = self._bande(appel)
+        assert bande.find(VOIX) == 1 * TRAME
+        assert bande.find(AUTRE_VOIX) == 61 * TRAME
+
+    def test_des_trames_du_client_en_retard_ne_decalent_pas_l_assistante(self):
+        """Mesuré contre le vrai GPT-Live : après un à-coup d'une seconde, les sons
+        d'OpenAI étaient traités avant les trames du client. Caler une piste sur l'autre
+        plaçait alors l'assistante une seconde trop tôt, jusqu'à la fin de l'appel."""
+        appel = self._appel()
+        self._le_client(appel, 50)                                 # 1 s, à l'heure
+        self.heure += 1.0                                          # 1 s d'à-coup : rien n'est traité
+        self._elle_dit(appel, VOIX, 5, a_la_cadence=False)         # ses sons passent d'abord
+        self._le_client(appel, 50, en_retard=0.0)
+        assert self._bande(appel).find(VOIX) == 100 * TRAME        # 2 s après le décroché, pas 1
+
+    def test_un_flux_regulier_n_est_pas_troue(self):
+        appel = self._appel()
+        for _ in range(50):
+            self._le_client(appel, 1)
+            appel._enregistrer("assistante", base64.b64encode(VOIX).decode())
+        assert self._bande(appel) == b"\xff" * TRAME + VOIX * 50   # un seul calage, au début
+
+    def test_un_flux_en_avance_n_est_ni_coupe_ni_retarde(self):
+        appel = self._appel()
+        self._le_client(appel, 1)
+        self._elle_dit(appel, VOIX, 30, a_la_cadence=False)        # OpenAI envoie d'un bloc
+        self._le_client(appel, 5)
+        self._elle_dit(appel, AUTRE_VOIX, 2, a_la_cadence=False)
+        assert self._bande(appel) == b"\xff" * TRAME + VOIX * 30 + AUTRE_VOIX * 2
+
+    def test_un_son_arrive_d_un_bloc_laisse_une_file_sur_la_ligne_et_on_la_mesure(self):
+        """Le flux d'OpenAI est continu : ce retard-là ne se rattrape pas tout seul."""
+        appel = self._appel()
+        self._le_client(appel, 50)
+        self._elle_dit(appel, VOIX, 50, a_la_cadence=False)        # 1 s de son en un instant
+        self._le_client(appel, 25)                                 # 0,5 s plus tard…
+        self._elle_dit(appel, AUTRE_VOIX, 1, a_la_cadence=False)   # …la ligne a encore 0,5 s à jouer
+        compteurs = appel.journal({})["compteurs"]
+        assert compteurs["file_ligne_max_ms"] == 980               # avant le dernier son du bloc
+        assert compteurs["file_ligne_fin_ms"] == 500
+
+    def test_un_flux_a_la_cadence_ne_laisse_pas_de_file(self):
+        appel = self._appel()
+        self._le_client(appel, 10)
+        for _ in range(50):
+            appel._enregistrer("assistante", base64.b64encode(VOIX).decode())
+            self._le_client(appel, 1)
+        compteurs = appel.journal({})["compteurs"]
+        assert compteurs["file_ligne_max_ms"] == 0 and compteurs["file_ligne_fin_ms"] == 0
+
+    def test_sans_enregistrement_la_file_n_est_pas_mesuree_et_on_le_dit(self):
+        appel = live.Appel(None, None, "MZ", "CA", None, None, None)
+        assert appel.journal({})["compteurs"]["file_ligne_max_ms"] is None
+
+    def test_un_enregistreur_en_panne_ne_touche_pas_l_appel(self):
+        appel = self._appel()
+        appel.enregistreur.ecrire = None                           # appeler None lèverait
+        self._le_client(appel, 20)
+        self._elle_dit(appel, VOIX, 20)
 
 
 class TestLesTours:

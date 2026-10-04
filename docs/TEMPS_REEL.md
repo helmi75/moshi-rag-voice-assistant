@@ -203,6 +203,37 @@ Vérifié le 04/10/2026 avec la clé du compte, depuis un conteneur jetable :
 | Cerveau | le nôtre (travail confié au client) ou un modèle d'OpenAI (`gpt-6-luna`, `gpt-5.6-luna`) : les deux modes sont acceptés et ont abouti à une réservation |
 | Ouverture de l'appel | la consigne « dis l'accueil » ne suffit pas toujours : six voix sur huit sont restées muettes au premier lot. L'accueil redonné comme propos à dire (`session.commentary.append`) a fait parler toutes les voix, mot pour mot |
 
+### Le flux de la voix, et la réécoute
+
+Après les dix premiers vrais appels (04/10/2026), Helmi a relevé un décalage entre sa
+voix et celle de l'assistante à la réécoute. Mesuré le soir même sur trois réservations
+jouées contre le vrai GPT-Live (`scripts/essai_conversation_gpt_live.py`, qui compare
+désormais le fichier enregistré à l'instant où chaque son a été reçu) :
+
+| Constat | Mesure |
+|---|---|
+| Premier son d'OpenAI | 2,4 à 2,6 s après le décroché (ouverture de la session comprise) |
+| Forme du flux | des envois de 100 ms (800 octets), en continu, avec 2 à 4 pauses de plus de 100 ms par appel de 40 s |
+| Voix de l'assistante dans l'enregistrement, **avant** | en avance de 2,4 à 2,5 s au premier mot, de 3,4 à 4,1 s en fin d'appel |
+| Voix de l'assistante dans l'enregistrement, **après** | à 20 ms de l'instant où elle a été reçue, du premier mot au dernier (118 et 136 sons comparés) |
+
+La cause : les deux pistes sont rejouées côte à côte depuis leur premier octet, et celle
+de l'assistante ne recevait que les sons d'OpenAI mis bout à bout — sans le silence du
+décroché, ni celui des pauses. `voice/live.py` la cale maintenant sur l'heure du décroché,
+déduite des trames de Twilio. **Les appels déjà enregistrés restent décalés** : seul ce
+qui est enregistré après le déploiement de cette correction est calé.
+
+Deux autres constats de la même mesure :
+
+- **La file d'attente de la ligne.** Un son arrivé d'un bloc après une pause est joué à
+  la suite du précédent : l'assistante est alors entendue en retard. Relevé : 343 ms au
+  pire, 4 ms en fin d'appel — la file se résorbe aux pauses du flux. Chaque appel la note
+  désormais à son journal (`file_ligne_max_ms`, `file_ligne_fin_ms`).
+- **Le premier raisonnement d'un processus fige tout pendant une demi-seconde.** La mise
+  en route du client du modèle tient la boucle d'événements 0,5 s (mesuré sur le serveur,
+  sans réseau ; nul aux appels suivants). C'est une fois par redémarrage, mais pendant ce
+  temps plus aucun son n'avance, pour aucun appel. **Non corrigé.**
+
 ### Les voix en français
 
 Les 22 voix ont dit la même phrase d'accueil et de réservation (`scripts/essai_voix_gpt_live.py`,
