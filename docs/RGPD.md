@@ -90,7 +90,8 @@ faux du traitement.** Vérifié dans le code le 30/08/2026 :
 | Modal | GPU, synthèse vocale : **secours seulement** depuis le 28/09/2026, abandon prévu | 🇪🇺 `MODAL_REGION=eu` — vérifié |
 | **Deepgram** | **Transcription : reçoit l'audio de la conversation** | 🇺🇸 endpoint par défaut, **aucune région EU configurée** |
 | **OpenRouter → Google** | **LLM : reçoit le texte de la conversation** | 🇺🇸 |
-| **Twilio** | **Téléphonie : transporte l'appel** | 🇺🇸 || **OpenAI (GPT-Live)** | **Essai du 04/10/2026, établissements nommés seulement : reçoit TOUTE la voix du client et de l'assistante, et la conversation en texte** | 🇺🇸 ; résidence des données non vérifiée |
+| **Twilio** | **Téléphonie : transporte l'appel** | 🇺🇸 au 04/10/2026 (`voice_region: us1`, relevé par l'API) ; 🇮🇪 Irlande pour les appels une fois le numéro basculé (ASSISTANTE-123, `docs/TWILIO_SETUP.md` § 8) — les SMS restent aux États-Unis |
+| **OpenAI (GPT-Live)** | **Essai du 04/10/2026, établissements nommés seulement : reçoit TOUTE la voix du client et de l'assistante, et la conversation en texte** | 🇺🇸 ; résidence des données non vérifiée |
 
 
 Autrement dit : **le contenu des conversations quitte l'Union européenne.** Ce n'est pas

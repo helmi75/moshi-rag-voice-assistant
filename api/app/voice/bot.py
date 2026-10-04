@@ -18,7 +18,7 @@ from typing import Optional
 
 from loguru import logger
 
-from .. import llm, renvoi, taches
+from .. import llm, renvoi, taches, twilio_region
 from ..tenants import Tenant
 from .rattrapage import PARDON, pardon
 
@@ -474,14 +474,18 @@ def serialiseur_twilio(stream_sid: str, call_sid: Optional[str]):
             return await super().serialize(frame)
 
     # Le raccrochage automatique en fin de session nécessite les identifiants
-    # Twilio ; sans eux (dev/tests), on le désactive au lieu de planter.
-    account_sid = os.getenv("TWILIO_ACCOUNT_SID") or None
-    auth_token = os.getenv("TWILIO_AUTH_TOKEN") or None
+    # Twilio ; sans eux (dev/tests), on le désactive au lieu de planter. Il s'adresse à
+    # la région choisie (app/twilio_region.py) : demandé à l'autre, Twilio répond qu'il
+    # ne connaît pas l'appel, et c'est alors /twilio/suite qui raccroche.
+    account_sid, auth_token = twilio_region.identifiants() or (None, None)
+    lieu = twilio_region.acces()
     return Serialiseur(
         stream_sid=stream_sid,
         call_sid=call_sid,
         account_sid=account_sid,
         auth_token=auth_token,
+        region=twilio_region.choisie() if lieu else None,
+        edge=lieu,
         params=TwilioFrameSerializer.InputParams(
             auto_hang_up=bool(account_sid and auth_token)
         ),

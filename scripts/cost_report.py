@@ -64,14 +64,21 @@ def modal_cost_today() -> dict:
 def twilio_inbound_calls_since(iso_date: str, after_ts: str) -> list:
     from email.utils import parsedate_to_datetime
 
-    sid, tok = os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"]
+    sid = os.environ["TWILIO_ACCOUNT_SID"]
+    # Chaque région de Twilio tient son journal (api/app/twilio_region.py) : on lit les
+    # deux, sinon une période à cheval sur une bascule perd les appels de l'autre côté.
+    journaux = [("api.twilio.com", os.environ["TWILIO_AUTH_TOKEN"])]
+    if os.getenv("TWILIO_AUTH_TOKEN_IE1", "").strip():
+        journaux.append(("api.dublin.ie1.twilio.com", os.environ["TWILIO_AUTH_TOKEN_IE1"].strip()))
     number = os.getenv("TWILIO_NUMBER", "")
     after = datetime.fromisoformat(after_ts)
-    url = (f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json"
-           f"?StartTime%3E={iso_date}&PageSize=100")
-    d = _get(url, auth=(sid, tok))
+    recus = []
+    for hote, tok in journaux:
+        url = (f"https://{hote}/2010-04-01/Accounts/{sid}/Calls.json"
+               f"?StartTime%3E={iso_date}&PageSize=100")
+        recus += _get(url, auth=(sid, tok)).get("calls", [])
     calls = []
-    for c in d.get("calls", []):
+    for c in recus:
         if number and c.get("to") != number:
             continue
         # Filtrage fin par horodatage (le filtre API est au jour près) : on ne garde

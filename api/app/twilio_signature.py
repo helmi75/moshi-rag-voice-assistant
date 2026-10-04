@@ -11,6 +11,12 @@ complète (telle que configurée dans la console, requête comprise) suivie des 
 POST concaténés clé + valeur, triés par clé ; encodé en base64. Reproduit ici avec la
 bibliothèque standard — vérifié contre le vecteur de la documentation Twilio.
 
+Un jeton par région (app/twilio_region.py) : un appel traité en Irlande est signé par le
+jeton irlandais, un SMS par l'américain. Une requête est donc acceptée si l'UN des jetons
+posés l'a signée, et la supervision compte par région — c'est ce compteur, quand il monte
+après un appel, qui dit qu'une bascule a pris. La sonde de scripts/twilio_region.py est
+elle-même une requête signée : elle y compte pour une.
+
 Trois modes, par `TWILIO_SIGNATURE` :
 - `enforce` : une signature absente ou fausse vaut 403 (ou refus de la poignée de main) ;
 - `log` : on laisse passer mais on compte et on journalise — pour observer 48 h après
@@ -35,12 +41,14 @@ from urllib.parse import urlsplit, urlunsplit
 from fastapi import HTTPException, Request, WebSocket
 from loguru import logger
 
+from . import twilio_region
+
 EN_TETE = "x-twilio-signature"
 
 # Compteurs depuis le démarrage du processus, lus par la supervision. En mémoire et
 # rien d'autre : écrire en base à chaque requête refusée offrirait à l'attaquant un
 # moyen de faire travailler SQLite en boucle.
-_compteur: dict = {"acceptees": 0, "refusees": 0, "derniere_refusee": None}
+_compteur: dict = {"acceptees": 0, "refusees": 0, "derniere_refusee": None, "regions": {}}
 
 
 def signature_attendue(jeton: str, url: str, params: Optional[dict] = None) -> str:
@@ -77,6 +85,15 @@ def valide(jeton: str, url: str, params: Optional[dict], fournie: str) -> bool:
         if hmac.compare_digest(signature_attendue(jeton, candidate, params), fournie):
             return True
     return False
+
+
+def region_signataire(url: str, params: Optional[dict], fournie: str) -> Optional[str]:
+    """La région dont le jeton a signé cette requête ; None si aucun jeton posé ne
+    l'explique — une requête forgée, ou une région dont on n'a pas le jeton."""
+    for region, jeton in twilio_region.jetons().items():
+        if valide(jeton, url, params, fournie):
+            return region
+    return None
 
 
 def mode() -> str:
@@ -123,9 +140,11 @@ def url_ws_publique(websocket: WebSocket) -> str:
     return f"wss://{websocket.url.netloc}{websocket.url.path}"
 
 
-def _compter(ok: bool, chemin: str, mode_courant: str) -> None:
+def _compter(ok: bool, chemin: str, mode_courant: str, region: Optional[str] = None) -> None:
     if ok:
         _compteur["acceptees"] += 1
+        if region:
+            _compteur["regions"][region] = _compteur["regions"].get(region, 0) + 1
         return
     _compteur["refusees"] += 1
     _compteur["derniere_refusee"] = {
@@ -135,12 +154,12 @@ def _compter(ok: bool, chemin: str, mode_courant: str) -> None:
 
 
 def compteurs() -> dict:
-    return dict(_compteur)
+    return {**_compteur, "regions": dict(_compteur["regions"])}
 
 
 def remettre_a_zero() -> None:
     """Réservé aux tests."""
-    _compteur.update({"acceptees": 0, "refusees": 0, "derniere_refusee": None})
+    _compteur.update({"acceptees": 0, "refusees": 0, "derniere_refusee": None, "regions": {}})
 
 
 async def exiger(request: Request) -> None:
@@ -149,15 +168,14 @@ async def exiger(request: Request) -> None:
     mode_courant = mode()
     if mode_courant == "off":
         return
-    jeton = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
     params: dict = {}
     if request.method == "POST":
         formulaire = await request.form()
         params = {cle: valeur for cle, valeur in formulaire.items() if isinstance(valeur, str)}
     fournie = request.headers.get(EN_TETE, "")
-    ok = valide(jeton, url_publique(request), params, fournie)
-    _compter(ok, request.url.path, mode_courant)
-    if ok:
+    region = region_signataire(url_publique(request), params, fournie)
+    _compter(region is not None, request.url.path, mode_courant, region)
+    if region:
         return
     if mode_courant == "enforce":
         raise HTTPException(status_code=403, detail="Signature Twilio invalide")
@@ -170,11 +188,10 @@ def verifier_ws(websocket: WebSocket) -> bool:
     mode_courant = mode()
     if mode_courant == "off":
         return True
-    jeton = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-    ok = valide(jeton, url_ws_publique(websocket), {}, websocket.headers.get(EN_TETE, ""))
-    _compter(ok, websocket.url.path, mode_courant)
-    if ok or mode_courant == "log":
-        if not ok:
+    region = region_signataire(url_ws_publique(websocket), {}, websocket.headers.get(EN_TETE, ""))
+    _compter(region is not None, websocket.url.path, mode_courant, region)
+    if region or mode_courant == "log":
+        if not region:
             logger.warning("signature Twilio absente ou invalide sur la poignée de main "
                            f"/ws/voice (mode log : acceptée) — URL vérifiée : "
                            f"{url_ws_publique(websocket)}")

@@ -21,6 +21,10 @@ services:
       LLM_REASONING: "${LLM_REASONING:-off}"
       TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
       TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
+      # Région où Twilio traite les appels (docs/TWILIO_SETUP.md § 8) : `ie1` épargne à
+      # la voix deux traversées de l'Atlantique. Chaque région a son jeton ; vide = us1.
+      TWILIO_AUTH_TOKEN_IE1: "${TWILIO_AUTH_TOKEN_IE1:-}"
+      TWILIO_REGION: "${TWILIO_REGION:-}"
       TWILIO_NUMBER: "${TWILIO_NUMBER}"
       # Restaurant de démonstration semé dans une base VIDE (numéro = TWILIO_NUMBER).
       # Il n'est plus jamais réaligné ensuite : l'admin fait foi. 0 = ne rien semer.

@@ -393,6 +393,15 @@ GARDE_FOUS = [
         panne="n'importe qui ferait parler l'assistante, payer le LLM et réveiller le GPU",
     ),
     GardeFou(
+        nom="Avec un jeton par région, une signature forgée reste refusée",
+        fichier="api/app/twilio_signature.py",
+        avant="        if valide(jeton, url, params, fournie):",
+        apres="        if True:  # mutation",
+        tests=["test_twilio_signature.py"],
+        k="forgee",
+        panne="accepter le jeton irlandais aurait ouvert la porte à n'importe quelle signature",
+    ),
+    GardeFou(
         nom="La vérification est exigée par défaut dès qu'un jeton existe",
         fichier="api/app/twilio_signature.py",
         avant='    return "enforce" if jeton else "log"',

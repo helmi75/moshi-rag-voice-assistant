@@ -36,7 +36,7 @@ from typing import Deque, Optional
 import httpx
 from loguru import logger
 
-from . import db, horloge, notifications, renvoi, taches, tenants
+from . import db, horloge, notifications, renvoi, taches, tenants, twilio_region
 
 # Ce que devient une demande acceptée.
 LANCE = "lance"        # Twilio compose le numéro
@@ -156,12 +156,6 @@ def lisible(numero: str) -> str:
     return " ".join(national[i:i + 2] for i in range(0, len(national), 2))
 
 
-def _identifiants() -> Optional[tuple[str, str]]:
-    sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-    jeton = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-    return (sid, jeton) if sid and jeton else None
-
-
 def _base_publique() -> str:
     return "".join(os.getenv("PUBLIC_URL", "").split()).rstrip("/")
 
@@ -171,7 +165,7 @@ def actif() -> bool:
     Twilio, et l'adresse publique où Twilio viendra chercher la suite de l'appel."""
     if os.getenv("RAPPEL_ACTIF", "1").strip().lower() in ("0", "false", "non", "off"):
         return False
-    return bool(_identifiants() and _base_publique())
+    return bool(twilio_region.identifiants() and _base_publique())
 
 
 def etablissement() -> Optional[tenants.Tenant]:
@@ -275,11 +269,14 @@ def reinitialiser() -> None:
 
 async def _composer(numero: str, ligne: str) -> str:
     """Demande à Twilio d'appeler `numero` en présentant `ligne`, et rend l'identifiant de
-    l'appel. Quand la personne décroche, Twilio vient lire `/twilio/rappel`."""
-    sid, jeton = _identifiants()
+    l'appel. Quand la personne décroche, Twilio vient lire `/twilio/rappel`.
+
+    L'appel est traité dans la région à laquelle on le demande (app/twilio_region.py) :
+    c'est elle qui ouvrira le flux média, donc elle qui fait la latence de la démonstration."""
+    sid, jeton = twilio_region.identifiants()
     async with httpx.AsyncClient(timeout=_DELAI, auth=(sid, jeton)) as client:
         reponse = await client.post(
-            f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json",
+            f"{twilio_region.hote()}/2010-04-01/Accounts/{sid}/Calls.json",
             data={"To": numero, "From": ligne, "Method": "POST",
                   "Url": _base_publique() + "/twilio/rappel",
                   "Timeout": str(SONNERIE_SECONDES), "TimeLimit": str(duree_max())})
