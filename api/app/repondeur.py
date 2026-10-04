@@ -98,7 +98,9 @@ async def rapatrier(call_sid: Optional[str], recording_sid: Optional[str]) -> bo
                        f"/Recordings/{recording_sid}")
             async with httpx.AsyncClient(timeout=_DELAI, auth=identifiants) as client:
                 reponse = await client.get(adresse + ".wav")
-                if reponse.status_code == 404 and (hote, identifiants) != acces[-1]:
+                # Introuvable (404), mais aussi jeton refusé (401) ou panne de cette
+                # région : tant qu'il reste une région, c'est à elle qu'on demande.
+                if reponse.status_code >= 400 and (hote, identifiants) != acces[-1]:
                     continue
                 reponse.raise_for_status()
                 message = await asyncio.to_thread(en_ulaw, reponse.content)
