@@ -216,6 +216,9 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P19 | Même chose sur une réservation prise par SMS (sans appel) ; puis, sur une carte : les boutons Modifier / Annuler, et sélectionner le numéro à la souris | « Aucun appel rattaché », sans supposer d'où elle vient ; les boutons agissent sans ouvrir la fiche ; le numéro se sélectionne et se copie | |
 | P20 | Sur téléphone : toucher une barre d'un graphique, lever le doigt, toucher la même barre | La bulle reste affichée après la levée du doigt, et revient au second toucher | |
 | P21 | Passer un appel, noter l'heure à sa montre, puis ouvrir Appels | L'appel est à **l'heure de Paris** (la même qu'à la montre), dans le journal, la salle de contrôle et la fiche de l'appel | |
+| P22 | Ouvrir l'admin en sombre, puis en clair (les trois pastilles en bas de la barre latérale) | Les couleurs du site : fond brun nuit et orange en sombre, crème en clair ; aucun bouton bleu ; les graphiques en orange (appels) et bleu canard (réservations) | |
+| P23 | Sur un téléphone : toucher le bouton aux trois barres, en haut à droite | Le menu se déroule (navigation, thème, compte) ; le bouton devient une croix ; un toucher sur la page ou sur la croix le referme | |
+| P24 | Sur un téléphone, menu fermé | Une seule ligne en haut : la marque et le bouton ; le contenu commence tout de suite dessous | |
 
 ## S. En cas de panne : le renvoi vers le restaurant (ASSISTANTE-118)
 
@@ -242,7 +245,7 @@ répéter. Il faut un portable français de métropole.
 | # | Faire | Attendu | OK ? |
 |---|---|---|---|
 | W1 | Ouvrir `https://helmane.fr` sur un ordinateur | Arrive sur `https://app.helmane.fr/` ; la page s'affiche avec ses polices et ses dessins ; dans la console du navigateur (F12), aucune ligne rouge « Content Security Policy » | |
-| W2 | La même page sur un téléphone, jusqu'en bas ; puis en mode clair et en mode sombre | Rien ne déborde, rien n'est illisible ; les prix sont ceux de la grille : 89 € pour 250 minutes, 149 € pour 600, 349 € pour 1 500, la minute en plus à 0,35 / 0,25 / 0,20 € ; sous chaque forfait, « soit environ 70 / 170 / 430 appels » ; sous les trois cartes, le bandeau Liberté à 0,45 € la minute ; en bas, « Prix hors taxes » et la durée sur laquelle les appels sont calculés (3 min 30) | |
+| W2 | La même page sur un téléphone, jusqu'en bas | Rien ne déborde, rien n'est illisible ; la page est **sombre**, quel que soit le réglage de l'appareil ; en haut, deux boutons : « Espace client » et « Être rappelé » ; les prix sont ceux de la grille : 89 € pour 250 minutes, 149 € pour 600, 349 € pour 1 500, la minute en plus à 0,35 / 0,25 / 0,20 € ; sous chaque forfait, « soit environ 70 / 170 / 430 appels » ; sous les trois cartes, le bandeau Liberté à 0,45 € la minute ; en bas, « Prix hors taxes » et la durée sur laquelle les appels sont calculés (3 min 30) | |
 | W3 | Saisir `06 12 34`, puis *Rappelez-moi* | « Ce numéro semble incomplet » ; rien ne part | |
 | W4 | Saisir un numéro en `08` | « Ce numéro n'est pas un numéro français de métropole » | |
 | W5 | Entre 8 h et 22 h, saisir son portable | « Votre téléphone va sonner » ; il sonne en moins de dix secondes et affiche la ligne de démonstration | |
@@ -253,8 +256,8 @@ répéter. Il faut un portable français de métropole.
 | W10 | Ne pas décrocher (à faire au deuxième rappel de W9) | Le téléphone sonne 25 s puis s'arrête ; aucun appel au journal | |
 | W11 | Après 22 h, saisir son portable | « Marie rappelle entre 8 h et 22 h » ; le téléphone ne sonne pas | |
 | W12 | Boîte de `ADMIN_EMAIL` | Un e-mail « Demande de rappel depuis le site » par rappel passé | |
-| W13 | Pied de page → *Mentions légales* | La page s'ouvre, en clair et en sombre ; l'hébergeur est Hostinger ; les durées annoncées (30 jours pour la demande, 90 pour le numéro) ; l'identité de l'éditeur est complète **une fois fournie** | |
-| W14 | Relire le haut de la page et le bas des formules | Plus aucune promesse de « 14 jours d'essai » | |
+| W13 | **Une fois l'éditeur renseigné** (`site.EDITEUR`) : pied de page → *Mentions légales*. Avant : ni lien, ni page | La page s'ouvre ; l'hébergeur est Hostinger ; les durées annoncées (30 jours pour la demande, 90 pour le numéro) ; l'identité de l'éditeur est complète **une fois fournie** | |
+| W14 | Relire le haut de la page et le bas des formules | Plus de « 14 jours d'essai », de « sans engagement » sous les formules, ni de « tarif fondateur » | |
 | W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
 
 ## T. L'essai GPT-Live, la voix-à-voix d'OpenAI (`docs/TEMPS_REEL.md`)

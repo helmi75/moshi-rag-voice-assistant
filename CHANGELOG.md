@@ -34,6 +34,32 @@
 - La consigne d'accueil ne fait pas toujours parler le modèle : l'accueil lui est redonné
   au bout de 2,5 s de silence.
 
+## Non publiée — l'admin aux couleurs du site, menu du téléphone (04/10/2026)
+
+### Modifié
+- **L'admin porte le thème du site** : fond brun nuit et orange en sombre, crème en clair,
+  polices Inter et Inter Tight. Le choix clair / sombre / comme l'appareil reste. Les
+  graphiques passent à l'orange (appels) et au bleu canard (réservations), validés sur les
+  deux surfaces.
+- **Sur téléphone, la navigation de l'admin se range derrière un bouton aux trois barres** :
+  elle occupait jusque-là trois ou quatre lignes en haut de chaque page.
+- **La page d'accueil n'a plus qu'un thème, le sombre** (décision de Helmi).
+- Sur téléphone, l'en-tête du site garde un bouton « Espace client » à côté d'« Être
+  rappelé » : les liens s'y effaçaient tous, et un client n'avait plus de chemin vers sa
+  connexion.
+- La page ne dit plus « sans engagement » ni « tarif fondateur » sous les formules.
+- **Les mentions légales ne sont pas publiées** tant que l'éditeur n'est pas renseigné
+  (`site.EDITEUR`) : ni lien, ni page (404). Le texte est prêt.
+
+### Corrigé
+- En thème clair, les boutons-liens (« Nouvel établissement ») restaient au bleu de Pico :
+  ses variables l'emportaient sur les nôtres. On ne le voyait pas tant que l'accent était
+  bleu lui aussi.
+
+### Ajouté
+- **Agent `qa-recette`** (`.claude/agents/qa-recette.md`) : la part de la recette qui ne
+  demande aucun appel — suite de tests, production en lecture seule, rendu des pages.
+
 ## Non publiée — mentions légales, démonstration fictive, voix par défaut (03/10/2026)
 
 ### Ajouté
