@@ -39,6 +39,9 @@ bascule possible ; **il ne bascule rien** — elle se décide et se fait chez Tw
   l'autre région, bascule et revient. Il refuse de basculer tant que l'application
   n'accepte pas une requête signée par le jeton de la région visée.
 - `docs/TWILIO_SETUP.md` § 8 (marche à suivre et retour arrière), recette X.
+- La relève des alertes Twilio se fait région par région : une région qui refuse son
+  jeton est nommée (« relève impossible en ie1 (HTTP 401) ») sans faire taire l'autre.
+  Vécu le jour même : le secret d'une clé d'API posé à la place du jeton irlandais.
 
 ### Vérifié, et pas vérifié
 - Essayé en lecture seule sur le vrai numéro ; le jeton américain est bien refusé par

@@ -545,6 +545,49 @@ class TestTwilio:
         valeur, _ = supervision.relire("twilio")
         assert valeur == {"erreurs": 3, "codes": {"11200": 3}}
 
+    def test_une_region_muette_ne_fait_pas_taire_l_autre(self, base, monkeypatch):
+        """Vécu le 04/10/2026 : le secret d'une clé d'API posé à la place du jeton
+        irlandais. Twilio répond 401 en Irlande — les alertes des États-Unis, où le
+        numéro est encore traité, doivent rester lues, et le contrôle doit nommer la région."""
+        import asyncio
+
+        import httpx
+
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-test")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "jeton-americain")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", "secret-d-une-cle-d-api")
+
+        class _Reponse:
+            def __init__(self, status_code):
+                self.status_code = status_code
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise httpx.HTTPStatusError("refusé", request=None, response=self)
+
+            def json(self):
+                return {"alerts": [{"error_code": "11200"}]}
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, adresse, params=None, auth=None):
+                return _Reponse(401 if "dublin.ie1" in adresse else 200)
+
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_twilio())
+        valeur, _ = supervision.relire("twilio")
+        assert valeur == {"erreurs": 1, "codes": {"11200": 1}, "muettes": {"ie1": "HTTP 401"}}
+        controle = _controle("twilio")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "ie1 (HTTP 401)" in controle["resume"] and "1 erreur" in controle["resume"]
+        assert "clé d'API" in controle["detail"]
+        assert controle["mesure"]["erreurs"] == 1
+
     def test_une_releve_figee_est_signalee(self, base):
         """Une tâche de fond morte laisserait un « 0 erreur » éternellement vert."""
         supervision.noter("twilio", {"erreurs": 0, "codes": {}})

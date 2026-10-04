@@ -80,7 +80,8 @@ def reglages(numero: str, sid: str, region: str) -> tuple[Optional[dict], str]:
         "GET", f"{_hote('api', region)}/2010-04-01/Accounts/{sid}/IncomingPhoneNumbers.json?"
         + urllib.parse.urlencode({"PhoneNumber": numero}), sid, _jeton(region))
     if code == 401:
-        return None, f"jeton refusé par {region} (est-ce bien le jeton de cette région ?)"
+        return None, (f"{REGIONS[region][1]} refusé par {region} : ce n'est pas l'Auth Token de "
+                      "cette région (le secret d'une clé d'API SK… ne convient pas)")
     if code != 200:
         return None, f"HTTP {code} {reponse.get('message') or ''}".strip()
     numeros = reponse.get("incoming_phone_numbers") or []
