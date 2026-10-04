@@ -185,6 +185,20 @@ def test_les_polices_du_site_sont_servies_d_ici():
     assert "http://" not in css and "https://" not in css
 
 
+def test_l_admin_porte_le_logo_du_site():
+    """Une seule marque : la barre latérale reprend trait pour trait le dessin de l'icône
+    du site, et l'onglet de l'admin affiche cette même icône."""
+    client = _client()
+    page = client.get("/admin/").text
+    icone = (CSS.parents[2] / "site" / "static" / "favicon.svg").read_text(encoding="utf-8")
+    trace = re.search(r' d="([^"]+)"', icone).group(1)
+    marque = re.search(r'<span class="brand-mark"[^>]*>(.*?)</span>', page, re.S).group(1)
+    assert f'd="{trace}"' in marque and 'fill="currentColor"' in marque
+    assert '<link rel="icon" href="/site/static/favicon.svg"' in page
+    reponse = client.get("/site/static/favicon.svg")
+    assert reponse.status_code == 200 and "svg" in reponse.headers["content-type"]
+
+
 class TestLeMenuDuTelephone:
     """Sur un téléphone, la navigation se range derrière un bouton aux trois barres."""
 

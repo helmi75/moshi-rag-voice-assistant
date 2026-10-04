@@ -258,6 +258,25 @@ class TestLeTheme:
         assert '<meta name="color-scheme" content="dark">' in page
 
 
+class TestLeLogo:
+    """La toque (choisie par Helmi le 04/10/2026) est un seul dessin : celui de l'icône de
+    l'onglet. L'en-tête le reprend trait pour trait, pour qu'une retouche de l'un ne laisse
+    pas l'autre en arrière."""
+
+    def test_l_en_tete_porte_le_dessin_de_l_icone(self, page):
+        icone = (site.STATIC_DIR / "favicon.svg").read_text(encoding="utf-8")
+        traces = re.findall(r' d="([^"]+)"', icone)
+        assert len(traces) == 1
+        logo = re.search(r'<span class="marque__logo"[^>]*>(.*?)</span>', page, re.S).group(1)
+        assert f'd="{traces[0]}"' in logo
+
+    def test_le_dessin_prend_la_couleur_du_theme(self, page):
+        """Dans la page, il suit l'encre de sa pastille ; seule l'icône de l'onglet, qui
+        n'a pas de feuille de style, porte ses couleurs."""
+        logo = re.search(r'<span class="marque__logo"[^>]*>(.*?)</span>', page, re.S).group(1)
+        assert 'fill="currentColor"' in logo and "#" not in logo
+
+
 class TestLEnTeteSurTelephone:
     def test_l_espace_client_reste_accessible_en_bouton(self, page):
         """Sur téléphone les liens de l'en-tête s'effacent : sans ce bouton, un client
