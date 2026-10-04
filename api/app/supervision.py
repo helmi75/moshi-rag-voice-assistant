@@ -825,6 +825,18 @@ def _controle_twilio() -> Controle:
             "La tâche de fond ne tourne plus : les erreurs de webhook ne sont plus vues.",
             mesure={"releve": False, "age_minutes": age_min},
         )
+    muettes = valeur.get("muettes") or {}
+    if muettes:
+        regions = ", ".join(f"{region} ({cause})" for region, cause in sorted(muettes.items()))
+        return Controle(
+            "twilio", "Alertes Twilio", ATTENTION,
+            f"Relève impossible en {regions} ; {n} erreur(s) signalée(s) ailleurs.",
+            "Twilio refuse le jeton de cette région, ou son API n'a pas répondu. Un 401 en "
+            "ie1 : TWILIO_AUTH_TOKEN_IE1 n'est pas l'Auth Token de la région Ireland — le "
+            "secret d'une clé d'API (SK…) ne convient pas, il ne signe pas les webhooks. Ne "
+            "pas basculer le numéro vers cette région tant que ce contrôle le dit.",
+            mesure={"releve": True, "erreurs": n, "muettes": muettes, "age_minutes": age_min},
+        )
     return Controle(
         "twilio", "Alertes Twilio", ATTENTION if n else OK,
         f"{n} erreur(s) signalée(s) par Twilio sur {fenetre_jours()} jours.",
@@ -1093,17 +1105,21 @@ async def rafraichir_twilio() -> None:
 
     # Chaque région tient son propre journal (app/twilio_region.py) : les alertes d'un
     # appel traité en Irlande ne se lisent pas aux États-Unis, où restent celles des SMS.
-    acces = [(twilio_region.hote(region, "monitor"), twilio_region.identifiants(region))
+    acces = [(region, twilio_region.hote(region, "monitor"), twilio_region.identifiants(region))
              for region in twilio_region.ordre()]
-    acces = [(hote, identifiants) for hote, identifiants in acces if identifiants]
+    acces = [(region, hote, identifiants) for region, hote, identifiants in acces if identifiants]
     if not acces:
         await db.hors_boucle(noter, "twilio", {"erreur": "identifiants Twilio absents"})
         return
     depuis = (_maintenant() - timedelta(days=fenetre_jours())).strftime("%Y-%m-%dT%H:%M:%SZ")
     alertes: list = []
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            for hote, identifiants in acces:
+    # Une région qui ne répond pas ne doit pas faire taire l'autre. Vécu le 04/10/2026 :
+    # le secret d'une clé d'API posé à la place du jeton irlandais (401) aurait caché
+    # les alertes des États-Unis, où le numéro était encore traité.
+    muettes: dict[str, str] = {}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for region, hote, identifiants in acces:
+            try:
                 reponse = await client.get(
                     hote + "/v1/Alerts",
                     params={"StartDate": depuis, "PageSize": 50},
@@ -1111,14 +1127,16 @@ async def rafraichir_twilio() -> None:
                 )
                 reponse.raise_for_status()
                 alertes += reponse.json().get("alerts", []) or []
-    except httpx.HTTPStatusError as exc:
-        # Twilio A répondu, et son code dit quoi faire : 401 = identifiants à renouveler,
-        # 429 = trop de relèves, 5xx = panne chez eux. « L'API n'a pas répondu » aurait
-        # envoyé chercher un problème de réseau là où il n'y en a pas.
-        await db.hors_boucle(noter, "twilio", {"erreur": f"HTTP {exc.response.status_code}"})
-        return
-    except Exception as exc:
-        await db.hors_boucle(noter, "twilio", {"erreur": type(exc).__name__})
+            except httpx.HTTPStatusError as exc:
+                # Twilio A répondu, et son code dit quoi faire : 401 = identifiants à
+                # renouveler, 429 = trop de relèves, 5xx = panne chez eux. « L'API n'a
+                # pas répondu » aurait envoyé chercher un problème de réseau là où il
+                # n'y en a pas.
+                muettes[region] = f"HTTP {exc.response.status_code}"
+            except Exception as exc:
+                muettes[region] = type(exc).__name__
+    if len(muettes) == len(acces):
+        await db.hors_boucle(noter, "twilio", {"erreur": next(iter(muettes.values()))})
         return
     # `error_code` est renseigné pour les erreurs (11200 webhook injoignable, 12100
     # TwiML invalide, 31920 flux média refusé…) ; les alertes de niveau `notice` ne
@@ -1128,7 +1146,10 @@ async def rafraichir_twilio() -> None:
     for alerte in erreurs:
         code = str(alerte["error_code"])
         codes[code] = codes.get(code, 0) + 1
-    await db.hors_boucle(noter, "twilio", {"erreurs": len(erreurs), "codes": codes})
+    releve: dict = {"erreurs": len(erreurs), "codes": codes}
+    if muettes:
+        releve["muettes"] = muettes
+    await db.hors_boucle(noter, "twilio", releve)
 
 
 async def boucle_twilio() -> None:

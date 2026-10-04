@@ -45,8 +45,9 @@ class _Twilio:
     appels: list = []
     telechargement = _Reponse(200, _wav(2.0))
     effacement = _Reponse(204)
-    # Les hôtes où le message n'est pas rangé : il vit dans la région qui a traité l'appel.
-    introuvable_sur: tuple = ()
+    # Ce que répond chaque hôte quand ce n'est pas le message : 404 là où il n'est pas
+    # rangé (il vit dans la région qui a traité l'appel), 401 là où le jeton est refusé.
+    refus: dict = {}
 
     def __init__(self, **options):
         _Twilio.options = options
@@ -59,8 +60,9 @@ class _Twilio:
 
     async def get(self, adresse):
         _Twilio.appels.append(("GET", adresse))
-        if adresse.startswith(_Twilio.introuvable_sur or "\0"):
-            return _Reponse(404)
+        for hote, code in _Twilio.refus.items():
+            if adresse.startswith(hote):
+                return _Reponse(code)
         return _Twilio.telechargement
 
     async def delete(self, adresse):
@@ -76,7 +78,7 @@ def appel(monkeypatch, tmp_path):
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "jeton")
     monkeypatch.setattr(repondeur.httpx, "AsyncClient", _Twilio)
     _Twilio.appels, _Twilio.telechargement, _Twilio.effacement = [], _Reponse(200, _wav(2.0)), _Reponse(204)
-    _Twilio.introuvable_sur = ()
+    _Twilio.refus = {}
     tenant = tenants.create_tenant("Chez Message", f"+3365{id(object()) % 10_000_000:07d}")
     sid = f"CA{uuid.uuid4().hex}"
     call_id = calls.ouvrir_secours(sid, tenant.id, "+33611223344", "voix")
@@ -123,7 +125,7 @@ class TestLeRapatriement:
         aller le chercher en Irlande plutôt que de le laisser chez Twilio."""
         tenant, sid, call_id = appel
         monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", "jeton-irlandais")
-        _Twilio.introuvable_sur = ("https://api.twilio.com/",)
+        _Twilio.refus = {"https://api.twilio.com/": 404}
         assert asyncio.run(repondeur.rapatrier(sid, SID)) is True
         assert _octets(call_id) == 16000
         chemin = f"/2010-04-01/Accounts/AC{'0' * 32}/Recordings/{SID}"
@@ -143,9 +145,23 @@ class TestLeRapatriement:
     def test_un_message_introuvable_partout_reste_chez_twilio(self, appel, monkeypatch):
         _, sid, call_id = appel
         monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", "jeton-irlandais")
-        _Twilio.introuvable_sur = ("https://api.twilio.com/", "https://api.dublin.ie1.twilio.com/")
+        _Twilio.refus = {"https://api.twilio.com/": 404, "https://api.dublin.ie1.twilio.com/": 404}
         assert asyncio.run(repondeur.rapatrier(sid, SID)) is False
         assert [m for m, _ in _Twilio.appels] == ["GET", "GET"] and _octets(call_id) is None
+
+    def test_un_jeton_refuse_dans_la_region_choisie_fait_essayer_l_autre(self, appel, monkeypatch):
+        """Vécu le 04/10/2026 : le secret d'une clé d'API à la place du jeton irlandais.
+        Avec TWILIO_REGION=ie1 et un numéro encore traité aux États-Unis, le 401 de
+        l'Irlande ne doit pas laisser le message chez Twilio."""
+        _, sid, call_id = appel
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", "secret-d-une-cle-d-api")
+        monkeypatch.setenv("TWILIO_REGION", "ie1")
+        _Twilio.refus = {"https://api.dublin.ie1.twilio.com/": 401}
+        assert asyncio.run(repondeur.rapatrier(sid, SID)) is True
+        assert _octets(call_id) == 16000
+        assert [adresse.split("/2010")[0] for _, adresse in _Twilio.appels] == [
+            "https://api.dublin.ie1.twilio.com", "https://api.twilio.com", "https://api.twilio.com"]
+        assert _Twilio.options["auth"] == ("AC" + "0" * 32, "jeton")
 
     def test_il_se_range_apres_la_conversation_deja_enregistree(self, appel):
         """Un appel renvoyé en cours de route a déjà ses deux pistes : le message ne doit

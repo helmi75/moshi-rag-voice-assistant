@@ -157,9 +157,13 @@ deux signatures en même temps.
 
 **La marche à suivre, dans cet ordre** — l'inverser fait refuser tous les appels :
 
-1. Console Twilio → *Account → API keys & tokens* → région **Ireland (IE1)** → relever
-   l'*Auth Token*. Le poser dans le `.env` du serveur (`TWILIO_AUTH_TOKEN_IE1=…`) et
+1. Console Twilio → *Account → API keys & tokens* → région **Ireland (IE1)** → section
+   *Live credentials* → relever l'**Auth Token** (32 caractères, chiffres et lettres de
+   `a` à `f`). Le poser dans le `.env` du serveur (`TWILIO_AUTH_TOKEN_IE1=…`) et
    redéployer. Rien ne change pour les appels.
+   **Pas « Create API key »** : le secret d'une clé d'API (`SK…`) authentifie l'API mais
+   ne signe pas les webhooks — l'application refuserait tous les appels (vécu le
+   04/10/2026). « Alertes Twilio » le signale : *relève impossible en ie1 (HTTP 401)*.
 2. `python3 scripts/twilio_region.py +33…` : l'état du numéro dans les deux régions.
 3. `… --preparer ie1` : recopie en Irlande les webhooks du numéro (appel, secours, statut).
    Sans effet tant que le numéro n'a pas basculé.
@@ -169,8 +173,9 @@ deux signatures en même temps.
 5. Poser `TWILIO_REGION=ie1` dans le `.env` et redéployer : raccrochage, messages vocaux
    et rappels du site s'adressent alors à l'Irlande. (Entre 4 et 5, rien ne casse : c'est
    `/twilio/suite` qui raccroche, et un message vocal est cherché dans les deux régions.)
-6. Vérifier : un appel, puis « Santé & coûts » → *Signature des requêtes Twilio* doit
-   compter des requêtes `ie1`. Recette X de `docs/RECETTE.md`.
+6. Vérifier : relever le compteur `ie1` de « Santé & coûts » → *Signature des requêtes
+   Twilio*, passer un appel, et le voir **augmenter**. La sonde du script y compte déjà
+   pour une requête : « ie1 : 1 » seul ne prouve rien. Recette X de `docs/RECETTE.md`.
 
 **Revenir en arrière** : `… --basculer us1`, puis retirer `TWILIO_REGION`. Le jeton
 irlandais peut rester.
@@ -185,6 +190,7 @@ D'après la documentation de Twilio à cette date, rien de ce que l'application 
 | Symptôme | Cause probable |
 |---|---|
 | Après une bascule de région, plus aucun appel n'aboutit (403) | l'application n'a pas le jeton de la région (`TWILIO_AUTH_TOKEN_IE1`), ou ce n'est pas le bon : `scripts/twilio_region.py … --basculer us1` tout de suite, corriger ensuite |
+| « Alertes Twilio » : relève impossible en ie1 (HTTP 401) | `TWILIO_AUTH_TOKEN_IE1` n'est pas l'Auth Token de la région Ireland (c'est souvent le secret d'une clé d'API `SK…`) : le relever dans *Live credentials*, région Ireland. Ne pas basculer avant |
 | « Configuration du chemin d'appel » en attention, « TWILIO_REGION=ie1 sans le jeton » | l'application s'est repliée sur `us1` : poser `TWILIO_AUTH_TOKEN_IE1`, ou retirer `TWILIO_REGION` |
 | « L'appel n'a pas pu partir » sur le site | Twilio a refusé de composer : permissions géographiques, solde, ou `TWILIO_NUMBER` qui n'est pas un numéro du compte |
 | « Le rappel n'est pas disponible » sur le site | `RAPPEL_ACTIF=0`, ou il manque `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` ou `PUBLIC_URL`, ou aucun établissement ne porte `TWILIO_NUMBER` |
