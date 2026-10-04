@@ -173,8 +173,9 @@ deux signatures en même temps.
 5. Poser `TWILIO_REGION=ie1` dans le `.env` et redéployer : raccrochage, messages vocaux
    et rappels du site s'adressent alors à l'Irlande. (Entre 4 et 5, rien ne casse : c'est
    `/twilio/suite` qui raccroche, et un message vocal est cherché dans les deux régions.)
-6. Vérifier : un appel, puis « Santé & coûts » → *Signature des requêtes Twilio* doit
-   compter des requêtes `ie1`. Recette X de `docs/RECETTE.md`.
+6. Vérifier : relever le compteur `ie1` de « Santé & coûts » → *Signature des requêtes
+   Twilio*, passer un appel, et le voir **augmenter**. La sonde du script y compte déjà
+   pour une requête : « ie1 : 1 » seul ne prouve rien. Recette X de `docs/RECETTE.md`.
 
 **Revenir en arrière** : `… --basculer us1`, puis retirer `TWILIO_REGION`. Le jeton
 irlandais peut rester.

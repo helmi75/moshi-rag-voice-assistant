@@ -13,8 +13,9 @@ bibliothèque standard — vérifié contre le vecteur de la documentation Twili
 
 Un jeton par région (app/twilio_region.py) : un appel traité en Irlande est signé par le
 jeton irlandais, un SMS par l'américain. Une requête est donc acceptée si l'UN des jetons
-posés l'a signée, et la supervision compte par région — c'est ce compteur qui dit, après
-une bascule, que les appels passent bien par l'Irlande.
+posés l'a signée, et la supervision compte par région — c'est ce compteur, quand il monte
+après un appel, qui dit qu'une bascule a pris. La sonde de scripts/twilio_region.py est
+elle-même une requête signée : elle y compte pour une.
 
 Trois modes, par `TWILIO_SIGNATURE` :
 - `enforce` : une signature absente ou fausse vaut 403 (ou refus de la poignée de main) ;

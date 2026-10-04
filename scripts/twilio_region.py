@@ -172,6 +172,8 @@ def basculer(numero: str, sid: str, cible: str) -> None:
     print(f"✅ {numero} : appels traités en {cible} (Twilio annonce jusqu'à cinq minutes de délai).")
     print(f"   Poser TWILIO_REGION={cible} dans le .env de l'application, puis la redéployer :")
     print("   raccrochage, messages vocaux et rappels du site s'adresseront à la même région.")
+    print(f"   La sonde a compté pour une requête {cible} dans la supervision : seul un vrai")
+    print("   appel, qui fait monter ce compteur, prouve que la bascule a pris.")
 
 
 def main() -> None:

@@ -271,7 +271,7 @@ Marche à suivre : `docs/TWILIO_SETUP.md` § 8. À faire **hors service**. Le ga
 | X1 | Jeton irlandais posé et déployé, **avant** toute bascule : appeler la ligne | L'assistante répond comme avant ; « Signature des requêtes Twilio » : aucune refusée | |
 | X2 | `python3 scripts/twilio_region.py +33…` | « appels traités en : us1 », et les réglages du numéro lisibles dans les deux régions | |
 | X3 | `… --preparer ie1`, puis relire l'état | Les mêmes webhooks en `ie1` qu'en `us1` | |
-| X4 | `… --basculer ie1`, attendre cinq minutes, appeler | L'assistante répond ; la signature compte des requêtes `ie1` ; l'appel est au journal de la console Twilio, région Ireland | |
+| X4 | `… --basculer ie1`, attendre cinq minutes, appeler | L'assistante répond ; le compteur `ie1` de la signature **augmente** après l'appel (la sonde du script en avait déjà compté une) ; l'appel est au journal de la console Twilio, région Ireland | |
 | X5 | Poser `TWILIO_REGION=ie1`, redéployer, prendre une réservation complète et raccrocher | Tout se passe comme avant ; à l'oreille, les réponses ne sont pas plus lentes | |
 | X6 | Refaire S5 et S6 (message vocal pendant un essai de renvoi) | Le message s'écoute dans la fiche de l'appel | |
 | X7 | « Rappelez-moi » sur le site | Le téléphone sonne : l'Irlande a le droit d'appeler la France | |
