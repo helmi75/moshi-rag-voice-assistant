@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
@@ -79,6 +79,7 @@ def accueil(request: Request):
         "duree_appel": _duree(plans.DUREE_APPEL_MIN),
         "seuil": round(plans.SEUIL_ALERTE * 100),
         "net_exemple": _euros(_CA_EXEMPLE - premiere.prix_mensuel_eur),
+        "mentions_publiees": mentions_publiees(),
     })
 
 
@@ -104,10 +105,19 @@ HEBERGEUR = {
 }
 
 
+def mentions_publiees() -> bool:
+    """La page n'existe pour le public qu'une fois l'éditeur identifié : des mentions
+    légales sans éditeur ne sont pas des mentions légales (Helmi, 04/10/2026 : « on va
+    laisser pour plus tard »)."""
+    return bool(EDITEUR["nom"].strip())
+
+
 @router.api_route("/mentions-legales", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def mentions_legales(request: Request):
     """Publique et sans base, comme l'accueil. Les durées de conservation sont celles que
     `rgpd.py` applique vraiment : la page ne peut pas en promettre d'autres."""
+    if not mentions_publiees():
+        raise HTTPException(status_code=404)
     return templates.TemplateResponse(request, "mentions.html", {
         "editeur": EDITEUR,
         "hebergeur": HEBERGEUR,
