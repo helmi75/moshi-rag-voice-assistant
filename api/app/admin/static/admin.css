@@ -1,51 +1,74 @@
 /* ============================================================================
-   Admin — design system inspiré d'Apple, bâti au-dessus de Pico.css.
-   Clair + sombre AUTO (prefers-color-scheme). Police = pile système :
-   SF Pro sur Apple, Segoe/Roboto ailleurs — aucun téléchargement (règle no-CDN).
-   Un seul jeu de tokens --app-* bascule tout le thème.
+   Admin — aux couleurs du site d'Helmane (04/10/2026), bâti au-dessus de Pico.css.
+   Même palette chaude que la page d'accueil : fond brun nuit et accent orange en
+   sombre, fond crème en clair. Clair + sombre AUTO (prefers-color-scheme), ou choisi
+   (ASSISTANTE-114). Un seul jeu de tokens --app-* bascule tout le thème.
+   Polices : Inter et Inter Tight, celles du site, servies d'ici (aucune origine tierce).
    Structure : coquille à barre latérale (.shell > .sidebar + .main).
    ============================================================================ */
+@font-face {
+  font-family: "Inter"; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url("/site/static/inter-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter Tight"; font-style: normal; font-weight: 700 800; font-display: swap;
+  src: url("/site/static/inter-tight-latin.woff2") format("woff2");
+}
 
 :root {
-  --app-bg:          #f5f5f7;
-  --app-surface:     #ffffff;
-  --app-surface-2:   #f0f0f2;
-  --app-text:        #1d1d1f;
-  --app-muted:       #6e6e73;
-  --app-faint:       #86868b;
-  --app-border:      rgba(0,0,0,.11);
-  --app-hairline:    rgba(0,0,0,.07);
-  --app-accent:      #0071e3;
-  --app-accent-hover:#0077ed;
-  --app-accent-ink:  #ffffff;
-  --app-accent-soft: rgba(0,113,227,.10);
-  --app-good:        #1ba672;
-  --app-good-soft:   rgba(27,166,114,.12);
-  --app-warn:        #b26a00;
-  --app-warn-soft:   rgba(178,106,0,.13);
-  --app-bad:         #e5484d;
-  --app-bad-soft:    rgba(229,72,77,.12);
-  --app-shadow:      0 1px 2px rgba(0,0,0,.05), 0 10px 30px rgba(0,0,0,.07);
-  --app-shadow-sm:   0 1px 2px rgba(0,0,0,.05), 0 4px 14px rgba(0,0,0,.06);
+  --app-bg:          #FFF8F0;
+  --app-surface:     #FFFFFF;
+  --app-surface-2:   #FBEDDD;
+  --app-text:        #20160F;
+  --app-muted:       #5F5246;
+  --app-faint:       #7A6B5D;
+  --app-border:      rgba(32,22,15,.16);
+  --app-hairline:    rgba(32,22,15,.09);
+  /* L'orange du site (#F0801A) ne tient pas 4,5:1 en texte sur blanc : en clair, les
+     liens et les boutons prennent un orange brûlé (4,9:1), encre blanche. */
+  --app-accent:      #B8520A;
+  --app-accent-hover:#9C4407;
+  --app-accent-ink:  #FFFFFF;
+  --app-accent-soft: rgba(240,128,26,.13);
+  --app-good:        #157A4B;
+  --app-good-soft:   rgba(21,122,75,.12);
+  /* L'alerte tire sur l'or, pas sur l'orange : elle ne doit pas se lire comme l'accent. */
+  --app-warn:        #8A6500;
+  --app-warn-soft:   rgba(138,101,0,.14);
+  --app-bad:         #C62F33;
+  --app-bad-soft:    rgba(198,47,51,.11);
+  --app-shadow:      0 1px 2px rgba(32,22,15,.06), 0 14px 34px -14px rgba(32,22,15,.22);
+  --app-shadow-sm:   0 1px 2px rgba(32,22,15,.06), 0 6px 16px -8px rgba(32,22,15,.16);
   --app-radius:      18px;
   --app-radius-sm:   12px;
   --app-radius-xs:   9px;
-  --app-sidebar-bg:  rgba(245,245,247,.86);
+  --app-sidebar-bg:  rgba(255,248,240,.88);
   /* Surface volontairement sombre (carte « appels du parc ») : elle ne suit pas le
      thème, elle reste sombre — d'où son propre jeu de variables dataviz. */
-  --app-invert-bg:   #1d1d1f;
-  --app-invert-text: #f5f5f7;
-  --app-invert-muted:rgba(245,245,247,.6);
+  --app-invert-bg:   #241D18;
+  --app-invert-text: #FBF6EF;
+  --app-invert-muted:rgba(251,246,239,.62);
+  --app-display: "Inter Tight", "Inter", "Helvetica Neue", Arial, sans-serif;
+}
 
-  /* Pont vers Pico : les composants Pico héritent de la palette Apple. */
-  --pico-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-                      "Segoe UI", Roboto, Helvetica, Arial, sans-serif,
+/* Pont vers Pico : ses composants héritent de la palette. Pico pose ses propres variables
+   sous `:root:not([data-theme=dark])`, plus spécifique qu'un simple `:root` : avec lui,
+   les boutons-liens restaient au bleu de Pico en clair (on ne le voyait pas tant que
+   l'accent était bleu lui aussi). D'où le sélecteur triplé. */
+:root:root:root {
+  --pico-font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                      "Helvetica Neue", Arial, sans-serif,
                       "Apple Color Emoji", "Segoe UI Emoji";
   --pico-primary: var(--app-accent);
   --pico-primary-hover: var(--app-accent-hover);
   --pico-primary-background: var(--app-accent);
   --pico-primary-hover-background: var(--app-accent-hover);
   --pico-primary-inverse: var(--app-accent-ink);
+  --pico-primary-border: var(--app-accent);
+  --pico-primary-hover-border: var(--app-accent-hover);
+  --pico-primary-underline: color-mix(in srgb, var(--app-accent) 50%, transparent);
+  --pico-primary-hover-underline: var(--app-accent-hover);
+  --pico-primary-focus: var(--app-accent-soft);
   --pico-border-radius: var(--app-radius-sm);
   --pico-spacing: 1.1rem;
   --pico-typography-spacing-vertical: 1rem;
@@ -58,27 +81,28 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --app-bg:          #000000;
-    --app-surface:     #1c1c1e;
-    --app-surface-2:   #2c2c2e;
-    --app-text:        #f5f5f7;
-    --app-muted:       #a1a1a6;
-    --app-faint:       #8e8e93;
-    --app-border:      rgba(255,255,255,.15);
-    --app-hairline:    rgba(255,255,255,.09);
-    --app-accent:      #2997ff;
-    --app-accent-hover:#47a6ff;
-    --app-accent-soft: rgba(41,151,255,.15);
-    --app-good:        #30d18a;
-    --app-good-soft:   rgba(48,209,138,.16);
-    --app-warn:        #ffd426;
+    --app-bg:          #14100D;
+    --app-surface:     #241D18;
+    --app-surface-2:   #2E251E;
+    --app-text:        #FBF6EF;
+    --app-muted:       #BDB0A2;
+    --app-faint:       #9A8D80;
+    --app-border:      rgba(251,246,239,.16);
+    --app-hairline:    rgba(251,246,239,.09);
+    --app-accent:      #FF9B3D;
+    --app-accent-hover:#FFB05F;
+    --app-accent-ink:  #22130A;
+    --app-accent-soft: rgba(255,155,61,.16);
+    --app-good:        #5BD69A;
+    --app-good-soft:   rgba(91,214,154,.16);
+    --app-warn:        #FFD426;
     --app-warn-soft:   rgba(255,212,38,.16);
-    --app-bad:         #ff6961;
-    --app-bad-soft:    rgba(255,105,97,.16);
-    --app-shadow:      0 1px 2px rgba(0,0,0,.4), 0 14px 40px rgba(0,0,0,.55);
-    --app-shadow-sm:   0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.45);
-    --app-sidebar-bg:  rgba(22,22,24,.82);
-    --app-invert-bg:   #2c2c2e;
+    --app-bad:         #FF7A70;
+    --app-bad-soft:    rgba(255,122,112,.16);
+    --app-shadow:      0 1px 2px rgba(0,0,0,.35), 0 18px 46px -18px rgba(0,0,0,.8);
+    --app-shadow-sm:   0 1px 2px rgba(0,0,0,.35), 0 8px 22px -10px rgba(0,0,0,.6);
+    --app-sidebar-bg:  rgba(27,22,18,.88);
+    --app-invert-bg:   #2E251E;
   }
 }
 
@@ -86,27 +110,28 @@
    ne peut pas être à la fois dans et hors d'une @media : le jeu est recopié, à l'identique
    — test_theme.py compare les deux blocs. */
 :root[data-theme="dark"] {
-    --app-bg:          #000000;
-    --app-surface:     #1c1c1e;
-    --app-surface-2:   #2c2c2e;
-    --app-text:        #f5f5f7;
-    --app-muted:       #a1a1a6;
-    --app-faint:       #8e8e93;
-    --app-border:      rgba(255,255,255,.15);
-    --app-hairline:    rgba(255,255,255,.09);
-    --app-accent:      #2997ff;
-    --app-accent-hover:#47a6ff;
-    --app-accent-soft: rgba(41,151,255,.15);
-    --app-good:        #30d18a;
-    --app-good-soft:   rgba(48,209,138,.16);
-    --app-warn:        #ffd426;
+    --app-bg:          #14100D;
+    --app-surface:     #241D18;
+    --app-surface-2:   #2E251E;
+    --app-text:        #FBF6EF;
+    --app-muted:       #BDB0A2;
+    --app-faint:       #9A8D80;
+    --app-border:      rgba(251,246,239,.16);
+    --app-hairline:    rgba(251,246,239,.09);
+    --app-accent:      #FF9B3D;
+    --app-accent-hover:#FFB05F;
+    --app-accent-ink:  #22130A;
+    --app-accent-soft: rgba(255,155,61,.16);
+    --app-good:        #5BD69A;
+    --app-good-soft:   rgba(91,214,154,.16);
+    --app-warn:        #FFD426;
     --app-warn-soft:   rgba(255,212,38,.16);
-    --app-bad:         #ff6961;
-    --app-bad-soft:    rgba(255,105,97,.16);
-    --app-shadow:      0 1px 2px rgba(0,0,0,.4), 0 14px 40px rgba(0,0,0,.55);
-    --app-shadow-sm:   0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.45);
-    --app-sidebar-bg:  rgba(22,22,24,.82);
-    --app-invert-bg:   #2c2c2e;
+    --app-bad:         #FF7A70;
+    --app-bad-soft:    rgba(255,122,112,.16);
+    --app-shadow:      0 1px 2px rgba(0,0,0,.35), 0 18px 46px -18px rgba(0,0,0,.8);
+    --app-shadow-sm:   0 1px 2px rgba(0,0,0,.35), 0 8px 22px -10px rgba(0,0,0,.6);
+    --app-sidebar-bg:  rgba(27,22,18,.88);
+    --app-invert-bg:   #2E251E;
 }
 
 /* ---- Base --------------------------------------------------------------- */
@@ -121,7 +146,8 @@ body {
 ::selection { background: var(--app-accent-soft); }
 
 h1, h2, h3, h4 { color: var(--app-text); font-weight: 640; letter-spacing: -0.022em; line-height: 1.12; }
-h1 { font-size: clamp(1.55rem, 1.1rem + 1.4vw, 2rem); margin: 0 0 .25rem; }
+h1 { font-family: var(--app-display); font-weight: 800; letter-spacing: -.03em;
+     font-size: clamp(1.6rem, 1.1rem + 1.5vw, 2.1rem); margin: 0 0 .25rem; }
 h2 { font-size: 1.06rem; margin: 0; }
 .muted, h1 small { color: var(--app-muted); font-weight: 400; letter-spacing: -0.01em; }
 h1 small { font-size: .95rem; }
@@ -159,14 +185,19 @@ a { color: var(--app-accent); text-underline-offset: 2px; }
 .brand {
   display: flex; align-items: center; gap: .55rem;
   padding: 0 .5rem .85rem; text-decoration: none;
-  color: var(--app-text); font-weight: 600; font-size: 1rem; letter-spacing: -0.02em;
+  color: var(--app-text); font: 800 1.12rem/1 var(--app-display); letter-spacing: -.03em;
 }
 .brand-name { white-space: nowrap; }
 .brand-mark {
   width: 26px; height: 26px; flex: none; border-radius: 8px;
-  background: var(--app-accent); color: #fff;
+  background: var(--app-accent); color: var(--app-accent-ink);
   display: inline-flex; align-items: center; justify-content: center;
 }
+
+/* Tout ce qui suit la marque : sur un écran large, la colonne de la barre latérale ;
+   sur un téléphone, le panneau que le bouton aux trois barres déroule. */
+.menu { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; }
+button.menu-bouton { display: none; }
 
 .ctx-card {
   display: flex; align-items: center; gap: .55rem;
@@ -194,7 +225,7 @@ a { color: var(--app-accent); text-underline-offset: 2px; }
   display: block; font-size: .69rem; font-weight: 600;
   letter-spacing: .02em; color: var(--app-accent);
 }
-.ctx-super .ctx-name { display: block; }
+.ctx-super .ctx-name { display: block; white-space: normal; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -230,7 +261,7 @@ a { color: var(--app-accent); text-underline-offset: 2px; }
 }
 .account-mark {
   width: 26px; height: 26px; flex: none; border-radius: 50%;
-  background: var(--app-accent); color: #fff;
+  background: var(--app-accent); color: var(--app-accent-ink);
   font-size: .66rem; font-weight: 600;
   display: inline-flex; align-items: center; justify-content: center;
 }
@@ -535,7 +566,7 @@ tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
   border-bottom-left-radius: 6px;
 }
 .transcript .assistant {
-  align-self: flex-end; background: var(--app-accent); color: #fff;
+  align-self: flex-end; background: var(--app-accent); color: var(--app-accent-ink);
   border-bottom-right-radius: 6px;
 }
 /* Une action de l'assistante, pas une parole : centrée, discrète, jamais une bulle. */
@@ -644,26 +675,28 @@ h2.form-section:first-of-type { margin-top: 0; }
 .pager { display: flex; gap: 1rem; margin-top: 1rem; font-size: .85rem; }
 mark { background: var(--app-accent-soft); color: var(--app-text); border-radius: 4px; }
 
-/* ---- Dataviz (skill dataviz) : bleu = appels, aqua = réservations ------- */
+/* ---- Dataviz (skill dataviz) : orange = appels, bleu canard = réservations ----
+   Les deux pas de chaque thème passent le validateur de la compétence dataviz (bande de
+   clarté, chroma, séparation daltonienne ΔE ≥ 18, contraste ≥ 3:1) sur #FFFFFF en
+   clair, sur #241D18 et #2E251E en sombre — relevé du 04/10/2026. */
 .viz-root {
-  --viz-series-1: #0071e3;
-  --viz-series-2: #1baf7a;
+  --viz-series-1: #C96008;
+  --viz-series-2: #1583A3;
   --viz-text: var(--app-text);
   --viz-text-muted: var(--app-muted);
   --viz-grid: var(--app-hairline);
-  /* Pas dédiés à la surface sombre volontaire (contrastes mesurés sur #1d1d1f :
-     bleu 5,6:1, aqua 8,5:1, encre 15,5:1, encre discrète 6,5:1). */
-  --viz-series-1-on-dark: #2997ff;
-  --viz-series-2-on-dark: #30d18a;
-  --viz-text-on-dark: #f5f5f7;
-  --viz-text-muted-on-dark: #a1a1a6;
-  --viz-grid-on-dark: rgba(255,255,255,.14);
+  /* Pas dédiés à la surface sombre volontaire (--app-invert-bg). */
+  --viz-series-1-on-dark: #DD731A;
+  --viz-series-2-on-dark: #3399BC;
+  --viz-text-on-dark: #FBF6EF;
+  --viz-text-muted-on-dark: #BDB0A2;
+  --viz-grid-on-dark: rgba(251,246,239,.14);
   margin: 0;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .viz-root { --viz-series-1: #2997ff; --viz-series-2: #30d18a; }
+  :root:not([data-theme="light"]) .viz-root { --viz-series-1: #DD731A; --viz-series-2: #3399BC; }
 }
-:root[data-theme="dark"] .viz-root { --viz-series-1: #2997ff; --viz-series-2: #30d18a; }
+:root[data-theme="dark"] .viz-root { --viz-series-1: #DD731A; --viz-series-2: #3399BC; }
 
 /* Survol (ASSISTANTE-115) : la colonne du jour se teinte, la barre visée reste pleine,
    les autres s'effacent un peu ; la bulle (admin.js) donne la date et la valeur. Les
@@ -689,33 +722,46 @@ mark { background: var(--app-accent-soft); color: var(--app-text); border-radius
 .viz-bulle strong { font-size: .95rem; font-weight: 640; font-variant-numeric: tabular-nums; }
 .viz-bulle span { color: var(--app-muted); }
 
-/* ---- Responsive : la barre latérale redevient une barre supérieure ------- */
+/* ---- Responsive : la barre latérale devient une barre du haut, avec son menu ------
+   Jusqu'au 04/10/2026 toute la navigation s'étalait en haut de l'écran, sur trois ou
+   quatre lignes avant le contenu. Elle se range derrière un bouton, comme dans une
+   application de téléphone. */
 @media (max-width: 900px) {
   .shell { flex-direction: column; align-items: stretch; }
   .sidebar {
-    position: static; width: auto; height: auto; align-self: auto;
-    flex-direction: row; flex-wrap: wrap; align-items: center; gap: .35rem;
-    padding: .6rem .9rem;
+    position: sticky; top: 0; z-index: 60; width: auto; height: auto; align-self: auto;
+    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0;
+    padding: .55rem .9rem; overflow: visible;
     border-right: none; border-bottom: 1px solid var(--app-hairline);
   }
-  .brand { padding: 0 .6rem 0 0; }
-  .ctx-card { margin: 0; }
-  .nav { flex-direction: row; flex-wrap: wrap; flex: 1 1 100%; }
-  .nav-sep { width: 100%; margin: .35rem .2rem 0; }
-  .nav-item { font-size: .8rem; padding: .38rem .6rem; }
-  .sidebar-foot { margin-top: 0; padding-top: 0; flex-direction: row; align-items: center; gap: .6rem; }
+  .brand { padding: 0; }
+  button.menu-bouton {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2.6rem; height: 2.6rem; padding: 0; margin: 0 0 0 auto;
+    color: var(--app-text); background: var(--app-surface);
+    border: 1px solid var(--app-border); border-radius: var(--app-radius-xs); box-shadow: none;
+  }
+  .menu-fermer, .sidebar[data-ouvert] .menu-ouvrir { display: none; }
+  .sidebar[data-ouvert] .menu-fermer { display: block; }
+  .menu {
+    display: none; flex: 1 1 100%; gap: .25rem;
+    max-height: calc(100vh - 4rem); overflow-y: auto; padding: .7rem 0 .4rem;
+  }
+  .sidebar[data-ouvert] .menu { display: flex; }
+  .ctx-card { margin: 0 0 .5rem; }
+  .nav-item { font-size: .95rem; padding: .72rem .7rem; }
+  .sidebar-foot {
+    margin-top: .6rem; padding-top: .7rem; border-top: 1px solid var(--app-hairline);
+    flex-direction: row; flex-wrap: wrap; align-items: center; gap: .6rem;
+  }
   .line-card { display: none; }
   .theme-choix { margin: 0; }
-  .account { border-top: none; padding: 0; }
-  .account-mail { display: none; }
+  .account { flex: 1; min-width: 12rem; border-top: none; padding: 0; }
   .main { padding: 1.25rem 1.1rem 2.5rem; }
   .split, .split-even { grid-template-columns: 1fr; }
   .pane { position: static; }
 }
 @media (max-width: 480px) {
-  /* Sur un téléphone, la place va à la navigation : le mot-marque s'efface,
-     le pictogramme suffit à identifier l'application. */
-  .brand-name, .ctx-card { display: none; }
   .kpi-grid { grid-template-columns: 1fr 1fr; gap: .6rem; }
   .kpi-value { font-size: 1.5rem; }
   .row-metric { min-width: 3.6rem; }

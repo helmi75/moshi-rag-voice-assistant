@@ -12,7 +12,8 @@
 
 /* Mise en page : tout converge vers une seule action, laisser son numéro. Héros centré
    (titre géant, carte de rappel, Marie qui dépasse de la carte), puis des bandes qui
-   alternent deux fonds chauds. Sombre d'abord : une salle de restaurant le soir. */
+   alternent deux fonds chauds. Sombre, et seulement sombre (décision de Helmi du
+   04/10/2026) : une salle de restaurant le soir. */
 :root {
   color-scheme: dark;
   --bg:        #14100D;
@@ -39,47 +40,6 @@
   --gutter: clamp(1.1rem, 4vw, 2.5rem);
   --r: 20px;
 }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    color-scheme: light;
-    --bg:        #FFF8F0;
-    --bg-2:      #FBEDDD;
-    --card:      #FFFFFF;
-    --card-2:    #FFF2E3;
-    --ink:       #20160F;
-    --muted:     #5F5246;
-    --faint:     #8A7B6D;
-    --accent:    #F0801A;
-    --accent-2:  #FFB23F;
-    --accent-ink:#22130A;
-    --accent-soft: rgba(240, 128, 26, .13);
-    --live:      #188A55;
-    --line:      rgba(32, 22, 15, .14);
-    --line-soft: rgba(32, 22, 15, .08);
-    --glow:      rgba(240, 128, 26, .26);
-    --shadow:    0 1px 2px rgba(32,22,15,.06), 0 24px 50px -26px rgba(32,22,15,.35);
-  }
-}
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg:        #FFF8F0;
-  --bg-2:      #FBEDDD;
-  --card:      #FFFFFF;
-  --card-2:    #FFF2E3;
-  --ink:       #20160F;
-  --muted:     #5F5246;
-  --faint:     #8A7B6D;
-  --accent:    #F0801A;
-  --accent-2:  #FFB23F;
-  --accent-ink:#22130A;
-  --accent-soft: rgba(240, 128, 26, .13);
-  --live:      #188A55;
-  --line:      rgba(32, 22, 15, .14);
-  --line-soft: rgba(32, 22, 15, .08);
-  --glow:      rgba(240, 128, 26, .26);
-  --shadow:    0 1px 2px rgba(32,22,15,.06), 0 24px 50px -26px rgba(32,22,15,.35);
-}
-
 * { box-sizing: border-box; }
 html { scroll-padding-top: 76px; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 [hidden] { display: none !important; }
@@ -170,7 +130,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 .top nav { margin-left: auto; display: flex; align-items: center; gap: 1.5rem; }
 .top nav a.lien { font-size: .92rem; font-weight: 500; color: var(--muted); text-decoration: none; }
 .top nav a.lien:hover { color: var(--ink); }
-@media (max-width: 760px) { .top nav a.lien { display: none; } }
+.top nav .btn--client { display: none; }
+/* Téléphone : les liens de la page s'effacent, pas l'accès à l'espace client — un
+   restaurateur déjà client arrive ici depuis son téléphone et doit pouvoir se connecter. */
+@media (max-width: 760px) {
+  .top nav { gap: .5rem; }
+  .top nav a.lien { display: none; }
+  .top nav .btn--client { display: inline-flex; }
+}
+@media (max-width: 430px) {
+  .top__in { gap: .6rem; }
+  .marque { font-size: 1.08rem; gap: .4rem; }
+  .top nav .btn--small { padding: .55rem .72rem; font-size: .8rem; }
+}
 
 /* ---------- héros ---------- */
 .heros { position: relative; padding-block: clamp(2.6rem, 6vw, 4.6rem) clamp(2.2rem, 5vw, 3.6rem); text-align: center; }

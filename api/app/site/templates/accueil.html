@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Helmane — Le standard qui décroche pendant le service</title>
 <meta name="description" content="L'assistante téléphonique des restaurants : Marie prend les réservations, les modifie et note les messages pendant que vous êtes en salle. Laissez votre numéro, elle vous rappelle.">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="dark">
 <meta property="og:title" content="Helmane — Le téléphone sonne. Marie décroche.">
 <meta property="og:description" content="L'assistante téléphonique des restaurants. Elle prend les réservations, les modifie, note les messages.">
 <meta property="og:type" content="website">
@@ -80,6 +80,7 @@
       <a class="lien" href="#formules">Formules</a>
       <a class="lien" href="#questions">Questions</a>
       <a class="lien" href="/admin/login">Espace client</a>
+      <a class="btn btn--line btn--small btn--client" href="/admin/login">Espace client</a>
       <a class="btn btn--go btn--small" href="#haut" data-vers-rappel>Être rappelé</a>
     </nav>
   </div>
@@ -388,7 +389,7 @@
         <span>enregistrement et transcription</span>
         <span>voix au choix</span>
       </div>
-      <p class="pied-prix">Prix hors taxes. Les minutes sont décomptées à la seconde. Le nombre d'appels est un ordre de grandeur, calculé sur {{ duree_appel }} par appel : la durée moyenne de nos appels d'essai. Alerte à {{ seuil }} % de votre forfait, pour ne rien découvrir sur la facture. Sans engagement. Tarif fondateur : les dix premiers restaurants gardent le prix de leur formule.</p>
+      <p class="pied-prix">Prix hors taxes. Les minutes sont décomptées à la seconde. Le nombre d'appels est un ordre de grandeur, calculé sur {{ duree_appel }} par appel : la durée moyenne de nos appels d'essai. Alerte à {{ seuil }} % de votre forfait, pour ne rien découvrir sur la facture.</p>
     </div>
   </section>
 
@@ -491,7 +492,7 @@
   <a class="marque marque--pied" href="#haut">Helmane</a>
   <span>L'assistante téléphonique des restaurants.</span>
   <a href="/admin/login">Espace client</a>
-  <a href="/mentions-legales">Mentions légales</a>
+  {% if mentions_publiees %}<a href="/mentions-legales">Mentions légales</a>{% endif %}
   <span>helmane.fr · Carnet hébergé à Paris</span>
 </footer>
 </body>

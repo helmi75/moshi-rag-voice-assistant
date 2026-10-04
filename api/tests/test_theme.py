@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -139,3 +140,82 @@ def test_l_anneau_de_focus_ne_disparait_pas_sans_has():
     hors_supports = re.sub(r"@supports selector\(:has\(a\)\) \{.*?\n\}", "", css, flags=re.S)
     assert ".cal-lien:focus-visible { outline: none; }" in css
     assert ".cal-lien:focus-visible { outline: none; }" not in hors_supports
+
+
+# ---- Aux couleurs du site, et le menu du téléphone (04/10/2026) ---------------------------
+
+def test_l_admin_porte_la_palette_du_site():
+    """Même fond brun nuit et même orange que la page d'accueil en sombre ; en clair,
+    l'orange est assombri pour rester lisible en texte sur blanc (4,9:1)."""
+    css = CSS.read_text()
+    site = (CSS.parents[2] / "site" / "static" / "site.css").read_text()
+    sombre = re.search(r':root\[data-theme="dark"\] \{([^}]*)\}', css).group(1)
+    for couleur in ("#14100D", "#241D18", "#FF9B3D", "#FBF6EF"):
+        assert couleur in sombre and couleur in site, couleur
+    clair = css[css.index(":root {"):css.index("}", css.index(":root {"))]
+    assert "#FFF8F0" in clair and "--app-accent:      #B8520A" in clair
+
+
+def test_l_encre_sur_l_accent_suit_le_theme():
+    """Blanche sur l'orange brûlé du clair, brune sur l'orange vif du sombre : un `#fff`
+    écrit en dur donnait du blanc sur orange vif, illisible (2,1:1)."""
+    css = CSS.read_text()
+    assert not re.search(r"background: var\(--app-accent\); color: #fff", css)
+    sombre = re.search(r':root\[data-theme="dark"\] \{([^}]*)\}', css).group(1)
+    assert "--app-accent-ink:  #22130A" in sombre
+
+
+def test_les_variables_de_pico_ne_reprennent_pas_la_main():
+    """Pico pose les siennes sous `:root:not([data-theme=dark])` : un simple `:root`
+    perdait, et les boutons-liens restaient bleus en clair."""
+    css = CSS.read_text()
+    pont = re.search(r":root:root:root \{([^}]*)\}", css).group(1)
+    for variable in ("--pico-primary-background: var(--app-accent)",
+                     "--pico-primary-inverse: var(--app-accent-ink)",
+                     "--pico-primary-underline"):
+        assert variable in pont, variable
+
+
+def test_les_polices_du_site_sont_servies_d_ici():
+    css = CSS.read_text()
+    polices = re.findall(r'url\("([^"]+\.woff2)"\)', css)
+    assert polices and all(p.startswith("/site/static/") for p in polices)
+    for chemin in polices:
+        assert (CSS.parents[2] / "site" / "static" / chemin.rsplit("/", 1)[1]).is_file()
+    assert "http://" not in css and "https://" not in css
+
+
+class TestLeMenuDuTelephone:
+    """Sur un téléphone, la navigation se range derrière un bouton aux trois barres."""
+
+    @pytest.fixture()
+    def page(self):
+        client = TestClient(app)
+        assert client.post("/admin/login", data={"email": "admin@test.local",
+                                                 "password": "test-admin-pass"},
+                           follow_redirects=False).status_code == 303
+        return client.get("/admin/").text
+
+    def test_le_bouton_et_le_panneau_qu_il_commande(self, page):
+        bouton = re.search(r"<button[^>]*data-menu[^>]*>", page).group(0)
+        assert 'aria-expanded="false"' in bouton and 'aria-controls="menu"' in bouton
+        assert 'type="button"' in bouton and "outline" in bouton
+        assert '<div class="menu" id="menu">' in page
+        # La navigation, le thème et la déconnexion sont DANS le panneau.
+        panneau = page[page.index('<div class="menu" id="menu">'):page.index("</aside>")]
+        for contenu in ('class="nav"', 'class="theme-choix"', "/admin/logout"):
+            assert contenu in panneau, contenu
+
+    def test_sans_script_la_navigation_reste_depliee(self, page):
+        assert "<noscript><style>.menu { display: flex !important; }" in page
+
+    def test_la_feuille_et_le_script_se_repondent(self):
+        css = CSS.read_text()
+        script = (CSS.parent / "admin.js").read_text()
+        assert "button.menu-bouton { display: none; }" in css       # écran large : pas de bouton
+        assert ".sidebar[data-ouvert] .menu { display: flex; }" in css
+        assert 'toggleAttribute("data-ouvert", ouvrir)' in script
+        assert 'setAttribute("aria-expanded"' in script and '"Escape"' in script
+
+    def test_la_page_de_connexion_n_a_pas_de_menu(self):
+        assert "data-menu" not in TestClient(app).get("/admin/login").text

@@ -60,11 +60,12 @@ Server-rendered, même app/conteneur que l'API vocale. Un seul worker uvicorn.
 `admin/charts.py` : SVG rendu par le serveur, complet sans script (chaque barre garde son
 `<title>`). `admin.js` y ajoute la bulle du survol, à partir des attributs `data-quand` /
 `data-valeur` de chaque groupe `.viz-barre` — texte inséré par `textContent`. Charger le
-skill `dataviz` avant de créer un nouveau type de graphique. Couleurs par variables CSS `--viz-series-1` (bleu,
-appels) / `--viz-series-2` (aqua, réservations) définies dans `static/admin.css`
+skill `dataviz` avant de créer un nouveau type de graphique. Couleurs par variables CSS `--viz-series-1` (orange,
+appels) / `--viz-series-2` (bleu canard, réservations) définies dans `static/admin.css`
 (clair + sombre). Le texte porte l'encre texte (`--viz-text*`), jamais la couleur de
 série. Une série par graphique → pas de légende, le titre nomme la série. Jamais de
-double axe. Labels de valeur visibles (règle de relief pour l'aqua).
+double axe. Labels de valeur visibles. Changer une couleur de série : repasser le
+validateur du skill `dataviz` sur la surface claire ET la surface sombre.
 
 ## Données
 
@@ -88,6 +89,19 @@ Un seul jeu de variables `--app-*` dans `static/admin.css`. Le sombre existe en 
 copies qui doivent rester identiques — `@media (prefers-color-scheme: dark)` et
 `:root[data-theme="dark"]` (thème choisi) — de même pour `.viz-root`. `test_theme.py`
 compare les deux. Pas de couleur en dur dans un gabarit : `var(--app-…)`.
+
+L'admin porte la palette du site (`api/app/site/static/site.css`) : brun nuit et orange vif
+en sombre, crème et orange brûlé en clair (l'orange vif ne tient pas 4,5:1 en texte sur
+blanc). Ce qui est posé sur l'accent prend `var(--app-accent-ink)`, jamais `#fff`. Les
+variables de Pico se redéfinissent dans le bloc `:root:root:root` : sous un simple `:root`,
+Pico reprend la main en clair. Polices Inter et Inter Tight, servies depuis `/site/static/`.
+
+## Téléphone
+
+Sous 900 px la barre latérale devient une barre du haut : la marque, et un bouton
+`[data-menu]` qui déroule `.menu` (navigation, thème, compte). `admin.js` pose `data-ouvert`
+sur `.sidebar` et `aria-expanded` sur le bouton ; Échap et un toucher hors de la barre
+referment. Tout nouvel élément de la barre latérale va DANS `.menu`.
 
 ## Pièges déjà rencontrés
 

@@ -189,16 +189,30 @@ class TestLesPrixSontCeuxDeLaGrille:
 
 
 class TestLesMentionsLegales:
+    """Écrites, mais pas publiées tant que l'éditeur n'est pas identifié (Helmi, 04/10/2026 :
+    « on va laisser pour plus tard ») : des mentions sans éditeur n'en sont pas."""
+
     @pytest.fixture()
-    def mentions(self, client) -> str:
+    def editeur(self, monkeypatch):
+        monkeypatch.setitem(site.EDITEUR, "nom", "Jeanne Exemple")
+        monkeypatch.setitem(site.EDITEUR, "siren", "000 000 000")
+        monkeypatch.setitem(site.EDITEUR, "email", "contact@exemple.test")
+
+    @pytest.fixture()
+    def mentions(self, client, editeur) -> str:
         reponse = client.get("/mentions-legales")
         assert reponse.status_code == 200
         return reponse.text.replace("&#39;", "'")
 
-    def test_l_accueil_y_mene(self, page):
-        assert '<a href="/mentions-legales">Mentions légales</a>' in page
+    def test_sans_editeur_ni_page_ni_lien(self, client, page):
+        assert site.EDITEUR["nom"] == "", "l'éditeur est renseigné : retirer ce test"
+        assert client.get("/mentions-legales").status_code == 404
+        assert "mentions-legales" not in page
 
-    def test_publique_sans_cookie_ni_base(self, client, monkeypatch):
+    def test_avec_l_editeur_l_accueil_y_mene(self, client, editeur):
+        assert '<a href="/mentions-legales">Mentions légales</a>' in client.get("/").text
+
+    def test_publique_sans_cookie_ni_base(self, client, editeur, monkeypatch):
         from app import db
 
         def interdit(*_a, **_k):
@@ -218,7 +232,7 @@ class TestLesMentionsLegales:
         assert "Hostinger International Limited" in mentions
         assert "Larnaca" in mentions and "Paris (France)" in mentions
 
-    def test_les_durees_sont_celles_que_la_purge_applique(self, client, monkeypatch):
+    def test_les_durees_sont_celles_que_la_purge_applique(self, client, editeur, monkeypatch):
         """La page ne doit pas promettre une durée que `rgpd.py` n'applique pas."""
         monkeypatch.setenv("RETENTION_RAPPEL_JOURS", "12")
         monkeypatch.setenv("RETENTION_NUMERO_JOURS", "45")
@@ -228,15 +242,30 @@ class TestLesMentionsLegales:
     def test_ni_cookie_ni_mesure_d_audience_annonces(self, mentions):
         assert "ne dépose aucun cookie" in mentions
 
-    def test_l_editeur_affiche_ce_qui_est_rempli_et_rien_d_autre(self, client, monkeypatch):
-        vide = client.get("/mentions-legales").text
-        assert "None" not in vide and "SIREN :" not in vide
-        monkeypatch.setitem(site.EDITEUR, "nom", "Jeanne Exemple")
-        monkeypatch.setitem(site.EDITEUR, "siren", "000 000 000")
-        monkeypatch.setitem(site.EDITEUR, "email", "contact@exemple.test")
-        page = client.get("/mentions-legales").text
-        assert "<b>Jeanne Exemple</b>" in page and "SIREN : 000 000 000" in page
-        assert "en écrivant à contact@exemple.test" in page
+    def test_l_editeur_affiche_ce_qui_est_rempli_et_rien_d_autre(self, mentions):
+        assert "None" not in mentions and "Statut :" not in mentions
+        assert "<b>Jeanne Exemple</b>" in mentions and "SIREN : 000 000 000" in mentions
+        assert "en écrivant à contact@exemple.test" in mentions
+
+
+class TestLeTheme:
+    """Sombre, et seulement sombre (Helmi, 04/10/2026)."""
+
+    def test_la_feuille_n_a_plus_de_theme_clair(self, page):
+        feuille = (site.STATIC_DIR / "site.css").read_text(encoding="utf-8")
+        assert "prefers-color-scheme" not in feuille and "data-theme" not in feuille
+        assert "color-scheme: dark" in feuille
+        assert '<meta name="color-scheme" content="dark">' in page
+
+
+class TestLEnTeteSurTelephone:
+    def test_l_espace_client_reste_accessible_en_bouton(self, page):
+        """Sur téléphone les liens de l'en-tête s'effacent : sans ce bouton, un client
+        n'avait plus aucun chemin vers sa connexion."""
+        assert 'class="btn btn--line btn--small btn--client" href="/admin/login"' in page
+        feuille = (site.STATIC_DIR / "site.css").read_text(encoding="utf-8")
+        assert ".top nav .btn--client { display: none; }" in feuille
+        assert ".top nav .btn--client { display: inline-flex; }" in feuille
 
 
 class TestCeQueLaPagePromet:
@@ -253,6 +282,12 @@ class TestCeQueLaPagePromet:
     def test_plus_d_essai_de_14_jours(self, page):
         """Retiré le 03/10/2026 à la demande de Helmi : rien ne l'applique."""
         assert "14 jours" not in page and "jours d'essai" not in page
+
+    def test_ni_tarif_fondateur_ni_sans_engagement_sous_les_formules(self, page):
+        """Retirés le 04/10/2026 à la demande de Helmi."""
+        formules = page[page.index('id="formules"'):page.index("</section>", page.index('id="formules"'))]
+        assert "fondateur" not in page
+        assert "engagement" not in formules
 
     def test_ni_temoignage_ni_chiffre_de_clientele(self, page):
         for invente in ("témoignage", "restaurants nous font confiance", "clients satisfaits",
