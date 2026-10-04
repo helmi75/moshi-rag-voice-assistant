@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le logo : la toque (ASSISTANTE-124, 04/10/2026)
+
+### Modifié
+- **Le logo d'Helmane est une toque de chef, avec la voix dessinée dedans** (trois barres).
+  Il remplace le combiné de téléphone, un pictogramme libre que l'on retrouve sur beaucoup
+  de sites et qui ne pouvait pas servir de marque. Choisi par Helmi le 04/10/2026 parmi
+  onze pistes. Il est dans l'onglet du navigateur, dans l'en-tête de la page d'accueil et
+  dans la barre latérale de l'admin ; un test tient les trois dessins identiques.
+- L'admin affiche lui aussi l'icône dans l'onglet du navigateur (il n'en avait aucune).
+
+Non fait : la recherche d'antériorité à l'INPI, et les fichiers pour l'impression.
+
 ## Non publiée — essai de GPT-Live, la voix-à-voix d'OpenAI (04/10/2026)
 
 ### Ajouté
