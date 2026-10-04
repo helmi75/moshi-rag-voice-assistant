@@ -7,6 +7,39 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la réécoute calée, et un e-mail qui ne se perd plus (04/10/2026)
+
+Après les dix premiers vrais appels de l'essai GPT-Live, Helmi a relevé deux défauts : à
+la réécoute, sa voix et celle de l'assistante étaient décalées ; et un e-mail
+« réservation modifiée » n'est jamais arrivé.
+
+### Corrigé
+- **À la réécoute d'un appel GPT-Live, l'assistante ne répond plus avant la question.**
+  Sa piste ne contenait que ses sons mis bout à bout, sans le silence du décroché ni celui
+  des pauses : elle était en avance de 2,4 s au premier mot et jusqu'à 4,1 s en fin
+  d'appel (trois conversations jouées contre le vrai GPT-Live). Elle est maintenant calée
+  sur l'heure du décroché : 20 ms d'écart, du premier mot au dernier. Les appels déjà
+  enregistrés restent décalés.
+- **Une connexion refusée par le serveur de messagerie se retente.** `ssl0.ovh.net`
+  refuse au hasard la poignée de main TLS (2 fois sur 60, mesuré depuis le serveur le
+  04/10/2026) et l'on n'essayait qu'une fois : un e-mail sur trente était perdu. Trois
+  tentatives, sur la connexion seulement — un message en cours de remise n'est jamais
+  rejoué, il arriverait en double ; un mot de passe refusé non plus.
+
+### Ajouté
+- Chaque appel GPT-Live note à son journal la file d'attente de la ligne
+  (`file_ligne_max_ms`, `file_ligne_fin_ms`) : le retard pris quand le son arrive par
+  à-coups. Relevé au banc : 343 ms au pire, résorbé en fin d'appel.
+- Le banc `scripts/essai_conversation_gpt_live.py` enregistre comme la production, compare
+  le fichier à l'instant où chaque son a été reçu, et signale ce qui tient la boucle
+  d'événements plus de 100 ms.
+- Un e-mail parti après un refus le dit au journal du conteneur (« à la tentative 2 »).
+
+Non fait : la mise en route du client du modèle fige la boucle 0,5 s au premier
+raisonnement d'un processus (`docs/TEMPS_REEL.md`). Le domaine d'expédition a un SPF mais
+ni DMARC, ni DKIM aux sélecteurs d'OVH (relevé le 04/10/2026) : à poser chez OVH, c'est
+une cause possible d'e-mails reçus en retard — non vérifiée.
+
 ## Non publiée — le logo : la toque (ASSISTANTE-124, 04/10/2026)
 
 ### Modifié

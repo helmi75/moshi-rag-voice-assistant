@@ -143,6 +143,7 @@ Maintenant il dit lequel des quatre maillons l'a produit.
 | N1 | Réserver (B1) | E-mail reçu : date en toutes lettres, couverts, numéro de l'appelant | |
 | N2 | Laisser un message (« rappelez-moi pour un groupe ») | E-mail « message pris » reçu | |
 | N3 | Modifier puis annuler (C1, C3) | Deux e-mails : modifiée, annulée | |
+| N4 | Après quelques jours d'appels : chercher « tentative » et « non envoyée » dans le journal du conteneur | Des e-mails partis « à la tentative 2 » ; aucun « non envoyée » pour une poignée de main refusée | |
 | P1 | Rappeler du même numéro après B1 et demander une table | Elle **propose** « au nom de Martin ? » au lieu de le demander ; un autre nom donné est celui retenu | |
 | K1 | `python scripts/test_moshi_server.py --url "$MOSHI_TTS_URL" --api-key public_token` | **Refusé** ; avec la vraie clé, accepté ; sonde « Jeton du serveur de voix » verte | |
 | R1 | Lancer `/opt/backups/backup-db.sh` à la main | Finit par « copie distante ok » ; `rclone ls` montre l'archive ; sonde « Sauvegarde » verte | |
@@ -298,6 +299,7 @@ le pipeline habituel : c'est la comparaison qui compte.
 | T9 | Admin → Appels → cet appel | Les deux côtés de la conversation, l'enregistrement, et le coût : voix = durée × 0,05 $, transcription à zéro, cerveau = les jetons de Gemini | |
 | T10 | Appeler un établissement hors essai | Marie, comme d'habitude | |
 | T11 | Dix appels de chaque côté, puis « Santé & coûts » | Le blanc médian et le coût par minute des deux, côte à côte : c'est le verdict de l'essai | |
+| T12 | Admin → Appels → réécouter un appel GPT-Live passé après le 04/10/2026 au soir | Les deux voix se répondent comme au téléphone : elle ne parle jamais avant la fin de la question | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 
