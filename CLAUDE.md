@@ -68,7 +68,9 @@ le `.lock` ce qui est installé (régénération : `docs/DEPLOY.md`).
    (ils s'effacent), lancer `scripts/deploy.sh`, vérifier dans le conteneur, recaler la
    branche de travail sur `main`. Le conteneur redémarre : déployer hors service.
 10. **Recette** sur un vrai appel (`docs/RECETTE.md`), puis ticket Jira à « Terminé ».
-    Tant que la recette n'est pas faite, le ticket reste « En cours de revue ».
+    Tant que la recette n'est pas faite, le ticket reste « En cours de revue ». Tout ce
+    qui se vérifie sans téléphone passe d'abord par l'agent `qa-recette`
+    (`.claude/agents/qa-recette.md`) : Helmi ne garde que les essais d'appel.
 
 Livrer, c'est aussi : une ligne dans `docs/RECETTE.md`, une entrée dans `CHANGELOG.md`,
 la documentation concernée (`docs/SUPERVISION.md`, `docs/RGPD.md`…), et toute nouvelle
