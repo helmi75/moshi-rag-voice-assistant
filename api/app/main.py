@@ -18,6 +18,7 @@ from loguru import logger
 
 from . import (calls, db, llm, messages, notifications, rappel, renvoi, supervision, taches,
                tenants, twilio_signature, users)
+from .voice import live
 
 
 @asynccontextmanager
@@ -541,9 +542,20 @@ async def voice_stream(websocket: WebSocket):
 
     run_bot = _get_bot_runner()
     try:
-        await run_bot(websocket, stream_sid, call_sid, tenant,
-                      caller_number=from_number, call_id=call_id,
-                      demonstration=demonstration)
+        # Essai GPT-Live (app/voice/live.py) : seulement pour les établissements nommés,
+        # et seulement si la session s'ouvre. Sinon l'appel suit le chemin habituel.
+        session_live = None
+        if live.actif(tenant):
+            tenant_live, prompt_live = await live.preparer(tenant, from_number, demonstration)
+            session_live = await live.ouvrir(tenant_live, prompt_live, bool(from_number))
+        if session_live is not None:
+            await live.run_live(websocket, session_live, stream_sid, call_sid, tenant_live,
+                                caller_number=from_number, call_id=call_id,
+                                prompt_systeme=prompt_live)
+        else:
+            await run_bot(websocket, stream_sid, call_sid, tenant,
+                          caller_number=from_number, call_id=call_id,
+                          demonstration=demonstration)
     except Exception as exc:
         # Avec la pile d'appels : c'est l'erreur qu'on aura à diagnostiquer, et le
         # message seul (« 'NoneType' object… ») ne dit jamais où.

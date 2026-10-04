@@ -37,6 +37,14 @@ _COST_LLM_SORTIE = float(os.getenv("COST_LLM_SORTIE_PAR_MILLION", "2.50")) / 1e6
 _COST_LLM_PER_CALL = float(os.getenv("COST_LLM_PER_CALL", "0.0035"))
 _COST_VOIX_PAR_CARACTERE = float(os.getenv("COST_VOIX_PAR_MILLE_CARACTERES", "0.016")) / 1000
 _COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
+# Essai GPT-Live (app/voice/live.py), tarifs d'OpenAI relevés le 04/10/2026 : 0,05 $ la
+# minute de session, à la seconde, transcription comprise ; le modèle d'arrière-plan
+# (gpt-6-luna) à part : 0,10 $ le million de jetons d'entrée, 0,01 $ en cache, 0,50 $
+# en sortie.
+_COST_GPT_LIVE_PER_MIN = float(os.getenv("COST_GPT_LIVE_PER_MIN", "0.05"))
+_COST_GPT_LIVE_ENTREE = float(os.getenv("COST_GPT_LIVE_ENTREE_PAR_MILLION", "0.10")) / 1e6
+_COST_GPT_LIVE_CACHE = float(os.getenv("COST_GPT_LIVE_CACHE_PAR_MILLION", "0.01")) / 1e6
+_COST_GPT_LIVE_SORTIE = float(os.getenv("COST_GPT_LIVE_SORTIE_PAR_MILLION", "0.50")) / 1e6
 # Renvoi vers le restaurant en cas de panne (ASSISTANTE-118) : une SECONDE communication,
 # sortante, en plus de l'appel reçu. Grille Twilio du compte (API Pricing, France,
 # 01/10/2026) : 0,0187 $/min vers un fixe, 0,0404 $/min vers un portable quand le numéro
@@ -100,6 +108,26 @@ def couts_appel(duration_seconds: float, journal: Optional[dict] = None,
     minutes = secondes / 60.0
     conso = (journal or {}).get("consommation") or {}
     fournisseur = ((journal or {}).get("voix") or {}).get("fournisseur") or "voxtral"
+    if fournisseur == "gpt-live":
+        # Un seul service écoute, parle et transcrit : il est facturé à la durée de la
+        # session (celle qu'il annonce, sinon celle de l'appel). Les jetons sont ceux du
+        # cerveau : le nôtre, aux tarifs d'OpenRouter, ou un modèle hébergé par OpenAI.
+        session = conso.get("secondes_voix")
+        session = float(session) if isinstance(session, (int, float)) else secondes
+        entree = int(conso.get("jetons_entree") or 0)
+        cache = min(int(conso.get("jetons_cache") or 0), entree)
+        if ((journal or {}).get("voix") or {}).get("cerveau") != "openai":
+            tarifs = (_COST_LLM_ENTREE, _COST_LLM_CACHE, _COST_LLM_SORTIE)
+        else:
+            tarifs = (_COST_GPT_LIVE_ENTREE, _COST_GPT_LIVE_CACHE, _COST_GPT_LIVE_SORTIE)
+        return {
+            "telephonie": 0.0 if banc else round(math.ceil(secondes / 60.0) * _COST_TWILIO_PER_MIN, 6),
+            "transcription": 0.0,
+            "comprehension": round((entree - cache) * tarifs[0] + cache * tarifs[1]
+                                   + int(conso.get("jetons_sortie") or 0) * tarifs[2], 6),
+            "voix": round(session / 60.0 * _COST_GPT_LIVE_PER_MIN, 6),
+            "fournisseur": fournisseur,
+        }
     if conso.get("generations"):
         entree = int(conso.get("jetons_entree") or 0)
         cache = min(int(conso.get("jetons_cache") or 0), entree)
