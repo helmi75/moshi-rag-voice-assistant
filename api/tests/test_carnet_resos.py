@@ -38,6 +38,7 @@ def _date_lisible(iso: str) -> str:
 
 
 def _remise_a_zero():
+    resos._noms_corriges.clear()
     sante.reinitialiser()
     connecteurs.oublier_horaires()
     bac_a_sable.oublier_tout()
@@ -112,12 +113,20 @@ class TestLeBacASable:
         lit en note, et aucune seconde demande n'est créée (appel 240, 05/10/2026)."""
         reference = _creer(demo)["reservation_id"]
         assert "error" in _creer(demo)                      # même numéro, même créneau
-        reponse = _outil(demo, "modify_reservation",
-                         {"reservation_id": reference, "customer_name": "Dupond"})
-        assert reponse["status"] == "modified"
+        correction = {"reservation_id": reference, "customer_name": "Dupond"}
+        reponse = _outil(demo, "modify_reservation", correction)
+        # Le modèle annonce le nom corrigé, et sait qu'il est transmis, pas modifié.
+        assert reponse["status"] == "modified" and reponse["customer_name"] == "Dupond"
+        assert "transmis au restaurant" in reponse["consigne"]
+        # Rappelé avec la même correction : ni seconde note, ni second e-mail.
+        with patch.object(llm.notifications, "planifier") as avis:
+            assert _outil(demo, "modify_reservation", correction)["status"] == "unchanged"
+        avis.assert_not_called()
         etat = bac_a_sable.etat_pour(demo.id)
         assert len(etat.reservations) == 1
         assert [texte for _, texte in etat.notes] == ["Nom corrigé par le client : Dupond"]
+        trouvee = _outil(demo, "find_reservation", {})["reservations"][0]
+        assert trouvee["customer_name"] == "Dupond"
 
     def test_chaque_etablissement_a_son_carnet(self, demo):
         autre = _resto(connecteurs.RESOS_DEMO, "+33199000903")

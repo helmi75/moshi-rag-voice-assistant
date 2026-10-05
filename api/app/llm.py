@@ -469,9 +469,26 @@ def _refus_complet(autres: list[str]) -> str:
                       ensure_ascii=False)
 
 
-def _meme_heure(une, autre) -> bool:
-    """« 20:00 » et « 20:00:00 » désignent le même créneau."""
-    return str(une or "")[:5] == str(autre or "")[:5]
+def _hhmm(heure) -> str:
+    """« 9:00 », « 09:00 » et « 09:00:00 » désignent le même créneau : « 09:00 »."""
+    morceaux = str(heure or "").strip().split(":")
+    try:
+        return f"{int(morceaux[0]):02d}:{int(morceaux[1]):02d}"
+    except (IndexError, ValueError):
+        return str(heure or "").strip()
+
+
+def _jour(date_iso) -> str:
+    """« 2026-10-6 » et « 2026-10-06 » désignent le même jour : « 2026-10-06 »."""
+    try:
+        return datetime.strptime(str(date_iso or "").strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return str(date_iso or "").strip()
+
+
+def _fourni(valeur) -> bool:
+    """Un champ que le modèle a vraiment rempli : ni absent, ni fait d'espaces."""
+    return valeur is not None and str(valeur).strip() != ""
 
 
 def _inchangee(existante: dict, champs: dict) -> bool:
@@ -480,7 +497,7 @@ def _inchangee(existante: dict, champs: dict) -> bool:
         texte = str(valeur if valeur is not None else "").strip()
         if cle == "customer_name":
             return reservations.nom_lisible(texte).casefold()
-        return texte[:5] if cle == "time" else texte
+        return _hhmm(texte) if cle == "time" else _jour(texte) if cle == "date" else texte
     return all(norme(cle, valeur) == norme(cle, existante.get(cle)) for cle, valeur in champs.items())
 
 
@@ -621,8 +638,9 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                 {"status": "cancelled", "reservation_id": reservation_id,
                  "date": existante["date"], "time": existante["time"]},
                 ensure_ascii=False)
+        # Un nom fait d'espaces n'est pas un nom : l'accepter effacerait celui de la table.
         champs = {k: tool_input[k] for k in ("customer_name", "date", "time", "party_size", "notes")
-                  if tool_input.get(k) not in (None, "")}
+                  if _fourni(tool_input.get(k))}
         if not champs:
             return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
         if _inchangee(existante, champs):
@@ -638,15 +656,23 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                                 champs.get("time", existante["time"]))
         if refus:
             return _refus(refus)
+        # « 9:00 » passe la vérification ci-dessus : c'est « 09:00 » qu'on range.
+        if "date" in champs:
+            champs["date"] = _jour(champs["date"])
+        if "time" in champs:
+            champs["time"] = _hhmm(champs["time"])
         modifiee = await carnet.modifier(reservation_id, champs)
         notifications.planifier(tenant, "reservation_modifiee",
                                 {"avant": existante, "reservation": modifiee, "appel_id": call_id})
-        return json.dumps(
-            {"status": "modified", "reservation_id": reservation_id,
-             "customer_name": modifiee.get("customer_name"),
-             "date": modifiee["date"], "time": modifiee["time"],
-             "party_size": modifiee["party_size"]},
-            ensure_ascii=False)
+        resultat = {"status": "modified", "reservation_id": reservation_id,
+                    "customer_name": modifiee.get("customer_name"),
+                    "date": modifiee["date"], "time": modifiee["time"],
+                    "party_size": modifiee["party_size"]}
+        if "customer_name" in champs and connecteurs.est_resos(tenant):
+            # resOS fait foi et son nom ne se change pas d'ici : il part en note.
+            resultat["consigne"] = ("Le nom corrigé est transmis au restaurant, qui met son "
+                                    "carnet à jour. Dis « c'est noté », pas « c'est modifié ».")
+        return json.dumps(resultat, ensure_ascii=False)
 
     if name == "check_availability":
         refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
@@ -681,10 +707,13 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     # une SECONDE réservation est créée au même créneau (« Kikao ») — deux tables et deux
     # e-mails pour un seul client. Même numéro, même jour, même heure : ce n'est pas une
     # nouvelle table, c'est la même qu'on corrige, et c'est le serveur qui le dit.
+    # Comparé et rangé sous sa forme canonique : « 9:00 » et « 2026-10-6 » passent la
+    # vérification du créneau, et seraient sinon un autre créneau que « 09:00 ».
+    jour, heure = _jour(tool_input["date"]), _hhmm(tool_input["time"])
     telephone = (caller_number or "").strip()
     if telephone:
-        for deja in await carnet.retrouver(telephone, a_partir_de=tool_input["date"]):
-            if deja["date"] == tool_input["date"] and _meme_heure(deja["time"], tool_input["time"]):
+        for deja in await carnet.retrouver(telephone, a_partir_de=jour):
+            if _jour(deja["date"]) == jour and _hhmm(deja["time"]) == heure:
                 return _refus(
                     "Ce numéro a déjà une réservation ce jour-là à cette heure (identifiant "
                     f"{deja['id']}, au nom de {deja['customer_name']}). N'en crée pas une "
@@ -697,7 +726,7 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                    f"{'' if (caller_number or '').strip() else ', appel masqué'})")
         notes = f"{notes} — {mention}" if notes else mention
     reservation = await carnet.creer(
-        nom=tool_input["customer_name"], date=tool_input["date"], heure=tool_input["time"],
+        nom=tool_input["customer_name"], date=jour, heure=heure,
         couverts=tool_input["party_size"], telephone=(caller_number or "").strip() or None,
         notes=notes)
     notifications.planifier(tenant, "reservation_creee",

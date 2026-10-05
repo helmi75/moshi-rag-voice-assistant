@@ -75,6 +75,22 @@ class TestPasDeSecondeReservation:
         assert _tables(resto) == [("Kikato", "20:00", 2)]
         assert emails == [("reservation_creee", "Kikato")]
 
+    @pytest.mark.parametrize("heure", ["9:00", "09:00", "09:00:00"])
+    def test_une_heure_ecrite_autrement_reste_la_meme_table(self, resto, heure):
+        """Le contrôle du créneau accepte « 9:00 » : comparé tel quel à « 09:00 », le
+        doublon passait (revue du 05/10/2026)."""
+        apres = (date.today() + timedelta(days=2)).isoformat()
+        assert _creer(resto, "Kikato", heure="09:00", jour=apres)["status"] == "confirmed"
+        assert "error" in _creer(resto, "Kikao", heure=heure, jour=apres)
+        assert len(_tables(resto)) == 1
+
+    def test_le_creneau_est_range_sous_sa_forme_canonique(self, resto):
+        apres = date.today() + timedelta(days=2)
+        ecrit = f"{apres.year}-{apres.month}-{apres.day}"          # sans zéros
+        assert _creer(resto, "Kikato", heure="9:05", jour=ecrit)["status"] == "confirmed"
+        (table,) = reservations.list_reservations(resto.id)
+        assert (table["date"], table["time"]) == (apres.isoformat(), "09:05")
+
     def test_meme_avec_un_autre_nombre_de_personnes(self, resto, emails):
         _creer(resto, "Kikato", couverts=2)
         assert "error" in _creer(resto, "Kikato", couverts=4)
@@ -138,6 +154,16 @@ class TestOnCorrigeLaPremiere:
                              {"reservation_id": premiere["reservation_id"], "customer_name": "kikato",
                               "date": _demain(), "time": "20:00", "party_size": 2})
             assert reponse["status"] == "unchanged" and "error" not in reponse
+        assert emails == [("reservation_creee", "Kikato")]
+
+    @pytest.mark.parametrize("vide", [" ", "   ", "\t"])
+    def test_un_nom_fait_d_espaces_n_efface_pas_le_nom(self, resto, emails, vide):
+        """Une table sans nom est introuvable en salle (relevé au banc le 10/09/2026)."""
+        premiere = _creer(resto, "Kikato")
+        reponse = _outil(resto, "modify_reservation",
+                         {"reservation_id": premiere["reservation_id"], "customer_name": vide})
+        assert "error" in reponse
+        assert _tables(resto) == [("Kikato", "20:00", 2)]
         assert emails == [("reservation_creee", "Kikato")]
 
     def test_un_vrai_changement_previent_toujours(self, resto, emails):

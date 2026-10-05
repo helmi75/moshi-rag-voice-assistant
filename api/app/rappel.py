@@ -82,9 +82,11 @@ class Reponse:
 OK = Reponse(200, "appel", "Votre téléphone va sonner dans quelques secondes.")
 NUMERO = Reponse(422, "numero", "Ce numéro n'est pas un numéro français de métropole. "
                                 "Exemple : 06 12 34 56 78.")
-DEJA = Reponse(429, "deja", "Marie a déjà rappelé ce numéro aujourd'hui. Réessayez demain.")
+DEJA = Reponse(429, "deja", "Ce numéro a déjà demandé plusieurs rappels en 24 heures. "
+                            "Réessayez plus tard.")
 TROP = Reponse(429, "trop", "Trop de demandes depuis votre connexion. Réessayez dans une heure.")
-PLAFOND = Reponse(503, "plafond", "Marie a déjà beaucoup rappelé aujourd'hui. Réessayez demain.")
+PLAFOND = Reponse(503, "plafond", "Nous avons reçu beaucoup de demandes aujourd'hui. "
+                                  "Réessayez demain.")
 INACTIF = Reponse(503, "inactif", "Le rappel n'est pas disponible pour le moment.")
 PANNE = Reponse(502, "echec", "L'appel n'a pas pu partir. Réessayez dans un instant.")
 SOUFFRANTE = Reponse(503, "panne", "Marie n'est pas disponible pour le moment. "

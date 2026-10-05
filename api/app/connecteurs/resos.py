@@ -92,6 +92,13 @@ def _plus_proches(libres: list[str], heure: str, combien: int = 3) -> list[str]:
     return sorted(retenus)
 
 
+# Un nom corrigé par le client part en note au restaurant : resOS garde l'ancien. On se
+# souvient du nouveau le temps du processus (un seul worker), pour l'annoncer juste au
+# client et ne pas renvoyer la même note à chaque fois que le modèle rappelle l'outil.
+_noms_corriges: dict[tuple[int, str], str] = {}
+_NOMS_MAX = 500
+
+
 def _en_reservation(booking: dict) -> dict:
     invite = booking.get("guest") or {}
     return {
@@ -273,7 +280,7 @@ class ConnecteurResos:
         trouves = await self._requete("GET", "/bookings", params={
             "fromDateTime": debut, "customQuery": f'guest.phone:"{numero}"',
             "limit": 100, "sort": "dateTime:1"})
-        return [_en_reservation(b) for b in trouves or []
+        return [self._au_nom_corrige(_en_reservation(b)) for b in trouves or []
                 if isinstance(b, dict) and _a_venir(b) and b.get("date", "") >= debut
                 and _chiffres((b.get("guest") or {}).get("phone")) == numero]
 
@@ -294,7 +301,7 @@ class ConnecteurResos:
         if (booking is None or not _a_venir(booking)
                 or _chiffres((booking.get("guest") or {}).get("phone")) != numero):
             return None
-        return _en_reservation(booking)
+        return self._au_nom_corrige(_en_reservation(booking))
 
     async def modifier(self, reservation_id, champs: dict) -> dict:
         actuelle = await self._lire(reservation_id)
@@ -319,14 +326,23 @@ class ConnecteurResos:
             # Le commentaire ne se modifie pas par PUT : on l'ajoute en note interne.
             await self._requete("POST", f"{chemin}/restaurantNote",
                                 corps={"text": f"Demande du client : {champs['notes']}"})
-        if champs.get("customer_name"):
+        nom = str(champs.get("customer_name") or "").strip()
+        cle = (self.tenant.id, str(reservation_id))
+        if nom and _noms_corriges.get(cle) != nom:
             # Le nom non plus : le restaurant le corrige dans resOS, où il fait foi.
             await self._requete("POST", f"{chemin}/restaurantNote",
-                                corps={"text": f"Nom corrigé par le client : {champs['customer_name']}"})
+                                corps={"text": f"Nom corrigé par le client : {nom}"})
+            if len(_noms_corriges) >= _NOMS_MAX:
+                _noms_corriges.pop(next(iter(_noms_corriges)))
+            _noms_corriges[cle] = nom
         relue = await self._lire(reservation_id)
         if relue is None:
             raise Injoignable("réservation modifiée mais illisible dans resOS")
-        return _en_reservation(relue)
+        return self._au_nom_corrige(_en_reservation(relue))
+
+    def _au_nom_corrige(self, reservation: dict) -> dict:
+        nom = _noms_corriges.get((self.tenant.id, str(reservation.get("id"))))
+        return {**reservation, "customer_name": nom} if nom else reservation
 
     async def annuler(self, reservation_id) -> None:
         chemin = f"/bookings/{quote(str(reservation_id), safe='')}"

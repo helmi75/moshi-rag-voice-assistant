@@ -320,7 +320,10 @@ class TestUneDemandeHorsPlage:
         """Sinon la nuit devient le moyen de remplir la boîte de Helmane sans limite."""
         assert _demander("06 12 34 56 78").etat == "note"
         assert _demander("06 12 34 56 78", "203.0.113.8").etat == "note"
-        assert _demander("06 12 34 56 78", "203.0.113.9") is rappel.DEJA
+        refus = _demander("06 12 34 56 78", "203.0.113.9")
+        assert refus is rappel.DEJA
+        # Personne n'a été appelé : le refus ne doit pas prétendre le contraire.
+        assert "rappelé" not in refus.message and "Marie" not in refus.message
         assert courrier.await_count == 2
 
     def test_sans_messagerie_la_page_ne_promet_rien(self, composer, monkeypatch):

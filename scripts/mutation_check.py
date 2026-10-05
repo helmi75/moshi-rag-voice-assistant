@@ -962,7 +962,7 @@ GARDE_FOUS = [
     GardeFou(
         nom="Une seconde réservation au même créneau, pour le même numéro, est refusée",
         fichier="api/app/llm.py",
-        avant='            if deja["date"] == tool_input["date"] and _meme_heure(deja["time"], tool_input["time"]):',
+        avant='            if _jour(deja["date"]) == jour and _hhmm(deja["time"]) == heure:',
         apres="            if False:  # mutation",
         tests=["test_reservation_doublon.py"],
         k="seconde_creation or autre_nombre",
