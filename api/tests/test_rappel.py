@@ -265,15 +265,17 @@ class TestLesPlafonds:
 
 class TestLesHeures:
     @pytest.mark.parametrize("heure,ouvert", [(7, False), (8, True), (12, True), (21, True),
-                                              (22, False), (3, False)])
-    def test_marie_ne_rappelle_qu_entre_8_h_et_22_h(self, composer, monkeypatch, heure, ouvert):
+                                              (22, True), (23, True), (0, False), (3, False)])
+    def test_marie_n_appelle_personne_la_nuit(self, composer, monkeypatch, heure, ouvert):
+        """De 8 h à minuit depuis le 05/10/2026 : un restaurateur regarde le site après
+        son service, et à 22 h la démonstration lui était refusée."""
         instant = MIDI.replace(hour=heure, minute=59)
         monkeypatch.setattr(horloge, "maintenant", lambda: instant)
         reponse = _demander("06 12 34 56 78")
         assert (reponse is rappel.OK) is ouvert
         assert composer.await_count == (1 if ouvert else 0)
         if not ouvert:
-            assert reponse.etat == "ferme" and "8 h et 22 h" in reponse.message
+            assert reponse.etat == "ferme" and "8 h et minuit" in reponse.message
             assert _demandes() == []
 
     def test_la_plage_se_regle(self, monkeypatch):
@@ -283,9 +285,68 @@ class TestLesHeures:
         assert rappel.ferme(MIDI.replace(hour=10)) is None
 
     @pytest.mark.parametrize("brut", ["", "22-8", "abc", "8", "8-25"])
-    def test_une_plage_illisible_retombe_sur_8_h_22_h(self, monkeypatch, brut):
+    def test_une_plage_illisible_retombe_sur_8_h_minuit(self, monkeypatch, brut):
         monkeypatch.setenv("RAPPEL_HEURES", brut)
-        assert rappel.heures() == (8, 22)
+        assert rappel.heures() == (8, 24)
+
+
+class TestUneDemandeHorsPlage:
+    """ASSISTANTE-125 : à 3 h du matin personne n'est appelé, mais le prospect n'est plus
+    perdu — Helmane reçoit son numéro et rappelle lui-même."""
+
+    @pytest.fixture(autouse=True)
+    def _la_nuit(self, monkeypatch):
+        monkeypatch.setattr(horloge, "maintenant", lambda: MIDI.replace(hour=3, minute=12))
+        monkeypatch.setenv("SMTP_HOST", "smtp.exemple.fr")
+        monkeypatch.setenv("SMTP_FROM", "contact@exemple.fr")
+        monkeypatch.setenv("ADMIN_EMAIL", "helmane@exemple.fr")
+
+    @pytest.fixture()
+    def courrier(self):
+        with patch("app.rappel.notifications.envoyer", new=AsyncMock(return_value=True)) as envoi:
+            yield envoi
+
+    def test_la_demande_est_notee_et_helmane_recoit_le_numero(self, composer, courrier):
+        reponse = _demander("06 12 34 56 78")
+        assert (reponse.code, reponse.etat) == (200, "note")
+        assert "à partir de 8 h" in reponse.message
+        composer.assert_not_awaited()                      # personne n'est appelé la nuit
+        adresses, sujet, corps = courrier.await_args.args
+        assert adresses == ["helmane@exemple.fr"] and "À rappeler" in sujet
+        assert "06 12 34 56 78" in corps and "03 h 12" in corps
+        assert [d["statut"] for d in _demandes()] == [rappel.A_RAPPELER]
+
+    def test_elle_compte_dans_les_plafonds_comme_un_appel(self, composer, courrier):
+        """Sinon la nuit devient le moyen de remplir la boîte de Helmane sans limite."""
+        assert _demander("06 12 34 56 78").etat == "note"
+        assert _demander("06 12 34 56 78", "203.0.113.8").etat == "note"
+        refus = _demander("06 12 34 56 78", "203.0.113.9")
+        assert refus is rappel.DEJA
+        # Personne n'a été appelé : le refus ne doit pas prétendre le contraire.
+        assert "rappelé" not in refus.message and "Marie" not in refus.message
+        assert courrier.await_count == 2
+
+    def test_sans_messagerie_la_page_ne_promet_rien(self, composer, monkeypatch):
+        monkeypatch.delenv("SMTP_HOST")
+        reponse = _demander("06 12 34 56 78")
+        assert reponse.etat == "ferme" and reponse.code == 503
+        assert _demandes() == []
+
+    def test_un_e_mail_qui_ne_part_pas_n_est_pas_une_promesse(self, composer):
+        with patch("app.rappel.notifications.envoyer", new=AsyncMock(return_value=False)):
+            reponse = _demander("06 12 34 56 78")
+        assert reponse.etat == "ferme"
+        # L'essai du jour reste entier : une demande ratée ne compte pas.
+        assert [d["statut"] for d in _demandes()] == [rappel.ECHEC]
+
+    def test_un_numero_refuse_le_reste_la_nuit(self, composer, courrier):
+        assert _demander("08 99 12 34 56") is rappel.NUMERO
+        courrier.assert_not_awaited()
+
+    def test_la_page_recoit_l_etat_note(self, client, composer, courrier):
+        r = client.post("/rappel", json={"numero": "06 12 34 56 78", "site": ""})
+        assert r.status_code == 200 and r.json()["etat"] == "note"
+        composer.assert_not_awaited()
 
 
 class TestQuandLeRappelEstCoupe:

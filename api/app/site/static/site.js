@@ -56,6 +56,9 @@
           refuser(message || "La demande n'a pas pu partir. Réessayez dans un instant.");
           return;
         }
+        /* hors de la plage de rappel, personne n'appelle : la demande est notée */
+        form.querySelector("[data-titre]").textContent =
+          resultat.corps.etat === "note" ? "C'est noté." : "Marie vous appelle.";
         form.querySelector("[data-message]").textContent = message;
         form.querySelector("[data-numero]").textContent = "(" + lisible(numero) + ")";
         saisie.hidden = true;
