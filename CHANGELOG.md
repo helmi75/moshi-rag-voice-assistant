@@ -7,6 +7,53 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — après la recette sans appel : ce qui sortait de l'écran ou se lisait mal (05/10/2026)
+
+L'agent `qa-recette` a regardé chaque page de l'admin et du site à 1280 et 390 px, en clair
+et en sombre (80 vues), sur la version en production. Trois défauts, onze remarques. Tout
+est corrigé sauf une décision qui revient à Helmi ; les mêmes 80 vues ont été reprises
+après correction : aucune page plus large que l'écran, aucun élément rogné, aucun texte de
+l'admin sous 4,5:1.
+
+### Corrigé
+- **« Prochaines réservations » montre les prochaines.** Avec plus de six tables à venir,
+  la salle de contrôle affichait les six plus lointaines et aucune du jour : le tri allait
+  de la plus tardive à la plus proche. La note d'une réservation passe sous la date, au
+  lieu de sortir de la carte quand elle est longue.
+- **Liste des appels sur téléphone** : les six filtres passent à la ligne. « Échecs » était
+  coupé, « Pannes » invisible, et toute la page défilait en largeur.
+- **Page « Enseignes » sur téléphone** : les six actions descendent sous le nom. Le nom
+  s'écrivait un mot par ligne, et « Comptes » et « Supprimer » étaient hors d'atteinte.
+- **Graphiques** : le titre est sorti du dessin (la valeur de la plus haute barre s'écrivait
+  dessus). Sur téléphone, où les textes faisaient 5 à 6 px, un graphique de trente jours
+  garde une largeur lisible et défile dans sa carte, ouvert sur le dernier jour ; celui des
+  créneaux du jour reste entier, avec des textes plus grands.
+- **Contrastes** : les encres de statut du thème clair (vert, or, rouge) et l'encre pâle
+  sont assombries, l'orange posé sur une teinte prend un pas plus sombre, le titre d'un
+  encart d'alerte n'est plus vert, un lien dans un encart prend l'encre du texte. Sur une
+  ligne sélectionnée, l'heure et la pastille restent lisibles en sombre. Sur le site,
+  l'aide sous le champ du rappel passe de 4,27 à 4,94:1.
+- **Vue du parc** : un appel de 23 secondes s'affichait « 0/250 » ; il s'écrit « <1/250 ».
+  « min ce mois-ci » ne se coupe plus en « mois- / ci ».
+- **Listes déroulantes** : elles retrouvent leur flèche, et les champs de date leur icône
+  (un `background` imposé les effaçait). Les libellés des formules sont raccourcis :
+  « 600 minutes » était coupé sur téléphone.
+- **Quatre indicateurs** tiennent de front ou deux par deux, jamais trois et un orphelin.
+- **« Rendu de la voix en cours… »** passe à la ligne au lieu d'élargir la page sur
+  téléphone ; « Écouter la voix sélectionnée (qualité téléphone) » n'est plus tronqué.
+- **Les montants de l'admin s'écrivent avec une virgule**, comme sur le site
+  (« 21,15 € », « 0,072 $ »), y compris dans les alertes de forfait.
+- **`/admin` sans barre finale** redirigeait vers une adresse en `http://`.
+- **Site** : dans le combiné, le nom passe au-dessus de l'état de l'appel (trois lignes
+  chacun sur téléphone, l'heure coupée en deux). Les deux polices sont servies en
+  `font/woff2` et non plus en `application/octet-stream`.
+
+### Ajouté
+- La page de connexion porte la marque (elle n'avait que l'icône de l'onglet).
+
+Laissé à Helmi : « Sans engagement. » reste écrit deux fois sous les champs du rappel.
+Non fait : les réservations de la carte s'affichent encore à la date AAAA-MM-JJ.
+
 ## Non publiée — la réécoute calée, et un e-mail qui ne se perd plus (04/10/2026)
 
 Après les dix premiers vrais appels de l'essai GPT-Live, Helmi a relevé deux défauts : à

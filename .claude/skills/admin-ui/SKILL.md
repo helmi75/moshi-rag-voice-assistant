@@ -64,7 +64,9 @@ skill `dataviz` avant de créer un nouveau type de graphique. Couleurs par varia
 appels) / `--viz-series-2` (bleu canard, réservations) définies dans `static/admin.css`
 (clair + sombre). Le texte porte l'encre texte (`--viz-text*`), jamais la couleur de
 série. Une série par graphique → pas de légende, le titre nomme la série. Jamais de
-double axe. Labels de valeur visibles. Changer une couleur de série : repasser le
+double axe. Labels de valeur visibles. Le titre est une `<figcaption>`, hors du dessin : il
+garde sa taille sur téléphone. Au-delà de seize barres le graphique porte `.viz-dense` :
+sur téléphone il défile dans son `.chart-block`, ouvert sur le dernier jour (`admin.js`). Changer une couleur de série : repasser le
 validateur du skill `dataviz` sur la surface claire ET la surface sombre.
 
 ## Données
@@ -104,6 +106,16 @@ sur `.sidebar` et `aria-expanded` sur le bouton ; Échap et un toucher hors de l
 referment. Tout nouvel élément de la barre latérale va DANS `.menu`.
 
 ## Pièges déjà rencontrés
+
+- Un champ se colore par `background-color`, jamais par `background` : le raccourci efface
+  l'image de fond, donc la flèche des listes déroulantes et l'icône des champs de date.
+- De l'orange sur une teinte (`--app-accent-soft`, `--app-surface-2`) : `--app-accent-teinte`,
+  pas `--app-accent`, qui n'y tient pas 4,5:1 en clair. `test_theme.py` calcule les contrastes.
+- Un encart (`.callout`) prend son ton par son fond, posé dans le gabarit
+  (`style="background: var(--app-warn-soft)"`) : la feuille de style accorde son titre.
+- Un montant passe par le filtre `nombre` (« 21,15 »), jamais par `"%.2f"`.
+- Une liste à côté d'un nom (`.row-actions`, `.row-metrics`) descend sous lui dans une carte
+  étroite par une requête de conteneur (`.parc-liste`, `.enseignes-liste`).
 
 - **Pico** stylise `role="group"` comme un groupe de boutons, et `[type="submit"]` a une
   spécificité plus forte qu'une classe : préfixer le sélecteur (`button.logout`) ou

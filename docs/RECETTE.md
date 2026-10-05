@@ -220,6 +220,13 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P22 | Ouvrir l'admin en sombre, puis en clair (les trois pastilles en bas de la barre latérale) | Les couleurs du site : fond brun nuit et orange en sombre, crème en clair ; aucun bouton bleu ; les graphiques en orange (appels) et bleu canard (réservations) | |
 | P23 | Sur un téléphone : toucher le bouton aux trois barres, en haut à droite | Le menu se déroule (navigation, thème, compte) ; le bouton devient une croix ; un toucher sur la page ou sur la croix le referme | |
 | P24 | Sur un téléphone, menu fermé | Une seule ligne en haut : la marque et le bouton ; le contenu commence tout de suite dessous | |
+| P25 | Salle de contrôle d'un établissement qui a plus de six tables à venir | « Prochaines réservations » commence par celles du jour, la plus proche en premier ; une longue note est sous la date, terminée par « … » | |
+| P26 | Sur un téléphone : Appels | Les six filtres tiennent dans l'écran, sur deux lignes ; la page ne glisse pas sur le côté | |
+| P27 | Sur un téléphone, en super-admin : Enseignes | Chaque nom sur une ligne, ses six actions dessous ; « Comptes » et « Supprimer » se touchent du doigt | |
+| P28 | Sur un téléphone : Salle de contrôle, les graphiques | Titres et chiffres lisibles ; « Appels par jour » glisse du doigt et s'ouvre sur aujourd'hui ; les créneaux du jour tiennent entiers | |
+| P29 | Vue du parc, un établissement dont le seul appel du mois a duré moins de 30 secondes | « <1/250 », jamais « 0/250 » | |
+| P30 | Fiche établissement, sur un téléphone | Les listes déroulantes ont leur flèche ; la formule s'affiche entière (« Service · 149 €/mois · 600 min ») | |
+| P31 | Un montant, n'importe où dans l'admin | Une virgule : « 3,89 $ », « 6,42 € » | |
 
 ## S. En cas de panne : le renvoi vers le restaurant (ASSISTANTE-118)
 
