@@ -486,6 +486,12 @@ def _jour(date_iso) -> str:
         return str(date_iso or "").strip()
 
 
+def _sur_une_ligne(nom) -> str:
+    """Un nom tient sur une ligne : il finit dans l'objet d'un e-mail, qui refuse un
+    retour à la ligne — et l'avis au restaurant se perdrait sans un mot."""
+    return " ".join(str(nom or "").split())
+
+
 def _fourni(valeur) -> bool:
     """Un champ que le modèle a vraiment rempli : ni absent, ni fait d'espaces."""
     return valeur is not None and str(valeur).strip() != ""
@@ -641,6 +647,8 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
         # Un nom fait d'espaces n'est pas un nom : l'accepter effacerait celui de la table.
         champs = {k: tool_input[k] for k in ("customer_name", "date", "time", "party_size", "notes")
                   if _fourni(tool_input.get(k))}
+        if "customer_name" in champs:
+            champs["customer_name"] = _sur_une_ligne(champs["customer_name"])
         if not champs:
             return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
         if _inchangee(existante, champs):
@@ -712,7 +720,14 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     jour, heure = _jour(tool_input["date"]), _hhmm(tool_input["time"])
     telephone = (caller_number or "").strip()
     if telephone:
-        for deja in await carnet.retrouver(telephone, a_partir_de=jour):
+        try:
+            connues = await carnet.retrouver(telephone, a_partir_de=jour)
+        except connecteurs.Refus:
+            # Le carnet n'a pas su faire la recherche (resOS : ce filtre n'a jamais été
+            # éprouvé sur le vrai service). On ne sait pas s'il y a un doublon — et ne
+            # plus pouvoir réserver du tout serait pire qu'un doublon.
+            connues = []
+        for deja in connues:
             if _jour(deja["date"]) == jour and _hhmm(deja["time"]) == heure:
                 return _refus(
                     "Ce numéro a déjà une réservation ce jour-là à cette heure (identifiant "
@@ -726,7 +741,7 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                    f"{'' if (caller_number or '').strip() else ', appel masqué'})")
         notes = f"{notes} — {mention}" if notes else mention
     reservation = await carnet.creer(
-        nom=tool_input["customer_name"], date=jour, heure=heure,
+        nom=_sur_une_ligne(tool_input["customer_name"]), date=jour, heure=heure,
         couverts=tool_input["party_size"], telephone=(caller_number or "").strip() or None,
         notes=notes)
     notifications.planifier(tenant, "reservation_creee",

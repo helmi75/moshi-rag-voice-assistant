@@ -326,7 +326,7 @@ class ConnecteurResos:
             # Le commentaire ne se modifie pas par PUT : on l'ajoute en note interne.
             await self._requete("POST", f"{chemin}/restaurantNote",
                                 corps={"text": f"Demande du client : {champs['notes']}"})
-        nom = str(champs.get("customer_name") or "").strip()
+        nom = " ".join(str(champs.get("customer_name") or "").split())
         cle = (self.tenant.id, str(reservation_id))
         if nom and _noms_corriges.get(cle) != nom:
             # Le nom non plus : le restaurant le corrige dans resOS, où il fait foi.

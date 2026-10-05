@@ -75,14 +75,35 @@ class TestPasDeSecondeReservation:
         assert _tables(resto) == [("Kikato", "20:00", 2)]
         assert emails == [("reservation_creee", "Kikato")]
 
-    @pytest.mark.parametrize("heure", ["9:00", "09:00", "09:00:00"])
+    @pytest.mark.parametrize("heure", ["9:00", "09:00"])
     def test_une_heure_ecrite_autrement_reste_la_meme_table(self, resto, heure):
         """Le contrôle du créneau accepte « 9:00 » : comparé tel quel à « 09:00 », le
         doublon passait (revue du 05/10/2026)."""
         apres = (date.today() + timedelta(days=2)).isoformat()
         assert _creer(resto, "Kikato", heure="09:00", jour=apres)["status"] == "confirmed"
-        assert "error" in _creer(resto, "Kikao", heure=heure, jour=apres)
+        refus = _creer(resto, "Kikao", heure=heure, jour=apres)
+        assert "modify_reservation" in refus["error"]      # refusé comme doublon, pas autrement
         assert len(_tables(resto)) == 1
+
+    def test_un_carnet_qui_ne_sait_pas_chercher_n_empeche_pas_de_reserver(self, resto):
+        """resOS : la recherche par numéro n'a jamais été éprouvée sur le vrai service. Si
+        elle est refusée, on ne sait pas s'il y a un doublon — mais on réserve."""
+        from app import connecteurs
+        from app.connecteurs import interne
+
+        with patch.object(interne.ConnecteurInterne, "retrouver",
+                          side_effect=connecteurs.Refus("filtre refusé")):
+            assert _creer(resto, "Kikato")["status"] == "confirmed"
+        assert _tables(resto) == [("Kikato", "20:00", 2)]
+
+    def test_un_nom_tient_sur_une_ligne(self, resto, emails):
+        """Un retour à la ligne dans le nom ferait refuser l'objet de l'e-mail : l'avis au
+        restaurant se perdrait sans un mot."""
+        premiere = _creer(resto, "Kika\nto")
+        corrigee = _outil(resto, "modify_reservation",
+                          {"reservation_id": premiere["reservation_id"], "customer_name": "Ki\r\nkao"})
+        assert corrigee["customer_name"] == "Ki kao"
+        assert all("\n" not in nom and "\r" not in nom for _, nom in emails)
 
     def test_le_creneau_est_range_sous_sa_forme_canonique(self, resto):
         apres = date.today() + timedelta(days=2)
