@@ -69,6 +69,7 @@ jusqu'à `run_tool`.
 | C4 | Admin → Réservations, vue **Jour** de la réservation | Carte **barrée**, pastille « Annulée », date d'annulation ; elle ne compte plus dans les couverts du jour | |
 | C5 | Rappeler et redemander le même créneau | Il est **de nouveau libre** | |
 | C6 | Appeler en masqué et demander une annulation | Elle prend le message, **n'annule rien**, n'invente pas | |
+| C8 | Réserver, puis dire « mon nom a été mal noté, c'est K, I, K, A, O » (ASSISTANTE-126) | Elle corrige le nom. Dans l'admin : **une seule** réservation, au bon nom ; un e-mail « Réservation modifiée », pas de seconde « Nouvelle réservation » | |
 
 **C5 est le piège silencieux** : si le créneau est refusé, `ACTIVES` ne s'applique pas
 partout et une table annulée compte encore.

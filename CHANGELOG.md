@@ -7,6 +7,28 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — une table, une réservation (ASSISTANTE-126, 05/10/2026)
+
+Appel 240 : l'assistante entend « Kikato », enregistre la table ; le client épelle
+« Kikao » ; faute de pouvoir corriger un nom, une seconde réservation est créée au même
+créneau. Deux tables pour un client, deux e-mails « nouvelle réservation » à 46 secondes
+d'écart.
+
+### Corrigé
+- **Même numéro, même jour, même heure : le serveur refuse une seconde réservation**, et
+  son refus dit au modèle de corriger la première. Un autre client, une autre heure, un
+  autre jour, un appel masqué ou une table annulée ne sont pas concernés.
+- **`modify_reservation` corrige un nom.** Carnet interne : le nom change. resOS, où le
+  nom ne se change pas par l'API utilisée : une note « Nom corrigé par le client » part
+  au restaurant.
+- Une « modification » qui ne change rien n'écrit rien et ne prévient personne (relevé le
+  04/10 : trois e-mails « réservation modifiée » identiques pour un même appel).
+
+### Non corrigé
+- Sur le chemin GPT-Live, la première réservation a été créée au récapitulatif, avant la
+  confirmation du client. Signalé à la session qui tient `voice/live.py`.
+- Les deux réservations de l'appel 240 sont toujours en base : à annuler dans l'admin.
+
 ## Non publiée — le logo : la toque (ASSISTANTE-124, 04/10/2026)
 
 ### Modifié

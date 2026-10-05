@@ -107,6 +107,18 @@ class TestLeBacASable:
         bac_a_sable.oublier_tout()
         assert bac_a_sable.etat_pour(demo.id).en_panne is False
 
+    def test_un_nom_corrige_part_en_note_au_restaurant(self, demo):
+        """resOS fait foi et le nom ne s'y change pas par cette API : le restaurant le
+        lit en note, et aucune seconde demande n'est créée (appel 240, 05/10/2026)."""
+        reference = _creer(demo)["reservation_id"]
+        assert "error" in _creer(demo)                      # même numéro, même créneau
+        reponse = _outil(demo, "modify_reservation",
+                         {"reservation_id": reference, "customer_name": "Dupond"})
+        assert reponse["status"] == "modified"
+        etat = bac_a_sable.etat_pour(demo.id)
+        assert len(etat.reservations) == 1
+        assert [texte for _, texte in etat.notes] == ["Nom corrigé par le client : Dupond"]
+
     def test_chaque_etablissement_a_son_carnet(self, demo):
         autre = _resto(connecteurs.RESOS_DEMO, "+33199000903")
         _creer(demo)
@@ -270,9 +282,16 @@ class TestLaPageCarnetResos:
 
     @pytest.fixture()
     def resto_demo(self):
+        # Le faux resOS garde son état sur disque : sans l'effacer, la réservation d'un
+        # test attend le suivant, qui la « recrée » — ce que le serveur refuse désormais.
         resto = _resto(connecteurs.RESOS_DEMO, "+33199000907")
+        fichier = bac_a_sable.dossier() / f"etablissement{resto.id}.json"
+        fichier.unlink(missing_ok=True)
+        bac_a_sable.oublier_tout()
         yield resto
         tenants.delete_tenant(resto.id)
+        fichier.unlink(missing_ok=True)
+        bac_a_sable.oublier_tout()
 
     def test_la_demande_apparait_et_se_valide(self, resto_demo):
         client = self._connecte()

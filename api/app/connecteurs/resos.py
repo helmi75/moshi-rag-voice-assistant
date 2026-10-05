@@ -319,6 +319,10 @@ class ConnecteurResos:
             # Le commentaire ne se modifie pas par PUT : on l'ajoute en note interne.
             await self._requete("POST", f"{chemin}/restaurantNote",
                                 corps={"text": f"Demande du client : {champs['notes']}"})
+        if champs.get("customer_name"):
+            # Le nom non plus : le restaurant le corrige dans resOS, où il fait foi.
+            await self._requete("POST", f"{chemin}/restaurantNote",
+                                corps={"text": f"Nom corrigé par le client : {champs['customer_name']}"})
         relue = await self._lire(reservation_id)
         if relue is None:
             raise Injoignable("réservation modifiée mais illisible dans resOS")

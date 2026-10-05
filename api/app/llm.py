@@ -18,7 +18,7 @@ from openai import AsyncOpenAI
 
 from loguru import logger
 
-from . import connecteurs, db, disponibilite, horloge, messages, notifications
+from . import connecteurs, db, disponibilite, horloge, messages, notifications, reservations
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
@@ -116,8 +116,9 @@ TOOLS = [
     {
         "name": "modify_reservation",
         "description": (
-            "Modifie une réservation existante de la personne qui appelle. Utilise "
-            "l'identifiant rendu par find_reservation. Ne fournis que les champs qui "
+            "Modifie une réservation existante de la personne qui appelle : date, heure, "
+            "nombre de personnes, ou NOM mal noté. Utilise l'identifiant rendu par "
+            "find_reservation ou par create_reservation. Ne fournis que les champs qui "
             "changent. Récapitule au client avant d'appeler, et n'annonce la "
             "modification qu'APRÈS le retour de l'outil."
         ),
@@ -125,6 +126,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "reservation_id": {"type": "string", "description": "Identifiant rendu par find_reservation, recopié tel quel"},
+                "customer_name": {"type": "string", "description": "Nom corrigé, quand le client dit qu'il a été mal noté"},
                 "date": {"type": "string", "description": "Nouvelle date, format AAAA-MM-JJ"},
                 "time": {"type": "string", "description": "Nouvelle heure, format HH:MM"},
                 "party_size": {"type": "integer", "description": "Nouveau nombre de personnes"},
@@ -467,6 +469,21 @@ def _refus_complet(autres: list[str]) -> str:
                       ensure_ascii=False)
 
 
+def _meme_heure(une, autre) -> bool:
+    """« 20:00 » et « 20:00:00 » désignent le même créneau."""
+    return str(une or "")[:5] == str(autre or "")[:5]
+
+
+def _inchangee(existante: dict, champs: dict) -> bool:
+    """Vrai si la « modification » demandée ne change rien à la réservation."""
+    def norme(cle, valeur):
+        texte = str(valeur if valeur is not None else "").strip()
+        if cle == "customer_name":
+            return reservations.nom_lisible(texte).casefold()
+        return texte[:5] if cle == "time" else texte
+    return all(norme(cle, valeur) == norme(cle, existante.get(cle)) for cle, valeur in champs.items())
+
+
 def _creneau_refuse(tenant: Tenant, date_iso, heure) -> Optional[str]:
     """Le motif de refus si le créneau est illisible, déjà passé, ou hors des horaires
     d'ouverture de l'établissement ; None s'il est réservable.
@@ -604,10 +621,19 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                 {"status": "cancelled", "reservation_id": reservation_id,
                  "date": existante["date"], "time": existante["time"]},
                 ensure_ascii=False)
-        champs = {k: tool_input[k] for k in ("date", "time", "party_size", "notes")
+        champs = {k: tool_input[k] for k in ("customer_name", "date", "time", "party_size", "notes")
                   if tool_input.get(k) not in (None, "")}
         if not champs:
             return _refus("Aucun changement fourni : précise ce qui doit être modifié.")
+        if _inchangee(existante, champs):
+            # Relevé le 04/10/2026 : trois e-mails « réservation modifiée » identiques
+            # pour un même appel, l'outil rappelé avec les valeurs déjà enregistrées.
+            # Rien n'est écrit et personne n'est prévenu : il n'y a rien à apprendre.
+            return json.dumps(
+                {"status": "unchanged", "reservation_id": reservation_id,
+                 "consigne": "La réservation est déjà enregistrée ainsi. Dis-le au client, "
+                             "sans parler de modification."},
+                ensure_ascii=False)
         refus = _creneau_refuse(tenant, champs.get("date", existante["date"]),
                                 champs.get("time", existante["time"]))
         if refus:
@@ -617,6 +643,7 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                                 {"avant": existante, "reservation": modifiee, "appel_id": call_id})
         return json.dumps(
             {"status": "modified", "reservation_id": reservation_id,
+             "customer_name": modifiee.get("customer_name"),
              "date": modifiee["date"], "time": modifiee["time"],
              "party_size": modifiee["party_size"]},
             ensure_ascii=False)
@@ -650,6 +677,20 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     rappel, refus = _numero_de_rappel(tool_input, caller_number, exiger=False)
     if refus:
         return _refus(refus)
+    # Appel 240, le 05/10/2026 : nom mal entendu (« Kikato »), le client le corrige, et
+    # une SECONDE réservation est créée au même créneau (« Kikao ») — deux tables et deux
+    # e-mails pour un seul client. Même numéro, même jour, même heure : ce n'est pas une
+    # nouvelle table, c'est la même qu'on corrige, et c'est le serveur qui le dit.
+    telephone = (caller_number or "").strip()
+    if telephone:
+        for deja in await carnet.retrouver(telephone, a_partir_de=tool_input["date"]):
+            if deja["date"] == tool_input["date"] and _meme_heure(deja["time"], tool_input["time"]):
+                return _refus(
+                    "Ce numéro a déjà une réservation ce jour-là à cette heure (identifiant "
+                    f"{deja['id']}, au nom de {deja['customer_name']}). N'en crée pas une "
+                    "seconde. Pour corriger le nom ou le nombre de personnes, appelle "
+                    "modify_reservation avec cet identifiant. Si le client veut vraiment une "
+                    "autre table au même moment, prends le message.")
     notes = tool_input.get("notes")
     if rappel:
         mention = (f"Joignable au {rappel} (numéro donné par l'appelant"
