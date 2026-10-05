@@ -969,6 +969,15 @@ GARDE_FOUS = [
         panne="corriger un nom créerait une deuxième table : deux réservations et deux e-mails pour un client",
     ),
     GardeFou(
+        nom="Rappel : hors plage, la demande compte dans les plafonds",
+        fichier="api/app/rappel.py",
+        avant="    if refus is not None:\n        return refus\n    debut, _ = heures()",
+        apres="    debut, _ = heures()  # mutation",
+        tests=["test_rappel.py"],
+        k="plafonds_comme_un_appel",
+        panne="la nuit, n'importe qui remplirait la boîte de Helmane sans limite",
+    ),
+    GardeFou(
         nom="Rappel : seuls les numéros de métropole sont composés",
         fichier="api/app/rappel.py",
         avant="    if not _METROPOLE.fullmatch(numero) or numero[1:].startswith(_OUTRE_MER):",
@@ -1010,7 +1019,7 @@ GARDE_FOUS = [
         avant="    if debut <= heure < fin:",
         apres="    if True:  # mutation",
         tests=["test_rappel.py"],
-        k="entre_8_h_et_22_h",
+        k="personne_la_nuit",
         panne="le numéro d'un tiers, saisi par malveillance, sonnerait à trois heures du matin",
     ),
     GardeFou(

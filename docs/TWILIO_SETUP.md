@@ -130,12 +130,18 @@ répond « L'appel n'a pas pu partir ».
 | `RAPPEL_PAR_NUMERO_PAR_JOUR` | `2` | rappels d'un même numéro sur 24 h |
 | `RAPPEL_PAR_ADRESSE_PAR_HEURE` | `3` | demandes acceptées depuis une même adresse |
 | `RAPPEL_DUREE_MAX_SECONDES` | `240` | Twilio coupe l'appel au-delà |
-| `RAPPEL_HEURES` | `8-22` | plage où Marie rappelle, à l'heure de Paris |
+| `RAPPEL_HEURES` | `8-24` | plage où Marie rappelle, à l'heure de Paris (jusqu'à minuit depuis le 05/10/2026). Hors plage, personne n'est appelé : la demande est notée et part par e-mail à `RAPPEL_NOTIFIER` |
 | `RAPPEL_NOTIFIER` | `ADMIN_EMAIL` | qui reçoit « Demande de rappel depuis le site » |
 
 **Ce que ça coûte** (grille Twilio relevée le 01/10/2026) : 0,0404 $ par minute entamée
 vers un portable, 0,0187 $ vers un fixe, au lieu de 0,010 $ pour un appel reçu. Seuls les
 numéros de métropole sont composés : ni surtaxés, ni outre-mer, ni étrangers.
+
+⚠️ Ces tarifs valent quand la ligne présentée est un numéro européen. Relevé sur le
+journal de Twilio les 04 et 05/10/2026 : avec le numéro **américain** en ligne présentée,
+un rappel vers un portable français est facturé **0,1603 $ la minute entamée** (111 s →
+0,3206 $ ; 137 s → 0,4809 $), en `us1` comme en `ie1`. Pour payer quatre fois moins, faire
+présenter le numéro français : `RAPPEL_ETABLISSEMENT` = l'établissement qui le porte.
 
 ## 8. Traiter les appels en Irlande plutôt qu'aux États-Unis (ASSISTANTE-123)
 

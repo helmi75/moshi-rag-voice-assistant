@@ -249,13 +249,13 @@ répéter. Il faut un portable français de métropole.
 | W2 | La même page sur un téléphone, jusqu'en bas | Rien ne déborde, rien n'est illisible ; la page est **sombre**, quel que soit le réglage de l'appareil ; en haut, deux boutons : « Espace client » et « Être rappelé » ; les prix sont ceux de la grille : 89 € pour 250 minutes, 149 € pour 600, 349 € pour 1 500, la minute en plus à 0,35 / 0,25 / 0,20 € ; sous chaque forfait, « soit environ 70 / 170 / 430 appels » ; sous les trois cartes, le bandeau Liberté à 0,45 € la minute ; en bas, « Prix hors taxes » et la durée sur laquelle les appels sont calculés (3 min 30) | |
 | W3 | Saisir `06 12 34`, puis *Rappelez-moi* | « Ce numéro semble incomplet » ; rien ne part | |
 | W4 | Saisir un numéro en `08` | « Ce numéro n'est pas un numéro français de métropole » | |
-| W5 | Entre 8 h et 22 h, saisir son portable | « Votre téléphone va sonner » ; il sonne en moins de dix secondes et affiche la ligne de démonstration | |
+| W5 | Entre 8 h et minuit, saisir son portable | « Votre téléphone va sonner » ; il sonne en moins de dix secondes et affiche la ligne de démonstration | |
 | W6 | Décrocher | Sans blanc : « Bonjour, c'est Marie, l'assistante vocale d'Helmane. Vous avez demandé à être rappelé… », puis la mention d'enregistrement | |
 | W7 | Réserver une table, puis demander « c'est quoi Helmane ? » | La table est enregistrée dans le carnet de l'établissement de démonstration ; elle répond qu'elle est là pour la démonstration et renvoie au site, sans rien inventer | |
 | W8 | Admin → Appels | L'appel porte « Rappel du site » ; sa téléphonie est au tarif sortant (0,0404 $ par minute entamée vers un portable) | |
 | W9 | Redemander un rappel deux fois avec le même numéro | Le deuxième sonne ; le troisième est refusé : « Marie a déjà rappelé ce numéro aujourd'hui » | |
 | W10 | Ne pas décrocher (à faire au deuxième rappel de W9) | Le téléphone sonne 25 s puis s'arrête ; aucun appel au journal | |
-| W11 | Après 22 h, saisir son portable | « Marie rappelle entre 8 h et 22 h » ; le téléphone ne sonne pas | |
+| W11 | Entre minuit et 8 h, saisir son portable (ASSISTANTE-125) | « C'est noté. Marie ne rappelle pas à cette heure-ci : nous vous rappelons à partir de 8 h » ; le téléphone **ne sonne pas** ; un e-mail « À rappeler — demande reçue sur le site hors plage » arrive dans la boîte de `ADMIN_EMAIL`, avec le numéro | |
 | W12 | Boîte de `ADMIN_EMAIL` | Un e-mail « Demande de rappel depuis le site » par rappel passé | |
 | W13 | **Une fois l'éditeur renseigné** (`site.EDITEUR`) : pied de page → *Mentions légales*. Avant : ni lien, ni page | La page s'ouvre ; l'hébergeur est Hostinger ; les durées annoncées (30 jours pour la demande, 90 pour le numéro) ; l'identité de l'éditeur est complète **une fois fournie** | |
 | W14 | Relire le haut de la page et le bas des formules | Plus de « 14 jours d'essai », de « sans engagement » sous les formules, ni de « tarif fondateur » | |

@@ -29,6 +29,26 @@ d'écart.
   confirmation du client. Signalé à la session qui tient `voice/live.py`.
 - Les deux réservations de l'appel 240 sont toujours en base : à annuler dans l'admin.
 
+## Non publiée — « Rappelez-moi » jusqu'à minuit, et plus de prospect perdu la nuit (ASSISTANTE-125, 05/10/2026)
+
+### Modifié
+- **Marie rappelle de 8 h à minuit** (22 h auparavant), décision de Helmi : un
+  restaurateur regarde le site après son service. `RAPPEL_HEURES` vaut `8-24` par défaut.
+- **Hors plage, la demande n'est plus refusée et perdue.** Personne n'est appelé, la page
+  répond « C'est noté : nous vous rappelons à partir de 8 h », et le numéro part par
+  e-mail à `RAPPEL_NOTIFIER` (« À rappeler — demande reçue sur le site hors plage ») pour
+  que Helmi rappelle lui-même. Les plafonds par numéro, par connexion et par jour valent
+  comme pour un appel. Sans messagerie, ou si l'e-mail ne part pas, la page dit « revenez
+  entre 8 h et minuit » : elle ne promet rien que personne ne lira.
+
+### Relevé le 05/10/2026 sur le journal de Twilio
+- Le premier rappel créé en Irlande (`ie1`) est passé : 137 s, terminé normalement.
+- **Un rappel coûte 0,1603 $ la minute entamée, pas 0,0404 $** : la ligne présentée est le
+  numéro américain (`TWILIO_NUMBER`), et Twilio facture alors l'appel vers un portable
+  français au tarif d'une origine hors d'Europe (111 s → 0,3206 $ le 04/10 en `us1` ;
+  137 s → 0,4809 $ le 05/10 en `ie1`). Le coût affiché dans l'admin pour ces appels est
+  donc sous-estimé. Non corrigé : présenter le numéro français diviserait ce prix par quatre.
+
 ## Non publiée — le logo : la toque (ASSISTANTE-124, 04/10/2026)
 
 ### Modifié
