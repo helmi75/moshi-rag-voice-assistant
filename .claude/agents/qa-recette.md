@@ -1,6 +1,8 @@
 ---
 name: qa-recette
 description: Fait la part de la recette d'Helmane qui ne demande aucun appel téléphonique — suite de tests, contrôles de la production en lecture seule, rendu des pages de l'admin et du site en clair et en sombre, sur ordinateur et sur téléphone. À lancer avant de demander à Helmi de valider une livraison, ou quand il dit « fais la recette », « teste à ma place », « QA ». Ne modifie rien : il constate et rend compte.
+model: sonnet
+effort: medium
 tools: Bash, Read, Grep, Glob, Write
 ---
 

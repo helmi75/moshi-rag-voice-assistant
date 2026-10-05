@@ -58,8 +58,8 @@ le `.lock` ce qui est installé (régénération : `docs/DEPLOY.md`).
 5. **Commit** : un sujet par commit. Message en français, `CLÉ-JIRA · ce qui change`,
    corps = pourquoi et ce qui a été vérifié. Jamais de nom de modèle.
 6. **Pousser, puis attendre la CI** de la branche. Rouge : corriger avant toute suite.
-7. **Revue** avant de fusionner un lot : `/code-review` et `/security-review` sur le
-   diff. Vérifier chaque constat dans le code avant d'y toucher ; ne corriger que ceux
+7. **Revue** avant de fusionner un lot : l'agent relecteur sur le diff final (« Travail en
+   agents »), ou `/code-review` et `/security-review`. Vérifier chaque constat dans le code avant d'y toucher ; ne corriger que ceux
    qui sont confirmés, par groupes, tests après chaque groupe ; dire ce qui est laissé de
    côté et pourquoi.
 8. **PR vers `main`** : sections *Pourquoi*, *Ce qui change*, *Vérifié*, *Après le
@@ -76,9 +76,49 @@ Livrer, c'est aussi : une ligne dans `docs/RECETTE.md`, une entrée dans `CHANGE
 la documentation concernée (`docs/SUPERVISION.md`, `docs/RGPD.md`…), et toute nouvelle
 variable d'environnement dans `docker-compose.yml` et `env.example`.
 
-**Ce qui se décide avec Helmi, jamais seul** : ouvrir une PR, fusionner, déployer, toute
-écriture en production (base, console Twilio, `modal deploy`), clore un ticket. Lui rendre
-compte en français, le verdict d'abord, en disant ce qui n'a **pas** été vérifié.
+## Qui décide quoi
+
+**Sans demander à Helmi** : prendre un ticket « À faire » qu'il a priorisé, créer la
+branche, coder, tester, pousser, attendre la CI, faire relire, corriger les constats
+confirmés, lancer `qa-recette`, ouvrir la PR, tenir Jira à jour jusqu'à « En cours de
+revue », mettre à jour `CHANGELOG.md`, `docs/RECETTE.md` et la documentation.
+
+**Avec son accord explicite, à chaque fois** : fusionner, déployer, toute écriture en
+production (base, `.env` du serveur, console Twilio, `modal deploy`), toute dépense (appel
+sortant, achat, nouveau service payant), tout changement de prix ou de promesse faite au
+client, toute suppression de données, clore un ticket. La recette au téléphone reste à lui.
+
+Un agent ne donne jamais un accord à sa place. Lui rendre compte en français, **un seul
+message par lot, quand il est prêt à fusionner** : le verdict en titre, un tableau
+« Élément / État », ce qui n'a **pas** été vérifié, les essais au téléphone qui lui
+restent, et la question « fusionne et déploie ? ». Entre-temps, ne le solliciter que pour
+une décision de la liste ci-dessus.
+
+## Travail en agents
+
+La session principale est l'orchestrateur : elle découpe, rédige les briefs, relit et rend
+compte. Trois agents, pas davantage (chacun démarre à froid, donc chacun coûte) :
+`.claude/agents/developpeur.md` code un ticket, `.claude/agents/relecteur.md` relit un
+diff en lecture seule, `.claude/agents/qa-recette.md` fait la recette sans téléphone.
+
+- **Un ticket = un agent = un worktree = une branche.** Jamais deux agents sur les mêmes
+  fichiers. Pas de travail en parallèle, sauf entre tickets sans aucun fichier commun.
+- **Pas d'agent pour un petit changement** (un fichier, quelques dizaines de lignes, de la
+  documentation) : l'orchestrateur le fait lui-même.
+- **Le brief tient en une page** : le ticket, le pourquoi, les fichiers et les lignes à
+  lire, le test attendu, ce qu'il ne faut pas toucher, la définition de « fini ». L'agent
+  ne doit pas avoir à explorer le dépôt.
+- **Pendant le travail, tests ciblés.** La suite complète une seule fois, avant le commit.
+  Le contrôle par mutation est laissé à la CI, sauf si une protection critique a bougé.
+- **Le relecteur passe une fois par lot**, sur le diff final. Un lot qui ne touche que de
+  la documentation : pas de relecteur.
+- Un agent qui échoue deux fois sur le même obstacle s'arrête et rend compte.
+- **Un compte rendu d'agent fait quinze lignes au plus** : ce qui a changé, les commandes
+  jouées et leur résultat, ce qui n'est pas vérifié. Aucun fichier recopié.
+- **Chemin d'appel, signature Twilio, cloisonnement, migrations, `llm.run_tool`** :
+  l'orchestrateur conçoit (ou code), et le relecteur passe toujours.
+- **Le compte rendu d'un agent n'est pas une preuve.** Avant d'annoncer qu'un lot est
+  prêt, l'orchestrateur relit le diff et vérifie la CI lui-même.
 
 ## Architecture
 
