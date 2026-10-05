@@ -42,6 +42,7 @@ from . import db, horloge, notifications, renvoi, taches, tenants, twilio_region
 LANCE = "lance"        # Twilio compose le numéro
 DECROCHE = "decroche"  # la personne a décroché, Marie lui parle
 ECHEC = "echec"        # Twilio a refusé de composer : aucun appel n'a eu lieu
+A_RAPPELER = "a_rappeler"  # demande reçue hors plage : Helmane a le numéro, à lui de rappeler
 
 # Combien de temps le téléphone du restaurateur sonne avant qu'on renonce.
 SONNERIE_SECONDES = 25
@@ -81,9 +82,11 @@ class Reponse:
 OK = Reponse(200, "appel", "Votre téléphone va sonner dans quelques secondes.")
 NUMERO = Reponse(422, "numero", "Ce numéro n'est pas un numéro français de métropole. "
                                 "Exemple : 06 12 34 56 78.")
-DEJA = Reponse(429, "deja", "Marie a déjà rappelé ce numéro aujourd'hui. Réessayez demain.")
+DEJA = Reponse(429, "deja", "Ce numéro a déjà demandé plusieurs rappels en 24 heures. "
+                            "Réessayez plus tard.")
 TROP = Reponse(429, "trop", "Trop de demandes depuis votre connexion. Réessayez dans une heure.")
-PLAFOND = Reponse(503, "plafond", "Marie a déjà beaucoup rappelé aujourd'hui. Réessayez demain.")
+PLAFOND = Reponse(503, "plafond", "Nous avons reçu beaucoup de demandes aujourd'hui. "
+                                  "Réessayez demain.")
 INACTIF = Reponse(503, "inactif", "Le rappel n'est pas disponible pour le moment.")
 PANNE = Reponse(502, "echec", "L'appel n'a pas pu partir. Réessayez dans un instant.")
 SOUFFRANTE = Reponse(503, "panne", "Marie n'est pas disponible pour le moment. "
@@ -106,9 +109,11 @@ def par_adresse() -> int:
 
 
 def max_par_jour() -> int:
-    """Le plafond du site entier, sur 24 h glissantes. Quinze appels de quatre minutes
-    vers un portable : moins de quatre dollars par jour au tarif relevé le 01/10/2026,
-    même si quelqu'un s'acharne."""
+    """Le plafond du site entier, sur 24 h glissantes : c'est lui qui borne la facture si
+    quelqu'un s'acharne. Quinze appels de quatre minutes vers un portable coûtent moins de
+    trois dollars avec un numéro européen en ligne présentée (0,0404 $ la minute, grille du
+    01/10/2026), près de dix avec un numéro américain (0,1603 $ la minute, relevé sur le
+    journal de Twilio le 05/10/2026)."""
     return _entier("RAPPEL_MAX_PAR_JOUR", 15)
 
 
@@ -117,11 +122,18 @@ def duree_max() -> int:
 
 
 def heures() -> tuple[int, int]:
-    """La plage où Marie rappelle, à l'heure du restaurant : « 8-22 » = de 8 h à 22 h."""
+    """La plage où Marie rappelle, à l'heure du restaurant : « 8-24 » = de 8 h à minuit.
+
+    Jusqu'à minuit depuis le 05/10/2026 (décision de Helmi) : un restaurateur regarde le
+    site après son service, et à 22 h la démonstration lui était refusée."""
     m = re.fullmatch(r"\s*(\d{1,2})\s*-\s*(\d{1,2})\s*", os.getenv("RAPPEL_HEURES", ""))
     if m and 0 <= int(m.group(1)) < int(m.group(2)) <= 24:
         return int(m.group(1)), int(m.group(2))
-    return 8, 22
+    return 8, 24
+
+
+def _dite(heure: int) -> str:
+    return "minuit" if heure in (0, 24) else f"{heure} h"
 
 
 def ferme(instant: Optional[datetime] = None) -> Optional[Reponse]:
@@ -130,7 +142,7 @@ def ferme(instant: Optional[datetime] = None) -> Optional[Reponse]:
     heure = (instant or horloge.maintenant()).astimezone(horloge.FUSEAU).hour
     if debut <= heure < fin:
         return None
-    return Reponse(503, "ferme", f"Marie rappelle entre {debut} h et {fin} h. "
+    return Reponse(503, "ferme", f"Marie rappelle entre {_dite(debut)} et {_dite(fin)}. "
                                  "Revenez à ce moment-là.")
 
 
@@ -297,7 +309,7 @@ async def demander(brut, adresse: str, instant: Optional[datetime] = None) -> Re
         return TROP
     hors_plage = ferme(instant)
     if hors_plage is not None:
-        return hors_plage
+        return await _noter_pour_plus_tard(numero, instant) or hors_plage
     try:
         tenant = await db.hors_boucle(etablissement)
         if tenant is None:
@@ -328,6 +340,42 @@ async def demander(brut, adresse: str, instant: Optional[datetime] = None) -> Re
     logger.info(f"[rappel] Marie appelle un numéro en …{numero[-2:]} (appel {call_sid})")
     _prevenir(numero)
     return OK
+
+
+async def _noter_pour_plus_tard(numero: str, instant: Optional[datetime] = None) -> Optional[Reponse]:
+    """Hors de la plage, personne n'est appelé — mais la demande n'est plus perdue
+    (ASSISTANTE-125) : elle est inscrite, et Helmane reçoit le numéro par e-mail pour
+    rappeler lui-même. Les plafonds par numéro et par jour valent comme pour un appel.
+
+    Rend la réponse à afficher, ou None si personne n'a pu être prévenu : la page dit
+    alors « revenez plus tard », plutôt qu'un « c'est noté » que personne ne lirait."""
+    adresse = destinataire()
+    if not notifications.actif() or "@" not in adresse:
+        return None
+    try:
+        identifiant, refus = await db.hors_boucle(reserver, numero)
+    except Exception as exc:
+        logger.warning(f"[rappel] demande hors plage non inscrite ({type(exc).__name__}: {exc})")
+        return None
+    if refus is not None:
+        return refus
+    debut, _ = heures()
+    quand = (instant or horloge.maintenant()).astimezone(horloge.FUSEAU)
+    corps = "\n".join([
+        f"Un visiteur du site a demandé à être rappelé au {lisible(numero)}.",
+        f"Il était {quand:%H h %M} : Marie ne rappelle pas à cette heure-là, personne n'a "
+        "été appelé.", "",
+        f"La page lui a promis un rappel à partir de {_dite(debut)}. C'est à vous de le passer.", "",
+        "Ce numéro a été laissé pour ce rappel seulement.",
+    ])
+    if not await notifications.envoyer([adresse], "À rappeler — demande reçue sur le site hors plage",
+                                       corps):
+        await _marquer_sans_lever(identifiant, ECHEC)
+        return None
+    await _marquer_sans_lever(identifiant, A_RAPPELER)
+    logger.info(f"[rappel] demande hors plage notée pour un numéro en …{numero[-2:]}")
+    return Reponse(200, "note", "Marie ne rappelle pas à cette heure-ci : nous vous rappelons "
+                                f"à partir de {_dite(debut)}.")
 
 
 async def _marquer_sans_lever(identifiant: int, statut: str, call_sid: Optional[str] = None) -> None:

@@ -116,6 +116,11 @@ def _essai(monkeypatch, tenant):
     monkeypatch.delenv("GPT_LIVE_VOIX", raising=False)
     monkeypatch.delenv("GPT_LIVE_MODELE", raising=False)
     monkeypatch.setenv("ENREGISTREMENT_APPELS", "0")
+    # La base est commune à toute la suite, et le serveur refuse une seconde réservation
+    # au même créneau pour le même numéro : chaque test repart sans table à ce numéro.
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM reservations WHERE tenant_id = ? AND customer_phone = ?",
+                     (tenant.id, "+33612345678"))
     # L'assistante raccroche 2 s après son « au revoir » : les tests n'attendent pas.
     monkeypatch.setattr(live, "_SILENCE_AVANT_DE_RACCROCHER", 0.05)
 

@@ -156,6 +156,9 @@ Décision : **refuser plutôt que mentir**. Aucune réservation n'est gardée ch
 
 - [ ] la réponse de `POST /bookings` sur un créneau complet (question 5) ;
 - [ ] la limite de débit : 100 par seconde ou 100 par minute (question 4) ;
+- [ ] Depuis ASSISTANTE-126, **chaque création** d'un appelant identifié commence par cette
+  recherche (pas de seconde réservation au même créneau). Si resOS la refuse, la création
+  passe quand même, sans ce contrôle : vérifier qu'elle répond, et ce qu'elle coûte en délai.
 - [ ] `customQuery` passé en paramètre d'URL, comme dans les exemples. La doc dit aussi
       « passed as a header » ;
 - [ ] `fromDateTime` au format date seule (`AAAA-MM-JJ`), comme dans l'exemple ;
