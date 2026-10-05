@@ -341,6 +341,14 @@ class TestCeQueLaPagePromet:
         assert "fondateur" not in page
         assert "engagement" not in formules
 
+    def test_sans_engagement_n_est_dit_qu_une_fois(self, page):
+        """Il était écrit sous les deux formulaires de rappel : Helmi n'en garde qu'un
+        (05/10/2026), celui du haut de page."""
+        assert page.count("Sans engagement") == 1
+        haut = page[page.index('id="rappel-haut"'):page.index('id="rappel-bas"')]
+        assert "Sans engagement." in haut
+        assert page.count("Votre numéro ne sert qu'à ce rappel.") == 2
+
     def test_ni_temoignage_ni_chiffre_de_clientele(self, page):
         for invente in ("témoignage", "restaurants nous font confiance", "clients satisfaits",
                         "SMS de confirmation", "ligne prioritaire"):
