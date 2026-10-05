@@ -152,6 +152,6 @@ def tours_du_journal(journal: Optional[dict]) -> list[dict]:
                 })
         sortie.append({**tour,
                        "horodatage": format_mmss(tour.get("t_ms")),
-                       "blanc_s": f"{ressenti / 1000:.1f}",
+                       "blanc_s": f"{ressenti / 1000:.1f}".replace(".", ","),
                        "etages": etages})
     return sortie

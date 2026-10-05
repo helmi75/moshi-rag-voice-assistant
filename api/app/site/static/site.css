@@ -22,7 +22,7 @@
   --card-2:    #2E251E;
   --ink:       #FBF6EF;
   --muted:     #BDB0A2;
-  --faint:     #8C7F72;
+  --faint:     #978A7D;
   --accent:    #FF9B3D;
   --accent-2:  #FFC65C;
   --accent-ink:#22130A;
@@ -261,6 +261,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 .combine__haut b { display: block; font-weight: 700; line-height: 1.2; }
 .combine__haut span { font-size: .82rem; color: var(--muted); display: inline-flex; align-items: center; gap: .4rem; }
 .combine__haut button { margin-left: auto; }
+/* Le nom et l'état de l'appel se partageaient la largeur côte à côte : trois lignes
+   chacun sur téléphone, l'heure coupée en deux, et encore deux lignes dans la colonne
+   d'un grand écran. Le nom passe au-dessus, partout (recette du 05/10/2026). */
+.combine__haut > span:not(.perso) { flex-direction: column; align-items: flex-start; gap: .15rem; min-width: 0; }
 .fil { padding: 1.1rem; display: flex; flex-direction: column; gap: .55rem; }
 .tour { max-width: 84%; padding: .6rem .9rem; border-radius: 18px; font-size: .94rem; line-height: 1.45; }
 .tour--marie { align-self: flex-start; background: var(--card-2); border-bottom-left-radius: 6px; }

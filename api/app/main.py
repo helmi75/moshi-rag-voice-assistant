@@ -7,13 +7,14 @@ produits à tester, et le second n'était plus ni journalisé ni compté au forf
 reste lisible au tag `archive/moteurs-locaux`.
 """
 import json
+import mimetypes
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
 from xml.sax.saxutils import escape
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
 from . import (calls, db, llm, messages, notifications, rappel, renvoi, supervision, taches,
@@ -67,7 +68,21 @@ app.add_middleware(
     same_site="lax",
     https_only=os.getenv("SESSION_SECURE", "").lower() in ("1", "true"),
 )
+# Python ne connaît pas `.woff2` dans cette image : les deux polices partaient en
+# `application/octet-stream` (recette du 05/10/2026). Les navigateurs les chargeaient quand
+# même ; avec `X-Content-Type-Options: nosniff`, autant dire ce qu'elles sont.
+mimetypes.add_type("font/woff2", ".woff2")
 app.mount("/admin/static", StaticFiles(directory=str(admin_pkg.STATIC_DIR)), name="admin_static")
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_sans_barre_finale():
+    """Sans cette route, FastAPI redirige lui-même vers `/admin/` avec une adresse
+    complète bâtie sur ce qu'il voit — du http, derrière Caddy. Relative, l'adresse garde
+    le https du visiteur (recette du 05/10/2026)."""
+    return RedirectResponse("/admin/", status_code=307)
+
+
 app.include_router(admin_pkg.public_router)
 app.include_router(admin_pkg.admin_router)
 

@@ -27,8 +27,8 @@
 {% set etat = {'ok':        {'classe': '',                  'chip': 'chip-good', 'mot': 'Dans le forfait'},
                'alerte':    {'classe': 'meter-alerte',      'chip': 'chip-warn', 'mot': 'Bientôt au plafond'},
                'depassement': {'classe': 'meter-depassement', 'chip': 'chip-bad', 'mot': 'Forfait dépassé'}}[quota.niveau] %}
-{% set minute_supp = "%.2f" | format(quota.formule.minute_supp_eur) %}
-<section class="card">
+{% set minute_supp = quota.formule.minute_supp_eur | nombre %}
+<section class="card" style="margin-bottom: .9rem">
   <div class="card-head">
     <div>
       {% if quota.formule.sans_forfait %}
@@ -36,7 +36,7 @@
       <h2>Formule {{ quota.formule.label }}
         <span class="chip chip-good">Sans abonnement</span></h2>
       <p class="card-sub">{{ quota.consomme_lisible }} d'appel ce mois-ci,
-        en {{ quota.appels }} appel(s), soit {{ "%.2f" | format(quota.montant_eur) }} € à
+        en {{ quota.appels }} appel(s), soit {{ quota.montant_eur | nombre }} € à
         facturer. Chaque minute est facturée {{ minute_supp }} €, décomptée à la seconde.
       </p>
       {% else %}
@@ -46,7 +46,7 @@
         {{ quota.inclus }} minutes incluses, en {{ quota.appels }} appel(s).
         {% if quota.hors_forfait %}
         <b>{{ quota.hors_forfait_affichable }} minute(s) hors forfait</b>, soit
-        {{ "%.2f" | format(quota.montant_eur) }} € à facturer.
+        {{ quota.montant_eur | nombre }} € à facturer.
         Votre ligne n'a pas été coupée et ne le sera pas : un appel manqué coûte plus
         cher qu'une minute facturée.
         {% else %}
@@ -124,8 +124,9 @@
         <span class="row-main">
           <span class="row-title">{{ r.customer_name }}</span>
           <span class="row-sub">{{ r.date }} · {{ r.party_size }} couvert(s)</span>
+          {# Sous la date, pas à côté du nom : une longue note prenait toute la ligne. #}
+          {% if r.notes %}<span class="chip chip-warn chip-note" title="{{ r.notes }}">{{ r.notes }}</span>{% endif %}
         </span>
-        {% if r.notes %}<span class="chip chip-warn">{{ r.notes }}</span>{% endif %}
       </div>
       {% else %}
       <p class="empty">Aucune réservation à venir.</p>

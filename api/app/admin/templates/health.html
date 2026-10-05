@@ -52,9 +52,9 @@
 <div class="kpi-grid">
   {% if latency %}
   {{ kpi("Blanc ressenti (médiane)",
-         "%.1f s" | format(latency.median_ms / 1000),
+         (latency.median_ms / 1000) | nombre(1) ~ " s",
          sub="Entre la fin de la phrase du client et la reprise de la voix. "
-             ~ "p90 : " ~ "%.1f" | format(latency.p90_ms / 1000) ~ " s, sur "
+             ~ "p90 : " ~ (latency.p90_ms / 1000) | nombre(1) ~ " s, sur "
              ~ latency.n_turns ~ " tours mesurés.") }}
   {% else %}
   {{ kpi("Blanc ressenti", "—",

@@ -43,7 +43,7 @@ def _delta(current: float, previous: float, *, unit: str = "%",
         label = f"{change:+d} pts"
     elif unit == "$":
         change = current - previous
-        label = f"{change:+.2f} $"
+        label = f"{change:+.2f} $".replace(".", ",")
     else:
         change = round(100 * (current - previous) / previous)
         label = f"{change:+d} %"
@@ -197,7 +197,7 @@ def _control_room(request: Request, tenant_id: Optional[int]):
     today = horloge.aujourd_hui().isoformat()
     recent = [presenters.call_view(c) for c in calls.list_calls(tenant_id, limit=5)]
     upcoming = reservations.list_filtered(
-        tenant_id=tenant_id, date_from=today, limit=6,
+        tenant_id=tenant_id, date_from=today, limit=6, plus_proches_d_abord=True,
     ) if tenant_id else []
     slots = reservations.covers_by_slot(tenant_id, today) if tenant_id else []
     slots_chart = charts.bar_chart(

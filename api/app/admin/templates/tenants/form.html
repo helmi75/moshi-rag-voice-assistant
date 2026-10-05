@@ -45,11 +45,12 @@
           {% for f in formules %}
           <option value="{{ f.id }}"
                   {{ "selected" if tenant and tenant.plan == f.id }}>
-            {{ f.label }} —
-            {%- if f.sans_forfait %} sans abonnement, {{ "%.2f" | format(f.minute_supp_eur) }} € la minute
-            {%- else %} {{ f.prix_mensuel_eur }} €/mois, {{ f.minutes_incluses }} minutes
+            {#- Court : sur téléphone, « 600 minutes » était coupé en « 600 minute ». #}
+            {{ f.label }} ·
+            {%- if f.sans_forfait %} sans abonnement · {{ f.minute_supp_eur | nombre }} €/min
+            {%- else %} {{ f.prix_mensuel_eur }} €/mois · {{ f.minutes_incluses }} min
             {%- endif %}
-            {%- if f.etablissements_inclus > 1 %}, {{ f.etablissements_inclus }} établissements{% endif %}
+            {%- if f.etablissements_inclus > 1 %} · {{ f.etablissements_inclus }} établissements{% endif %}
           </option>
           {% endfor %}
         </select>

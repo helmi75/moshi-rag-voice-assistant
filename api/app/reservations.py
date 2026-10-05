@@ -102,8 +102,13 @@ def list_filtered(
     limit: int = 50,
     offset: int = 0,
     inclure_annulees: bool = False,
+    plus_proches_d_abord: bool = False,
 ) -> list[dict]:
     """Liste paginée/filtrée pour l'admin (tenant_id None = tous, super-admin).
+
+    `plus_proches_d_abord` : pour « à venir ». Sans lui le tri va de la plus tardive à
+    la plus proche, et `limit` ne gardait que les six tables les plus LOINTAINES — la
+    salle de contrôle n'en montrait aucune du jour (recette du 05/10/2026).
 
     Les annulées sont masquées PAR DÉFAUT : la liste « à venir » de la salle de contrôle
     passe par ici, et y laisser des tables annulées ferait préparer des couverts pour des
@@ -121,7 +126,8 @@ def list_filtered(
         params.append(date_from)
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
-    query += " ORDER BY date DESC, time DESC, id DESC LIMIT ? OFFSET ?"
+    sens = "ASC" if plus_proches_d_abord else "DESC"
+    query += f" ORDER BY date {sens}, time {sens}, id {sens} LIMIT ? OFFSET ?"
     params += [limit, offset]
     with db.get_conn() as conn:
         rows = conn.execute(query, params).fetchall()

@@ -63,6 +63,12 @@ class Consommation:
         return round(self.minutes)
 
     @property
+    def minutes_en_colonne(self) -> str:
+        """Pour une colonne étroite, où « 23 secondes » ne tient pas : « <1 » après un
+        vrai appel de moins de trente secondes, jamais « 0 » (recette du 05/10/2026)."""
+        return "<1" if self.minutes > 0 and self.minutes_affichables == 0 else str(self.minutes_affichables)
+
+    @property
     def consomme_lisible(self) -> str:
         """« 23 secondes », « 1 minute », « 212 minutes ». Sous la minute, un arrondi
         écrirait « 0 minute » après un vrai appel, et ferait croire qu'il n'a pas compté
@@ -78,6 +84,11 @@ class Consommation:
         """Vingt secondes au-delà du forfait ne s'affichent pas « 0 minute » à côté d'un
         montant : dès qu'il y a quelque chose à facturer, on écrit au moins 1."""
         return max(1, round(self.hors_forfait)) if self.hors_forfait > 0 else 0
+
+
+def _euros(montant: float) -> str:
+    """« 21,15 » : un montant s'écrit avec une virgule, dans une alerte comme sur la page."""
+    return f"{montant:.2f}".replace(".", ",")
 
 
 def _du_mois(tenant_id: int) -> tuple[int, float]:
@@ -164,7 +175,7 @@ def alertes(tenants_liste) -> list[dict]:
                 "title": f"{tenant.name} · forfait dépassé de {c.hors_forfait_affichable} minute(s)",
                 "detail": f"Formule {c.formule.label} : {c.minutes_affichables} minutes ce "
                           f"mois-ci pour {c.inclus} incluses. À facturer : "
-                          f"{c.montant_eur:.2f} € ({c.formule.minute_supp_eur:.2f} € la "
+                          f"{_euros(c.montant_eur)} € ({_euros(c.formule.minute_supp_eur)} € la "
                           "minute). La ligne n'a pas été coupée — c'est délibéré.",
             })
         elif c.niveau == ALERTE:
@@ -173,7 +184,7 @@ def alertes(tenants_liste) -> list[dict]:
                 "title": f"{tenant.name} · {c.part_affichable} % du forfait consommé",
                 "detail": f"{c.minutes_affichables} minutes sur {c.inclus} incluses en "
                           f"formule {c.formule.label}. Au-delà, chaque minute sera "
-                          f"facturée {c.formule.minute_supp_eur:.2f} €.",
+                          f"facturée {_euros(c.formule.minute_supp_eur)} €.",
             })
     return resultat
 
