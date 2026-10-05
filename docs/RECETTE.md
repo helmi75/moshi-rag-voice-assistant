@@ -265,7 +265,7 @@ répéter. Il faut un portable français de métropole.
 | W11 | Après 22 h, saisir son portable | « Marie rappelle entre 8 h et 22 h » ; le téléphone ne sonne pas | |
 | W12 | Boîte de `ADMIN_EMAIL` | Un e-mail « Demande de rappel depuis le site » par rappel passé | |
 | W13 | **Une fois l'éditeur renseigné** (`site.EDITEUR`) : pied de page → *Mentions légales*. Avant : ni lien, ni page | La page s'ouvre ; l'hébergeur est Hostinger ; les durées annoncées (30 jours pour la demande, 90 pour le numéro) ; l'identité de l'éditeur est complète **une fois fournie** | |
-| W14 | Relire le haut de la page et le bas des formules | Plus de « 14 jours d'essai », de « sans engagement » sous les formules, ni de « tarif fondateur » | |
+| W14 | Relire le haut de la page et le bas des formules | Plus de « 14 jours d'essai », de « sans engagement » sous les formules, ni de « tarif fondateur » ; « Sans engagement. » n'est écrit qu'une fois, sous le formulaire du haut | |
 | W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
 | W16 | Regarder l'onglet du navigateur et le haut de la page, sur le site puis dans l'espace client (ASSISTANTE-124) | Le logo est une **toque de chef** orange avec trois barres de voix dedans, plus un combiné de téléphone ; il reste net en tout petit dans l'onglet ; dans l'espace client, il est lisible en clair comme en sombre | |
 
@@ -287,11 +287,11 @@ Marche à suivre : `docs/TWILIO_SETUP.md` § 8. À faire **hors service**. Le ga
 | X9 | Le lendemain : « Santé & coûts » | « Alertes Twilio » relevées sans erreur ; le coût Twilio de la facture au tarif attendu | |
 | X10 | Si quelque chose cloche : `… --basculer us1` | L'assistante répond de nouveau, sans redéploiement | |
 
-## T. L'essai GPT-Live, la voix-à-voix d'OpenAI (`docs/TEMPS_REEL.md`)
+## T. GPT-Live, la voix-à-voix d'OpenAI (`docs/TEMPS_REEL.md`)
 
-Sur l'établissement nommé dans `GPT_LIVE_ETABLISSEMENTS`, et lui seul. Chaque minute coûte
-0,05 $ à OpenAI en plus de Twilio. Faire les mêmes appels sur un établissement resté sur
-le pipeline habituel : c'est la comparaison qui compte.
+Sur un établissement dont le moteur est GPT-Live (Admin → Enseignes → Fiche → « Moteur de
+l'appel »). Chaque minute coûte 0,05 $ à OpenAI en plus de Twilio. Faire les mêmes appels
+sur un établissement resté sur la chaîne classique : c'est la comparaison qui compte.
 
 | # | Faire | Attendu | OK ? |
 |---|---|---|---|
@@ -307,6 +307,10 @@ le pipeline habituel : c'est la comparaison qui compte.
 | T10 | Appeler un établissement hors essai | Marie, comme d'habitude | |
 | T11 | Dix appels de chaque côté, puis « Santé & coûts » | Le blanc médian et le coût par minute des deux, côte à côte : c'est le verdict de l'essai | |
 | T12 | Admin → Appels → réécouter un appel GPT-Live passé après le 04/10/2026 au soir | Les deux voix se répondent comme au téléphone : elle ne parle jamais avant la fin de la question | |
+| T13 | Fiche d'un établissement → « Moteur de l'appel » → « Chaîne classique seule », enregistrer, appeler | Marie, comme avant GPT-Live ; dans Admin → Appels, l'appel porte « chaîne classique » | |
+| T14 | Remettre « GPT-Live · secours classique », enregistrer, appeler | GPT-Live répond, sans redéploiement ; l'appel porte « GPT-Live » ; Enseignes affiche « Moteur : GPT-Live » | |
+| T15 | Après des appels sur les deux moteurs : « Santé & coûts » → « Coût par moteur » | Une ligne par moteur : appels, minutes, coût, coût à la minute ; « Voix GPT-Live (OpenAI) » a sa ligne dans la répartition | |
+| T16 | Se connecter en restaurateur, ouvrir sa fiche | Pas de « Moteur de l'appel » ; ni la fiche ni ses appels ne nomment GPT-Live | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

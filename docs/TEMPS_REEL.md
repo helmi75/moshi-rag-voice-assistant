@@ -333,14 +333,49 @@ rappel déjà connu (champ retiré) ; la phrase d'attente était dite deux fois 
 ajoutée au cerveau). Vu et laissé : l'accueil est parfois suivi d'une phrase de son cru
 (« Que puis-je faire pour vous ? »).
 
-### Pour allumer l'essai
+### Choisir le moteur d'un établissement (depuis le 05/10/2026)
 
-1. Choisir la voix à l'oreille (`local/essai-gpt-live/`), la poser dans `GPT_LIVE_VOIX`.
-2. Poser dans le `.env` du serveur `GPT_LIVE_ETABLISSEMENTS=` suivi de l'identifiant de
-   l'établissement d'essai, puis déployer.
-3. Recette T1 à T11 (`docs/RECETTE.md`).
+Après dix vrais appels, Helmi a demandé de choisir le moteur dans l'admin, restaurant par
+restaurant, « en général GPT-Live par défaut et l'ancienne version en secours ».
 
-Pour l'éteindre : vider `GPT_LIVE_ETABLISSEMENTS`.
+- **Où** : Admin → Enseignes → Fiche → « Moteur de l'appel ». Deux valeurs : « GPT-Live ·
+  secours classique » ou « Chaîne classique seule ». Super-admin seulement : un
+  restaurateur ne voit pas le menu, et la route ignore le champ s'il l'envoie. Aucun
+  redéploiement : le prochain appel suit le nouveau réglage.
+- **Sans choix enregistré**, l'ancien réglage vaut encore : `GPT_LIVE_ETABLISSEMENTS` dans
+  le `.env` du serveur. La migration n'a donc changé le moteur de personne. Une fois la
+  fiche enregistrée, la liste ne compte plus pour cet établissement.
+- **Un nouvel établissement** est proposé sur GPT-Live quand la clé OpenAI est posée ; rien
+  n'est écrit tant que le formulaire n'est pas enregistré.
+- **Le secours.** Session refusée, trop longue à s'ouvrir, OpenAI injoignable : l'appel est
+  servi par la chaîne classique, et GPT-Live est mis à l'écart trois minutes
+  (`live.MISE_A_L_ECART_SECONDES`) — les appelants suivants n'attendent pas chacun à leur
+  tour une session qui ne s'ouvre pas. Session tombée en cours d'appel : ce client-là est
+  renvoyé vers le numéro de secours (on ne reprend pas un appel en route), et les suivants
+  passent par la chaîne classique, au lieu d'être tous renvoyés au restaurant comme
+  jusque-là. La mémoire de l'échec est celle du processus : « Santé & coûts » affiche le
+  dernier, un redéploiement l'efface. **Aucun contrôle de supervision ne le surveille** :
+  un crédit OpenAI épuisé se voit dans « Santé & coûts » et au journal du conteneur
+  (« [gpt-live] mis à l'écart »), pas par une alerte.
+- **Sans clé OpenAI**, un établissement réglé sur GPT-Live suit la chaîne classique ; la
+  fiche et la vue du parc le disent.
+
+### Ce que GPT-Live coûte, et où le lire
+
+`calls.couts_appel` chiffre chaque appel à sa clôture. Pour GPT-Live : la voix à 0,05 $ la
+minute de session, comptée à la seconde, écoute et transcription comprises (pas de poste
+Deepgram) ; le cerveau aux jetons consommés, aux tarifs d'OpenRouter ; Twilio à la minute
+entamée. Tarifs relevés le 04/10/2026, réglables par `COST_GPT_LIVE_PER_MIN`.
+
+« Santé & coûts » en tire deux choses : une ligne « Voix GPT-Live (OpenAI) » dans la
+répartition (jusqu'au 05/10/2026 ces minutes étaient rangées sous « Voix Mistral »), et la
+carte « Coût par moteur » — appels, minutes, coût et coût à la minute de chaque moteur,
+mesurés sur les appels qu'il a servis (`calls.par_moteur`). Le chiffre « hors téléphonie »
+est celui qui compare : Twilio facture plus cher les rappels passés depuis le site, que
+l'établissement de démonstration reçoit tous. **Ce chiffrage est le nôtre** : la clé n'a
+pas le droit de lire la facturation d'OpenAI, c'est la page Usage d'OpenAI qui fait foi.
+
+Recette T1 à T16 (`docs/RECETTE.md`).
 
 **Non vérifié à ce jour** : aucun appel téléphonique n'est passé par GPT-Live. Le relais,
 les outils et la clôture sont éprouvés contre une doublure qui joue le protocole ; la

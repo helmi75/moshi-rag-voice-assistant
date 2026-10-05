@@ -7,6 +7,44 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le moteur de l'appel se choisit dans l'admin (05/10/2026)
+
+Après dix vrais appels sur GPT-Live, Helmi veut choisir le moteur restaurant par
+restaurant, « en général GPT-Live par défaut et l'ancienne version en secours », et savoir
+comment le coût de GPT-Live arrive dans l'admin. Jusque-là, seul le `.env` du serveur
+disait qui passait par GPT-Live : il fallait redéployer.
+
+### Ajouté
+- **Fiche de l'établissement → « Moteur de l'appel »** (super-admin seulement) : « GPT-Live ·
+  secours classique » ou « Chaîne classique seule ». Le prochain appel suit le réglage,
+  sans redéploiement. Un restaurateur ne voit pas le menu et la route ignore le champ s'il
+  l'envoie. Migration v19 (`tenants.moteur_voix`) : sans choix enregistré l'ancien réglage
+  vaut encore, donc **le moteur d'aucun établissement ne change au déploiement**.
+- **« Santé & coûts » → « Coût par moteur »** : pour chaque moteur, appels, minutes, coût et
+  coût à la minute, mesurés sur les appels qu'il a servis ; dessous, comment un appel
+  GPT-Live est chiffré, avec les tarifs réellement appliqués. La pile vocale dit combien
+  d'établissements sont sur GPT-Live et s'il est prêt, sans clé ou à l'écart.
+- Enseignes affiche le moteur de chaque établissement ; la fiche d'un appel dit, à
+  l'exploitant seulement, quel moteur l'a servi ; la vue du parc prévient si GPT-Live est
+  choisi sans clé OpenAI.
+
+### Corrigé
+- **La voix de GPT-Live était comptée sous « Voix Mistral (Voxtral) »** dans la répartition
+  du coût. Elle a sa ligne. Le coût de chaque appel, lui, était juste.
+- **Le secours de GPT-Live tient ses promesses.** Après un échec (session refusée, trop
+  lente, OpenAI injoignable), les appels suivants passent d'emblée par la chaîne classique
+  pendant trois minutes, au lieu d'attendre chacun à leur tour. Et une session tombée en
+  cours d'appel ne renvoie plus tous les appels suivants de l'établissement vers le
+  restaurant : seul le client en ligne est renvoyé, les suivants ont la chaîne classique.
+- Site : « Sans engagement. » n'est plus écrit qu'une fois, sous le formulaire du haut.
+- « Pile vocale » : les détails coupés par des points de suspension s'écrivent en entier.
+
+### Non fait
+- Aucun contrôle de supervision ne surveille les replis de GPT-Live : un crédit épuisé se
+  lit dans « Santé & coûts » et au journal du conteneur, pas dans une alerte.
+- La chaîne classique n'a pas GPT-Live pour secours : quand elle tombe, c'est toujours le
+  renvoi vers le restaurant (ASSISTANTE-118).
+
 ## Non publiée — après la recette sans appel : ce qui sortait de l'écran ou se lisait mal (05/10/2026)
 
 L'agent `qa-recette` a regardé chaque page de l'admin et du site à 1280 et 390 px, en clair
