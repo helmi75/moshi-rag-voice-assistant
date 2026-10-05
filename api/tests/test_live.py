@@ -19,6 +19,7 @@ import asyncio
 import base64
 import json
 import time
+from dataclasses import replace
 from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -176,6 +177,50 @@ class TestQuiPasseParGptLive:
     def test_jamais_sans_cle(self, monkeypatch, tenant):
         monkeypatch.delenv("OPENAI_API_KEY")
         assert live.actif(tenant) is False
+        # Même choisi dans l'admin : sans clé, c'est la chaîne classique qui sert.
+        assert live.actif(replace(tenant, moteur_voix="gpt_live")) is False
+
+    def test_le_choix_de_l_admin_l_emporte_sur_la_liste_du_env(self, monkeypatch, tenant):
+        """Le moteur se règle dans la fiche de l'établissement (05/10/2026). La liste du
+        .env ne vaut plus que pour qui n'a aucun choix enregistré."""
+        # Nommé dans la liste, mais réglé sur la chaîne classique : il n'y passe plus.
+        classique = replace(tenant, moteur_voix="classique")
+        assert live.moteur(classique) == live.CLASSIQUE and live.actif(classique) is False
+        # Absent de la liste, mais réglé sur GPT-Live : il y passe.
+        monkeypatch.delenv("GPT_LIVE_ETABLISSEMENTS")
+        choisi = replace(tenant, moteur_voix="gpt_live")
+        assert live.moteur(choisi) == live.GPT_LIVE and live.actif(choisi) is True
+
+    def test_sans_choix_enregistre_l_ancien_reglage_vaut_encore(self, monkeypatch, tenant):
+        """La migration ne change le moteur de personne : l'établissement de l'essai reste
+        sur GPT-Live, les autres sur la chaîne classique."""
+        assert tenant.moteur_voix is None and live.moteur(tenant) == live.GPT_LIVE
+        monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", str(tenant.id + 1))
+        assert live.moteur(tenant) == live.CLASSIQUE
+
+    def test_un_moteur_inconnu_ne_choisit_rien(self, monkeypatch, tenant):
+        monkeypatch.delenv("GPT_LIVE_ETABLISSEMENTS")
+        assert live.moteur(replace(tenant, moteur_voix="autre")) == live.CLASSIQUE
+        assert live.moteur(None) == live.CLASSIQUE and live.actif(None) is False
+
+    def test_un_etablissement_regle_sur_la_chaine_classique_ne_va_pas_chez_openai(
+            self, client, monkeypatch, tenant):
+        """De bout en bout : nommé dans la liste du .env, mais la fiche dit « classique »."""
+        tenants.update_tenant(tenant.id, moteur_voix="classique")
+        session = FausseSession()
+        _brancher(monkeypatch, session)
+        run_bot = AsyncMock()
+        try:
+            with patch("app.main._get_bot_runner", return_value=run_bot):
+                with client.websocket_connect("/ws/voice") as ws:
+                    ws.send_text(json.dumps({"event": "connected"}))
+                    ws.send_text(_debut("CA-live-classique"))
+                    fin = time.monotonic() + 2
+                    while run_bot.await_count == 0 and time.monotonic() < fin:
+                        time.sleep(0.01)
+        finally:
+            tenants.update_tenant(tenant.id, moteur_voix=None)
+        assert run_bot.await_count == 1 and session.recus == []
 
     def test_un_etablissement_hors_essai_suit_le_pipeline_habituel(self, client, monkeypatch, tenant):
         monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", str(tenant.id + 1))
@@ -212,6 +257,122 @@ class TestQuiPasseParGptLive:
 
         monkeypatch.setattr(live, "_connecter", connecter)
         assert asyncio.run(live.ouvrir(tenant, "prompt")) is None
+
+
+class SessionQuiTombe(FausseSession):
+    """La session s'ouvre, reçoit l'accueil à dire, puis la connexion à OpenAI se perd."""
+
+    async def recv(self):
+        if self.de_type("session.commentary.append"):
+            raise OSError("connexion perdue")
+        return await super().recv()
+
+
+class TestLaChaineClassiqueEstLeSecours:
+    """« Par défaut GPT-Live, en secours l'ancienne version » (Helmi, 05/10/2026). Une
+    session qui ne s'ouvre pas rendait déjà l'appel à la chaîne classique ; ce qui manquait,
+    c'est la suite — que les appelants suivants n'attendent pas chacun à leur tour, et
+    qu'une session tombée en cours d'appel n'envoie pas tout l'établissement au restaurant
+    alors que la chaîne classique fonctionne."""
+
+    def _decrocher(self, client, call_sid: str) -> AsyncMock:
+        run_bot = AsyncMock()
+        with patch("app.main._get_bot_runner", return_value=run_bot):
+            with client.websocket_connect("/ws/voice") as ws:
+                ws.send_text(json.dumps({"event": "connected"}))
+                ws.send_text(_debut(call_sid))
+                fin = time.monotonic() + 2
+                while run_bot.await_count == 0 and time.monotonic() < fin:
+                    time.sleep(0.01)
+        return run_bot
+
+    def test_rien_n_est_a_l_ecart_tant_que_tout_va_bien(self, client, monkeypatch):
+        session = FausseSession(lambda evt, s: [_fragment("assistant", " Bonjour. Au revoir.", 0, 900)]
+                                if evt["type"] == "session.commentary.append" else [])
+        _brancher(monkeypatch, session)
+        _appeler(client, "CA-live-sain")
+        assert live.a_l_ecart() is None and live.dernier_echec() is None
+
+    def test_apres_un_refus_les_appels_suivants_ne_retentent_pas_openai(self, client, monkeypatch):
+        ouvertures = []
+
+        async def connecter():
+            ouvertures.append(1)
+            return FausseSession(refuse="credit_balance_exhausted")
+
+        monkeypatch.setattr(live, "_connecter", connecter)
+        assert self._decrocher(client, "CA-live-refus-1").await_count == 1
+        assert "credit_balance_exhausted" in live.a_l_ecart()
+        # Le deuxième appelant est servi par la chaîne classique sans attendre OpenAI.
+        assert self._decrocher(client, "CA-live-refus-2").await_count == 1
+        assert len(ouvertures) == 1
+        echec = live.dernier_echec()
+        assert echec["a_l_ecart"] is True and "refusée" in echec["motif"] and echec["le"].endswith("Z")
+
+    def test_passe_le_delai_un_appel_retente_gpt_live(self, client, monkeypatch):
+        live.mettre_a_l_ecart("session refusée (essai)")
+        live._echec["depuis"] -= live.MISE_A_L_ECART_SECONDES + 1
+        assert live.a_l_ecart() is None
+        # L'admin sait encore qu'il y a eu un échec, mais plus rien n'est à l'écart.
+        assert live.dernier_echec()["a_l_ecart"] is False
+        session = FausseSession(lambda evt, s: [_fragment("assistant", " Bonjour. Au revoir.", 0, 900)]
+                                if evt["type"] == "session.commentary.append" else [])
+        _brancher(monkeypatch, session)
+        _appeler(client, "CA-live-retente")
+        assert session.de_type("session.start")
+
+    def test_openai_injoignable_ou_trop_lent_met_aussi_a_l_ecart(self, monkeypatch, tenant):
+        async def connecter():
+            raise OSError("réseau")
+
+        monkeypatch.setattr(live, "_connecter", connecter)
+        assert asyncio.run(live.ouvrir(tenant, "prompt")) is None
+        assert "OSError" in live.a_l_ecart()
+
+        live.reinitialiser()
+        monkeypatch.setenv("GPT_LIVE_DELAI_OUVERTURE", "1")
+
+        class Muette(FausseSession):
+            async def send(self, texte):
+                self.recus.append(json.loads(texte))      # ne répond jamais « prête »
+
+        _brancher(monkeypatch, Muette())
+        assert asyncio.run(live.ouvrir(tenant, "prompt")) is None
+        assert "trop longue" in live.a_l_ecart()
+
+    def test_une_session_tombee_en_cours_d_appel_n_envoie_pas_les_suivants_au_restaurant(
+            self, client, monkeypatch, tenant):
+        from app import renvoi
+
+        _brancher(monkeypatch, SessionQuiTombe())
+        _appeler(client, "CA-live-tombe")
+        # Ce client-là est passé au restaurant : on ne reprend pas un appel en route.
+        assert renvoi.motif_a_la_fin_du_flux("CA-live-tombe") == renvoi.PIPELINE
+        # Mais la chaîne classique n'a rien montré : l'établissement n'est pas « en panne »,
+        # c'est GPT-Live qui est mis de côté.
+        assert renvoi.panne_recente(tenant.id) is None
+        assert "appel interrompu" in live.a_l_ecart()
+        assert self._decrocher(client, "CA-live-apres-la-chute").await_count == 1
+
+    def test_la_chaine_classique_qui_tombe_reste_une_panne(self, client, monkeypatch, tenant):
+        """Contre-épreuve : c'est seulement quand GPT-Live servait que la panne lui revient."""
+        from app import renvoi
+
+        tenants.update_tenant(tenant.id, moteur_voix="classique")
+        run_bot = AsyncMock(side_effect=RuntimeError("pipeline"))
+        try:
+            with patch("app.main._get_bot_runner", return_value=run_bot):
+                with client.websocket_connect("/ws/voice") as ws:
+                    ws.send_text(json.dumps({"event": "connected"}))
+                    ws.send_text(_debut("CA-classique-tombe"))
+                    try:
+                        while True:
+                            ws.receive_text()
+                    except WebSocketDisconnect:
+                        pass
+        finally:
+            tenants.update_tenant(tenant.id, moteur_voix=None)
+        assert renvoi.panne_recente(tenant.id) == renvoi.PIPELINE and live.a_l_ecart() is None
 
 
 class TestLaSession:

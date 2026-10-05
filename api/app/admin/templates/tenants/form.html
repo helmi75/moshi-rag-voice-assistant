@@ -78,6 +78,28 @@
         {% endif %}
       </label>
     </div>
+    {# Qui décroche : la voix-à-voix d'OpenAI ou notre chaîne. Réservé au super-admin —
+       GPT-Live coûte plus cher à la minute, c'est une décision d'exploitant. La clé
+       OpenAI ne passe jamais par ce formulaire : elle se pose dans le .env du serveur. #}
+    {% set m = moteur_appel(tenant) %}
+    <h2 class="form-section" id="moteur">Moteur de l'appel</h2>
+    <label>Qui répond au téléphone
+      <select name="moteur_voix">
+        {#- Court : sur téléphone, « secours : chaîne classique » était coupé en « classic ». #}
+        <option value="{{ m.gpt_live }}" {{ "selected" if m.choisi == m.gpt_live }}>GPT-Live · secours classique</option>
+        <option value="{{ m.classique }}" {{ "selected" if m.choisi == m.classique }}>Chaîne classique seule</option>
+      </select>
+      <small class="muted">GPT-Live (OpenAI) écoute et parle en même temps. Si sa session ne
+        s'ouvre pas, l'appel est servi par la chaîne classique (Deepgram, Gemini, voix
+        Mistral), et les appels suivants aussi pendant trois minutes. Si elle tombe en
+        cours d'appel, ce client-là est renvoyé vers le numéro de secours. Ce que chaque
+        moteur coûte réellement est mesuré dans
+        <a href="/admin/health#moteurs">Santé &amp; coûts</a>.</small>
+      {% if m.choisi == m.gpt_live and not m.cle %}
+      <small style="color: var(--app-bad)">Clé OpenAI absente du serveur : tant qu'elle
+        manque, tous les appels passent par la chaîne classique.</small>
+      {% endif %}
+    </label>
     {% endif %}
     <h2 class="form-section">Notifications</h2>
     <label>E-mail de notification

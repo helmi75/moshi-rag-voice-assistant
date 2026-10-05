@@ -304,6 +304,14 @@ CREATE TABLE IF NOT EXISTS rappels (
 CREATE INDEX IF NOT EXISTS idx_rappels_date ON rappels(created_at);
 ALTER TABLE calls ADD COLUMN sortant INTEGER;
 """,
+    # v19 — le moteur de l'appel se choisit par établissement, dans l'admin (05/10/2026).
+    #  Jusque-là GPT-Live ne servait que les établissements nommés dans le .env
+    #  (GPT_LIVE_ETABLISSEMENTS) : un réglage que seul un redéploiement changeait.
+    #  NULL = aucun choix enregistré : l'ancien réglage vaut encore (voice/live.py:moteur),
+    #  si bien que cette migration ne change le moteur d'aucun établissement.
+    """
+ALTER TABLE tenants ADD COLUMN moteur_voix TEXT;
+""",
 ]
 
 

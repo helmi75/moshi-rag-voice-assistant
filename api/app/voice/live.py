@@ -1,4 +1,4 @@
-"""Essai de GPT-Live, la voix-à-voix d'OpenAI, sur des établissements choisis.
+"""GPT-Live, la voix-à-voix d'OpenAI, pour les établissements qui l'ont comme moteur.
 
 Pourquoi un essai (docs/TEMPS_REEL.md, 04/10/2026) : notre défaut mesuré est le découpage
 en tours — l'assistante attend la fin d'une phrase, se trompe sur cette fin une fois sur
@@ -21,6 +21,11 @@ Ce qui ne change pas : `llm.run_tool` reste le seul endroit où un outil écrit,
 ses refus ; l'appel est au journal, enregistré, chiffré. Et si la session ne s'ouvre pas
 (clé, crédit, réseau), l'appel est servi par le pipeline habituel : `ouvrir` rend None.
 
+Le moteur se choisit par établissement dans l'admin (fiche de l'établissement, super-admin
+seulement : `tenants.moteur_voix`, décision de Helmi du 05/10/2026). La chaîne classique
+est le secours de GPT-Live : après un échec, les appels suivants passent d'emblée par elle
+pendant `MISE_A_L_ECART_SECONDES`, sans faire attendre chaque appelant à son tour.
+
 Le protocole suit le service `OpenAILiveLLMService` de Pipecat 1.12, lu le 04/10/2026.
 """
 import asyncio
@@ -29,6 +34,7 @@ import json
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from loguru import logger
@@ -70,15 +76,69 @@ def cle() -> str:
 
 
 def etablissements() -> set[int]:
-    """Les établissements à l'essai : `GPT_LIVE_ETABLISSEMENTS=3,7`. Vide = personne."""
+    """L'ancien réglage, du temps de l'essai : `GPT_LIVE_ETABLISSEMENTS=3,7`. Il ne vaut
+    plus que pour un établissement dont le moteur n'a jamais été enregistré dans l'admin."""
     return {int(m) for m in os.getenv("GPT_LIVE_ETABLISSEMENTS", "").replace(";", ",").split(",")
             if m.strip().isascii() and m.strip().isdigit()}
 
 
+# Les deux moteurs d'un appel, tels qu'ils sont rangés dans `tenants.moteur_voix`.
+GPT_LIVE, CLASSIQUE = "gpt_live", "classique"
+MOTEURS = (GPT_LIVE, CLASSIQUE)
+
+
+def moteur(tenant: Optional[Tenant]) -> str:
+    """Le moteur CHOISI pour cet établissement. Le choix fait dans l'admin l'emporte ;
+    sans choix enregistré, c'est la liste du .env qui dit qui passe par GPT-Live — et
+    personne d'autre : GPT-Live coûte le double, il ne s'allume jamais tout seul."""
+    choix = (tenant.moteur_voix or "").strip() if tenant is not None else ""
+    if choix in MOTEURS:
+        return choix
+    return GPT_LIVE if tenant is not None and tenant.id in etablissements() else CLASSIQUE
+
+
 def actif(tenant: Optional[Tenant]) -> bool:
-    """Cet établissement est-il servi par GPT-Live ? Il faut qu'il soit nommé ET qu'une
-    clé existe : un essai ne s'allume jamais par défaut."""
-    return bool(tenant is not None and cle() and tenant.id in etablissements())
+    """Cet établissement est-il servi par GPT-Live ? Il faut que ce soit son moteur ET
+    qu'une clé existe : sans clé, l'appel suit la chaîne classique."""
+    return bool(tenant is not None and cle() and moteur(tenant) == GPT_LIVE)
+
+
+# ---- Le secours : la chaîne classique -------------------------------------------------
+# Après un échec de GPT-Live (session refusée, trop longue à s'ouvrir, tombée en cours
+# d'appel), les appels suivants passent d'emblée par la chaîne classique pendant ce
+# temps-là. Sans cette mémoire, chaque appelant attendrait à son tour une session qui ne
+# s'ouvre pas : jusqu'à GPT_LIVE_DELAI_OUVERTURE secondes de silence au décroché. Passé le
+# délai, un appel retente GPT-Live. Même durée que la mémoire des pannes (app/renvoi.py).
+MISE_A_L_ECART_SECONDES = 180.0
+_echec: dict = {}          # le dernier échec : {"depuis": horloge monotone, "le": UTC, "motif": …}
+
+
+def mettre_a_l_ecart(motif: str) -> None:
+    """GPT-Live vient d'échouer : la chaîne classique sert les appels qui suivent."""
+    _echec.update(depuis=time.monotonic(), motif=motif,
+                  le=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    logger.warning(f"[gpt-live] mis à l'écart {MISE_A_L_ECART_SECONDES:.0f} s ({motif}) : "
+                   "la chaîne classique sert les appels")
+
+
+def a_l_ecart() -> Optional[str]:
+    """Le motif du dernier échec s'il est encore frais, sinon None."""
+    if _echec and time.monotonic() - _echec["depuis"] <= MISE_A_L_ECART_SECONDES:
+        return _echec["motif"]
+    return None
+
+
+def dernier_echec() -> Optional[dict]:
+    """Pour l'admin : quand GPT-Live a échoué pour la dernière fois depuis le démarrage, et
+    pourquoi. La mémoire est celle du processus : un redéploiement l'efface."""
+    if not _echec:
+        return None
+    return {"le": _echec["le"], "motif": _echec["motif"], "a_l_ecart": a_l_ecart() is not None}
+
+
+def reinitialiser() -> None:
+    """Pour les tests."""
+    _echec.clear()
 
 
 def voix() -> str:
@@ -234,13 +294,16 @@ async def ouvrir(tenant: Tenant, prompt_systeme: str, numero_connu: bool = True)
                 return ws
             if evt.get("type") == "error":
                 erreur = evt.get("error") or {}
-                logger.warning(f"[gpt-live] session refusée ({erreur.get('code') or erreur.get('type')})"
-                               " : l'appel passe par le pipeline habituel")
+                mettre_a_l_ecart(f"session refusée ({erreur.get('code') or erreur.get('type')})")
                 break
         else:
-            logger.warning("[gpt-live] session trop longue à s'ouvrir : pipeline habituel")
+            mettre_a_l_ecart("session trop longue à s'ouvrir")
+    except asyncio.TimeoutError:
+        # Le cas ordinaire d'une ouverture lente : c'est l'attente d'un message qui expire,
+        # ou la connexion elle-même. Dit en clair, l'admin l'affiche tel quel.
+        mettre_a_l_ecart("session trop longue à s'ouvrir")
     except Exception as exc:
-        logger.warning(f"[gpt-live] ouverture impossible ({type(exc).__name__}) : pipeline habituel")
+        mettre_a_l_ecart(f"ouverture impossible ({type(exc).__name__})")
     if ws is not None:
         try:
             await ws.close()

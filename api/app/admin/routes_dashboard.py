@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Request
 from .. import calls, db, disponibilite, horloge, quotas, reservations, supervision, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
+from ..voice import live
 from . import charts, deps, presenters
 
 router = APIRouter()
@@ -137,6 +138,13 @@ def _alerts(rows: list[dict]) -> list[dict]:
                 "detail": "Si l'assistante tombe en panne, l'appel ne peut pas être renvoyé "
                           "vers le restaurant : le client laisse un message. À renseigner "
                           "dans la fiche de l'établissement.",
+            })
+        if live.moteur(row["tenant"]) == live.GPT_LIVE and not live.cle():
+            alerts.append({
+                "level": "warn", "title": f"{name} · GPT-Live choisi, clé OpenAI absente",
+                "detail": "Tant que la clé manque sur le serveur, ses appels passent par la "
+                          "chaîne classique. Poser OPENAI_API_KEY dans le .env, ou changer le "
+                          "moteur dans la fiche de l'établissement.",
             })
         if not row["stats"]["n_calls"]:
             alerts.append({
@@ -265,6 +273,27 @@ def _health(request: Request):
         {"name": "Téléphonie", "detail": "Twilio Media Streams",
          "metric": f"{len(rows)} numéro(s) routé(s)"},
     ]
+    # GPT-Live : combien d'établissements l'ont comme moteur, et s'il sert vraiment — clé
+    # posée, pas à l'écart après un échec. La mémoire de l'échec est celle du processus.
+    sur_gpt_live = sum(1 for r in rows if live.moteur(r["tenant"]) == live.GPT_LIVE)
+    echec = live.dernier_echec()
+    if not live.cle():
+        etat_gpt_live = "clé absente"
+    elif echec and echec["a_l_ecart"]:
+        etat_gpt_live = "à l'écart"
+    else:
+        etat_gpt_live = "prêt"
+    stack.append({
+        "name": "Voix-à-voix (GPT-Live)",
+        "detail": (f"OpenAI · moteur de {sur_gpt_live} établissement{'s' if sur_gpt_live > 1 else ''} "
+                   f"sur {len(rows)} · voix {live.voix()} · cerveau {live.modele_arriere()}"),
+        "metric": etat_gpt_live,
+    })
+    mesures = calls.par_moteur(None, days=_WINDOW_DAYS)
+    moteurs = [{"libelle": libelle, **mesures[cle]}
+               for cle, libelle in ((live.GPT_LIVE, "GPT-Live"),
+                                    (live.CLASSIQUE, "Chaîne classique"))
+               if cle in mesures]
     return deps.templates.TemplateResponse(
         request, "health.html",
         {
@@ -275,6 +304,11 @@ def _health(request: Request):
             # instrumenté — on n'affiche alors rien plutôt qu'un chiffre inventé.
             "latency": calls.latency_stats(None, days=_WINDOW_DAYS),
             "breakdown": calls.cost_breakdown(None, days=_WINDOW_DAYS),
+            # Ce que chaque moteur a coûté, mesuré sur les appels de la fenêtre, et les
+            # tarifs avec lesquels un appel GPT-Live est chiffré.
+            "moteurs": moteurs,
+            "tarifs_gpt_live": calls.tarifs_gpt_live(cerveau_openai=bool(live.modele_openai())),
+            "echec_gpt_live": echec,
             "venues": sorted(rows, key=lambda r: -r["stats"]["total_cost"]),
             "max_cost": max_cost,
             "stack": stack,

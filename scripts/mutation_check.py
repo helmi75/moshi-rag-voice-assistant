@@ -1031,16 +1031,36 @@ GARDE_FOUS = [
         k="formulaire_classique",
         panne="un formulaire caché sur un autre site déclencherait des rappels sans permission",
     ),
-    # ---- Essai GPT-Live : il ne s'allume que pour les établissements nommés ---------------
+    # ---- GPT-Live : il ne sert que les établissements dont c'est le moteur ----------------
     GardeFou(
-        nom="GPT-Live : un établissement hors essai ne passe jamais par OpenAI",
+        nom="GPT-Live : un établissement sans choix ni essai ne passe jamais par OpenAI",
         fichier="api/app/voice/live.py",
-        avant="    return bool(tenant is not None and cle() and tenant.id in etablissements())",
-        apres="    return bool(tenant is not None and cle())  # mutation",
+        avant="    return GPT_LIVE if tenant is not None and tenant.id in etablissements() else CLASSIQUE",
+        apres="    return GPT_LIVE  # mutation",
         tests=["test_live.py"],
         k="par_defaut or nommes or hors_essai",
         panne="tous les appels de tous les restaurants partiraient chez OpenAI, voix du client "
               "comprise, dès qu'une clé existe",
+    ),
+    GardeFou(
+        nom="GPT-Live : la chaîne classique choisie dans l'admin l'emporte sur la liste du .env",
+        fichier="api/app/voice/live.py",
+        avant="    if choix in MOTEURS:",
+        apres="    if choix == GPT_LIVE:  # mutation",
+        tests=["test_live.py"],
+        k="l_emporte or regle_sur_la_chaine_classique",
+        panne="un restaurant que l'exploitant a remis sur la chaîne classique continuerait de "
+              "partir chez OpenAI tant que le .env le nomme : le réglage de l'admin mentirait",
+    ),
+    GardeFou(
+        nom="Le moteur de l'appel ne se choisit pas soi-même",
+        fichier="api/app/admin/routes_tenants.py",
+        avant="    if user.is_superadmin and moteur_voix in live.MOTEURS:",
+        apres="    if moteur_voix in live.MOTEURS:  # mutation",
+        tests=["test_moteur.py"],
+        k="restaurateur",
+        panne="un restaurateur se mettrait sur GPT-Live, qui coûte le double à la minute et "
+              "envoie la voix de ses clients chez OpenAI, sans que l'exploitant l'ait décidé",
     ),
 ]
 

@@ -556,11 +556,12 @@ async def voice_stream(websocket: WebSocket):
         tenant = rappel.pour_la_demonstration(tenant)
 
     run_bot = _get_bot_runner()
+    session_live = None
     try:
-        # Essai GPT-Live (app/voice/live.py) : seulement pour les établissements nommés,
-        # et seulement si la session s'ouvre. Sinon l'appel suit le chemin habituel.
-        session_live = None
-        if live.actif(tenant):
+        # GPT-Live (app/voice/live.py) : seulement pour les établissements dont c'est le
+        # moteur, seulement s'il n'est pas à l'écart après un échec, et seulement si la
+        # session s'ouvre. Sinon l'appel suit la chaîne classique, son secours.
+        if live.actif(tenant) and not live.a_l_ecart():
             tenant_live, prompt_live = await live.preparer(tenant, from_number, demonstration)
             session_live = await live.ouvrir(tenant_live, prompt_live, bool(from_number))
         if session_live is not None:
@@ -576,10 +577,16 @@ async def voice_stream(websocket: WebSocket):
         # message seul (« 'NoneType' object… ») ne dit jamais où.
         logger.exception(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
         # Le client est toujours en ligne : à la fermeture du flux, Twilio le passe au
-        # restaurant (ASSISTANTE-118). Les appels suivants de cet établissement aussi,
-        # le temps que l'erreur passe.
+        # restaurant (ASSISTANTE-118).
         renvoi.demander(call_sid, renvoi.PIPELINE)
-        renvoi.signaler_panne(renvoi.PIPELINE, tenant.id)
+        if session_live is not None:
+            # C'est GPT-Live qui servait l'appel : la chaîne classique, elle, n'a rien
+            # montré. Les appels suivants passent par elle, pas au restaurant.
+            live.mettre_a_l_ecart(f"appel interrompu ({type(exc).__name__})")
+        else:
+            # Les appels suivants de cet établissement sont renvoyés aussi, le temps que
+            # l'erreur passe.
+            renvoi.signaler_panne(renvoi.PIPELINE, tenant.id)
         try:
             await websocket.close(code=1011)
         except RuntimeError:

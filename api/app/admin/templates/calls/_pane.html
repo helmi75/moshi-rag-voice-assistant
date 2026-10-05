@@ -8,6 +8,8 @@
       {{ call.date_label }} {{ call.time_label }} · {{ call.duration_label }}
       {% if call.estimated_cost %} · {{ call.estimated_cost | nombre(3) }} ${% endif %}
       {% if request.state.user.is_superadmin and tenant %} · {{ tenant.name }}{% endif %}
+      {# Le moteur regarde l'exploitant, pas le restaurateur : il ne l'a pas choisi. #}
+      {% if request.state.user.is_superadmin and call.moteur_libelle %} · {{ call.moteur_libelle }}{% endif %}
     </div>
   </div>
   <span class="chip {{ call.chip_class }}">{{ call.outcome_label }}</span>
