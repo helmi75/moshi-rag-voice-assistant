@@ -26,6 +26,7 @@ import asyncio
 import os
 import smtplib
 import ssl
+import time
 from datetime import date
 from email.message import EmailMessage
 from typing import Optional
@@ -176,7 +177,20 @@ def sujet_et_corps(evenement: str, tenant, donnees: dict) -> tuple[str, str]:
     return sujet, "\n".join(corps + [""] + pied)
 
 
-def _envoyer_sync(adresses: list[str], sujet: str, corps: str) -> None:
+# Le 04/10/2026, une réservation modifiée n'a prévenu personne : le serveur de messagerie a
+# refusé la poignée de main TLS (« tlsv1 alert protocol version »). Mesuré le même jour
+# depuis le serveur : 2 connexions refusées sur 60, la suivante passe. Une seule tentative
+# perdait donc un e-mail sur trente.
+_TENTATIVES = 3
+_PAUSE_ENTRE_TENTATIVES = 1.0          # secondes ; on est dans un thread, pas sur l'appel
+
+
+def _envoyer_sync(adresses: list[str], sujet: str, corps: str) -> int:
+    """Remet le message, et rend le nombre de tentatives qu'il a fallu.
+
+    On ne retente que ce qui précède la remise (connexion, chiffrement, identification) :
+    coupé pendant la remise, on ne sait pas si le serveur a pris le message, et le rejouer
+    le ferait arriver en double."""
     cfg = _config()
     message = EmailMessage()
     message["Subject"] = sujet
@@ -184,20 +198,31 @@ def _envoyer_sync(adresses: list[str], sujet: str, corps: str) -> None:
     message["To"] = ", ".join(adresses)
     message.set_content(corps)
     contexte = ssl.create_default_context()
-    if cfg["ssl"]:
-        with smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=cfg["timeout"], context=contexte) as serveur:
-            if cfg["user"]:
-                serveur.login(cfg["user"], cfg["password"])
-            serveur.send_message(message)
-        return
-    with smtplib.SMTP(cfg["host"], cfg["port"], timeout=cfg["timeout"]) as serveur:
-        serveur.ehlo()
-        if serveur.has_extn("starttls"):
-            serveur.starttls(context=contexte)
-            serveur.ehlo()
-        if cfg["user"]:
-            serveur.login(cfg["user"], cfg["password"])
-        serveur.send_message(message)
+    for tentative in range(1, _TENTATIVES + 1):
+        remise = False
+        try:
+            if cfg["ssl"]:
+                connexion = smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=cfg["timeout"], context=contexte)
+            else:
+                connexion = smtplib.SMTP(cfg["host"], cfg["port"], timeout=cfg["timeout"])
+            with connexion as serveur:
+                if not cfg["ssl"]:
+                    serveur.ehlo()
+                    if serveur.has_extn("starttls"):
+                        serveur.starttls(context=contexte)
+                        serveur.ehlo()
+                if cfg["user"]:
+                    serveur.login(cfg["user"], cfg["password"])
+                remise = True
+                serveur.send_message(message)
+            return tentative
+        except smtplib.SMTPAuthenticationError:
+            raise          # un mot de passe refusé ne devient pas bon ; insister bloque la boîte
+        except OSError:    # réseau, TLS (ssl.SSLError) et erreurs SMTP en descendent tous
+            if remise or tentative == _TENTATIVES:
+                raise
+            time.sleep(_PAUSE_ENTRE_TENTATIVES)
+    return _TENTATIVES     # jamais atteint : la dernière tentative rend ou lève
 
 
 async def notifier(tenant, evenement: str, donnees: dict) -> bool:
@@ -211,8 +236,11 @@ async def notifier(tenant, evenement: str, donnees: dict) -> bool:
             logger.info(f"notification {evenement} : aucun destinataire pour {tenant.name}")
             return False
         sujet, corps = sujet_et_corps(evenement, tenant, donnees)
-        await asyncio.to_thread(_envoyer_sync, adresses, sujet, corps)
-        logger.info(f"notification {evenement} envoyée à {len(adresses)} adresse(s) ({tenant.name})")
+        tentatives = await asyncio.to_thread(_envoyer_sync, adresses, sujet, corps)
+        # Le nombre de tentatives reste au journal : c'est ainsi qu'on voit le serveur de
+        # messagerie se dégrader avant qu'un e-mail ne soit perdu.
+        logger.info(f"notification {evenement} envoyée à {len(adresses)} adresse(s) ({tenant.name})"
+                    + (f", à la tentative {tentatives}" if tentatives > 1 else ""))
         return True
     except Exception as exc:
         logger.warning(f"notification {evenement} non envoyée ({type(exc).__name__}: {exc}) "

@@ -287,6 +287,39 @@ class TestLEnTeteSurTelephone:
         assert ".top nav .btn--client { display: inline-flex; }" in feuille
 
 
+class TestLesPolices:
+    def test_elles_sont_servies_pour_ce_qu_elles_sont(self, client):
+        """Recette du 05/10/2026 : elles partaient en `application/octet-stream`."""
+        for police in ("inter-latin.woff2", "inter-tight-latin.woff2"):
+            reponse = client.get(f"/site/static/{police}")
+            assert reponse.status_code == 200
+            assert reponse.headers["content-type"] == "font/woff2"
+
+
+class TestLeCombineSurTelephone:
+    """Recette du 05/10/2026 : à 390 px, « Marie · Le Bouchon Doré » et « Appel en cours,
+    19 h 47 » tenaient côte à côte sur trois lignes chacun, l'heure coupée en deux."""
+
+    def test_le_nom_passe_au_dessus_de_l_etat_de_l_appel(self):
+        feuille = (site.STATIC_DIR / "site.css").read_text(encoding="utf-8")
+        assert ".combine__haut > span:not(.perso) { flex-direction: column;" in feuille
+
+    def test_l_heure_ne_se_coupe_pas(self, client):
+        assert "Appel en cours, 19&nbsp;h&nbsp;47" in client.get("/").text
+
+    def test_l_encre_pale_se_lit_sur_une_carte(self):
+        """L'aide sous le champ du rappel, en 12,8 px : 4,27:1 avant."""
+        feuille = (site.STATIC_DIR / "site.css").read_text(encoding="utf-8")
+
+        def clarte(nom):
+            h = re.search(rf"--{nom}:\s*#([0-9A-Fa-f]{{6}});", feuille).group(1)
+            lin = [(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+                   for c in (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))]
+            return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+        assert (clarte("faint") + 0.05) / (clarte("card") + 0.05) >= 4.5
+
+
 class TestCeQueLaPagePromet:
     def test_elle_ne_promet_pas_le_restaurant_du_visiteur(self, page):
         """Marie rappelle en répondant pour l'établissement de démonstration : la page ne
@@ -307,6 +340,14 @@ class TestCeQueLaPagePromet:
         formules = page[page.index('id="formules"'):page.index("</section>", page.index('id="formules"'))]
         assert "fondateur" not in page
         assert "engagement" not in formules
+
+    def test_sans_engagement_n_est_dit_qu_une_fois(self, page):
+        """Il était écrit sous les deux formulaires de rappel : Helmi n'en garde qu'un
+        (05/10/2026), celui du haut de page."""
+        assert page.count("Sans engagement") == 1
+        haut = page[page.index('id="rappel-haut"'):page.index('id="rappel-bas"')]
+        assert "Sans engagement." in haut
+        assert page.count("Votre numéro ne sert qu'à ce rappel.") == 2
 
     def test_ni_temoignage_ni_chiffre_de_clientele(self, page):
         for invente in ("témoignage", "restaurants nous font confiance", "clients satisfaits",

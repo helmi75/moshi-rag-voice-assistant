@@ -7,13 +7,14 @@ produits à tester, et le second n'était plus ni journalisé ni compté au forf
 reste lisible au tag `archive/moteurs-locaux`.
 """
 import json
+import mimetypes
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
 from xml.sax.saxutils import escape
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
 from . import (calls, db, llm, messages, notifications, rappel, renvoi, supervision, taches,
@@ -67,7 +68,21 @@ app.add_middleware(
     same_site="lax",
     https_only=os.getenv("SESSION_SECURE", "").lower() in ("1", "true"),
 )
+# Python ne connaît pas `.woff2` dans cette image : les deux polices partaient en
+# `application/octet-stream` (recette du 05/10/2026). Les navigateurs les chargeaient quand
+# même ; avec `X-Content-Type-Options: nosniff`, autant dire ce qu'elles sont.
+mimetypes.add_type("font/woff2", ".woff2")
 app.mount("/admin/static", StaticFiles(directory=str(admin_pkg.STATIC_DIR)), name="admin_static")
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_sans_barre_finale():
+    """Sans cette route, FastAPI redirige lui-même vers `/admin/` avec une adresse
+    complète bâtie sur ce qu'il voit — du http, derrière Caddy. Relative, l'adresse garde
+    le https du visiteur (recette du 05/10/2026)."""
+    return RedirectResponse("/admin/", status_code=307)
+
+
 app.include_router(admin_pkg.public_router)
 app.include_router(admin_pkg.admin_router)
 
@@ -541,11 +556,12 @@ async def voice_stream(websocket: WebSocket):
         tenant = rappel.pour_la_demonstration(tenant)
 
     run_bot = _get_bot_runner()
+    session_live = None
     try:
-        # Essai GPT-Live (app/voice/live.py) : seulement pour les établissements nommés,
-        # et seulement si la session s'ouvre. Sinon l'appel suit le chemin habituel.
-        session_live = None
-        if live.actif(tenant):
+        # GPT-Live (app/voice/live.py) : seulement pour les établissements dont c'est le
+        # moteur, seulement s'il n'est pas à l'écart après un échec, et seulement si la
+        # session s'ouvre. Sinon l'appel suit la chaîne classique, son secours.
+        if live.actif(tenant) and not live.a_l_ecart():
             tenant_live, prompt_live = await live.preparer(tenant, from_number, demonstration)
             session_live = await live.ouvrir(tenant_live, prompt_live, bool(from_number))
         if session_live is not None:
@@ -561,10 +577,16 @@ async def voice_stream(websocket: WebSocket):
         # message seul (« 'NoneType' object… ») ne dit jamais où.
         logger.exception(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
         # Le client est toujours en ligne : à la fermeture du flux, Twilio le passe au
-        # restaurant (ASSISTANTE-118). Les appels suivants de cet établissement aussi,
-        # le temps que l'erreur passe.
+        # restaurant (ASSISTANTE-118).
         renvoi.demander(call_sid, renvoi.PIPELINE)
-        renvoi.signaler_panne(renvoi.PIPELINE, tenant.id)
+        if session_live is not None:
+            # C'est GPT-Live qui servait l'appel : la chaîne classique, elle, n'a rien
+            # montré. Les appels suivants passent par elle, pas au restaurant.
+            live.mettre_a_l_ecart(f"appel interrompu ({type(exc).__name__})")
+        else:
+            # Les appels suivants de cet établissement sont renvoyés aussi, le temps que
+            # l'erreur passe.
+            renvoi.signaler_panne(renvoi.PIPELINE, tenant.id)
         try:
             await websocket.close(code=1011)
         except RuntimeError:

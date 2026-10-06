@@ -144,6 +144,7 @@ Maintenant il dit lequel des quatre maillons l'a produit.
 | N1 | Réserver (B1) | E-mail reçu : date en toutes lettres, couverts, numéro de l'appelant | |
 | N2 | Laisser un message (« rappelez-moi pour un groupe ») | E-mail « message pris » reçu | |
 | N3 | Modifier puis annuler (C1, C3) | Deux e-mails : modifiée, annulée | |
+| N4 | Après quelques jours d'appels : chercher « tentative » et « non envoyée » dans le journal du conteneur | Des e-mails partis « à la tentative 2 » ; aucun « non envoyée » pour une poignée de main refusée | |
 | P1 | Rappeler du même numéro après B1 et demander une table | Elle **propose** « au nom de Martin ? » au lieu de le demander ; un autre nom donné est celui retenu | |
 | K1 | `python scripts/test_moshi_server.py --url "$MOSHI_TTS_URL" --api-key public_token` | **Refusé** ; avec la vraie clé, accepté ; sonde « Jeton du serveur de voix » verte | |
 | R1 | Lancer `/opt/backups/backup-db.sh` à la main | Finit par « copie distante ok » ; `rclone ls` montre l'archive ; sonde « Sauvegarde » verte | |
@@ -220,6 +221,13 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P22 | Ouvrir l'admin en sombre, puis en clair (les trois pastilles en bas de la barre latérale) | Les couleurs du site : fond brun nuit et orange en sombre, crème en clair ; aucun bouton bleu ; les graphiques en orange (appels) et bleu canard (réservations) | |
 | P23 | Sur un téléphone : toucher le bouton aux trois barres, en haut à droite | Le menu se déroule (navigation, thème, compte) ; le bouton devient une croix ; un toucher sur la page ou sur la croix le referme | |
 | P24 | Sur un téléphone, menu fermé | Une seule ligne en haut : la marque et le bouton ; le contenu commence tout de suite dessous | |
+| P25 | Salle de contrôle d'un établissement qui a plus de six tables à venir | « Prochaines réservations » commence par celles du jour, la plus proche en premier ; une longue note est sous la date, terminée par « … » | |
+| P26 | Sur un téléphone : Appels | Les six filtres tiennent dans l'écran, sur deux lignes ; la page ne glisse pas sur le côté | |
+| P27 | Sur un téléphone, en super-admin : Enseignes | Chaque nom sur une ligne, ses six actions dessous ; « Comptes » et « Supprimer » se touchent du doigt | |
+| P28 | Sur un téléphone : Salle de contrôle, les graphiques | Titres et chiffres lisibles ; « Appels par jour » glisse du doigt et s'ouvre sur aujourd'hui ; les créneaux du jour tiennent entiers | |
+| P29 | Vue du parc, un établissement dont le seul appel du mois a duré moins de 30 secondes | « <1/250 », jamais « 0/250 » | |
+| P30 | Fiche établissement, sur un téléphone | Les listes déroulantes ont leur flèche ; la formule s'affiche entière (« Service · 149 €/mois · 600 min ») | |
+| P31 | Un montant, n'importe où dans l'admin | Une virgule : « 3,89 $ », « 6,42 € » | |
 
 ## S. En cas de panne : le renvoi vers le restaurant (ASSISTANTE-118)
 
@@ -258,7 +266,7 @@ répéter. Il faut un portable français de métropole.
 | W11 | Entre minuit et 8 h, saisir son portable (ASSISTANTE-125) | « C'est noté. Marie ne rappelle pas à cette heure-ci : nous vous rappelons à partir de 8 h » ; le téléphone **ne sonne pas** ; un e-mail « À rappeler — demande reçue sur le site hors plage » arrive dans la boîte de `ADMIN_EMAIL`, avec le numéro | |
 | W12 | Boîte de `ADMIN_EMAIL` | Un e-mail « Demande de rappel depuis le site » par rappel passé | |
 | W13 | **Une fois l'éditeur renseigné** (`site.EDITEUR`) : pied de page → *Mentions légales*. Avant : ni lien, ni page | La page s'ouvre ; l'hébergeur est Hostinger ; les durées annoncées (30 jours pour la demande, 90 pour le numéro) ; l'identité de l'éditeur est complète **une fois fournie** | |
-| W14 | Relire le haut de la page et le bas des formules | Plus de « 14 jours d'essai », de « sans engagement » sous les formules, ni de « tarif fondateur » | |
+| W14 | Relire le haut de la page et le bas des formules | Plus de « 14 jours d'essai », de « sans engagement » sous les formules, ni de « tarif fondateur » ; « Sans engagement. » n'est écrit qu'une fois, sous le formulaire du haut | |
 | W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
 | W16 | Regarder l'onglet du navigateur et le haut de la page, sur le site puis dans l'espace client (ASSISTANTE-124) | Le logo est une **toque de chef** orange avec trois barres de voix dedans, plus un combiné de téléphone ; il reste net en tout petit dans l'onglet ; dans l'espace client, il est lisible en clair comme en sombre | |
 
@@ -280,11 +288,11 @@ Marche à suivre : `docs/TWILIO_SETUP.md` § 8. À faire **hors service**. Le ga
 | X9 | Le lendemain : « Santé & coûts » | « Alertes Twilio » relevées sans erreur ; le coût Twilio de la facture au tarif attendu | |
 | X10 | Si quelque chose cloche : `… --basculer us1` | L'assistante répond de nouveau, sans redéploiement | |
 
-## T. L'essai GPT-Live, la voix-à-voix d'OpenAI (`docs/TEMPS_REEL.md`)
+## T. GPT-Live, la voix-à-voix d'OpenAI (`docs/TEMPS_REEL.md`)
 
-Sur l'établissement nommé dans `GPT_LIVE_ETABLISSEMENTS`, et lui seul. Chaque minute coûte
-0,05 $ à OpenAI en plus de Twilio. Faire les mêmes appels sur un établissement resté sur
-le pipeline habituel : c'est la comparaison qui compte.
+Sur un établissement dont le moteur est GPT-Live (Admin → Enseignes → Fiche → « Moteur de
+l'appel »). Chaque minute coûte 0,05 $ à OpenAI en plus de Twilio. Faire les mêmes appels
+sur un établissement resté sur la chaîne classique : c'est la comparaison qui compte.
 
 | # | Faire | Attendu | OK ? |
 |---|---|---|---|
@@ -299,6 +307,11 @@ le pipeline habituel : c'est la comparaison qui compte.
 | T9 | Admin → Appels → cet appel | Les deux côtés de la conversation, l'enregistrement, et le coût : voix = durée × 0,05 $, transcription à zéro, cerveau = les jetons de Gemini | |
 | T10 | Appeler un établissement hors essai | Marie, comme d'habitude | |
 | T11 | Dix appels de chaque côté, puis « Santé & coûts » | Le blanc médian et le coût par minute des deux, côte à côte : c'est le verdict de l'essai | |
+| T12 | Admin → Appels → réécouter un appel GPT-Live passé après le 04/10/2026 au soir | Les deux voix se répondent comme au téléphone : elle ne parle jamais avant la fin de la question | |
+| T13 | Fiche d'un établissement → « Moteur de l'appel » → « Chaîne classique seule », enregistrer, appeler | Marie, comme avant GPT-Live ; dans Admin → Appels, l'appel porte « chaîne classique » | |
+| T14 | Remettre « GPT-Live · secours classique », enregistrer, appeler | GPT-Live répond, sans redéploiement ; l'appel porte « GPT-Live » ; Enseignes affiche « Moteur : GPT-Live » | |
+| T15 | Après des appels sur les deux moteurs : « Santé & coûts » → « Coût par moteur » | Une ligne par moteur : appels, minutes, coût, coût à la minute ; « Voix GPT-Live (OpenAI) » a sa ligne dans la répartition | |
+| T16 | Se connecter en restaurateur, ouvrir sa fiche | Pas de « Moteur de l'appel » ; ni la fiche ni ses appels ne nomment GPT-Live | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

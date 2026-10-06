@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 from .. import connecteurs, db, plans, taches, tenants, users
 from ..connecteurs import resos
 from ..users import User
+from ..voice import live
 from . import deps
 
 router = APIRouter()
@@ -55,6 +56,27 @@ def _essai_secours(tenant_id: int) -> bool:
 
 
 deps.templates.env.globals["essai_secours"] = _essai_secours
+
+LIBELLES_MOTEUR = {live.GPT_LIVE: "GPT-Live", live.CLASSIQUE: "chaîne classique"}
+
+
+def _moteur_appel(tenant) -> dict:
+    """Le moteur de l'appel tel que la fiche et la liste l'affichent : celui qui vaut
+    AUJOURD'HUI pour cet établissement (choix enregistré, sinon l'ancien réglage du
+    .env), et si la clé d'OpenAI est posée — jamais sa valeur. Pour un établissement à
+    créer, GPT-Live est proposé d'emblée quand la clé existe : c'est le réglage que
+    Helmi donne en général (05/10/2026), et il reste un choix affiché, pas un défaut
+    caché — rien n'est écrit tant que le formulaire n'envoie pas le champ."""
+    cle = bool(live.cle())
+    if tenant is None:
+        choisi = live.GPT_LIVE if cle else live.CLASSIQUE
+    else:
+        choisi = live.moteur(tenant)
+    return {"choisi": choisi, "libelle": LIBELLES_MOTEUR[choisi], "cle": cle,
+            "gpt_live": live.GPT_LIVE, "classique": live.CLASSIQUE}
+
+
+deps.templates.env.globals["moteur_appel"] = _moteur_appel
 
 
 def _numero(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -160,6 +182,7 @@ async def tenant_create(
     notify_email: Optional[str] = Form(None),
     booking_provider: Optional[str] = Form(None),
     numero_secours: Optional[str] = Form(None),
+    moteur_voix: Optional[str] = Form(None),
 ):
     adresse, erreur = _email_de_notification(notify_email)
     numero, erreur_numero = _numero(phone_number)
@@ -190,6 +213,8 @@ async def tenant_create(
         await db.hors_boucle(tenants.update_tenant, tenant.id, plan=plan)
     if booking_provider in connecteurs.FOURNISSEURS:
         await db.hors_boucle(tenants.update_tenant, tenant.id, booking_provider=booking_provider)
+    if moteur_voix in live.MOTEURS:
+        await db.hors_boucle(tenants.update_tenant, tenant.id, moteur_voix=moteur_voix)
     if adresse:
         await db.hors_boucle(tenants.update_tenant, tenant.id, notify_email=adresse)
     if secours:
@@ -224,6 +249,7 @@ async def tenant_update(
     notify_email: Optional[str] = Form(None),
     booking_provider: Optional[str] = Form(None),
     numero_secours: Optional[str] = Form(None),
+    moteur_voix: Optional[str] = Form(None),
 ):
     tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
     adresse, erreur = _email_de_notification(notify_email)
@@ -274,6 +300,10 @@ async def tenant_update(
     # hors liste est ignorée, jamais écrite.
     if user.is_superadmin and booking_provider in connecteurs.FOURNISSEURS:
         fields["booking_provider"] = booking_provider
+    # Le moteur de l'appel aussi : GPT-Live coûte le double à la minute et envoie la voix
+    # des clients chez OpenAI. C'est une décision de l'exploitant, pas du restaurateur.
+    if user.is_superadmin and moteur_voix in live.MOTEURS:
+        fields["moteur_voix"] = moteur_voix
     try:
         await db.hors_boucle(tenants.update_tenant, tenant.id, **fields)
     except sqlite3.IntegrityError:

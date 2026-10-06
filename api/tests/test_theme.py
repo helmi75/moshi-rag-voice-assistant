@@ -199,6 +199,141 @@ def test_l_admin_porte_le_logo_du_site():
     assert reponse.status_code == 200 and "svg" in reponse.headers["content-type"]
 
 
+# ---- Recette du 05/10/2026 : ce qui se lisait mal, ou sortait de l'écran -------------------
+
+def _clair() -> dict:
+    css = CSS.read_text()
+    bloc = css[css.index(":root {"):css.index("}", css.index(":root {"))]
+    return dict(re.findall(r"(--app-[\w-]+):\s*([^;]+);", bloc))
+
+
+def _sombre() -> dict:
+    bloc = re.search(r':root\[data-theme="dark"\] \{([^}]*)\}', CSS.read_text()).group(1)
+    return dict(re.findall(r"(--app-[\w-]+):\s*([^;]+);", bloc))
+
+
+def _rvb(couleur: str) -> tuple:
+    couleur = couleur.strip()
+    if couleur.startswith("#"):
+        return tuple(int(couleur[i:i + 2], 16) for i in (1, 3, 5)) + (1.0,)
+    r, v, b, a = re.match(r"rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)", couleur).groups()
+    return int(r), int(v), int(b), float(a)
+
+
+def _pose(couleur: str, fond: tuple) -> tuple:
+    """La couleur telle qu'on la voit, une fois posée sur ce fond opaque."""
+    r, v, b, a = _rvb(couleur)
+    return tuple(round(a * c + (1 - a) * f) for c, f in zip((r, v, b), fond[:3]))
+
+
+def _contraste(encre: tuple, fond: tuple) -> float:
+    def clarte(rvb):
+        canaux = [c / 255 for c in rvb[:3]]
+        lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in canaux]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    haut, bas = sorted((clarte(encre), clarte(fond)), reverse=True)
+    return (haut + 0.05) / (bas + 0.05)
+
+
+@pytest.mark.parametrize("statut", ["good", "warn", "bad"])
+def test_une_pastille_se_lit_sur_sa_teinte_en_clair(statut):
+    """Le mot d'une pastille est écrit en 11,5 px sur la teinte douce de son statut, posée
+    sur blanc, sur crème ou sur le fond d'une carte. Les encres d'avant tombaient à 3,9:1."""
+    jetons = _clair()
+    for fond in ("--app-surface", "--app-bg", "--app-surface-2"):
+        teinte = _pose(jetons[f"--app-{statut}-soft"], _rvb(jetons[fond]))
+        assert _contraste(_rvb(jetons[f"--app-{statut}"]), teinte) >= 4.5, (statut, fond)
+
+
+@pytest.mark.parametrize("jetons", [_clair(), _sombre()], ids=["clair", "sombre"])
+def test_l_accent_pose_sur_une_teinte_reste_lisible(jetons):
+    """L'entrée active du menu, la pastille d'accent : de l'orange sur de l'orange pâle.
+    En clair l'orange brûlé des liens n'y tenait que 4,2:1."""
+    for fond in ("--app-surface", "--app-bg", "--app-surface-2"):
+        teinte = _pose(jetons["--app-accent-soft"], _rvb(jetons[fond]))
+        assert _contraste(_rvb(jetons["--app-accent-teinte"]), teinte) >= 4.5, fond
+    css = CSS.read_text()
+    assert "background: var(--app-accent-soft); color: var(--app-accent);" not in css
+
+
+def test_l_encre_pale_tient_sur_le_fond_d_une_carte_en_clair():
+    jetons = _clair()
+    for fond in ("--app-surface", "--app-bg", "--app-surface-2"):
+        assert _contraste(_rvb(jetons["--app-faint"]), _rvb(jetons[fond])) >= 4.5, fond
+
+
+def test_sur_une_ligne_selectionnee_l_heure_et_la_pastille_restent_lisibles():
+    css = CSS.read_text()
+    assert '.card-row[aria-current="true"] .row-when { color: var(--app-muted); }' in css
+    assert '.card-row[aria-current="true"] .chip { background: var(--app-surface); }' in css
+    for jetons in (_clair(), _sombre()):
+        ligne = _pose(jetons["--app-accent-soft"], _rvb(jetons["--app-surface"]))
+        assert _contraste(_rvb(jetons["--app-muted"]), ligne) >= 4.5
+        for statut in ("good", "warn", "bad"):
+            assert _contraste(_rvb(jetons[f"--app-{statut}"]), _rvb(jetons["--app-surface"])) >= 4.5
+
+
+def test_le_titre_d_un_encart_suit_son_ton_et_son_lien_prend_l_encre_du_texte():
+    """Un titre vert sur un encart d'alerte disait « tout va bien », en 4,2:1 ; un lien
+    orange sur la teinte, 3,9:1."""
+    css = CSS.read_text()
+    assert '.callout[style*="--app-warn-soft"] b { color: var(--app-warn); }' in css
+    assert '.callout[style*="--app-bad-soft"] b { color: var(--app-bad); }' in css
+    assert ".callout a { color: inherit;" in css
+
+
+def test_les_filtres_passent_a_la_ligne_au_lieu_de_sortir_de_l_ecran():
+    """Six filtres sur la liste des appels : à 390 px, « Pannes » était hors de l'écran et
+    toute la page défilait en largeur."""
+    css = CSS.read_text()
+    barre = re.search(r"\.segmented \{([^}]*)\}", css).group(1)
+    assert "flex-wrap: wrap" in barre and "max-width: 100%" in barre
+    assert "white-space: nowrap" in re.search(r"\.segmented a \{([^}]*)\}", css).group(1)
+
+
+def test_les_actions_d_une_enseigne_passent_sous_son_nom_sur_telephone():
+    css = CSS.read_text()
+    assert ".enseignes-liste { container-type: inline-size; }" in css
+    assert ".enseignes-liste .card-row { flex-wrap: wrap; }" in css
+    assert 'class="card-list enseignes-liste"' in _client().get("/admin/tenants").text
+
+
+def test_les_listes_deroulantes_gardent_leur_fleche():
+    """Le raccourci `background` effaçait l'image de fond : plus de flèche, ni d'icône
+    sur les champs de date."""
+    css = CSS.read_text()
+    champs = css[css.index('input:not([type="checkbox"]):not([type="radio"]), select, textarea {'):]
+    champs = champs[:champs.index("}")]
+    assert "background-color: var(--app-surface) !important" in champs
+    assert not re.search(r"background:\s", champs)
+
+
+def test_un_message_d_attente_passe_a_la_ligne():
+    css = CSS.read_text()
+    assert ('[aria-busy="true"]:not(button, [role="button"], input, select, textarea, html, form) '
+            "{ white-space: normal; }") in css
+
+
+def test_quatre_indicateurs_ne_laissent_pas_un_orphelin():
+    css = CSS.read_text()
+    assert (".kpi-grid:has(> :nth-child(4):last-child) "
+            "{ grid-template-columns: repeat(4, minmax(0, 1fr)); }") in css
+
+
+def test_la_page_de_connexion_porte_la_marque():
+    page = TestClient(app).get("/admin/login").text
+    icone = (CSS.parents[2] / "site" / "static" / "favicon.svg").read_text(encoding="utf-8")
+    trace = re.search(r' d="([^"]+)"', icone).group(1)
+    marque = re.search(r'<p class="marque-connexion">(.*?)</p>', page, re.S).group(1)
+    assert f'd="{trace}"' in marque and "Helmane" in marque
+
+
+def test_les_montants_s_ecrivent_avec_une_virgule():
+    from app.admin import deps
+    assert deps.nombre(21.15) == "21,15" and deps.nombre(0.072, 3) == "0,072"
+    assert deps.nombre(None) == "0,00" and deps.nombre(1.94, 1) == "1,9"
+
+
 class TestLeMenuDuTelephone:
     """Sur un téléphone, la navigation se range derrière un bouton aux trois barres."""
 

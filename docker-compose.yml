@@ -56,10 +56,11 @@ services:
       # Voix Marie (Voxtral, Mistral) — SCRUM-94. Sans clé, Marie ne se choisit pas et un
       # établissement qui l'avait choisie retombe sur la voix Moshi par défaut.
       MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
-      # Essai GPT-Live, la voix-à-voix d'OpenAI (api/app/voice/live.py, docs/TEMPS_REEL.md).
-      # Sans GPT_LIVE_ETABLISSEMENTS (identifiants séparés par des virgules), aucun appel
-      # n'y passe. La clé se lit aussi sous le nom « OPENAI_APIkEY », tel qu'il a été
-      # saisi dans le .env du serveur le 04/10/2026.
+      # GPT-Live, la voix-à-voix d'OpenAI (api/app/voice/live.py, docs/TEMPS_REEL.md). Le
+      # moteur se choisit par établissement dans l'admin ; GPT_LIVE_ETABLISSEMENTS
+      # (identifiants séparés par des virgules) ne vaut plus que pour ceux dont la fiche
+      # n'a jamais enregistré de choix. La clé se lit aussi sous le nom « OPENAI_APIkEY »,
+      # tel qu'il a été saisi dans le .env du serveur le 04/10/2026.
       OPENAI_API_KEY: "${OPENAI_API_KEY:-${OPENAI_APIkEY:-}}"
       GPT_LIVE_ETABLISSEMENTS: "${GPT_LIVE_ETABLISSEMENTS:-}"
       GPT_LIVE_VOIX: "${GPT_LIVE_VOIX:-marin}"

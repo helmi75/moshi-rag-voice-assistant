@@ -38,6 +38,42 @@ def test_au_dela_le_maximum_et_le_dernier_seulement():
     assert len(_valeurs(charts.bar_chart(points, title="t"))) <= 2
 
 
+# ---- Recette du 05/10/2026 : le titre hors du dessin, et le téléphone.
+
+def test_le_titre_est_hors_du_dessin():
+    """Dans le dessin, la valeur de la plus haute barre s'écrivait sur le titre ; et sur
+    un téléphone le titre rétrécissait avec le graphique, jusqu'à 6 px."""
+    figure = str(charts.bar_chart([("12:00", 2), ("12:30", 6)], title="Couverts par créneau"))
+    assert figure.index("<figcaption>Couverts par créneau</figcaption>") < figure.index("<svg")
+    dessin = figure[figure.index("<svg"):]
+    assert "Couverts par créneau</text>" not in dessin
+    assert 'aria-label="Couverts par créneau : 2 jours, maximum 6"' in dessin
+
+
+def test_trente_jours_defilent_sur_telephone_six_creneaux_restent_entiers():
+    trente = str(charts.bar_chart([(str(j), j) for j in range(30)], title="t"))
+    six = str(charts.bar_chart([(str(j), j) for j in range(6)], title="t"))
+    assert 'class="viz-root viz-light viz-dense"' in trente
+    assert "viz-dense" not in six
+    # Ce qui défile, c'est le dessin : le titre reste en place au-dessus.
+    assert '</figcaption><div class="chart-block"><svg' in trente
+
+
+def test_les_reperes_de_l_axe_se_reconnaissent_pour_grossir_sur_telephone():
+    figure = str(charts.bar_chart([("12:00", 2), ("12:30", 6)], title="t"))
+    assert figure.count('<text class="viz-axe"') == 2
+
+
+def test_le_graphique_de_trente_jours_s_ouvre_sur_le_dernier_jour():
+    from pathlib import Path
+
+    import app.admin as admin
+
+    script = (Path(admin.__file__).parent / "static" / "admin.js").read_text()
+    assert '".viz-dense .chart-block"' in script and "cadre.scrollLeft = cadre.scrollWidth" in script
+    assert "htmx:afterSwap" in script
+
+
 # ---- Survol (ASSISTANTE-115) : chaque jour porte sa date et sa valeur en toutes lettres.
 
 def _barres(svg) -> list[dict]:

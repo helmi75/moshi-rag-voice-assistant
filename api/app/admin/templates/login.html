@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Connexion{% endblock %}
 {% block content %}
+{% from "_macros.html" import toque %}
+{# La page ne portait ni le nom ni le logo : seul l'onglet disait où l'on était. #}
+<p class="marque-connexion"><span class="brand-mark" aria-hidden="true">{{ toque(18) }}</span>Helmane</p>
 <article class="card">
   <h1>Connexion</h1>
   <p class="lede">Espace d'administration du standard vocal.</p>

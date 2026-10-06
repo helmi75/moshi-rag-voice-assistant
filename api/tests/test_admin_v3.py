@@ -237,6 +237,80 @@ class TestParkScreen:
         assert "Salle de contrôle" in page.text and "Vue du parc" not in page.text
 
 
+class TestProchainesReservations:
+    """Recette du 05/10/2026 : avec plus de six tables à venir, la carte « Prochaines
+    réservations » montrait les six plus LOINTAINES et aucune du jour — le tri allait de
+    la plus tardive à la plus proche avant de n'en garder que six."""
+
+    def _tables(self, tenant_id, jours):
+        from app import horloge
+        from datetime import timedelta
+        for n in jours:
+            jour = (horloge.aujourd_hui() + timedelta(days=n)).isoformat()
+            reservations.create_reservation(tenant_id, f"Client J+{n}", jour, "20:00", 2)
+
+    def test_les_plus_proches_d_abord(self, resto):
+        tenant, _ = resto
+        self._tables(tenant.id, [9, 0, 5, 1, 7, 3, 8, 2])
+        from app import horloge
+        vues = reservations.list_filtered(tenant_id=tenant.id, limit=6,
+                                          date_from=horloge.aujourd_hui().isoformat(),
+                                          plus_proches_d_abord=True)
+        assert [r["customer_name"] for r in vues] == [
+            "Client J+0", "Client J+1", "Client J+2", "Client J+3", "Client J+5", "Client J+7"]
+
+    def test_le_meme_jour_l_heure_la_plus_proche_d_abord(self, resto):
+        tenant, _ = resto
+        from app import horloge
+        jour = horloge.aujourd_hui().isoformat()
+        reservations.create_reservation(tenant.id, "Soir", jour, "20:30", 2)
+        reservations.create_reservation(tenant.id, "Midi", jour, "12:15", 2)
+        vues = reservations.list_filtered(tenant_id=tenant.id, date_from=jour,
+                                          plus_proches_d_abord=True)
+        assert [r["customer_name"] for r in vues] == ["Midi", "Soir"]
+
+    def test_la_salle_de_controle_montre_celles_du_jour(self, client, resto):
+        tenant, _ = resto
+        self._tables(tenant.id, [9, 0, 5, 1, 7, 3, 8, 2])
+        _login(client)
+        page = client.get(f"/admin/?tenant_id={tenant.id}").text
+        carte = page[page.index("Prochaines réservations"):]
+        assert "Client J+0" in carte and "Client J+1" in carte
+        assert "Client J+9" not in carte and "Client J+8" not in carte
+        assert carte.index("Client J+0") < carte.index("Client J+1") < carte.index("Client J+7")
+
+
+class TestUneLongueNoteNeSortPasDeLaCarte:
+    def test_la_note_passe_sous_la_date_et_reste_lisible_en_entier(self, client, resto):
+        from app import horloge
+        tenant, _ = resto
+        note = "Anniversaire, gâteau à la bougie, une chaise haute et une table près de la fenêtre"
+        reservations.create_reservation(tenant.id, "Durand", horloge.aujourd_hui().isoformat(),
+                                        "20:00", 6, notes=note)
+        _login(client)
+        page = client.get(f"/admin/?tenant_id={tenant.id}").text
+        assert f'<span class="chip chip-warn chip-note" title="{note}">{note}</span>' in page
+        feuille = open(__file__.replace("tests/test_admin_v3.py", "app/admin/static/admin.css"),
+                       encoding="utf-8").read()
+        regle = feuille[feuille.index(".chip-note {"):]
+        regle = regle[:regle.index("}")]
+        assert "text-overflow: ellipsis" in regle and "max-width: 100%" in regle
+        # Sous la date, dans la colonne du nom : elle ne lui dispute plus la largeur.
+        ligne = page[page.index("Durand"):page.index(note)]
+        assert "couvert(s)</span>" in ligne and "</span>\n        </span>" not in ligne
+
+
+class TestLAdminSansBarreFinale:
+    """Derrière Caddy, l'application se voit en http : la redirection automatique de
+    `/admin` vers `/admin/` partait donc vers `http://app.helmane.fr/admin/` (recette du
+    05/10/2026). Une adresse relative garde le https du visiteur."""
+
+    def test_la_redirection_ne_quitte_pas_le_https(self, client):
+        reponse = client.get("/admin", follow_redirects=False)
+        assert reponse.status_code == 307
+        assert reponse.headers["location"] == "/admin/"
+
+
 class TestCallsScreen:
     def test_caller_number_is_displayed(self, client, resto):
         tenant, _ = resto

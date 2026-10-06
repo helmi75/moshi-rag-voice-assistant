@@ -10,13 +10,15 @@
 </div>
 
 <section class="card card-flush">
-  <div class="card-list">
+  <div class="card-list enseignes-liste">
     {% for t in tenants %}
     <div class="card-row">
       <span class="avatar" aria-hidden="true">{{ t.name[:2] | upper }}</span>
       <span class="row-main">
         <span class="row-title">{{ t.name }}</span>
         <span class="row-sub">{{ t.business_type }} · {{ t.phone_number }} · {{ t.language }}</span>
+        {#- Sur sa propre ligne : en bout de la précédente, il était coupé sur téléphone. #}
+        <span class="row-sub">Moteur : {{ moteur_appel(t).libelle }}</span>
       </span>
       <span class="row-actions">
         <a href="/admin/?tenant_id={{ t.id }}">Voir comme le gérant</a>

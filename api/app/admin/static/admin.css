@@ -21,21 +21,27 @@
   --app-surface-2:   #FBEDDD;
   --app-text:        #20160F;
   --app-muted:       #5F5246;
-  --app-faint:       #7A6B5D;
+  --app-faint:       #766759;
   --app-border:      rgba(32,22,15,.16);
   --app-hairline:    rgba(32,22,15,.09);
   /* L'orange du site (#F0801A) ne tient pas 4,5:1 en texte sur blanc : en clair, les
      liens et les boutons prennent un orange brûlé (4,9:1), encre blanche. */
   --app-accent:      #B8520A;
   --app-accent-hover:#9C4407;
+  /* Posé sur une teinte (entrée active du menu, pastille, encart), l'orange brûlé tombait
+     à 3,9-4,4:1 : il y prend ce pas plus sombre (5,1:1 au pire). Recette du 05/10/2026. */
+  --app-accent-teinte:#9C4407;
   --app-accent-ink:  #FFFFFF;
   --app-accent-soft: rgba(240,128,26,.13);
-  --app-good:        #157A4B;
+  /* Les trois encres de statut tiennent 4,5:1 sur LEUR teinte douce, elle-même posée
+     sur blanc, sur crème ou sur le fond d'une carte (4,8:1 au pire) : en pastille, le mot
+     est écrit en 11,5 px. Mesuré le 05/10/2026 ; les pas précédents tombaient à 3,9:1. */
+  --app-good:        #0F6A3C;
   --app-good-soft:   rgba(21,122,75,.12);
   /* L'alerte tire sur l'or, pas sur l'orange : elle ne doit pas se lire comme l'accent. */
-  --app-warn:        #8A6500;
+  --app-warn:        #775700;
   --app-warn-soft:   rgba(138,101,0,.14);
-  --app-bad:         #C62F33;
+  --app-bad:         #B3282C;
   --app-bad-soft:    rgba(198,47,51,.11);
   --app-shadow:      0 1px 2px rgba(32,22,15,.06), 0 14px 34px -14px rgba(32,22,15,.22);
   --app-shadow-sm:   0 1px 2px rgba(32,22,15,.06), 0 6px 16px -8px rgba(32,22,15,.16);
@@ -91,6 +97,7 @@
     --app-hairline:    rgba(251,246,239,.09);
     --app-accent:      #FF9B3D;
     --app-accent-hover:#FFB05F;
+    --app-accent-teinte:#FF9B3D;
     --app-accent-ink:  #22130A;
     --app-accent-soft: rgba(255,155,61,.16);
     --app-good:        #5BD69A;
@@ -120,6 +127,7 @@
     --app-hairline:    rgba(251,246,239,.09);
     --app-accent:      #FF9B3D;
     --app-accent-hover:#FFB05F;
+    --app-accent-teinte:#FF9B3D;
     --app-accent-ink:  #22130A;
     --app-accent-soft: rgba(255,155,61,.16);
     --app-good:        #5BD69A;
@@ -169,6 +177,11 @@ a { color: var(--app-accent); text-underline-offset: 2px; }
   max-width: 1260px;
 }
 .main-centered { margin: 0 auto; max-width: 30rem; padding: 3rem 1.25rem; }
+.marque-connexion {
+  display: flex; align-items: center; justify-content: center; gap: .6rem;
+  margin: 0 0 1.4rem; font-family: var(--app-display); font-weight: 800; font-size: 1.35rem;
+  letter-spacing: -.03em; color: var(--app-text);
+}
 
 /* ---- Barre latérale ------------------------------------------------------ */
 .sidebar {
@@ -223,7 +236,7 @@ button.menu-bouton { display: none; }
 }
 .ctx-role {
   display: block; font-size: .69rem; font-weight: 600;
-  letter-spacing: .02em; color: var(--app-accent);
+  letter-spacing: .02em; color: var(--app-accent-teinte);
 }
 .ctx-super .ctx-name { display: block; white-space: normal; }
 
@@ -238,7 +251,7 @@ button.menu-bouton { display: none; }
 .nav-item svg { flex: none; }
 .nav-item:hover { background: var(--app-surface-2); color: var(--app-text); text-decoration: none; }
 .nav-item[aria-current="page"] {
-  background: var(--app-accent-soft); color: var(--app-accent); font-weight: 600;
+  background: var(--app-accent-soft); color: var(--app-accent-teinte); font-weight: 600;
 }
 .nav-sep {
   margin: .9rem .68rem .3rem; font-size: .66rem; font-weight: 600;
@@ -336,10 +349,15 @@ article > header, article > footer {
 a.card-row, .card-row[href] { transition: background .12s ease; }
 a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
 .card-row[aria-current="true"] { background: var(--app-accent-soft); }
+/* Sur ce fond teinté, l'encre pâle tombait à 3,8:1 en sombre et une pastille posait sa
+   teinte sur une autre (3,7:1) : l'heure prend l'encre moyenne, la pastille un fond plein. */
+.card-row[aria-current="true"] .row-when { color: var(--app-muted); }
+.card-row[aria-current="true"] .chip { background: var(--app-surface); }
 .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .row-title {
   display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
   font-size: .875rem; font-weight: 600; color: var(--app-text);
+  overflow-wrap: anywhere;       /* un nom d'un seul tenant ne sort pas de sa colonne */
 }
 .row-sub {
   display: block; font-size: .8rem; color: var(--app-muted);
@@ -370,6 +388,19 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
   flex: none; display: flex; gap: .85rem; flex-wrap: wrap;
   font-size: .8rem; justify-content: flex-end;
 }
+/* Enseignes : six actions à côté du nom. Dans une carte étroite elles prenaient toute la
+   largeur — le nom s'écrivait un mot par ligne, « Voir comme le gérant » passait dessus,
+   « Comptes » et « Supprimer » sortaient de la carte (recette du 05/10/2026). Elles
+   descendent alors sous le nom, alignées sur lui, et passent à la ligne entre elles. */
+.enseignes-liste { container-type: inline-size; }
+@container (max-width: 46rem) {
+  .enseignes-liste .card-row { flex-wrap: wrap; }
+  .enseignes-liste .row-actions {
+    flex: 1 1 100%; justify-content: flex-start; gap: .1rem 1.1rem;
+    padding-left: calc(32px + .85rem);
+  }
+  .enseignes-liste .row-actions a { padding: .35rem 0; }
+}
 .avatar {
   width: 32px; height: 32px; flex: none; border-radius: var(--app-radius-xs);
   background: var(--app-surface-2); color: var(--app-muted);
@@ -386,7 +417,16 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
 .chip-good { background: var(--app-good-soft); color: var(--app-good); }
 .chip-warn { background: var(--app-warn-soft); color: var(--app-warn); }
 .chip-bad  { background: var(--app-bad-soft);  color: var(--app-bad); }
-.chip-accent { background: var(--app-accent-soft); color: var(--app-accent); }
+.chip-accent { background: var(--app-accent-soft); color: var(--app-accent-teinte); }
+/* Une note de réservation est un texte libre. À côté du nom, une longue note sortait de la
+   carte, passait sur le nom et réduisait la date à « 2026-10-… » (vu le 05/10/2026, dès
+   que les tables du jour sont revenues en tête des « Prochaines réservations »). Elle va
+   sous la date, sur sa propre ligne, et se termine par « … » si elle dépasse — le texte
+   entier reste dans l'infobulle. */
+.chip-note {
+  align-self: flex-start; max-width: 100%; margin-top: .25rem;
+  overflow: hidden; text-overflow: ellipsis;
+}
 .dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--app-faint); }
 .dot-good { background: var(--app-good); }
 .dot-warn { background: var(--app-warn); }
@@ -396,6 +436,12 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
 .kpi-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: .9rem; margin-bottom: .9rem;
+}
+/* Quatre indicateurs : de front, ou deux par deux — jamais trois et un orphelin, comme à
+   1280 px où la quatrième colonne manquait d'un demi-pixel (recette du 05/10/2026). */
+.kpi-grid:has(> :nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) {
+  .kpi-grid:has(> :nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .kpi { padding: 1rem 1.15rem; }
 .kpi-label {
@@ -452,13 +498,16 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
 .meter-depassement > i { background: var(--app-bad); }
 
 /* ---- Filtres segmentés --------------------------------------------------- */
+/* Six filtres ne tiennent pas sur une ligne de téléphone : la barre sortait de l'écran
+   (« Échecs » coupé, « Pannes » invisible) et emmenait toute la page avec elle. Elle passe
+   à la ligne, chaque filtre restant entier (recette du 05/10/2026). */
 .segmented {
-  display: inline-flex; gap: 2px; padding: 2px; margin-bottom: 1rem;
+  display: inline-flex; flex-wrap: wrap; max-width: 100%; gap: 2px; padding: 2px; margin-bottom: 1rem;
   background: var(--app-surface-2); border-radius: var(--app-radius-xs);
 }
 .segmented a {
   padding: .34rem .85rem; border-radius: 8px; font-size: .8rem; font-weight: 500;
-  color: var(--app-muted); text-decoration: none;
+  color: var(--app-muted); text-decoration: none; white-space: nowrap;
 }
 .segmented a:hover { color: var(--app-text); text-decoration: none; }
 .segmented a[aria-current="true"] {
@@ -479,6 +528,12 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
   background: var(--app-good-soft); border: 1px solid transparent;
 }
 .callout b { display: block; font-size: .75rem; color: var(--app-good); margin-bottom: .15rem; }
+/* Le ton d'un encart est posé par son fond, dans le gabarit : son titre le suit (un titre
+   vert sur un encart d'alerte se lisait 4,2:1, et disait « tout va bien »). Un lien y
+   prend l'encre du texte, soulignée : l'orange sur une teinte tombait à 3,9:1. */
+.callout[style*="--app-warn-soft"] b { color: var(--app-warn); }
+.callout[style*="--app-bad-soft"] b { color: var(--app-bad); }
+.callout a { color: inherit; text-decoration: underline; text-decoration-color: currentColor; }
 .section-label {
   font-size: .75rem; font-weight: 600; color: var(--app-faint);
   text-transform: uppercase; letter-spacing: .04em; margin: 0 0 .6rem;
@@ -511,8 +566,10 @@ label { font-weight: 500; color: var(--app-text); }
    coche (le fond porte l'icône). Constaté le 27/09/2026 sur la page Carnet resOS : quatre
    jours fermés et une panne simulée cochés, toutes les cases affichées vides — l'état
    réel était invisible, et chaque « Enregistrer » le renvoyait tel quel. */
+/* `background-color`, pas `background` : le raccourci effaçait aussi l'image de fond, donc
+   la flèche des listes déroulantes et l'icône des champs de date (recette du 05/10/2026). */
 input:not([type="checkbox"]):not([type="radio"]), select, textarea {
-  background: var(--app-surface) !important;
+  background-color: var(--app-surface) !important;
   color: var(--app-text) !important;
   border: 1px solid var(--app-border) !important;
   border-radius: var(--app-radius-sm) !important;
@@ -619,7 +676,7 @@ tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
 .cal-resa.etat-a_valider, .cal-resa.etat-attente { background: var(--app-warn-soft); border-left-color: var(--app-warn); }
 .cal-resa.etat-annulee { background: var(--app-surface-2); border-left-color: var(--app-faint); color: var(--app-muted); text-decoration: line-through; }
 .cal-creneau h3 { font-size: .85rem; color: var(--app-muted); margin: 1.1rem 0 .5rem; letter-spacing: .03em; }
-.cal-heure-resa { color: var(--app-accent); margin-right: .35rem; }
+.cal-heure-resa { color: var(--app-accent-teinte); margin-right: .35rem; }
 .cal-carte.etat-annulee { opacity: .6; }
 .cal-carte.etat-annulee h2 { text-decoration: line-through; }
 .cal-action { width: auto; margin: 0; padding: .3rem .9rem; font-size: .85rem; }
@@ -649,7 +706,7 @@ tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
 @media (max-width: 640px) {
   .cal-jour { min-height: 3.6rem; padding: .3rem .25rem; align-items: center; }
   .cal-long, .cal-ferme, .cal-avalider { display: none; }
-  .cal-compte b { display: inline-block; min-width: 1.4rem; text-align: center; font-size: .75rem; border-radius: 999px; padding: 0 .35rem; background: var(--app-accent-soft); color: var(--app-accent); }
+  .cal-compte b { display: inline-block; min-width: 1.4rem; text-align: center; font-size: .75rem; border-radius: 999px; padding: 0 .35rem; background: var(--app-accent-soft); color: var(--app-accent-teinte); }
   .cal-entete { padding: .35rem .2rem; text-align: center; font-size: .68rem; }
   .cal-total { margin: .2rem 0 0; width: 100%; }
   .cal-nav h2 { margin: .3rem 0 0; width: 100%; }
@@ -670,7 +727,12 @@ h2.form-section:first-of-type { margin-top: 0; }
   border-radius: var(--app-radius-sm); padding: .7rem 1rem;
 }
 .empty { padding: 1.5rem 1.3rem; color: var(--app-muted); font-size: .875rem; }
+/* Pico interdit le retour à la ligne à tout élément « occupé » : sur téléphone, « Rendu de
+   la voix en cours… » sortait de sa carte et élargissait la page. Seuls les boutons
+   gardent cette règle. */
+[aria-busy="true"]:not(button, [role="button"], input, select, textarea, html, form) { white-space: normal; }
 .chart-block { overflow-x: auto; }
+.chart-block svg { display: block; }
 .charts-stack { display: flex; flex-direction: column; gap: 1.4rem; }
 .pager { display: flex; gap: 1rem; margin-top: 1rem; font-size: .85rem; }
 mark { background: var(--app-accent-soft); color: var(--app-text); border-radius: 4px; }
@@ -693,6 +755,13 @@ mark { background: var(--app-accent-soft); color: var(--app-text); border-radius
   --viz-grid-on-dark: rgba(251,246,239,.14);
   margin: 0;
 }
+/* Le titre est du texte de la page, pas du dessin : il garde sa taille quand le graphique
+   rétrécit, et la valeur de la plus haute barre ne peut plus s'écrire dessus. */
+.viz-root figcaption {
+  padding: 0; margin: 0 0 .15rem; font-size: .82rem; font-weight: 600;
+  color: var(--viz-text); letter-spacing: -0.01em;
+}
+.viz-dark figcaption { color: var(--viz-text-on-dark); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .viz-root { --viz-series-1: #DD731A; --viz-series-2: #3399BC; }
 }
@@ -772,9 +841,16 @@ mark { background: var(--app-accent-soft); color: var(--app-text); border-radius
 tr.annulee { opacity: .55; }
 tr.annulee strong { text-decoration: line-through; }
 
-/* Sur téléphone, le graphique (640 unités de large) est réduit de moitié : les valeurs
-   passent à 13 unités pour rester lisibles. 30 barres de ~19 unités les contiennent
-   encore sans chevauchement (SCRUM-113). */
+/* Sur téléphone, un graphique de 640 unités tient dans ~310 px : ses textes de 10 unités
+   faisaient 5 px (recette du 05/10/2026). Deux cas :
+   - beaucoup de barres (30 jours) : le dessin garde une largeur lisible et défile dans sa
+     carte ; admin.js l'amène sur le jour le plus récent ;
+   - peu de barres (les créneaux du jour) : il reste entier, et ses textes grossissent —
+     les colonnes sont assez larges pour eux. */
 @media (max-width: 520px) {
-  .viz-root .viz-valeur { font-size: 13px; }
+  .viz-dense svg { min-width: 34rem; }
+  .viz-dense .viz-valeur { font-size: 13px; }
+  .viz-dense .viz-axe { font-size: 12px; }
+  .viz-root:not(.viz-dense) .viz-valeur { font-size: 22px; }
+  .viz-root:not(.viz-dense) .viz-axe { font-size: 20px; transform: translateY(4px); }
 }

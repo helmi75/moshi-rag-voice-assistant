@@ -52,9 +52,9 @@
 <div class="kpi-grid">
   {% if latency %}
   {{ kpi("Blanc ressenti (médiane)",
-         "%.1f s" | format(latency.median_ms / 1000),
+         (latency.median_ms / 1000) | nombre(1) ~ " s",
          sub="Entre la fin de la phrase du client et la reprise de la voix. "
-             ~ "p90 : " ~ "%.1f" | format(latency.p90_ms / 1000) ~ " s, sur "
+             ~ "p90 : " ~ (latency.p90_ms / 1000) | nombre(1) ~ " s, sur "
              ~ latency.n_turns ~ " tours mesurés.") }}
   {% else %}
   {{ kpi("Blanc ressenti", "—",
@@ -113,6 +113,51 @@
       </div>
     </section>
 
+    {# Les deux moteurs d'un appel, côte à côte. Rien que du mesuré : la somme des postes
+       chiffrés à la clôture de chaque appel, divisée par ses minutes. #}
+    <section class="card card-flush" id="moteurs">
+      <div class="card-head">
+        <div>
+          <h2>Coût par moteur · {{ days }} j</h2>
+          <p class="card-sub">Ce que chaque moteur a réellement coûté, sur les appels qu'il a
+             servis. Le moteur se choisit dans la fiche de chaque établissement.</p>
+        </div>
+      </div>
+      <div class="card-list">
+        {% for m in moteurs %}
+        <div class="card-row">
+          <span class="row-main">
+            <span class="row-title">{{ m.libelle }}</span>
+            <span class="row-sub" style="white-space: normal">{{ m.n_calls }} appel{{ "s" if m.n_calls > 1 }} ·
+              {{ m.minutes | nombre(1) }} min · {{ money(m.total) }} ·
+              dont {{ m.moteur_par_minute | nombre(3) }} $/min hors téléphonie</span>
+          </span>
+          <span class="chip">{{ m.par_minute | nombre(3) }} $/min</span>
+        </div>
+        {% else %}
+        <p class="empty">Aucun appel terminé sur la période.</p>
+        {% endfor %}
+      </div>
+      {% set t = tarifs_gpt_live %}
+      {# Mêmes marges que les lignes de la carte (.card-row), filet compris. #}
+      <p class="card-sub" style="padding: .9rem 1.3rem 1.1rem; margin: 0; border-top: 1px solid var(--app-hairline)">
+        <b>Comment un appel GPT-Live est chiffré.</b>
+        La voix : {{ t.voix_par_minute | nombre }} $ la minute de session, comptée à la
+        seconde, écoute et transcription comprises. Le cerveau : les jetons consommés
+        ({{ t.entree_par_million | nombre }} $ le million en entrée,
+        {{ t.cache_par_million | nombre }} $ lus en cache,
+        {{ t.sortie_par_million | nombre }} $ en sortie). La téléphonie :
+        {{ t.telephonie_par_minute | nombre }} $ la minute entamée, comme pour la chaîne
+        classique. Tarifs relevés le 04/10/2026 ; la facture d'OpenAI fait foi.
+        {% if echec_gpt_live %}
+        <br><b>Dernier échec de GPT-Live</b> depuis le démarrage du serveur :
+        {{ echec_gpt_live.le | jour_paris }} à {{ echec_gpt_live.le | heure_paris }},
+        {{ echec_gpt_live.motif }}{% if echec_gpt_live.a_l_ecart %} — la chaîne classique
+        sert les appels pendant trois minutes{% endif %}.
+        {% endif %}
+      </p>
+    </section>
+
     <section class="card card-flush">
       <div class="card-head">
         <div>
@@ -125,7 +170,9 @@
         <div class="card-row">
           <span class="row-main">
             <span class="row-title">{{ r.name }}</span>
-            <span class="row-sub">{{ r.detail }}</span>
+            {#- Sur plusieurs lignes : coupé, « 30 voix au catalogue » et le moteur de
+                GPT-Live disparaissaient derrière des points de suspension. #}
+            <span class="row-sub" style="white-space: normal">{{ r.detail }}</span>
           </span>
           <span class="chip">{{ r.metric }}</span>
         </div>
@@ -133,7 +180,7 @@
         <div class="card-row">
           <span class="row-main">
             <span class="row-title">Voix par défaut</span>
-            <span class="row-sub">Pour les établissements qui n'ont pas choisi la leur (page « Voix &amp; accueil »).</span>
+            <span class="row-sub" style="white-space: normal">Pour les établissements qui n'ont pas choisi la leur (page « Voix &amp; accueil »).</span>
           </span>
           <span class="chip">{{ voice }}</span>
         </div>

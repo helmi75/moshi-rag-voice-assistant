@@ -142,10 +142,11 @@ Twilio ─▶ POST /twilio/voice (signé) ─▶ TwiML <Connect><Stream>, puis <
   se fixe ; `rattrapage.py` récupère une parole entendue mais non transcrite ;
   `enregistrement.py` ne doit jamais faire échouer un appel. `journal.py`, `latency.py`
   et `vigie.py` sont des **observateurs** : rien n'est inséré sur le chemin de l'audio.
-- Essai : `voice/live.py` relaie l'appel à GPT-Live d'OpenAI, **sans Pipecat**, pour les
-  seuls établissements de `GPT_LIVE_ETABLISSEMENTS`. Les outils passent toujours par
-  `llm.run_tool` ; une session qui ne s'ouvre pas rend l'appel au pipeline habituel.
-  Voir `docs/TEMPS_REEL.md`.
+- Deux moteurs : `voice/live.py` relaie l'appel à GPT-Live d'OpenAI, **sans Pipecat**, pour
+  les établissements dont c'est le moteur (`tenants.moteur_voix`, réglé dans la fiche par
+  le super-admin ; `live.moteur` tranche). Les outils passent toujours par `llm.run_tool`.
+  Le pipeline ci-dessus est son secours : une session qui ne s'ouvre pas lui rend l'appel,
+  et `live.mettre_a_l_ecart` lui confie les suivants trois minutes. Voir `docs/TEMPS_REEL.md`.
 - Voix : `voxtral_tts.py` (Mistral, catalogue dans `voices.py`). `moshi_server_tts.py`
   et `deploy/modal_moshi_server.py` (GPU Modal) ne sont plus qu'un secours à retirer.
 - Région : Twilio traite un appel aux États-Unis (`us1`) ou en Irlande (`ie1`), et chaque

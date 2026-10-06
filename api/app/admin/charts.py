@@ -8,6 +8,9 @@ aussi, et viser une barre de 19 unités au doigt ne suffirait pas.
 
 Conventions (skill dataviz) :
 - une série par graphique → pas de légende, le titre nomme la série ;
+- le titre est une <figcaption>, hors du dessin : il garde sa taille quand le graphique
+  rétrécit sur un téléphone, et la valeur de la plus haute barre ne peut pas s'écrire
+  dessus (recette du 05/10/2026 : un « 6 » sur « Couverts réservés par créneau ») ;
 - couleurs par variables CSS (--viz-series-*) définies dans admin.css pour les deux
   thèmes ; le texte porte l'encre texte (muted), jamais la couleur de série ;
 - barres fines, sommet arrondi 4px ancré à la baseline, écart 2px minimum ;
@@ -23,6 +26,10 @@ from markupsafe import Markup
 
 _W, _H = 640, 180
 _MARGIN_L, _MARGIN_B, _MARGIN_T = 8, 22, 26
+# Au-delà, le graphique est « dense » : sur un téléphone il garde une largeur lisible et
+# défile dans sa carte (admin.css, `.viz-dense`). En deçà, les colonnes sont assez larges
+# pour que ses textes grossissent sans se toucher.
+_DENSE = 16
 
 
 def _top_rounded_bar(x: float, y: float, w: float, h: float, r: float = 4) -> str:
@@ -87,8 +94,6 @@ def bar_chart(points: list[tuple], *, title: str, series: int = 1,
         # Baseline discrète (grille en retrait).
         f'<line x1="{_MARGIN_L}" y1="{baseline_y}" x2="{width - _MARGIN_L}" '
         f'y2="{baseline_y}" stroke="var(--viz-grid{suffix})" stroke-width="1"/>',
-        f'<text x="{_MARGIN_L}" y="16" fill="var(--viz-text{suffix})" font-size="13" '
-        f'font-weight="600">{escape(title)}</text>',
     ]
     for i, point in enumerate(points):
         label, value = point[0], point[1]
@@ -120,10 +125,13 @@ def bar_chart(points: list[tuple], *, title: str, series: int = 1,
             )
         if i % step == 0 or i == n - 1:
             parts.append(
-                f'<text x="{x + bar_w / 2:.1f}" y="{baseline_y + 14}" text-anchor="middle" '
+                f'<text class="viz-axe" x="{x + bar_w / 2:.1f}" y="{baseline_y + 14}" text-anchor="middle" '
                 f'fill="var(--viz-text-muted{suffix})" font-size="10">{escape(label)}</text>'
             )
     parts.append("</svg>")
+    dense = " viz-dense" if n > _DENSE else ""
     return Markup(
-        f'<figure class="viz-root chart-block viz-{escape(tone)}">{"".join(parts)}</figure>'
+        f'<figure class="viz-root viz-{escape(tone)}{dense}">'
+        f'<figcaption>{escape(title)}</figcaption>'
+        f'<div class="chart-block">{"".join(parts)}</div></figure>'
     )
