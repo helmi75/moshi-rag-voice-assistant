@@ -7,6 +7,17 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le travail en agents (05/10/2026)
+
+### Modifié
+- **Trois agents, un orchestrateur** : `.claude/agents/developpeur.md` code un ticket dans
+  son propre arbre de travail, `.claude/agents/relecteur.md` relit un diff en lecture seule,
+  `qa-recette` garde son rôle avec un modèle moins cher. Les règles d'économie et la
+  répartition des décisions sont dans `CLAUDE.md` (« Qui décide quoi », « Travail en
+  agents »).
+- **Ouvrir une PR ne demande plus l'accord de Helmi** ; fusionner, déployer, écrire en
+  production, dépenser, supprimer des données et clore un ticket le demandent toujours.
+
 ## Non publiée — deux défauts trouvés à la revue du lot (06/10/2026)
 
 La revue du diff avant fusion a rendu un constat et signalé une course ; les deux ont été
