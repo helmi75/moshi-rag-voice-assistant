@@ -204,8 +204,10 @@ def _control_room(request: Request, tenant_id: Optional[int]):
     before = calls.totals(tenant_id, days=_WINDOW_DAYS, offset_days=_WINDOW_DAYS)
     today = horloge.aujourd_hui().isoformat()
     recent = [presenters.call_view(c) for c in calls.list_calls(tenant_id, limit=5)]
+    # « Prochaines » : à partir de maintenant, pas depuis ce matin.
     upcoming = reservations.list_filtered(
         tenant_id=tenant_id, date_from=today, limit=6, plus_proches_d_abord=True,
+        heure_from=horloge.maintenant().strftime("%H:%M"),
     ) if tenant_id else []
     slots = reservations.covers_by_slot(tenant_id, today) if tenant_id else []
     slots_chart = charts.bar_chart(
