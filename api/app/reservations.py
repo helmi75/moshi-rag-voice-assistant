@@ -103,12 +103,18 @@ def list_filtered(
     offset: int = 0,
     inclure_annulees: bool = False,
     plus_proches_d_abord: bool = False,
+    heure_from: Optional[str] = None,
 ) -> list[dict]:
     """Liste paginée/filtrée pour l'admin (tenant_id None = tous, super-admin).
 
     `plus_proches_d_abord` : pour « à venir ». Sans lui le tri va de la plus tardive à
     la plus proche, et `limit` ne gardait que les six tables les plus LOINTAINES — la
     salle de contrôle n'en montrait aucune du jour (recette du 05/10/2026).
+
+    `heure_from` (« HH:MM », avec `date_from`) : le jour de `date_from`, seulement les
+    tables à partir de cette heure. Sans lui, « à venir » commençait par les tables du
+    midi déjà servies : avec six déjeuners, la salle de contrôle de 19 h ne montrait
+    aucune table du soir (revue du 06/10/2026).
 
     Les annulées sont masquées PAR DÉFAUT : la liste « à venir » de la salle de contrôle
     passe par ici, et y laisser des tables annulées ferait préparer des couverts pour des
@@ -121,7 +127,10 @@ def list_filtered(
     if tenant_id is not None:
         clauses.append("tenant_id = ?")
         params.append(tenant_id)
-    if date_from:
+    if date_from and heure_from:
+        clauses.append("(date > ? OR (date = ? AND time >= ?))")
+        params += [date_from, date_from, heure_from]
+    elif date_from:
         clauses.append("date >= ?")
         params.append(date_from)
     if clauses:

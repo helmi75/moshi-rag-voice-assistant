@@ -380,6 +380,26 @@ class TestLaChaineClassiqueEstLeSecours:
         assert renvoi.panne_recente(tenant.id) == renvoi.PIPELINE and live.a_l_ecart() is None
 
 
+class TestLeClientRaccrochePendantQuElleParle:
+    """La voix arrive d'OpenAI alors que Twilio a déjà fermé la ligne : l'envoi échoue. Ce
+    n'est pas une panne. Levée, l'erreur faisait renvoyer l'appel vers le restaurant, et
+    mettait GPT-Live de côté trois minutes pour tous les établissements."""
+
+    @pytest.mark.parametrize("erreur", [WebSocketDisconnect(1006),
+                                        RuntimeError('Cannot call "send" once a close message has been sent.')])
+    def test_l_ecoute_de_la_session_finit_sans_lever(self, erreur):
+        class LigneFermee:
+            async def send_text(self, texte):
+                raise erreur
+
+        session = FausseSession()
+        session.emettre({"type": "session.output_audio.delta", "delta": SON_MARIE})
+        appel = live.Appel(LigneFermee(), session, "MZ", "CA", None, None, None)
+        asyncio.run(asyncio.wait_for(appel.ecouter_la_session(), timeout=2))
+        assert appel._ecrits["assistante"] == 0          # rien n'est noté comme dit
+        assert live.a_l_ecart() is None
+
+
 class TestLaSession:
     def test_le_format_du_telephone_la_voix_et_les_outils_delegues(self, tenant, monkeypatch, cerveau_openai):
         monkeypatch.setenv("GPT_LIVE_VOIX", "cedar")

@@ -387,9 +387,16 @@ class Appel:
             genre = evt.get("type", "")
             if genre == "session.output_audio.delta":
                 charge = evt.get("delta") or ""
-                await self.twilio.send_text(json.dumps({
-                    "event": "media", "streamSid": self.stream_sid,
-                    "media": {"payload": charge}}))
+                try:
+                    await self.twilio.send_text(json.dumps({
+                        "event": "media", "streamSid": self.stream_sid,
+                        "media": {"payload": charge}}))
+                except (WebSocketDisconnect, RuntimeError):
+                    # Le client a raccroché pendant qu'elle parlait : l'appel est fini. Ce
+                    # n'est une panne ni de GPT-Live ni de l'établissement — levée, cette
+                    # erreur renvoyait l'appel vers le restaurant et mettait de côté le
+                    # moteur pour tout le monde (revue du 06/10/2026).
+                    return
                 self._enregistrer("assistante", charge)
             elif genre in ("session.input_transcript.delta", "session.output_transcript.delta"):
                 self._noter_fragment("user" if "input" in genre else "assistant", evt)

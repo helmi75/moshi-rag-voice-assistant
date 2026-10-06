@@ -18,6 +18,26 @@
 - **Ouvrir une PR ne demande plus l'accord de Helmi** ; fusionner, déployer, écrire en
   production, dépenser, supprimer des données et clore un ticket le demandent toujours.
 
+## Non publiée — deux défauts trouvés à la revue du lot (06/10/2026)
+
+La revue du diff avant fusion a rendu un constat et signalé une course ; les deux ont été
+vérifiés dans le code, reproduits par un test, puis corrigés.
+
+### Corrigé
+- **« Prochaines réservations » part de maintenant, plus de ce matin.** La carte triait
+  bien de la plus proche à la plus lointaine, mais depuis le début du jour : avec six
+  déjeuners, la salle de contrôle de 19 h ne montrait que des tables déjà servies, aucune
+  du soir. L'heure ne borne que le jour même.
+- **Un client qui raccroche pendant que GPT-Live parle n'est plus une panne.** L'envoi du
+  son vers une ligne déjà fermée levait une erreur : l'appel était marqué à renvoyer vers
+  le restaurant et, depuis le choix du moteur, GPT-Live mis de côté trois minutes pour
+  tous les établissements. L'écoute de la session finit simplement, comme le fait déjà
+  l'écoute de la ligne.
+
+Les tests de la salle de contrôle qui posent une table « ce soir à 20 h » fixent
+désormais l'heure : ils auraient échoué une fois 20 h passées. La suite a été rejouée
+avec l'horloge réglée à 23 h 35 et à 0 h 20.
+
 ## Non publiée — le moteur de l'appel se choisit dans l'admin (05/10/2026)
 
 Après dix vrais appels sur GPT-Live, Helmi veut choisir le moteur restaurant par
