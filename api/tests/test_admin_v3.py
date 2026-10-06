@@ -269,9 +269,47 @@ class TestProchainesReservations:
                                           plus_proches_d_abord=True)
         assert [r["customer_name"] for r in vues] == ["Midi", "Soir"]
 
-    def test_la_salle_de_controle_montre_celles_du_jour(self, client, resto):
+    def _il_est(self, monkeypatch, heure: int) -> None:
+        """Aujourd'hui, à l'heure dite : la carte ne montre que les tables à venir."""
+        from app import horloge
+        reel = horloge.maintenant()
+        monkeypatch.setattr(horloge, "maintenant",
+                            lambda: reel.replace(hour=heure, minute=0, second=0, microsecond=0))
+
+    def test_le_jour_meme_seulement_a_partir_de_l_heure_donnee(self, resto):
+        tenant, _ = resto
+        from app import horloge
+        from datetime import timedelta
+        jour = horloge.aujourd_hui()
+        for nom, quand, heure in (("Midi", jour, "12:15"), ("Soir", jour, "20:30"),
+                                  ("Pile", jour, "19:00"), ("Demain midi", jour + timedelta(days=1), "12:15")):
+            reservations.create_reservation(tenant.id, nom, quand.isoformat(), heure, 2)
+        vues = reservations.list_filtered(tenant_id=tenant.id, date_from=jour.isoformat(),
+                                          heure_from="19:00", plus_proches_d_abord=True)
+        # L'heure ne borne que le jour même : le déjeuner de demain reste « à venir ».
+        assert [r["customer_name"] for r in vues] == ["Pile", "Soir", "Demain midi"]
+
+    def test_a_19_h_les_dejeuners_servis_ne_cachent_pas_le_diner(self, client, resto, monkeypatch):
+        """Six déjeuners suffisaient à remplir la carte : à 19 h elle ne montrait que des
+        tables déjà servies, aucune du soir ni du lendemain."""
+        tenant, _ = resto
+        from app import horloge
+        jour = horloge.aujourd_hui().isoformat()
+        for i in range(7):
+            reservations.create_reservation(tenant.id, f"Déjeuner {i}", jour, f"12:{10 + i}", 2)
+        reservations.create_reservation(tenant.id, "Dîner de ce soir", jour, "20:30", 4)
+        self._tables(tenant.id, [1])
+        self._il_est(monkeypatch, 19)
+        _login(client)
+        page = client.get(f"/admin/?tenant_id={tenant.id}").text
+        carte = page[page.index("Prochaines réservations"):]
+        assert "Dîner de ce soir" in carte and "Client J+1" in carte
+        assert "Déjeuner" not in carte
+
+    def test_la_salle_de_controle_montre_celles_du_jour(self, client, resto, monkeypatch):
         tenant, _ = resto
         self._tables(tenant.id, [9, 0, 5, 1, 7, 3, 8, 2])
+        self._il_est(monkeypatch, 10)        # avant le service : la table de 20 h est à venir
         _login(client)
         page = client.get(f"/admin/?tenant_id={tenant.id}").text
         carte = page[page.index("Prochaines réservations"):]
@@ -281,9 +319,12 @@ class TestProchainesReservations:
 
 
 class TestUneLongueNoteNeSortPasDeLaCarte:
-    def test_la_note_passe_sous_la_date_et_reste_lisible_en_entier(self, client, resto):
+    def test_la_note_passe_sous_la_date_et_reste_lisible_en_entier(self, client, resto, monkeypatch):
         from app import horloge
         tenant, _ = resto
+        # Avant le service : la carte ne montre que les tables à venir, celle de 20 h en est.
+        reel = horloge.maintenant()
+        monkeypatch.setattr(horloge, "maintenant", lambda: reel.replace(hour=10, minute=0))
         note = "Anniversaire, gâteau à la bougie, une chaise haute et une table près de la fenêtre"
         reservations.create_reservation(tenant.id, "Durand", horloge.aujourd_hui().isoformat(),
                                         "20:00", 6, notes=note)
