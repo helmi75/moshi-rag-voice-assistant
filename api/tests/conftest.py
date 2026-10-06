@@ -47,9 +47,12 @@ def _aucune_panne_en_memoire():
     zéro, un test qui fait tomber le pipeline renverrait vers le restaurant les appels
     de tous les tests suivants, et l'ordre d'exécution déciderait du résultat."""
     from app import rappel, renvoi
+    from app.voice import live
 
     renvoi.reinitialiser()
     rappel.reinitialiser()  # les demandes de rappel comptées par adresse, même raison
+    live.reinitialiser()    # GPT-Live mis à l'écart après un échec, même raison
     yield
     renvoi.reinitialiser()
     rappel.reinitialiser()
+    live.reinitialiser()

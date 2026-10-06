@@ -52,7 +52,7 @@
           </optgroup>
           {% endfor %}
         </select>
-        <p class="row-sub" style="margin: .5rem 0 .3rem">Écouter la voix sélectionnée
+        <p class="card-sub" style="margin: .5rem 0 .3rem">Écouter la voix sélectionnée
            (qualité téléphone) :</p>
         <audio id="extrait-voix" controls preload="none" style="width: 100%"
                src="{% for g in groupes %}{% for v in g.voix %}{% if v.id == voice_id %}/admin/voix/{{ v.id.split('/')[1] }}/extrait.wav{% endif %}{% endfor %}{% endfor %}"></audio>

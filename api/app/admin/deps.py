@@ -58,6 +58,15 @@ templates.env.filters["jour_paris"] = lambda brut: _au_restaurant(brut, "%d/%m/%
 templates.env.filters["heure_paris"] = lambda brut: _au_restaurant(brut, "%H:%M")
 
 
+def nombre(valeur, decimales: int = 2) -> str:
+    """Un nombre comme on l'écrit en français : « 21,15 », pas « 21.15 ». L'admin écrivait
+    ses montants avec un point, le site avec une virgule (recette du 05/10/2026)."""
+    return f"{float(valeur or 0):.{decimales}f}".replace(".", ",")
+
+
+templates.env.filters["nombre"] = nombre
+
+
 def ensure_csrf(request: Request) -> str:
     """Garantit un token CSRF en session et le retourne (posé au login/premier GET)."""
     token = request.session.get("csrf")

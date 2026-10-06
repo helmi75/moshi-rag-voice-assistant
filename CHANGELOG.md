@@ -7,6 +7,124 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le moteur de l'appel se choisit dans l'admin (05/10/2026)
+
+Après dix vrais appels sur GPT-Live, Helmi veut choisir le moteur restaurant par
+restaurant, « en général GPT-Live par défaut et l'ancienne version en secours », et savoir
+comment le coût de GPT-Live arrive dans l'admin. Jusque-là, seul le `.env` du serveur
+disait qui passait par GPT-Live : il fallait redéployer.
+
+### Ajouté
+- **Fiche de l'établissement → « Moteur de l'appel »** (super-admin seulement) : « GPT-Live ·
+  secours classique » ou « Chaîne classique seule ». Le prochain appel suit le réglage,
+  sans redéploiement. Un restaurateur ne voit pas le menu et la route ignore le champ s'il
+  l'envoie. Migration v19 (`tenants.moteur_voix`) : sans choix enregistré l'ancien réglage
+  vaut encore, donc **le moteur d'aucun établissement ne change au déploiement**.
+- **« Santé & coûts » → « Coût par moteur »** : pour chaque moteur, appels, minutes, coût et
+  coût à la minute, mesurés sur les appels qu'il a servis ; dessous, comment un appel
+  GPT-Live est chiffré, avec les tarifs réellement appliqués. La pile vocale dit combien
+  d'établissements sont sur GPT-Live et s'il est prêt, sans clé ou à l'écart.
+- Enseignes affiche le moteur de chaque établissement ; la fiche d'un appel dit, à
+  l'exploitant seulement, quel moteur l'a servi ; la vue du parc prévient si GPT-Live est
+  choisi sans clé OpenAI.
+
+### Corrigé
+- **La voix de GPT-Live était comptée sous « Voix Mistral (Voxtral) »** dans la répartition
+  du coût. Elle a sa ligne. Le coût de chaque appel, lui, était juste.
+- **Le secours de GPT-Live tient ses promesses.** Après un échec (session refusée, trop
+  lente, OpenAI injoignable), les appels suivants passent d'emblée par la chaîne classique
+  pendant trois minutes, au lieu d'attendre chacun à leur tour. Et une session tombée en
+  cours d'appel ne renvoie plus tous les appels suivants de l'établissement vers le
+  restaurant : seul le client en ligne est renvoyé, les suivants ont la chaîne classique.
+- Site : « Sans engagement. » n'est plus écrit qu'une fois, sous le formulaire du haut.
+- « Pile vocale » : les détails coupés par des points de suspension s'écrivent en entier.
+
+### Non fait
+- Aucun contrôle de supervision ne surveille les replis de GPT-Live : un crédit épuisé se
+  lit dans « Santé & coûts » et au journal du conteneur, pas dans une alerte.
+- La chaîne classique n'a pas GPT-Live pour secours : quand elle tombe, c'est toujours le
+  renvoi vers le restaurant (ASSISTANTE-118).
+
+## Non publiée — après la recette sans appel : ce qui sortait de l'écran ou se lisait mal (05/10/2026)
+
+L'agent `qa-recette` a regardé chaque page de l'admin et du site à 1280 et 390 px, en clair
+et en sombre (80 vues), sur la version en production. Trois défauts, onze remarques. Tout
+est corrigé sauf une décision qui revient à Helmi ; les mêmes 80 vues ont été reprises
+après correction : aucune page plus large que l'écran, aucun élément rogné, aucun texte de
+l'admin sous 4,5:1.
+
+### Corrigé
+- **« Prochaines réservations » montre les prochaines.** Avec plus de six tables à venir,
+  la salle de contrôle affichait les six plus lointaines et aucune du jour : le tri allait
+  de la plus tardive à la plus proche. La note d'une réservation passe sous la date, au
+  lieu de sortir de la carte quand elle est longue.
+- **Liste des appels sur téléphone** : les six filtres passent à la ligne. « Échecs » était
+  coupé, « Pannes » invisible, et toute la page défilait en largeur.
+- **Page « Enseignes » sur téléphone** : les six actions descendent sous le nom. Le nom
+  s'écrivait un mot par ligne, et « Comptes » et « Supprimer » étaient hors d'atteinte.
+- **Graphiques** : le titre est sorti du dessin (la valeur de la plus haute barre s'écrivait
+  dessus). Sur téléphone, où les textes faisaient 5 à 6 px, un graphique de trente jours
+  garde une largeur lisible et défile dans sa carte, ouvert sur le dernier jour ; celui des
+  créneaux du jour reste entier, avec des textes plus grands.
+- **Contrastes** : les encres de statut du thème clair (vert, or, rouge) et l'encre pâle
+  sont assombries, l'orange posé sur une teinte prend un pas plus sombre, le titre d'un
+  encart d'alerte n'est plus vert, un lien dans un encart prend l'encre du texte. Sur une
+  ligne sélectionnée, l'heure et la pastille restent lisibles en sombre. Sur le site,
+  l'aide sous le champ du rappel passe de 4,27 à 4,94:1.
+- **Vue du parc** : un appel de 23 secondes s'affichait « 0/250 » ; il s'écrit « <1/250 ».
+  « min ce mois-ci » ne se coupe plus en « mois- / ci ».
+- **Listes déroulantes** : elles retrouvent leur flèche, et les champs de date leur icône
+  (un `background` imposé les effaçait). Les libellés des formules sont raccourcis :
+  « 600 minutes » était coupé sur téléphone.
+- **Quatre indicateurs** tiennent de front ou deux par deux, jamais trois et un orphelin.
+- **« Rendu de la voix en cours… »** passe à la ligne au lieu d'élargir la page sur
+  téléphone ; « Écouter la voix sélectionnée (qualité téléphone) » n'est plus tronqué.
+- **Les montants de l'admin s'écrivent avec une virgule**, comme sur le site
+  (« 21,15 € », « 0,072 $ »), y compris dans les alertes de forfait.
+- **`/admin` sans barre finale** redirigeait vers une adresse en `http://`.
+- **Site** : dans le combiné, le nom passe au-dessus de l'état de l'appel (trois lignes
+  chacun sur téléphone, l'heure coupée en deux). Les deux polices sont servies en
+  `font/woff2` et non plus en `application/octet-stream`.
+
+### Ajouté
+- La page de connexion porte la marque (elle n'avait que l'icône de l'onglet).
+
+Laissé à Helmi : « Sans engagement. » reste écrit deux fois sous les champs du rappel.
+Non fait : les réservations de la carte s'affichent encore à la date AAAA-MM-JJ.
+
+## Non publiée — la réécoute calée, et un e-mail qui ne se perd plus (04/10/2026)
+
+Après les dix premiers vrais appels de l'essai GPT-Live, Helmi a relevé deux défauts : à
+la réécoute, sa voix et celle de l'assistante étaient décalées ; et un e-mail
+« réservation modifiée » n'est jamais arrivé.
+
+### Corrigé
+- **À la réécoute d'un appel GPT-Live, l'assistante ne répond plus avant la question.**
+  Sa piste ne contenait que ses sons mis bout à bout, sans le silence du décroché ni celui
+  des pauses : elle était en avance de 2,4 s au premier mot et jusqu'à 4,1 s en fin
+  d'appel (trois conversations jouées contre le vrai GPT-Live). Elle est maintenant calée
+  sur l'heure du décroché : 20 ms d'écart, du premier mot au dernier. Les appels déjà
+  enregistrés restent décalés.
+- **Une connexion refusée par le serveur de messagerie se retente.** `ssl0.ovh.net`
+  refuse au hasard la poignée de main TLS (2 fois sur 60, mesuré depuis le serveur le
+  04/10/2026) et l'on n'essayait qu'une fois : un e-mail sur trente était perdu. Trois
+  tentatives, sur la connexion seulement — un message en cours de remise n'est jamais
+  rejoué, il arriverait en double ; un mot de passe refusé non plus.
+
+### Ajouté
+- Chaque appel GPT-Live note à son journal la file d'attente de la ligne
+  (`file_ligne_max_ms`, `file_ligne_fin_ms`) : le retard pris quand le son arrive par
+  à-coups. Relevé au banc : 343 ms au pire, résorbé en fin d'appel.
+- Le banc `scripts/essai_conversation_gpt_live.py` enregistre comme la production, compare
+  le fichier à l'instant où chaque son a été reçu, et signale ce qui tient la boucle
+  d'événements plus de 100 ms.
+- Un e-mail parti après un refus le dit au journal du conteneur (« à la tentative 2 »).
+
+Non fait : la mise en route du client du modèle fige la boucle 0,5 s au premier
+raisonnement d'un processus (`docs/TEMPS_REEL.md`). Le domaine d'expédition a un SPF mais
+ni DMARC, ni DKIM aux sélecteurs d'OVH (relevé le 04/10/2026) : à poser chez OVH, c'est
+une cause possible d'e-mails reçus en retard — non vérifiée.
+
 ## Non publiée — une table, une réservation (ASSISTANTE-126, 05/10/2026)
 
 Appel 240 : l'assistante entend « Kikato », enregistre la table ; le client épelle

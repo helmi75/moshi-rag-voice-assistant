@@ -633,7 +633,9 @@ def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict
 
     La voix est séparée par fournisseur : l'historique en GPU Moshi et les appels en
     voix Mistral ne se paient pas pareil, et c'est cette comparaison qui a décidé la
-    bascule du 28/09/2026. Une ligne à zéro n'est pas affichée."""
+    bascule du 28/09/2026. GPT-Live a sa ligne aussi : jusqu'au 05/10/2026 ses minutes
+    étaient rangées sous « Voix Mistral », qui n'y était pour rien. Une voix qui n'a
+    servi aucun appel de la fenêtre n'est pas affichée."""
     clause, params = _window(days, 0)
     where = clause.format(col="started_at")
     if tenant_id is not None:
@@ -646,8 +648,11 @@ def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict
                        COALESCE(SUM(cout_comprehension), 0) AS comprehension,
                        COALESCE(SUM(CASE WHEN voix_fournisseur = 'moshi' THEN cout_voix END), 0)
                            AS voix_moshi,
-                       COALESCE(SUM(CASE WHEN voix_fournisseur IS NOT 'moshi' THEN cout_voix END), 0)
-                           AS voix_mistral
+                       COALESCE(SUM(CASE WHEN voix_fournisseur = 'gpt-live' THEN cout_voix END), 0)
+                           AS voix_gpt_live,
+                       COALESCE(SUM(CASE WHEN voix_fournisseur IS NOT 'moshi'
+                                          AND voix_fournisseur IS NOT 'gpt-live'
+                                         THEN cout_voix END), 0) AS voix_mistral
                 FROM calls WHERE {where}""",
             params,
         ).fetchone()
@@ -657,12 +662,77 @@ def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict
         ("Compréhension (Gemini)", r["comprehension"]),
         ("Voix Mistral (Voxtral)", r["voix_mistral"]),
     ]
+    if r["voix_gpt_live"]:
+        rows.append(("Voix GPT-Live (OpenAI)", r["voix_gpt_live"]))
     if r["voix_moshi"]:
         rows.append(("Voix Moshi (GPU, historique)", r["voix_moshi"]))
     total = sum(montant for _, montant in rows)
     return [{"label": label, "amount": montant,
              "share": round(100 * montant / total) if total else 0}
             for label, montant in rows]
+
+
+# Le moteur d'un appel se lit à la voix qui l'a servi : `voix_fournisseur`, rangé à sa
+# clôture. Les appels en GPU Moshi (avant le 28/09/2026) ne sont d'aucun des deux.
+MOTEURS_PAR_VOIX = {"gpt-live": "gpt_live", "voxtral": "classique"}
+
+
+def par_moteur(tenant_id: Optional[int] = None, days: int = 30) -> dict[str, dict]:
+    """Ce que chaque moteur a RÉELLEMENT coûté sur la fenêtre : appels, minutes, coût, et
+    le coût à la minute — la somme des postes rangés à la clôture de chaque appel, pas
+    un tarif recopié. Un moteur qui n'a servi aucun appel est absent du résultat.
+
+    `moteur_par_minute` laisse la téléphonie de côté : Twilio facture la même chose
+    quel que soit le moteur, mais deux à quatre fois plus pour un rappel passé depuis le
+    site, et c'est l'établissement de démonstration qui les reçoit tous. C'est donc ce
+    chiffre-là qui compare les deux moteurs.
+
+    Les appels du banc d'essai n'y sont pas : leur connexion peut rester ouverte des
+    heures après la conversation (voir `couts_appel`)."""
+    clause, params = _window(days, 0)
+    where = clause.format(col="started_at")
+    if tenant_id is not None:
+        where += " AND tenant_id = ?"
+        params.append(tenant_id)
+    with db.get_conn() as conn:
+        lignes = conn.execute(
+            f"""SELECT voix_fournisseur AS voix, COUNT(*) AS n,
+                       COALESCE(SUM(duration_seconds), 0) AS secondes,
+                       COALESCE(SUM(cout_telephonie), 0) AS telephonie,
+                       COALESCE(SUM(cout_transcription), 0) AS transcription,
+                       COALESCE(SUM(cout_comprehension), 0) AS comprehension,
+                       COALESCE(SUM(cout_voix), 0) AS cout_voix
+                FROM calls
+                WHERE {where} AND ended_at IS NOT NULL AND duration_seconds > 0
+                  AND voix_fournisseur IN ('gpt-live', 'voxtral')
+                  AND COALESCE(call_sid, '') NOT LIKE '{PREFIXE_BANC}%'
+                GROUP BY voix_fournisseur""",
+            params,
+        ).fetchall()
+    resultat = {}
+    for r in lignes:
+        minutes = r["secondes"] / 60.0
+        hors_telephonie = r["transcription"] + r["comprehension"] + r["cout_voix"]
+        total = hors_telephonie + r["telephonie"]
+        resultat[MOTEURS_PAR_VOIX[r["voix"]]] = {
+            "n_calls": r["n"], "minutes": minutes, "total": total,
+            "par_minute": total / minutes, "moteur_par_minute": hors_telephonie / minutes,
+        }
+    return resultat
+
+
+def tarifs_gpt_live(cerveau_openai: bool = False) -> dict:
+    """Les tarifs avec lesquels un appel GPT-Live est chiffré (`couts_appel`), pour que
+    l'admin explique son calcul avec les chiffres réellement appliqués. Le cerveau est
+    le nôtre (tarifs d'OpenRouter), sauf si `GPT_LIVE_MODELE` le confie à OpenAI."""
+    entree, cache, sortie = ((_COST_GPT_LIVE_ENTREE, _COST_GPT_LIVE_CACHE, _COST_GPT_LIVE_SORTIE)
+                             if cerveau_openai else
+                             (_COST_LLM_ENTREE, _COST_LLM_CACHE, _COST_LLM_SORTIE))
+    return {"voix_par_minute": _COST_GPT_LIVE_PER_MIN,
+            "telephonie_par_minute": _COST_TWILIO_PER_MIN,
+            "entree_par_million": round(entree * 1e6, 4),
+            "cache_par_million": round(cache * 1e6, 4),
+            "sortie_par_million": round(sortie * 1e6, 4)}
 
 
 def enregistrements_stats(tenant_id: Optional[int] = None, days: int = 7) -> dict:

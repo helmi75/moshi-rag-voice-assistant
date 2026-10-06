@@ -113,12 +113,14 @@ class FauxTwilio:
                 self.repliques.append(f.read())
         self.piste_client = bytearray()
         self.piste_assistante = bytearray()
+        self.envois: list[tuple[float, int, int, bytes]] = []   # (instant, déjà reçu, position, son)
+        self.debut = time.monotonic()            # le décroché : le flux de Twilio tourne dès là
         self.ferme = False
         self._en_cours = b""
         self._suivante = 0
         self._tours_vus = 0
         self.forcees: list[int] = []
-        self._prochaine_trame = None
+        self._prochaine_trame = self.debut       # pendant que la session s'ouvre, les trames s'accumulent
         self._fin_de_replique = time.monotonic()
 
     def _depuis_la_derniere_replique(self) -> str:
@@ -141,8 +143,6 @@ class FauxTwilio:
 
     async def receive_text(self) -> str:
         maintenant = time.monotonic()
-        if self._prochaine_trame is None:
-            self._prochaine_trame = maintenant
         await asyncio.sleep(max(0.0, self._prochaine_trame - maintenant))
         self._prochaine_trame += 0.02
         if self.ferme:
@@ -163,18 +163,77 @@ class FauxTwilio:
 
     async def send_text(self, texte: str) -> None:
         charge = base64.b64decode(json.loads(texte)["media"]["payload"])
-        # La piste de l'assistante commence quand la session parle : on l'aligne sur celle
-        # du client, qui tourne depuis le décroché.
-        if not self.piste_assistante:
-            self.piste_assistante += b"\xff" * max(0, len(self.piste_client) - len(charge))
+        # Ce que la ligne fait d'un son : elle le joue à son arrivée, ou à la suite du
+        # précédent s'il n'est pas fini. C'est la vérité à laquelle on compare l'enregistrement.
+        instant = time.monotonic() - self.debut
+        deja = sum(len(e[3]) for e in self.envois[-1:]) + (self.envois[-1][1] if self.envois else 0)
+        position = max(len(self.piste_assistante), int(instant * 8000))
+        self.piste_assistante += b"\xff" * (position - len(self.piste_assistante))
+        self.envois.append((instant, deja, position, charge))
         self.piste_assistante += charge
 
     async def close(self, code: int = 1000) -> None:
         self.ferme = True
 
 
+def calage(twilio: "FauxTwilio", tenant_id: int, call_id: int) -> None:
+    """Le flux d'OpenAI tel qu'il est arrivé, puis l'écart entre l'instant où chaque son a
+    été entendu et sa place dans le fichier de l'assistante — sans calage (les sons mis
+    bout à bout) et tel que l'enregistreur l'a écrit."""
+    import numpy as np
+
+    from app.voice import enregistrement, ulaw
+
+    envois = twilio.envois
+    if not envois:
+        print("\n--- calage --- aucun son reçu")
+        return
+    tailles = sorted(len(e[3]) for e in envois)
+    recu = sum(tailles) / 8000
+    ecoule = envois[-1][0] - envois[0][0]
+    attentes = [b[0] - a[0] - len(a[3]) / 8000 for a, b in zip(envois, envois[1:])]
+    print("\n--- le flux d'OpenAI ---")
+    print(f"premier son {envois[0][0]:.2f} s après le décroché ; {len(envois)} envois de "
+          f"{tailles[0]} à {tailles[-1]} octets (médiane {tailles[len(tailles) // 2]})")
+    print(f"{recu:.1f} s de son reçus en {ecoule:.1f} s ; plus long retard d'un envoi sur le "
+          f"précédent : {max(attentes, default=0) * 1000:.0f} ms ; retards de plus de 100 ms : "
+          f"{sum(1 for a in attentes if a > 0.1)}")
+
+    fichier = enregistrement.chemin(tenant_id, call_id, "assistante")
+    bande = fichier.read_bytes() if fichier.exists() else b""
+    client = enregistrement.chemin(tenant_id, call_id, "appelant")
+    print("\n--- calage de l'enregistrement ---")
+    print(f"fichiers : appelant {client.stat().st_size / 8000:.1f} s, assistante {len(bande) / 8000:.1f} s "
+          f"; entendu : appelant {len(twilio.piste_client) / 8000:.1f} s, "
+          f"assistante {len(twilio.piste_assistante) / 8000:.1f} s")
+    bout_a_bout, ecrit, curseur = [], [], 0
+    for instant, deja, position, son in envois:
+        pcm = np.frombuffer(ulaw.decoder(son), dtype=np.int16).astype(np.float64)
+        if len(pcm) < 80 or np.sqrt(np.mean(pcm ** 2)) < 500:      # un silence ne se retrouve pas
+            continue
+        bout_a_bout.append((deja - position) / 8)
+        trouve = bande.find(ulaw.encoder(ulaw.decoder(son)), curseur)
+        if trouve >= 0:
+            ecrit.append((trouve - position) / 8)
+            curseur = trouve
+    def resume(ecarts):
+        if not ecarts:
+            return "aucun son retrouvé"
+        tries = sorted(ecarts)
+        return (f"au premier mot {ecarts[0]:+.0f} ms, à la fin {ecarts[-1]:+.0f} ms, médiane "
+                f"{tries[len(tries) // 2]:+.0f} ms, extrêmes {tries[0]:+.0f} / {tries[-1]:+.0f} ms "
+                f"({len(ecarts)} sons)")
+    print("sans calage (sons mis bout à bout) :", resume(bout_a_bout))
+    print("dans le fichier enregistré         :", resume(ecrit))
+    print(json.dumps({"CALAGE": {"premier_son_s": round(envois[0][0], 2),
+                                 "bout_a_bout_ms": [round(e) for e in bout_a_bout[::25]],
+                                 "fichier_ms": [round(e) for e in ecrit[::25]]}}), flush=True)
+
+
 async def converser() -> None:
-    os.environ.setdefault("ENREGISTREMENT_APPELS", "0")
+    os.environ["ENREGISTREMENT_APPELS"] = "1"          # pour comparer le fichier à ce qui a été entendu
+    os.environ["ENREGISTREMENT_DIR"] = f"{SORTIE}/enregistrements"
+    os.environ["ENREGISTREMENT_DISQUE_MINIMUM_MO"] = "0"
     from app import calls, db, reservations, tenants
     from app.voice import bot, live, ulaw
 
@@ -195,6 +254,7 @@ async def converser() -> None:
     call_sid = f"CAESSAI{int(time.time())}"
     call_id = calls.start_call(call_sid, tenant.id, numero)
 
+    twilio = FauxTwilio()                              # le client a décroché : sa piste tourne
     tenant_live, prompt = await live.preparer(tenant, numero)
     t0 = time.monotonic()
     session = await live.ouvrir(tenant_live, prompt, True)
@@ -204,7 +264,6 @@ async def converser() -> None:
     print(f"session ouverte en {time.monotonic() - t0:.2f} s — voix « {live.voix()} », "
           f"arrière-plan {live.modele_arriere()}", flush=True)
 
-    twilio = FauxTwilio()
     origine = live.Appel.__init__
 
     def capter(self, *a, **k):
@@ -221,12 +280,27 @@ async def converser() -> None:
             print(f"(accueil redonné {time.monotonic() - self._debut:.2f} s après le début de l'appel)", flush=True)
 
     live.Appel._relancer_l_accueil_si_muette = relancer_et_dire
+
+    # Un seul processus porte tous les appels : une boucle d'événements bloquée, c'est du son
+    # qui n'avance plus, pour tout le monde. On note chaque à-coup de plus de 100 ms.
+    blocages: list[tuple[float, float]] = []
+
+    async def veiller():
+        while True:
+            avant = time.monotonic()
+            await asyncio.sleep(0.02)
+            retard = time.monotonic() - avant - 0.02
+            if retard > 0.1:
+                blocages.append((round(avant - twilio.debut, 2), round(retard, 2)))
+
+    veilleur = asyncio.create_task(veiller())
     try:
         await asyncio.wait_for(live.run_live(twilio, session, "MZ-essai", call_sid, tenant_live,
                                              caller_number=numero, call_id=call_id,
                                              prompt_systeme=prompt), timeout=150)
     except asyncio.TimeoutError:
         print("⚠ conversation interrompue au bout de 150 s")
+    veilleur.cancel()
     appel = twilio.appel
 
     print("\n--- conversation ---")
@@ -263,6 +337,10 @@ async def converser() -> None:
     print("réservations en base :", [(r["customer_name"], r["date"], r["time"], r["party_size"],
                                       r["customer_phone"]) for r in reservations.list_reservations(tenant.id)])
 
+    print("boucle bloquée plus de 100 ms (instant depuis le décroché, durée en s) :", blocages or "jamais")
+    print("file d'attente de la ligne (ms) : au pire", appel._file_ms("max"), "; en fin d'appel", appel._file_ms("fin"))
+    calage(twilio, tenant.id, call_id)
+
     # La conversation telle qu'on l'entendrait au téléphone : 8 kHz, les deux voix mêlées.
     longueur = max(len(twilio.piste_client), len(twilio.piste_assistante))
     client = bytes(twilio.piste_client).ljust(longueur, b"\xff")
@@ -276,4 +354,10 @@ async def converser() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(dire_les_repliques() if sys.argv[1:] == ["repliques"] else converser())
+    if sys.argv[1:] == ["repliques"]:
+        asyncio.run(dire_les_repliques())
+    else:
+        # « boucle » : asyncio nomme lui-même ce qui a tenu la boucle plus de 100 ms.
+        import logging
+        logging.basicConfig(level=logging.WARNING)
+        asyncio.run(converser(), debug=sys.argv[1:] == ["boucle"])

@@ -75,6 +75,10 @@ def format_duration(seconds) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
+MOTEURS_SERVIS = {"gpt-live": "GPT-Live", "voxtral": "chaîne classique",
+                  "moshi": "chaîne classique, voix Moshi"}
+
+
 def call_view(call: dict) -> dict:
     """Ligne d'appel prête à afficher (liste, panneau de détail, salle de contrôle)."""
     key = outcome_key(call)
@@ -101,6 +105,9 @@ def call_view(call: dict) -> dict:
         # C'est Marie qui a appelé : un rappel demandé sur le site (app/rappel.py). Le
         # numéro affiché est alors celui de la personne APPELÉE.
         "sortant": bool(call.get("sortant")),
+        # Le moteur qui a RÉELLEMENT servi l'appel, lu à la voix rangée à sa clôture : un
+        # établissement réglé sur GPT-Live peut avoir été servi par la chaîne classique.
+        "moteur_libelle": MOTEURS_SERVIS.get(call.get("voix_fournisseur") or ""),
         "date_label": local.date().isoformat() if local else started[:10],
         "time_label": local.strftime("%H:%M") if local else started[11:16],
     }
@@ -152,6 +159,6 @@ def tours_du_journal(journal: Optional[dict]) -> list[dict]:
                 })
         sortie.append({**tour,
                        "horodatage": format_mmss(tour.get("t_ms")),
-                       "blanc_s": f"{ressenti / 1000:.1f}",
+                       "blanc_s": f"{ressenti / 1000:.1f}".replace(".", ","),
                        "etages": etages})
     return sortie

@@ -154,6 +154,19 @@ document.addEventListener("keydown", (event) => {
   cible.focus();
 });
 
+// Sur un téléphone, un graphique de trente jours défile dans sa carte (admin.css,
+// `.viz-dense`) : on l'amène sur le jour le plus récent, celui qu'on vient y lire. Les
+// graphiques arrivent par htmx, d'où le second branchement.
+function allerAuDernierJour(racine) {
+  racine.querySelectorAll(".viz-dense .chart-block").forEach((cadre) => {
+    cadre.scrollLeft = cadre.scrollWidth;
+  });
+}
+allerAuDernierJour(document);
+document.addEventListener("htmx:afterSwap", (event) => {
+  if (event.target instanceof Element) allerAuDernierJour(event.target);
+});
+
 // Menu du téléphone : le bouton aux trois barres déroule la navigation et la referme.
 // L'état est porté par `data-ouvert` sur la barre (la feuille de style fait le reste) et
 // par `aria-expanded` sur le bouton. Échap et un toucher hors de la barre referment.

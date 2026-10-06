@@ -12,12 +12,14 @@ Ce qu'on tient :
   raisonne sur la conversation entendue, et ce qu'il rend est donné à dire ;
 - un outil passe toujours par `llm.run_tool`, avec le numéro de l'appelant ; confié à un
   modèle d'OpenAI (`GPT_LIVE_MODELE`), son résultat lui est rendu avant de continuer ;
-- l'appel est au journal : transcription, blancs, coût aux tarifs d'OpenAI.
+- l'appel est au journal : transcription, blancs, coût aux tarifs d'OpenAI ;
+- à la réécoute, la voix de l'assistante tombe à l'instant où elle a parlé.
 """
 import asyncio
 import base64
 import json
 import time
+from dataclasses import replace
 from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -28,7 +30,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app import calls, db, llm, reservations, tenants
 from app.main import app
-from app.voice import live
+from app.voice import live, ulaw
 
 DEMO_NUMBER = "+33100000000"
 SON_CLIENT = base64.b64encode(b"\xff" * 160).decode()       # 20 ms de silence µ-law
@@ -180,6 +182,50 @@ class TestQuiPasseParGptLive:
     def test_jamais_sans_cle(self, monkeypatch, tenant):
         monkeypatch.delenv("OPENAI_API_KEY")
         assert live.actif(tenant) is False
+        # Même choisi dans l'admin : sans clé, c'est la chaîne classique qui sert.
+        assert live.actif(replace(tenant, moteur_voix="gpt_live")) is False
+
+    def test_le_choix_de_l_admin_l_emporte_sur_la_liste_du_env(self, monkeypatch, tenant):
+        """Le moteur se règle dans la fiche de l'établissement (05/10/2026). La liste du
+        .env ne vaut plus que pour qui n'a aucun choix enregistré."""
+        # Nommé dans la liste, mais réglé sur la chaîne classique : il n'y passe plus.
+        classique = replace(tenant, moteur_voix="classique")
+        assert live.moteur(classique) == live.CLASSIQUE and live.actif(classique) is False
+        # Absent de la liste, mais réglé sur GPT-Live : il y passe.
+        monkeypatch.delenv("GPT_LIVE_ETABLISSEMENTS")
+        choisi = replace(tenant, moteur_voix="gpt_live")
+        assert live.moteur(choisi) == live.GPT_LIVE and live.actif(choisi) is True
+
+    def test_sans_choix_enregistre_l_ancien_reglage_vaut_encore(self, monkeypatch, tenant):
+        """La migration ne change le moteur de personne : l'établissement de l'essai reste
+        sur GPT-Live, les autres sur la chaîne classique."""
+        assert tenant.moteur_voix is None and live.moteur(tenant) == live.GPT_LIVE
+        monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", str(tenant.id + 1))
+        assert live.moteur(tenant) == live.CLASSIQUE
+
+    def test_un_moteur_inconnu_ne_choisit_rien(self, monkeypatch, tenant):
+        monkeypatch.delenv("GPT_LIVE_ETABLISSEMENTS")
+        assert live.moteur(replace(tenant, moteur_voix="autre")) == live.CLASSIQUE
+        assert live.moteur(None) == live.CLASSIQUE and live.actif(None) is False
+
+    def test_un_etablissement_regle_sur_la_chaine_classique_ne_va_pas_chez_openai(
+            self, client, monkeypatch, tenant):
+        """De bout en bout : nommé dans la liste du .env, mais la fiche dit « classique »."""
+        tenants.update_tenant(tenant.id, moteur_voix="classique")
+        session = FausseSession()
+        _brancher(monkeypatch, session)
+        run_bot = AsyncMock()
+        try:
+            with patch("app.main._get_bot_runner", return_value=run_bot):
+                with client.websocket_connect("/ws/voice") as ws:
+                    ws.send_text(json.dumps({"event": "connected"}))
+                    ws.send_text(_debut("CA-live-classique"))
+                    fin = time.monotonic() + 2
+                    while run_bot.await_count == 0 and time.monotonic() < fin:
+                        time.sleep(0.01)
+        finally:
+            tenants.update_tenant(tenant.id, moteur_voix=None)
+        assert run_bot.await_count == 1 and session.recus == []
 
     def test_un_etablissement_hors_essai_suit_le_pipeline_habituel(self, client, monkeypatch, tenant):
         monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", str(tenant.id + 1))
@@ -216,6 +262,122 @@ class TestQuiPasseParGptLive:
 
         monkeypatch.setattr(live, "_connecter", connecter)
         assert asyncio.run(live.ouvrir(tenant, "prompt")) is None
+
+
+class SessionQuiTombe(FausseSession):
+    """La session s'ouvre, reçoit l'accueil à dire, puis la connexion à OpenAI se perd."""
+
+    async def recv(self):
+        if self.de_type("session.commentary.append"):
+            raise OSError("connexion perdue")
+        return await super().recv()
+
+
+class TestLaChaineClassiqueEstLeSecours:
+    """« Par défaut GPT-Live, en secours l'ancienne version » (Helmi, 05/10/2026). Une
+    session qui ne s'ouvre pas rendait déjà l'appel à la chaîne classique ; ce qui manquait,
+    c'est la suite — que les appelants suivants n'attendent pas chacun à leur tour, et
+    qu'une session tombée en cours d'appel n'envoie pas tout l'établissement au restaurant
+    alors que la chaîne classique fonctionne."""
+
+    def _decrocher(self, client, call_sid: str) -> AsyncMock:
+        run_bot = AsyncMock()
+        with patch("app.main._get_bot_runner", return_value=run_bot):
+            with client.websocket_connect("/ws/voice") as ws:
+                ws.send_text(json.dumps({"event": "connected"}))
+                ws.send_text(_debut(call_sid))
+                fin = time.monotonic() + 2
+                while run_bot.await_count == 0 and time.monotonic() < fin:
+                    time.sleep(0.01)
+        return run_bot
+
+    def test_rien_n_est_a_l_ecart_tant_que_tout_va_bien(self, client, monkeypatch):
+        session = FausseSession(lambda evt, s: [_fragment("assistant", " Bonjour. Au revoir.", 0, 900)]
+                                if evt["type"] == "session.commentary.append" else [])
+        _brancher(monkeypatch, session)
+        _appeler(client, "CA-live-sain")
+        assert live.a_l_ecart() is None and live.dernier_echec() is None
+
+    def test_apres_un_refus_les_appels_suivants_ne_retentent_pas_openai(self, client, monkeypatch):
+        ouvertures = []
+
+        async def connecter():
+            ouvertures.append(1)
+            return FausseSession(refuse="credit_balance_exhausted")
+
+        monkeypatch.setattr(live, "_connecter", connecter)
+        assert self._decrocher(client, "CA-live-refus-1").await_count == 1
+        assert "credit_balance_exhausted" in live.a_l_ecart()
+        # Le deuxième appelant est servi par la chaîne classique sans attendre OpenAI.
+        assert self._decrocher(client, "CA-live-refus-2").await_count == 1
+        assert len(ouvertures) == 1
+        echec = live.dernier_echec()
+        assert echec["a_l_ecart"] is True and "refusée" in echec["motif"] and echec["le"].endswith("Z")
+
+    def test_passe_le_delai_un_appel_retente_gpt_live(self, client, monkeypatch):
+        live.mettre_a_l_ecart("session refusée (essai)")
+        live._echec["depuis"] -= live.MISE_A_L_ECART_SECONDES + 1
+        assert live.a_l_ecart() is None
+        # L'admin sait encore qu'il y a eu un échec, mais plus rien n'est à l'écart.
+        assert live.dernier_echec()["a_l_ecart"] is False
+        session = FausseSession(lambda evt, s: [_fragment("assistant", " Bonjour. Au revoir.", 0, 900)]
+                                if evt["type"] == "session.commentary.append" else [])
+        _brancher(monkeypatch, session)
+        _appeler(client, "CA-live-retente")
+        assert session.de_type("session.start")
+
+    def test_openai_injoignable_ou_trop_lent_met_aussi_a_l_ecart(self, monkeypatch, tenant):
+        async def connecter():
+            raise OSError("réseau")
+
+        monkeypatch.setattr(live, "_connecter", connecter)
+        assert asyncio.run(live.ouvrir(tenant, "prompt")) is None
+        assert "OSError" in live.a_l_ecart()
+
+        live.reinitialiser()
+        monkeypatch.setenv("GPT_LIVE_DELAI_OUVERTURE", "1")
+
+        class Muette(FausseSession):
+            async def send(self, texte):
+                self.recus.append(json.loads(texte))      # ne répond jamais « prête »
+
+        _brancher(monkeypatch, Muette())
+        assert asyncio.run(live.ouvrir(tenant, "prompt")) is None
+        assert "trop longue" in live.a_l_ecart()
+
+    def test_une_session_tombee_en_cours_d_appel_n_envoie_pas_les_suivants_au_restaurant(
+            self, client, monkeypatch, tenant):
+        from app import renvoi
+
+        _brancher(monkeypatch, SessionQuiTombe())
+        _appeler(client, "CA-live-tombe")
+        # Ce client-là est passé au restaurant : on ne reprend pas un appel en route.
+        assert renvoi.motif_a_la_fin_du_flux("CA-live-tombe") == renvoi.PIPELINE
+        # Mais la chaîne classique n'a rien montré : l'établissement n'est pas « en panne »,
+        # c'est GPT-Live qui est mis de côté.
+        assert renvoi.panne_recente(tenant.id) is None
+        assert "appel interrompu" in live.a_l_ecart()
+        assert self._decrocher(client, "CA-live-apres-la-chute").await_count == 1
+
+    def test_la_chaine_classique_qui_tombe_reste_une_panne(self, client, monkeypatch, tenant):
+        """Contre-épreuve : c'est seulement quand GPT-Live servait que la panne lui revient."""
+        from app import renvoi
+
+        tenants.update_tenant(tenant.id, moteur_voix="classique")
+        run_bot = AsyncMock(side_effect=RuntimeError("pipeline"))
+        try:
+            with patch("app.main._get_bot_runner", return_value=run_bot):
+                with client.websocket_connect("/ws/voice") as ws:
+                    ws.send_text(json.dumps({"event": "connected"}))
+                    ws.send_text(_debut("CA-classique-tombe"))
+                    try:
+                        while True:
+                            ws.receive_text()
+                    except WebSocketDisconnect:
+                        pass
+        finally:
+            tenants.update_tenant(tenant.id, moteur_voix=None)
+        assert renvoi.panne_recente(tenant.id) == renvoi.PIPELINE and live.a_l_ecart() is None
 
 
 class TestLaSession:
@@ -628,9 +790,143 @@ class TestLAccueilEtLEnregistrement:
         from app.voice import enregistrement
 
         # 12 trames de 160 octets par piste, écrites en µ-law : rien n'est resté en tampon.
-        for piste in enregistrement.PISTES:
-            assert enregistrement.chemin(tenant.id, ligne["id"], piste).stat().st_size == 12 * 160
-        assert ligne["recording_bytes"] == 2 * 12 * 160
+        # Celle de l'assistante peut en plus porter le silence qui la cale sur l'appelant.
+        tailles = {piste: enregistrement.chemin(tenant.id, ligne["id"], piste).stat().st_size
+                   for piste in enregistrement.PISTES}
+        assert tailles["appelant"] == 12 * 160
+        assert 12 * 160 <= tailles["assistante"] <= 24 * 160
+        assert ligne["recording_bytes"] == sum(tailles.values())
+
+
+class _Bandes:
+    """Ce que l'enregistreur écrirait, gardé en mémoire : une suite d'octets par piste."""
+
+    def __init__(self):
+        self.pistes = {"appelant": bytearray(), "assistante": bytearray()}
+
+    def ecrire(self, piste: str, pcm16: bytes) -> None:
+        self.pistes[piste] += ulaw.encoder(pcm16)
+
+
+TRAME = 160                                   # 20 ms au téléphone
+VOIX = b"\x10" * TRAME                        # un son net, que µ-law rend à l'identique
+AUTRE_VOIX = b"\x20" * TRAME
+
+
+class TestLesDeuxVoixSontCalees:
+    """Les deux pistes sont rejouées côte à côte depuis leur premier octet. Celle de
+    l'appelant avance sans trou depuis le décroché ; OpenAI n'envoie rien tant que la
+    session s'ouvre. Sans calage, la voix de l'assistante était collée au début de son
+    fichier : à la réécoute, elle répondait avant la question (Helmi, 04/10/2026)."""
+
+    def _appel(self):
+        appel = live.Appel(None, None, "MZ", "CA", None, None, None)
+        appel.enregistreur = _Bandes()
+        self.heure = 1000.0                       # l'horloge de l'appel, qu'on avance à la main
+        appel._horloge = lambda: self.heure
+        return appel
+
+    def _le_client(self, appel, trames: int, en_retard: float = 0.0) -> None:
+        """Des trames de 20 ms, chacune reçue à l'instant où elle finit — ou `en_retard`."""
+        self.heure += en_retard
+        for _ in range(trames):
+            self.heure += 0.02
+            appel._enregistrer("appelant", base64.b64encode(b"\xff" * TRAME).decode())
+        self.heure -= en_retard
+
+    def _elle_dit(self, appel, son: bytes, trames: int, a_la_cadence: bool = True) -> None:
+        for _ in range(trames):
+            appel._enregistrer("assistante", base64.b64encode(son).decode())
+            if a_la_cadence:
+                self.heure += 0.02
+
+    def _bande(self, appel) -> bytes:
+        appel.vider_les_tampons()
+        return bytes(appel.enregistreur.pistes["assistante"])
+
+    def test_son_premier_mot_tombe_a_l_instant_ou_elle_l_a_dit(self):
+        appel = self._appel()
+        self._le_client(appel, 100)                                # 2 s depuis le décroché
+        self._elle_dit(appel, VOIX, 10)
+        bande = self._bande(appel)
+        assert bande.find(VOIX) == 100 * TRAME
+        assert bande[:100 * TRAME] == b"\xff" * (100 * TRAME)
+
+    def test_les_trames_accumulees_pendant_l_ouverture_ne_faussent_pas_le_decroche(self):
+        """La session met 1,5 s à s'ouvrir : les 75 premières trames arrivent d'un bloc."""
+        appel = self._appel()
+        self.heure += 1.5
+        for _ in range(75):
+            appel._enregistrer("appelant", base64.b64encode(b"\xff" * TRAME).decode())
+        self._le_client(appel, 25)                                 # puis à la cadence
+        self._elle_dit(appel, VOIX, 5)
+        assert self._bande(appel).find(VOIX) == 100 * TRAME
+
+    def test_un_silence_d_openai_ne_decale_pas_ce_qui_suit(self):
+        appel = self._appel()
+        self._le_client(appel, 1)
+        self._elle_dit(appel, VOIX, 10, a_la_cadence=False)
+        self._le_client(appel, 60)                                 # 1,2 s sans rien d'OpenAI
+        self._elle_dit(appel, AUTRE_VOIX, 5)
+        bande = self._bande(appel)
+        assert bande.find(VOIX) == 1 * TRAME
+        assert bande.find(AUTRE_VOIX) == 61 * TRAME
+
+    def test_des_trames_du_client_en_retard_ne_decalent_pas_l_assistante(self):
+        """Mesuré contre le vrai GPT-Live : après un à-coup d'une seconde, les sons
+        d'OpenAI étaient traités avant les trames du client. Caler une piste sur l'autre
+        plaçait alors l'assistante une seconde trop tôt, jusqu'à la fin de l'appel."""
+        appel = self._appel()
+        self._le_client(appel, 50)                                 # 1 s, à l'heure
+        self.heure += 1.0                                          # 1 s d'à-coup : rien n'est traité
+        self._elle_dit(appel, VOIX, 5, a_la_cadence=False)         # ses sons passent d'abord
+        self._le_client(appel, 50, en_retard=0.0)
+        assert self._bande(appel).find(VOIX) == 100 * TRAME        # 2 s après le décroché, pas 1
+
+    def test_un_flux_regulier_n_est_pas_troue(self):
+        appel = self._appel()
+        for _ in range(50):
+            self._le_client(appel, 1)
+            appel._enregistrer("assistante", base64.b64encode(VOIX).decode())
+        assert self._bande(appel) == b"\xff" * TRAME + VOIX * 50   # un seul calage, au début
+
+    def test_un_flux_en_avance_n_est_ni_coupe_ni_retarde(self):
+        appel = self._appel()
+        self._le_client(appel, 1)
+        self._elle_dit(appel, VOIX, 30, a_la_cadence=False)        # OpenAI envoie d'un bloc
+        self._le_client(appel, 5)
+        self._elle_dit(appel, AUTRE_VOIX, 2, a_la_cadence=False)
+        assert self._bande(appel) == b"\xff" * TRAME + VOIX * 30 + AUTRE_VOIX * 2
+
+    def test_un_son_arrive_d_un_bloc_laisse_une_file_sur_la_ligne_et_on_la_mesure(self):
+        """Le flux d'OpenAI est continu : ce retard-là ne se rattrape pas tout seul."""
+        appel = self._appel()
+        self._le_client(appel, 50)
+        self._elle_dit(appel, VOIX, 50, a_la_cadence=False)        # 1 s de son en un instant
+        self._le_client(appel, 25)                                 # 0,5 s plus tard…
+        self._elle_dit(appel, AUTRE_VOIX, 1, a_la_cadence=False)   # …la ligne a encore 0,5 s à jouer
+        compteurs = appel.journal({})["compteurs"]
+        assert compteurs["file_ligne_max_ms"] == 980               # avant le dernier son du bloc
+        assert compteurs["file_ligne_fin_ms"] == 500
+
+    def test_un_flux_a_la_cadence_ne_laisse_pas_de_file(self):
+        appel = self._appel()
+        self._le_client(appel, 10)
+        for _ in range(50):
+            appel._enregistrer("assistante", base64.b64encode(VOIX).decode())
+            self._le_client(appel, 1)
+        compteurs = appel.journal({})["compteurs"]
+        assert compteurs["file_ligne_max_ms"] == 0 and compteurs["file_ligne_fin_ms"] == 0
+
+    def test_sans_enregistrement_la_file_n_est_pas_mesuree_et_on_le_dit(self):
+        appel = live.Appel(None, None, "MZ", "CA", None, None, None)
+        assert appel.journal({})["compteurs"]["file_ligne_max_ms"] is None
+
+    def test_un_enregistreur_en_panne_ne_touche_pas_l_appel(self):
+        appel = self._appel()
+        appel.enregistreur.ecrire = None                           # appeler None lèverait
+        self._le_client(appel, 20)
+        self._elle_dit(appel, VOIX, 20)
 
 
 class TestLesTours:

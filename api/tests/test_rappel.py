@@ -605,8 +605,12 @@ class TestDansLAdmin:
         client.post("/admin/login", data={"email": "admin@test.local",
                                           "password": "test-admin-pass"})
         page = client.get("/admin/calls").text
-        with db.get_conn() as conn:
-            passes = conn.execute("SELECT COUNT(*) FROM calls WHERE sortant = 1").fetchone()[0]
+        # Comptés sur la page affichée, pas sur toute la base : la liste n'en montre que
+        # les vingt-cinq derniers, et les appels passés des tests d'avant, antidatés,
+        # en sortent dès que la suite grandit (vécu le 05/10/2026).
+        from app.admin.routes_calls import PAGE_SIZE
+
+        passes = sum(1 for appel in calls.list_calls(limit=PAGE_SIZE) if appel["sortant"])
         # Une étiquette par appel passé, aucune sur les appels reçus.
         assert passes >= 1 and page.count("Rappel du site · ") == passes
         passe = _appel("CA-admin-passe")["id"]

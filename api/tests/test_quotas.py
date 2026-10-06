@@ -230,7 +230,7 @@ class TestAlertes:
         _appels(resto.id, 1, secondes=(essentiel.minutes_incluses + 20) * 60.0)
         alerte = quotas.alertes([tenants.get_by_id(resto.id)])[0]
         assert "20 minute" in alerte["title"]
-        assert f"{round(20 * essentiel.minute_supp_eur, 2):.2f}" in alerte["detail"]
+        assert f"{round(20 * essentiel.minute_supp_eur, 2):.2f}".replace(".", ",") in alerte["detail"]
         assert "la minute" in alerte["detail"]
         assert "pas été coupée" in alerte["detail"]
 
@@ -240,7 +240,7 @@ class TestAlertes:
         _appels(resto.id, 1, secondes=essentiel.minutes_incluses * 0.9 * 60.0)
         alerte = quotas.alertes([tenants.get_by_id(resto.id)])[0]
         assert "90 % du forfait" in alerte["title"]
-        assert f"{essentiel.minute_supp_eur:.2f} €" in alerte["detail"]
+        assert f"{essentiel.minute_supp_eur:.2f} €".replace(".", ",") in alerte["detail"]
 
 
 class TestFormuleAppliquee:
@@ -389,7 +389,7 @@ class TestAffichage:
         assert "Forfait Essentiel" in page and "Dans le forfait" in page
         assert (f"3 minutes d'appel ce mois-ci sur {essentiel.minutes_incluses} "
                 "minutes incluses, en 2 appel(s)") in page
-        assert f"chaque minute est facturée {essentiel.minute_supp_eur:.2f} €" in page
+        assert f"chaque minute est facturée {essentiel.minute_supp_eur:.2f} €".replace(".", ",") in page
         assert f'aria-label="3 minutes sur {essentiel.minutes_incluses} minutes incluses"' in page
 
     def test_un_appel_court_s_affiche_en_secondes(self, client, etablissement):
@@ -416,7 +416,7 @@ class TestAffichage:
         page = self._texte(client.get(f"/admin/?tenant_id={etablissement.id}"))
         assert "Forfait dépassé" in page
         assert "40 minute(s) hors forfait" in page
-        assert f"{40 * service.minute_supp_eur:.2f} € à facturer" in page
+        assert f"{40 * service.minute_supp_eur:.2f} € à facturer".replace(".", ",") in page
         assert "ne le sera pas" in page  # la ligne n'est jamais coupée, et on le dit
 
     def test_sans_forfait_ni_barre_ni_plafond(self, client, etablissement):
@@ -425,7 +425,7 @@ class TestAffichage:
         _appels(etablissement.id, 1, secondes=20 * 60.0, prefixe="AFF-L")
         page = self._texte(client.get(f"/admin/?tenant_id={etablissement.id}"))
         assert "Formule Liberté" in page and "Sans abonnement" in page
-        assert f"soit {20 * liberte.minute_supp_eur:.2f} € à facturer" in page
+        assert f"soit {20 * liberte.minute_supp_eur:.2f} € à facturer".replace(".", ",") in page
         assert "incluses" not in page and 'class="meter' not in page
         assert "dépassé" not in page
 
@@ -434,7 +434,27 @@ class TestAffichage:
         tenants.update_tenant(etablissement.id, plan="essentiel")
         _appels(etablissement.id, 1, secondes=12 * 60.0, prefixe="AFF-P")
         page = self._texte(client.get("/admin/"))
-        assert f"<b>12/{essentiel.minutes_incluses}</b> <span>min ce mois-ci</span>" in page
+        assert f"<b>12/{essentiel.minutes_incluses}</b> <span>min ce mois\u2011ci</span>" in page
+
+    def test_le_parc_n_ecrit_pas_zero_minute_apres_un_vrai_appel(self, client, etablissement):
+        """Recette du 05/10/2026 : un appel de 23 secondes s'affichait « 0/250 » dans la
+        vue du parc, alors que la salle de contrôle écrit « 23 secondes »."""
+        essentiel = plans.get("essentiel")
+        tenants.update_tenant(etablissement.id, plan="essentiel")
+        _appels(etablissement.id, 1, secondes=23.0, prefixe="AFF-23")
+        ligne = self._ligne_du_parc(client, etablissement)
+        assert f"<b>&lt;1/{essentiel.minutes_incluses}</b>" in ligne
+        assert f"<b>0/{essentiel.minutes_incluses}</b>" not in ligne
+
+    def test_sans_appel_le_parc_ecrit_bien_zero(self, client, etablissement):
+        essentiel = plans.get("essentiel")
+        tenants.update_tenant(etablissement.id, plan="essentiel")
+        assert f"<b>0/{essentiel.minutes_incluses}</b>" in self._ligne_du_parc(client, etablissement)
+
+    def _ligne_du_parc(self, client, etablissement) -> str:
+        page = self._texte(client.get("/admin/"))
+        debut = page.index(f'href="/admin/?tenant_id={etablissement.id}"')
+        return page[debut:page.index("</a>", debut)]
 
     def test_les_chiffres_du_parc_forment_un_bloc_qui_passe_sous_le_nom(self, client,
                                                                          etablissement):
@@ -453,13 +473,14 @@ class TestAffichage:
         tenants.update_tenant(etablissement.id, plan="liberte")
         _appels(etablissement.id, 1, secondes=12 * 60.0, prefixe="AFF-PL")
         page = self._texte(client.get("/admin/"))
-        assert "<b>12</b> <span>min ce mois-ci</span>" in page
+        assert "<b>12</b> <span>min ce mois\u2011ci</span>" in page
 
     def test_la_fiche_propose_les_formules_en_minutes(self, client, etablissement):
         page = self._texte(client.get(f"/admin/tenants/{etablissement.id}/edit"))
         for f in plans.catalogue():
             if f.sans_forfait:
-                assert f"{f.label} — sans abonnement, {f.minute_supp_eur:.2f} € la minute" in page
+                assert (f"{f.label} · sans abonnement · {f.minute_supp_eur:.2f}".replace(".", ",")
+                        + " €/min") in page
             else:
-                assert f"{f.label} — {f.prix_mensuel_eur} €/mois, {f.minutes_incluses} minutes" in page
+                assert f"{f.label} · {f.prix_mensuel_eur} €/mois · {f.minutes_incluses} min" in page
         assert "appels" not in page[page.index('name="plan"'):page.index("</select>", page.index('name="plan"'))]
