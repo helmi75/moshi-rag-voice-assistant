@@ -141,6 +141,7 @@ Maintenant il dit lequel des quatre maillons l'a produit.
 | S2 | 48 h plus tard : retirer `TWILIO_SIGNATURE=log`, redéployer, rappeler | Ça décroche toujours (mode `enforce`) | |
 | O1 | Saisir les horaires dans l'admin (fermé le lundi), puis « une table lundi à 20h » | Refus poli **avec** une alternative ouverte ; **rien** en base | |
 | O2 | « Mardi à 20h » (jour ouvert) | Acceptée | |
+| O3 | « Ce que l'IA sait » : enregistrer les horaires sans aucune plage, cases « Fermé » cochées ou non (ASSISTANTE-130) | Refus : « Aucune plage d'ouverture saisie : rien n'a été enregistré » ; les horaires d'avant sont toujours là | |
 | N1 | Réserver (B1) | E-mail reçu : date en toutes lettres, couverts, numéro de l'appelant | |
 | N2 | Laisser un message (« rappelez-moi pour un groupe ») | E-mail « message pris » reçu | |
 | N3 | Modifier puis annuler (C1, C3) | Deux e-mails : modifiée, annulée | |

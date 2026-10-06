@@ -7,6 +7,23 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — des horaires vides ne ferment plus le restaurant (ASSISTANTE-130, 06/10/2026)
+
+Le 06/10/2026, Le Bouchon Doré avait en base « fermé du lundi au dimanche » sans que
+personne l'ait saisi : l'assistante a refusé deux réservations (appels 249 et 252) et le
+renvoi en cas de panne partait au répondeur. Le formulaire « Horaires », envoyé sans aucune
+plage, enregistrait sept jours fermés sans avertir.
+
+### Corrigé
+- **Un formulaire d'horaires sans aucune plage n'est plus enregistré** : la page répond
+  « Aucune plage d'ouverture saisie : rien n'a été enregistré », et les horaires d'avant
+  restent. Pour des congés, les fermetures exceptionnelles.
+- **Le parc alerte « fermé sept jours sur sept »** quand des horaires déjà en base n'ont
+  aucune plage.
+
+### Non prouvé
+- L'envoi du formulaire vide lui-même : il n'est pas dans les journaux sauvegardés.
+
 ## Non publiée — le travail en agents (05/10/2026)
 
 ### Modifié

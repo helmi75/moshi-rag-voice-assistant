@@ -11,7 +11,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, db, disponibilite, horloge, quotas, reservations, supervision, tenants
+from .. import (calls, connecteurs, db, disponibilite, horloge, quotas, reservations,
+                supervision, tenants)
 from ..users import User
 from ..voice import greeting as greeting_mod
 from ..voice import live
@@ -96,6 +97,10 @@ def _venue_rows(days: int = _WINDOW_DAYS) -> list[dict]:
             "gaps": [s for s in sections if not s["filled"]],
             "horaires_ok": disponibilite.est_configure(
                 disponibilite.charger(tenant.opening_hours)),
+            # Pas pour un établissement resOS : ses horaires viennent du carnet, et la
+            # page « Horaires » refuserait de corriger la colonne locale (409).
+            "toujours_ferme": not connecteurs.est_resos(tenant) and disponibilite.toujours_ferme(
+                disponibilite.charger(tenant.opening_hours)),
             "quota": conso[tenant.id],
         })
     return rows
@@ -131,6 +136,13 @@ def _alerts(rows: list[dict]) -> list[dict]:
                 "level": "warn", "title": f"{name} · horaires d'ouverture non renseignés",
                 "detail": "L'assistante ne refusera aucun créneau fermé : elle peut enregistrer "
                           "une table un jour de fermeture. Ouvrez « Horaires d'ouverture ».",
+            })
+        if row["toujours_ferme"]:
+            alerts.append({
+                "level": "warn", "title": f"{name} · fermé sept jours sur sept",
+                "detail": "Les horaires enregistrés n'ont aucune plage d'ouverture : "
+                          "l'assistante refuse toutes les réservations. Ouvrez « Horaires "
+                          "d'ouverture ».",
             })
         if not row["tenant"].numero_secours:
             alerts.append({

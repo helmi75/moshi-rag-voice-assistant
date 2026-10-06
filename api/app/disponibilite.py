@@ -80,6 +80,12 @@ def est_configure(horaires: Optional[dict]) -> bool:
     return horaires is not None
 
 
+def toujours_ferme(horaires: Optional[dict]) -> bool:
+    """Horaires renseignés mais aucune plage un seul jour de la semaine : l'assistante
+    refuserait toutes les réservations (vu le 06/10/2026, formulaire enregistré vide)."""
+    return est_configure(horaires) and not any(horaires["semaine"][j] for j in JOURS)
+
+
 def _ferme_exceptionnellement(horaires: dict, jour: date) -> bool:
     return any(debut <= jour <= fin for debut, fin in horaires["fermetures"])
 
@@ -238,6 +244,11 @@ def depuis_formulaire(form: Mapping) -> tuple[Optional[dict], list[str]]:
                            "AAAA-MM-JJ/AAAA-MM-JJ.")
             continue
         fermetures.append(f"{min(d, f).isoformat()}/{max(d, f).isoformat()}" if f != d else d.isoformat())
+    if not erreurs and not any(semaine.values()):
+        erreurs.append("Aucune plage d'ouverture saisie : rien n'a été enregistré. Fermé sept "
+                       "jours sur sept, l'assistante refuserait toutes les réservations. Si vous "
+                       "avez saisi des heures, décochez « Fermé » sur ces jours-là. Pour des "
+                       "congés, utilisez les fermetures exceptionnelles.")
     if erreurs:
         return None, erreurs
     return {"semaine": semaine, "fermetures": fermetures}, []
