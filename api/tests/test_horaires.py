@@ -121,6 +121,25 @@ class TestDisponibilitePure:
         _, erreurs = disponibilite.depuis_formulaire({"fermetures": "Noël"})
         assert erreurs and "Noël" in erreurs[0]
 
+    def test_un_formulaire_sans_aucune_plage_n_est_pas_enregistre(self):
+        """06/10/2026 : un formulaire vide fermait le restaurant sept jours sur sept."""
+        horaires, erreurs = disponibilite.depuis_formulaire({})
+        assert horaires is None and "Aucune plage d'ouverture" in erreurs[0]
+        tout_ferme = {f"{j}_ferme": "on" for j in disponibilite.JOURS}
+        horaires, erreurs = disponibilite.depuis_formulaire(tout_ferme)
+        assert horaires is None and erreurs
+
+    def test_un_seul_jour_ouvert_suffit(self):
+        horaires, erreurs = disponibilite.depuis_formulaire(
+            {"samedi_1_debut": "12:00", "samedi_1_fin": "14:00"})
+        assert erreurs == [] and horaires["semaine"]["samedi"] == [["12:00", "14:00"]]
+
+    def test_toujours_ferme_pour_les_donnees_deja_en_base(self):
+        vide = {"semaine": {j: [] for j in disponibilite.JOURS}, "fermetures": []}
+        assert disponibilite.toujours_ferme(vide)
+        assert not disponibilite.toujours_ferme(None)
+        assert not disponibilite.toujours_ferme(disponibilite.charger(json.dumps(HORAIRES)))
+
 
 @pytest.fixture()
 def resto(tmp_path, monkeypatch):
@@ -259,6 +278,16 @@ class TestAdminHoraires:
         assert 'value="22:30"' in resp.text  # le mardi saisi est toujours là
         assert tenants.get_by_id(etablissement.id).opening_hours is None
 
+    def test_un_formulaire_vide_n_enregistre_rien(self, etablissement):
+        client = _login(TestClient(app))
+        token = _csrf(client)
+        assert tenants.get_by_id(etablissement.id).opening_hours is None
+        resp = client.post(f"/admin/tenants/{etablissement.id}/horaires",
+                           data={"csrf_token": token})
+        assert resp.status_code == 422
+        assert "Aucune plage d" in resp.text
+        assert tenants.get_by_id(etablissement.id).opening_hours is None
+
     def test_un_restaurateur_ne_touche_pas_aux_horaires_d_un_autre(self, etablissement):
         autre = tenants.create_tenant("Autre Resto", f"+3364{id(object()) % 10_000_000:07d}")
         try:
@@ -278,6 +307,13 @@ class TestAlerteParc:
     def test_sans_horaires_le_parc_alerte(self, etablissement):
         alertes = routes_dashboard._alerts(routes_dashboard._venue_rows())
         assert any("horaires d'ouverture non renseignés" in a["title"]
+                   and etablissement.name in a["title"] for a in alertes)
+
+    def test_ferme_sept_jours_sur_sept_le_parc_alerte(self, etablissement):
+        vide = {"semaine": {j: [] for j in disponibilite.JOURS}, "fermetures": []}
+        tenants.update_tenant(etablissement.id, opening_hours=json.dumps(vide))
+        alertes = routes_dashboard._alerts(routes_dashboard._venue_rows())
+        assert any("fermé sept jours sur sept" in a["title"]
                    and etablissement.name in a["title"] for a in alertes)
 
     def test_avec_horaires_plus_d_alerte(self, etablissement):

@@ -96,6 +96,8 @@ def _venue_rows(days: int = _WINDOW_DAYS) -> list[dict]:
             "gaps": [s for s in sections if not s["filled"]],
             "horaires_ok": disponibilite.est_configure(
                 disponibilite.charger(tenant.opening_hours)),
+            "toujours_ferme": disponibilite.toujours_ferme(
+                disponibilite.charger(tenant.opening_hours)),
             "quota": conso[tenant.id],
         })
     return rows
@@ -131,6 +133,13 @@ def _alerts(rows: list[dict]) -> list[dict]:
                 "level": "warn", "title": f"{name} · horaires d'ouverture non renseignés",
                 "detail": "L'assistante ne refusera aucun créneau fermé : elle peut enregistrer "
                           "une table un jour de fermeture. Ouvrez « Horaires d'ouverture ».",
+            })
+        if row["toujours_ferme"]:
+            alerts.append({
+                "level": "warn", "title": f"{name} · fermé sept jours sur sept",
+                "detail": "Les horaires enregistrés n'ont aucune plage d'ouverture : "
+                          "l'assistante refuse toutes les réservations. Ouvrez « Horaires "
+                          "d'ouverture ».",
             })
         if not row["tenant"].numero_secours:
             alerts.append({
