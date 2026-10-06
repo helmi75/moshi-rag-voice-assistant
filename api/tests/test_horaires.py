@@ -321,3 +321,5 @@ class TestAlerteParc:
         alertes = routes_dashboard._alerts(routes_dashboard._venue_rows())
         assert not any("horaires" in a["title"] and etablissement.name in a["title"]
                        for a in alertes)
+        assert not any("fermé sept jours" in a["title"] and etablissement.name in a["title"]
+                       for a in alertes)

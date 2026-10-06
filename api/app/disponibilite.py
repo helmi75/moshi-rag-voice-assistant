@@ -246,8 +246,9 @@ def depuis_formulaire(form: Mapping) -> tuple[Optional[dict], list[str]]:
         fermetures.append(f"{min(d, f).isoformat()}/{max(d, f).isoformat()}" if f != d else d.isoformat())
     if not erreurs and not any(semaine.values()):
         erreurs.append("Aucune plage d'ouverture saisie : rien n'a été enregistré. Fermé sept "
-                       "jours sur sept, l'assistante refuserait toutes les réservations. Pour "
-                       "des congés, utilisez les fermetures exceptionnelles.")
+                       "jours sur sept, l'assistante refuserait toutes les réservations. Si vous "
+                       "avez saisi des heures, décochez « Fermé » sur ces jours-là. Pour des "
+                       "congés, utilisez les fermetures exceptionnelles.")
     if erreurs:
         return None, erreurs
     return {"semaine": semaine, "fermetures": fermetures}, []

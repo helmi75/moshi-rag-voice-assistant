@@ -11,7 +11,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import calls, db, disponibilite, horloge, quotas, reservations, supervision, tenants
+from .. import (calls, connecteurs, db, disponibilite, horloge, quotas, reservations,
+                supervision, tenants)
 from ..users import User
 from ..voice import greeting as greeting_mod
 from ..voice import live
@@ -96,7 +97,9 @@ def _venue_rows(days: int = _WINDOW_DAYS) -> list[dict]:
             "gaps": [s for s in sections if not s["filled"]],
             "horaires_ok": disponibilite.est_configure(
                 disponibilite.charger(tenant.opening_hours)),
-            "toujours_ferme": disponibilite.toujours_ferme(
+            # Pas pour un établissement resOS : ses horaires viennent du carnet, et la
+            # page « Horaires » refuserait de corriger la colonne locale (409).
+            "toujours_ferme": not connecteurs.est_resos(tenant) and disponibilite.toujours_ferme(
                 disponibilite.charger(tenant.opening_hours)),
             "quota": conso[tenant.id],
         })

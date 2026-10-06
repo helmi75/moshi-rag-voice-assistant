@@ -118,3 +118,6 @@ banc.ulaw
 banc-voix/
 banc-conversation-*.json
 banc-couts.json
+
+# Arbres de travail des agents (un par ticket, jetables).
+.claude/worktrees/

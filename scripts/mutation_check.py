@@ -960,6 +960,15 @@ GARDE_FOUS = [
     ),
     # ---- ASSISTANTE-119 : « Rappelez-moi », la seule route qui compose un numéro ---------
     GardeFou(
+        nom="Des horaires sans aucune plage ne s'enregistrent pas (ASSISTANTE-130)",
+        fichier="api/app/disponibilite.py",
+        avant="    if not erreurs and not any(semaine.values()):",
+        apres="    if False:  # mutation",
+        tests=["test_horaires.py"],
+        k="sans_aucune_plage or formulaire_vide",
+        panne="un formulaire envoyé vide fermerait le restaurant sept jours sur sept : toute réservation refusée",
+    ),
+    GardeFou(
         nom="Une seconde réservation au même créneau, pour le même numéro, est refusée",
         fichier="api/app/llm.py",
         avant='            if _jour(deja["date"]) == jour and _hhmm(deja["time"]) == heure:',
