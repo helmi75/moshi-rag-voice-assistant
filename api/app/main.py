@@ -349,17 +349,25 @@ async def suite_du_flux(
     To: Optional[str] = Form(None),
     From: Optional[str] = Form(None),
     ForwardedFrom: Optional[str] = Form(None),
+    CallStatus: Optional[str] = Form(None),
 ):
     """Le flux média s'est arrêté et l'appel est toujours en ligne. S'il s'est terminé
     normalement, on raccroche ; si l'assistante a demandé le renvoi, ou si le flux ne
     s'est jamais ouvert chez nous, le client est passé au restaurant."""
-    motif = renvoi.motif_a_la_fin_du_flux(CallSid)
+    # Plus personne en ligne (raccroché au décroché, appel coupé) : rien à renvoyer, et
+    # surtout pas une panne à signaler à tout le parc (ASSISTANTE-127).
+    if renvoi.appel_fini(CallStatus):
+        logger.info(f"[suite] appel {CallSid} déjà terminé chez Twilio ({CallStatus}) : rien à renvoyer")
+        return _twiml("    <Hangup/>")
+    motif = await renvoi.motif_apres_grace(CallSid)
     if motif is None:
         return _twiml("    <Hangup/>")
     tenant = await db.hors_boucle(tenants.get_by_phone, To)
     if tenant is None:
         return _twiml("    <Hangup/>")
-    if motif == renvoi.FLUX:
+    # Cet appel est renvoyé dans tous les cas ; le parc, lui, n'est mis en panne que si
+    # rien ne montre que Twilio vient de joindre notre flux.
+    if motif == renvoi.FLUX and not renvoi.flux_coupe_a_l_instant():
         renvoi.signaler_panne(renvoi.FLUX)
     return await _secours(tenant, CallSid, From, To, ForwardedFrom, motif)
 
@@ -519,6 +527,9 @@ async def voice_stream(websocket: WebSocket):
         pass
 
     if not start_data:
+        # Twilio nous a joints, le flux n'est donc pas en panne : `/twilio/suite` ne doit
+        # pas en conclure que tout le parc est injoignable (ASSISTANTE-127).
+        renvoi.flux_coupe()
         await websocket.close(code=1002)  # protocole non respecté
         return
 
