@@ -205,7 +205,10 @@ function placerLaFiche(faireDefiler) {
   const vue = document.getElementById("calls-view");
   if (!fiche || !vue) return;
   const ligne = vue.querySelector('a.card-row[aria-current="true"]');
-  if (ecranEtroit.matches && ligne) {
+  // Sans `open=` dans l'adresse, c'est le serveur qui a ouvert l'appel le plus récent :
+  // personne n'a rien touché, la liste reste en tête et la fiche à sa place.
+  const choisi = new URLSearchParams(window.location.search).has("open");
+  if (ecranEtroit.matches && ligne && choisi) {
     if (ligne.nextElementSibling !== fiche) ligne.after(fiche);
     if (faireDefiler) {
       const calme = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -217,4 +220,6 @@ function placerLaFiche(faireDefiler) {
 }
 placerLaFiche(true);
 document.addEventListener("htmx:afterSettle", () => placerLaFiche(true));
+// Le bouton retour ne passe pas par `afterSettle` quand htmx relit la page au serveur.
+document.addEventListener("htmx:historyRestore", () => placerLaFiche(false));
 ecranEtroit.addEventListener("change", () => placerLaFiche(false));
