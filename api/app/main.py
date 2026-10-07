@@ -349,11 +349,17 @@ async def suite_du_flux(
     To: Optional[str] = Form(None),
     From: Optional[str] = Form(None),
     ForwardedFrom: Optional[str] = Form(None),
+    CallStatus: Optional[str] = Form(None),
 ):
     """Le flux média s'est arrêté et l'appel est toujours en ligne. S'il s'est terminé
     normalement, on raccroche ; si l'assistante a demandé le renvoi, ou si le flux ne
     s'est jamais ouvert chez nous, le client est passé au restaurant."""
-    motif = renvoi.motif_a_la_fin_du_flux(CallSid)
+    # Plus personne en ligne (raccroché au décroché, appel coupé) : rien à renvoyer, et
+    # surtout pas une panne à signaler à tout le parc (ASSISTANTE-127).
+    if renvoi.appel_fini(CallStatus):
+        logger.info(f"[suite] appel {CallSid} déjà terminé chez Twilio ({CallStatus}) : rien à renvoyer")
+        return _twiml("    <Hangup/>")
+    motif = await renvoi.motif_apres_grace(CallSid)
     if motif is None:
         return _twiml("    <Hangup/>")
     tenant = await db.hors_boucle(tenants.get_by_phone, To)

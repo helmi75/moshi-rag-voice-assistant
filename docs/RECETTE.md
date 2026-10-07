@@ -246,6 +246,7 @@ l'établissement. Il faut deux téléphones : celui qui appelle, et celui du num
 | S7 | Relancer l'essai **hors horaires** (ou retirer le numéro de secours), appeler | Le répondeur tout de suite, sans faire sonner personne | |
 | S8 | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
 | S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
+| S10 | Appeler la ligne et raccrocher dès la première sonnerie, puis rappeler aussitôt (ASSISTANTE-127) | Le second appel est servi par l'assistante, pas par le répondeur ; « Appels passés en secours » ne bouge pas | |
 
 ## W. Le site et « Rappelez-moi » (ASSISTANTE-119)
 

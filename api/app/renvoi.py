@@ -19,6 +19,7 @@ lui-même la panne.
 Ce module ne fait ni réseau ni base : des décisions, du TwiML, et deux mémoires en
 RAM (un seul worker uvicorn, comme tout l'état vivant des appels).
 """
+import asyncio
 import time as _temps
 from datetime import datetime, time, timedelta
 from typing import Optional
@@ -64,6 +65,13 @@ ANNONCE_REPONDEUR = ("Notre assistante ne peut pas vous répondre pour le moment
                      "vous rappellera.")
 SANS_MESSAGE = "Nous n'avons pas reçu de message. Au revoir."
 MERCI = "Merci, votre message est transmis au restaurant. Au revoir."
+
+# Twilio peut lire `/twilio/suite` quelques millisecondes après avoir joint notre flux,
+# avant que l'appel s'y soit inscrit (05/10/2026 : 53 ms, pour un appel raccroché au
+# décroché). On laisse ce temps au flux avant de conclure qu'il ne s'est jamais ouvert.
+GRACE_FLUX_SECONDES = 2.0
+# États de Twilio (`CallStatus`) qui disent que plus personne n'est en ligne.
+APPEL_FINI = ("completed", "canceled", "no-answer", "busy", "failed")
 
 # Pannes récentes : établissement (ou None pour tout le parc) → (instant, motif).
 _pannes: dict[Optional[int], tuple[float, str]] = {}
@@ -142,6 +150,22 @@ def motif_a_la_fin_du_flux(call_sid: Optional[str]) -> Optional[str]:
         return None
     appel = _appels.get(call_sid)
     return FLUX if appel is None else appel["motif"]
+
+
+async def motif_apres_grace(call_sid: Optional[str]) -> Optional[str]:
+    """Comme `motif_a_la_fin_du_flux`, après avoir laissé au flux le temps de s'inscrire :
+    un flux joint à l'instant n'est pas un flux qui ne s'est jamais ouvert, et le prendre
+    pour une panne renverrait trois minutes tous les appels du parc (ASSISTANTE-127)."""
+    echeance = _temps.monotonic() + GRACE_FLUX_SECONDES
+    while call_sid and call_sid not in _appels and _temps.monotonic() < echeance:
+        await asyncio.sleep(0.05)
+    return motif_a_la_fin_du_flux(call_sid)
+
+
+def appel_fini(etat: Optional[str]) -> bool:
+    """Twilio dit-il que l'appel n'est plus en ligne ? Un état absent ou inconnu vaut
+    « en ligne » : dans le doute, le client n'est pas laissé sans personne."""
+    return (etat or "").strip().lower() in APPEL_FINI
 
 
 # ---- La décision -----------------------------------------------------------------------

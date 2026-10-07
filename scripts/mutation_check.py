@@ -960,6 +960,15 @@ GARDE_FOUS = [
     ),
     # ---- ASSISTANTE-119 : « Rappelez-moi », la seule route qui compose un numéro ---------
     GardeFou(
+        nom="Un appel déjà raccroché n'est pas une panne du flux (ASSISTANTE-127)",
+        fichier="api/app/main.py",
+        avant="    if renvoi.appel_fini(CallStatus):",
+        apres="    if False:  # mutation",
+        tests=["test_renvoi.py"],
+        k="deja_raccroche",
+        panne="un appelant qui raccroche au décroché enverrait trois minutes tous les appels du parc au répondeur",
+    ),
+    GardeFou(
         nom="Des horaires sans aucune plage ne s'enregistrent pas (ASSISTANTE-130)",
         fichier="api/app/disponibilite.py",
         avant="    if not erreurs and not any(semaine.values()):",

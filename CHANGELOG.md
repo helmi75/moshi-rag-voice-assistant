@@ -7,6 +7,25 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — un appel raccroché au décroché n'est plus une panne (ASSISTANTE-127, 07/10/2026)
+
+Le 05/10/2026 à 12 h 42, un appel noté « sans réponse, 0 s » par Twilio a été pris pour
+une panne du flux audio : les trois appels suivants, sur les deux numéros, sont partis au
+répondeur. Twilio avait lu `/twilio/suite` 53 ms après avoir joint notre flux, avant que
+l'appel s'y soit inscrit.
+
+### Corrigé
+- **Un appel que Twilio dit terminé** (`CallStatus` : raccroché, sans réponse, occupé,
+  échoué) est simplement raccroché à `/twilio/suite` : rien n'est renvoyé, aucune panne
+  n'est signalée au parc.
+- **Un flux joint à l'instant a deux secondes pour s'inscrire** avant d'être tenu pour
+  jamais ouvert. Un appel encore en ligne dont le flux ne s'ouvre vraiment pas reste une
+  panne, renvoyée au restaurant.
+
+### Non vérifié
+- Ce que vaut `CallStatus` quand Twilio lit `/twilio/suite` pour un appel raccroché au
+  décroché : il n'a pas été relevé le 05/10. Les deux protections couvrent les deux cas.
+
 ## Non publiée — des horaires vides ne ferment plus le restaurant (ASSISTANTE-130, 06/10/2026)
 
 Le 06/10/2026, Le Bouchon Doré avait en base « fermé du lundi au dimanche » sans que

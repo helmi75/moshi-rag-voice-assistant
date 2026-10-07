@@ -52,7 +52,11 @@ def _aucune_panne_en_memoire():
     renvoi.reinitialiser()
     rappel.reinitialiser()  # les demandes de rappel comptées par adresse, même raison
     live.reinitialiser()    # GPT-Live mis à l'écart après un échec, même raison
+    # Le délai laissé au flux pour s'inscrire (2 s en production) ralentirait chaque test
+    # d'un flux jamais ouvert ; ceux qui l'éprouvent le règlent eux-mêmes.
+    grace, renvoi.GRACE_FLUX_SECONDES = renvoi.GRACE_FLUX_SECONDES, 0.0
     yield
+    renvoi.GRACE_FLUX_SECONDES = grace
     renvoi.reinitialiser()
     rappel.reinitialiser()
     live.reinitialiser()

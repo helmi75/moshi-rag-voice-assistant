@@ -198,6 +198,30 @@ class TestLaSuiteDuFlux:
         assert "<Dial" in twiml and _appel(sid)["secours_motif"] == renvoi.FLUX
         assert renvoi.panne_recente(resto.id) == renvoi.FLUX
 
+    @pytest.mark.parametrize("etat", ["no-answer", "completed", "canceled", "busy", "failed"])
+    def test_un_appel_deja_raccroche_n_est_pas_une_panne(self, resto, ouvert, etat):
+        """05/10/2026 : un appel noté « no-answer, 0 s » par Twilio a été pris pour une
+        panne du flux, et les trois appels suivants sont partis au répondeur."""
+        sid = _sid()
+        twiml = _poster("/twilio/suite", resto, sid, CallStatus=etat).text
+        assert "<Hangup/>" in twiml and "<Dial" not in twiml and "<Record" not in twiml
+        assert renvoi.panne_recente(resto.id) is None
+
+    def test_un_appel_encore_en_ligne_sans_flux_reste_une_panne(self, resto, ouvert):
+        sid = _sid()
+        twiml = _poster("/twilio/suite", resto, sid, CallStatus="in-progress").text
+        assert "<Dial" in twiml and renvoi.panne_recente(resto.id) == renvoi.FLUX
+
+    def test_un_flux_qui_s_inscrit_juste_apres_n_est_pas_une_panne(self, resto, ouvert, monkeypatch):
+        """Twilio lit la suite avant que l'appel soit inscrit : on lui laisse un instant."""
+        monkeypatch.setattr(renvoi, "GRACE_FLUX_SECONDES", 2.0)
+        sid = _sid()
+        import threading
+        threading.Timer(0.2, renvoi.flux_ouvert, args=(sid,)).start()
+        twiml = _poster("/twilio/suite", resto, sid, CallStatus="in-progress").text
+        assert "<Hangup/>" in twiml and "<Dial" not in twiml
+        assert renvoi.panne_recente(resto.id) is None
+
     def test_la_cloture_de_l_appel_ne_efface_pas_le_secours(self, resto, ouvert):
         """Si le pipeline clôt l'appel APRÈS que le secours s'est ouvert, il ne doit pas
         le remettre à « terminé normalement »."""
