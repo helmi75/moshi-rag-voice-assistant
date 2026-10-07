@@ -70,6 +70,10 @@ MERCI = "Merci, votre message est transmis au restaurant. Au revoir."
 # avant que l'appel s'y soit inscrit (05/10/2026 : 53 ms, pour un appel raccroché au
 # décroché). On laisse ce temps au flux avant de conclure qu'il ne s'est jamais ouvert.
 GRACE_FLUX_SECONDES = 2.0
+# Un flux fermé avant son message `start` ne dit pas de quel appel il était. S'il vient de
+# se produire, un « flux jamais ouvert » vu aussitôt après n'engage pas le parc.
+MEMOIRE_FLUX_COUPE_SECONDES = 10.0
+_flux_coupe: list[float] = []
 # États de Twilio (`CallStatus`) qui disent que plus personne n'est en ligne.
 APPEL_FINI = ("completed", "canceled", "no-answer", "busy", "failed")
 
@@ -83,6 +87,7 @@ def reinitialiser() -> None:
     """Pour les tests."""
     _pannes.clear()
     _appels.clear()
+    _flux_coupe.clear()
 
 
 # ---- La mémoire des pannes ------------------------------------------------------------
@@ -160,6 +165,15 @@ async def motif_apres_grace(call_sid: Optional[str]) -> Optional[str]:
     while call_sid and call_sid not in _appels and _temps.monotonic() < echeance:
         await asyncio.sleep(0.05)
     return motif_a_la_fin_du_flux(call_sid)
+
+
+def flux_coupe() -> None:
+    """Twilio a joint notre flux puis l'a fermé avant de dire de quel appel il s'agissait."""
+    _flux_coupe[:] = [_temps.monotonic()]
+
+
+def flux_coupe_a_l_instant() -> bool:
+    return bool(_flux_coupe) and _temps.monotonic() - _flux_coupe[0] <= MEMOIRE_FLUX_COUPE_SECONDES
 
 
 def appel_fini(etat: Optional[str]) -> bool:

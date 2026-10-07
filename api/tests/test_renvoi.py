@@ -222,6 +222,16 @@ class TestLaSuiteDuFlux:
         assert "<Hangup/>" in twiml and "<Dial" not in twiml
         assert renvoi.panne_recente(resto.id) is None
 
+    def test_un_flux_coupe_avant_le_depart_ne_met_pas_le_parc_en_panne(self, resto, ouvert):
+        """Twilio nous a joints puis a fermé avant `start` : cet appel est renvoyé s'il est
+        encore en ligne, mais les autres appels ne partent pas au répondeur."""
+        with client.websocket_connect("/ws/voice") as ws:
+            ws.send_text(json.dumps({"event": "connected"}))
+        sid = _sid()
+        twiml = _poster("/twilio/suite", resto, sid, CallStatus="in-progress").text
+        assert "<Dial" in twiml and _appel(sid)["secours_motif"] == renvoi.FLUX
+        assert renvoi.panne_recente(resto.id) is None
+
     def test_la_cloture_de_l_appel_ne_efface_pas_le_secours(self, resto, ouvert):
         """Si le pipeline clôt l'appel APRÈS que le secours s'est ouvert, il ne doit pas
         le remettre à « terminé normalement »."""

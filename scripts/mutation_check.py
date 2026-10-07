@@ -893,9 +893,9 @@ GARDE_FOUS = [
     ),    GardeFou(
         nom="Renvoi : un appel terminé normalement n'est jamais renvoyé",
         fichier="api/app/main.py",
-        avant=('    motif = renvoi.motif_a_la_fin_du_flux(CallSid)\n'
+        avant=('    motif = await renvoi.motif_apres_grace(CallSid)\n'
                '    if motif is None:'),
-        apres=('    motif = renvoi.motif_a_la_fin_du_flux(CallSid) or renvoi.VOIX  # mutation\n'
+        apres=('    motif = await renvoi.motif_apres_grace(CallSid) or renvoi.VOIX  # mutation\n'
                '    if motif is None:'),
         tests=["test_renvoi.py"],
         k="termine_normalement",
@@ -967,6 +967,24 @@ GARDE_FOUS = [
         tests=["test_renvoi.py"],
         k="deja_raccroche",
         panne="un appelant qui raccroche au décroché enverrait trois minutes tous les appels du parc au répondeur",
+    ),
+    GardeFou(
+        nom="Un flux joint à l'instant a le temps de s'inscrire avant d'être une panne (ASSISTANTE-127)",
+        fichier="api/app/renvoi.py",
+        avant="    while call_sid and call_sid not in _appels and _temps.monotonic() < echeance:",
+        apres="    while False:  # mutation",
+        tests=["test_renvoi.py"],
+        k="juste_apres",
+        panne="Twilio lit la suite avant l'inscription du flux : fausse panne, tout le parc au répondeur trois minutes",
+    ),
+    GardeFou(
+        nom="Un flux coupé avant son message de départ ne met pas le parc en panne (ASSISTANTE-127)",
+        fichier="api/app/main.py",
+        avant="    if motif == renvoi.FLUX and not renvoi.flux_coupe_a_l_instant():",
+        apres="    if motif == renvoi.FLUX:  # mutation",
+        tests=["test_renvoi.py"],
+        k="coupe_avant_le_depart",
+        panne="un appelant qui raccroche pendant la poignée de main enverrait tout le parc au répondeur",
     ),
     GardeFou(
         nom="Des horaires sans aucune plage ne s'enregistrent pas (ASSISTANTE-130)",

@@ -20,11 +20,14 @@ l'appel s'y soit inscrit.
   n'est signalée au parc.
 - **Un flux joint à l'instant a deux secondes pour s'inscrire** avant d'être tenu pour
   jamais ouvert. Un appel encore en ligne dont le flux ne s'ouvre vraiment pas reste une
-  panne, renvoyée au restaurant.
+  panne, renvoyée au restaurant — deux secondes plus tard qu'avant.
+- **Un flux fermé avant son message de départ** ne met plus le parc en panne : l'appel
+  concerné est renvoyé s'il est encore en ligne, les autres sont servis.
 
 ### Non vérifié
 - Ce que vaut `CallStatus` quand Twilio lit `/twilio/suite` pour un appel raccroché au
-  décroché : il n'a pas été relevé le 05/10. Les deux protections couvrent les deux cas.
+  décroché : il n'a pas été relevé le 05/10, et rien dans le dépôt ne le dit. Seule la
+  recette S10, sur un vrai appel, dira si le cas du 05/10 est couvert.
 
 ## Non publiée — des horaires vides ne ferment plus le restaurant (ASSISTANTE-130, 06/10/2026)
 
