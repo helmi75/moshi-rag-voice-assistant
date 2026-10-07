@@ -192,3 +192,29 @@ document.addEventListener("keydown", (event) => {
   basculerMenu(false);
   document.querySelector("[data-menu]")?.focus();
 });
+
+// Appels, sur téléphone : la page tient en une colonne, et la fiche tombait sous les
+// vingt-cinq lignes de la liste. Sous 900 px (le seuil de la feuille de style), le nœud de
+// la fiche est glissé juste sous la ligne ouverte, puis la ligne est amenée en haut de
+// l'écran. Au-dessus, ou sans appel ouvert, il retrouve sa place dans `.split`. Le nœud est
+// déplacé, pas copié : `#call-pane` reste unique. Sans script, l'ancre du lien suffit.
+const ecranEtroit = window.matchMedia("(max-width: 900px)");
+
+function placerLaFiche(faireDefiler) {
+  const fiche = document.getElementById("call-pane");
+  const vue = document.getElementById("calls-view");
+  if (!fiche || !vue) return;
+  const ligne = vue.querySelector('a.card-row[aria-current="true"]');
+  if (ecranEtroit.matches && ligne) {
+    if (ligne.nextElementSibling !== fiche) ligne.after(fiche);
+    if (faireDefiler) {
+      const calme = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      ligne.scrollIntoView({ block: "start", behavior: calme ? "auto" : "smooth" });
+    }
+  } else if (fiche.parentElement !== vue) {
+    vue.append(fiche);
+  }
+}
+placerLaFiche(true);
+document.addEventListener("htmx:afterSettle", () => placerLaFiche(true));
+ecranEtroit.addEventListener("change", () => placerLaFiche(false));
