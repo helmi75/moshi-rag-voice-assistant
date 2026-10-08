@@ -517,6 +517,14 @@ a.card-row:hover { background: var(--app-surface-2); text-decoration: none; }
 
 /* ---- Panneau de détail collant ------------------------------------------ */
 .pane { position: sticky; top: 1.5rem; padding: 1.35rem 1.4rem; }
+/* Sur téléphone, admin.js glisse la fiche d'un appel dans la liste, sous sa ligne : elle
+   n'est plus une carte à part. Elle garde le fond de la carte : sur le fond d'une ligne
+   survolée, les bulles du client (même couleur) ne se verraient plus. */
+.card-list > .pane {
+  position: static; border-radius: 0; box-shadow: none; border-width: 1px 0;
+  scroll-margin-top: 4.5rem;
+}
+.card-list > .card-row { scroll-margin-top: 4.5rem; }
 .pane-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 1rem; margin-bottom: 1rem;

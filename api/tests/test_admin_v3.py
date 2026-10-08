@@ -380,6 +380,26 @@ class TestCallsScreen:
         assert page.status_code == 200 and "+33611111111" in page.text
         assert "Aucun appel" not in page.text
 
+    def test_la_ligne_ouvre_la_fiche_par_son_ancre(self, client, resto):
+        # Sur téléphone la fiche passe sous la ligne cliquée (admin.js) ; sans script, le
+        # lien saute à la fiche. L'ancre est dans le href, pas dans hx-get (htmx la
+        # transmettrait au serveur de la requête).
+        import re
+        tenant, _ = resto
+        for i in range(3):
+            calls.start_call(f"CA-ancre{i}", tenant.id, f"+3361000000{i}")
+            calls.finish_call(f"CA-ancre{i}", "completed")
+        _login(client)
+        liste = client.get(f"/admin/calls?tenant_id={tenant.id}")
+        ouvert = re.search(r'href="([^"]*open=\d+)[^"]*"', liste.text).group(1)
+        page = client.get(ouvert.replace("&amp;", "&"))
+        liens = re.findall(r'<a class="card-row"[^>]*?>', page.text, re.S)
+        assert len(liens) == 3
+        for lien in liens:
+            assert re.search(r'href="[^"]*#call-pane"', lien)
+            assert "#" not in re.search(r'hx-get="([^"]*)"', lien).group(1)
+        assert page.text.count('id="call-pane"') == 1
+
 
 class TestKnowledgeScreen:
     def test_sections_are_rendered_as_cards(self, client, resto):

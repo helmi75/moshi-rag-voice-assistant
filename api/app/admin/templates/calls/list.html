@@ -37,7 +37,7 @@
     <div class="card-list">
       {% for c in calls %}
       {% set row_url = "/admin/calls?" ~ base_q ~ "outcome=" ~ outcome ~ "&page=" ~ page ~ "&open=" ~ c.id %}
-      <a class="card-row" href="{{ row_url }}"
+      <a class="card-row" href="{{ row_url }}#call-pane"
          hx-get="{{ row_url }}" hx-target="#calls-view" hx-select="#calls-view"
          hx-swap="outerHTML" hx-push-url="true"
          {% if opened and opened.call.id == c.id %}aria-current="true"{% endif %}>

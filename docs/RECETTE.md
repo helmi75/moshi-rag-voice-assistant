@@ -229,6 +229,7 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P29 | Vue du parc, un établissement dont le seul appel du mois a duré moins de 30 secondes | « <1/250 », jamais « 0/250 » | |
 | P30 | Fiche établissement, sur un téléphone | Les listes déroulantes ont leur flèche ; la formule s'affiche entière (« Service · 149 €/mois · 600 min ») | |
 | P31 | Un montant, n'importe où dans l'admin | Une virgule : « 3,89 $ », « 6,42 € » | |
+| P32 | Appels, sur un téléphone : toucher un appel au milieu de la liste (ASSISTANTE-136) | Sa fiche s'ouvre juste sous la ligne touchée, l'écran s'y cale ; sur ordinateur, la fiche reste à droite | |
 
 ## S. En cas de panne : le renvoi vers le restaurant (ASSISTANTE-118)
 

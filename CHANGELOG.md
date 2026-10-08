@@ -7,6 +7,14 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — sur téléphone, la fiche d'un appel s'ouvre sous sa ligne (ASSISTANTE-136, 07/10/2026)
+
+### Modifié
+- **Page Appels, sur téléphone** : la fiche de l'appel touché se place juste sous sa ligne,
+  et l'écran s'y cale. Elle tombait jusque-là sous les vingt-cinq lignes de la liste.
+  Demande de Helmi du 06/10/2026. Sur ordinateur, rien ne change ; sans script, le lien
+  saute à la fiche.
+
 ## Non publiée — un appel raccroché au décroché n'est plus une panne (ASSISTANTE-127, 07/10/2026)
 
 Le 05/10/2026 à 12 h 42, un appel noté « sans réponse, 0 s » par Twilio a été pris pour
