@@ -316,6 +316,8 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T14 | Remettre « GPT-Live · secours classique », enregistrer, appeler | GPT-Live répond, sans redéploiement ; l'appel porte « GPT-Live » ; Enseignes affiche « Moteur : GPT-Live » | |
 | T15 | Après des appels sur les deux moteurs : « Santé & coûts » → « Coût par moteur » | Une ligne par moteur : appels, minutes, coût, coût à la minute ; « Voix GPT-Live (OpenAI) » a sa ligne dans la répartition | |
 | T16 | Se connecter en restaurateur, ouvrir sa fiche | Pas de « Moteur de l'appel » ; ni la fiche ni ses appels ne nomment GPT-Live | |
+| T17 | Trois réservations de suite sur GPT-Live, en confirmant chaque récapitulatif par un simple « oui » ; puis Admin → Appels et Réservations | Chaque « c'est enregistré » a sa table au carnet. Si un appel porte « À vérifier », sa fiche cite la phrase dite, un e-mail « À vérifier » est arrivé, et son résumé ne dit pas « a réservé » (ASSISTANTE-137) | |
+| T18 | Après un appel « À vérifier » : `docker compose exec api` puis lire `delegations` dans le journal de l'appel | On lit ce que le cerveau a rendu à chaque travail confié : c'est ce qui dit lequel des deux modèles a annoncé à tort | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

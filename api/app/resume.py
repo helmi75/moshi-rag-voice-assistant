@@ -72,6 +72,25 @@ def _transcription(call_id: int) -> Optional[list]:
         return None
 
 
+# Le 08/10/2026 (appel 265), l'assistante a dit « c'est réservé » sans que rien soit
+# enregistré, et le résumé, qui ne lit que ce qui s'est dit, a écrit « a réservé une
+# table ». Quand la clôture a rangé ce constat au journal, le résumé le reçoit comme un fait.
+RIEN_D_ENREGISTRE = (
+    "\n\nFait établi par le système, à dire dans le résumé : l'assistante a annoncé un "
+    "enregistrement, mais RIEN n'a été enregistré pendant cet appel (ni réservation, ni "
+    "message). N'écris pas que l'appelant a réservé : écris que la réservation a été "
+    "annoncée mais n'est pas enregistrée.")
+
+
+def _annonce_sans_trace(call_id: int) -> bool:
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT journal FROM calls WHERE id = ?", (call_id,)).fetchone()
+    try:
+        return bool(row and row["journal"] and json.loads(row["journal"]).get("a_verifier"))
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
 def _ecrire(call_id: int, texte: str) -> None:
     with db.get_conn() as conn:
         conn.execute("UPDATE calls SET summary = ? WHERE id = ?", (texte, call_id))
@@ -84,6 +103,8 @@ async def resumer(call_id: int) -> Optional[str]:
         dialogue = en_dialogue(await db.hors_boucle(_transcription, call_id))
         if not dialogue:
             return None
+        if await db.hors_boucle(_annonce_sans_trace, call_id):
+            dialogue += RIEN_D_ENREGISTRE
         reponse = await llm.get_client().chat.completions.create(
             model=MODELE,
             max_tokens=MAX_JETONS,
