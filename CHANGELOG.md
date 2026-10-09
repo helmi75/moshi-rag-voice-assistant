@@ -17,6 +17,9 @@
   Décision de Helmi du 09/10/2026 : le choix reviendra quand GPT-Live proposera d'autres
   voix. Le texte de l'accueil reste modifiable. Un formulaire bricolé ne change pas la
   voix non plus. Rien ne change pour un établissement sur la chaîne classique.
+  Limite : quand la chaîne classique prend le relais d'un appel (GPT-Live en panne ou mis à
+  l'écart trois minutes), le client entend la voix Mistral enregistrée pour l'établissement ;
+  elle n'est plus réglable depuis cette page tant que son moteur est GPT-Live.
 
 ## Non publiée — sur téléphone, la fiche d'un appel s'ouvre sous sa ligne (ASSISTANTE-136, 07/10/2026)
 
