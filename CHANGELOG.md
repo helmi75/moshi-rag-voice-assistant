@@ -21,6 +21,11 @@ sont des requêtes isolées qui ne sont pas revenues, et aucune n'avait son prop
   erreur du fournisseur. Un outil ne s'exécute qu'une fois la réponse reçue : rien n'est
   enregistré deux fois. Le délai de vingt secondes pour l'ensemble du travail reste.
 
+- **Une réservation faite est dite, même si le modèle ne rend pas sa phrase** : quand un
+  outil a écrit puis que le cerveau se tait, l'assistante annonce ce qui est fait au lieu
+  de demander de rappeler (le client aurait réservé une seconde fois). Un outil en train
+  d'écrire quand le délai tombe finit son travail, et l'appel en garde la trace.
+
 ### Ajouté
 - Le journal de l'appel garde, pour chaque travail confié, sa durée et celle de chaque
   requête au modèle ; le journal du conteneur nomme chaque requête restée sans réponse.
@@ -29,6 +34,8 @@ sont des requêtes isolées qui ne sont pas revenues, et aucune n'avait son prop
 - On ne sait toujours pas pourquoi ces requêtes ne sont pas revenues. Les six secondes sont
   un choix, pas une mesure : les durées maintenant journalisées permettront de le régler.
 - Pendant qu'on redemande, le client attend en silence, jusqu'à vingt secondes au pire.
+- Les jetons d'une requête abandonnée ne sont pas comptés dans le coût de l'appel, alors
+  que le fournisseur les facture peut-être.
 
 ## Non publiée — sur GPT-Live, la page « Voix » ne propose que la voix par défaut (ASSISTANTE-133, 09/10/2026)
 

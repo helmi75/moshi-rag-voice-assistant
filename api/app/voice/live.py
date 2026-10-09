@@ -68,14 +68,21 @@ _DELAI_DU_CERVEAU = 20.0
 # Une génération du cerveau qui ne revient pas est abandonnée et redemandée. Le 09/10/2026
 # (appels 268 et 269), une seule requête restée sans réponse a mangé les vingt secondes :
 # le client a eu vingt secondes de silence puis « rappelez dans quelques minutes », alors
-# que le même modèle répondait en une seconde trente secondes plus tard. Trois essais de
-# `GPT_LIVE_DELAI_GENERATION` secondes tiennent dans le délai ci-dessus.
+# que le même modèle répondait en une seconde trente secondes plus tard. Le délai ci-dessus
+# reste la borne de tout le travail : trois essais de six secondes y tiennent pour UNE
+# génération, pas pour les deux ou trois d'une réservation.
 _ESSAIS_PAR_GENERATION = 3
+# Ce qu'on dit au client quand un outil a écrit mais que le modèle n'a pas rendu sa phrase.
+_FAIT = {"create_reservation": "la réservation est enregistrée",
+         "modify_reservation": "la réservation est modifiée",
+         "cancel_reservation": "la réservation est annulée",
+         "take_message": "le message est pris et sera transmis au restaurant"}
 
 
 def _delai_generation() -> float:
+    """Entre une et quinze secondes : au-delà, une seule requête mangerait tout le délai."""
     try:
-        return max(1.0, float(os.getenv("GPT_LIVE_DELAI_GENERATION", "").strip() or 6.0))
+        return min(15.0, max(1.0, float(os.getenv("GPT_LIVE_DELAI_GENERATION", "").strip() or 6.0)))
     except ValueError:
         return 6.0
 # L'enregistreur absorbe des tranches, pas des trames : on lui en donne cinq par seconde.
@@ -542,8 +549,19 @@ class Appel:
             logger.warning(f"[gpt-live] le cerveau n'a pas rendu son travail ({type(exc).__name__})")
             texte = ""
         if not texte:
-            texte = ("Le travail demandé n'a pas pu être fait. Dis-le simplement au client, sans "
-                     "inventer de raison, et propose-lui de rappeler dans quelques minutes.")
+            # Un outil encore en train d'écrire quand le délai est tombé finit son travail
+            # (`_executer`) : on l'attend un instant, pour dire au client ce qui est vrai.
+            if self._outils_en_cours - {asyncio.current_task()}:
+                await asyncio.wait(self._outils_en_cours - {asyncio.current_task()}, timeout=3)
+            faits = annonce.ecritures(self.outils_appeles[deja:])
+            if faits:
+                # Le modèle n'a pas rendu sa phrase, mais l'écriture est faite : dire
+                # « rappelez » ferait réserver le client une seconde fois.
+                texte = ("Voici ce qui est fait : " + ", ".join(_FAIT[nom] for nom in dict.fromkeys(faits))
+                         + ". Dis-le simplement au client, puis demande s'il veut autre chose.")
+            else:
+                texte = ("Le travail demandé n'a pas pu être fait. Dis-le simplement au client, sans "
+                         "inventer de raison, et propose-lui de rappeler dans quelques minutes.")
         dementi = self._dementi(texte)
         self.delegations.append({
             "t_ms": int((time.monotonic() - self._debut) * 1000),
@@ -643,6 +661,10 @@ class Appel:
                 reponse = await asyncio.wait_for(client.chat.completions.create(
                     model=llm.MODEL, max_tokens=400, tools=llm._openai_tools(), messages=messages,
                     **extra), timeout=_delai_generation())
+            except asyncio.CancelledError:
+                if durees is not None:
+                    durees.append(None)      # le délai du travail entier est tombé pendant celle-ci
+                raise
             except Exception as exc:
                 if durees is not None:
                     durees.append(None)
@@ -668,6 +690,15 @@ class Appel:
             self.cout_annonce = (self.cout_annonce or 0.0) + float(cout)
 
     async def _executer(self, nom: str, arguments: dict) -> str:
+        """Exécute l'outil, à l'abri d'une annulation : le délai du travail confié peut
+        tomber pendant une écriture (les essais du cerveau la repoussent vers la fin). La
+        réservation serait alors créée sans que l'appel en garde la trace."""
+        tache = asyncio.ensure_future(self._executer_jusqu_au_bout(nom, arguments))
+        self._outils_en_cours.add(tache)
+        tache.add_done_callback(self._outils_en_cours.discard)
+        return await asyncio.shield(tache)
+
+    async def _executer_jusqu_au_bout(self, nom: str, arguments: dict) -> str:
         try:
             resultat = await llm.run_tool(self.tenant, nom, arguments, self.caller_number, self.call_id)
         except Exception as exc:

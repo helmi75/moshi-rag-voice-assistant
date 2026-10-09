@@ -63,6 +63,13 @@ def _rendu(resultat) -> Optional[dict]:
     return rendu if isinstance(rendu, dict) and not rendu.get("error") else None
 
 
+def ecritures(outils_appeles) -> list[str]:
+    """Les outils qui ont réellement écrit, dans l'ordre : de quoi dire au client ce qui
+    est fait quand le modèle, lui, n'a pas rendu sa phrase."""
+    return [o["nom"] for o in outils_appeles or []
+            if isinstance(o, dict) and o.get("nom") in _ECRIVENT and _rendu(o.get("resultat")) is not None]
+
+
 def expliquee(outils_appeles) -> bool:
     """Un outil a-t-il, pendant l'appel, écrit quelque chose ou retrouvé une réservation ?"""
     for outil in outils_appeles or []:

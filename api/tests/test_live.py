@@ -787,6 +787,43 @@ class TestLeCerveauEstLeNotre:
         assert [d is None for d in durees] == [True, False, True, False]
         assert confie["outils"] == ["create_reservation"] and confie["ms"] >= 200
 
+    def test_la_reservation_faite_est_dite_meme_si_le_modele_ne_rend_pas_sa_phrase(
+            self, client, monkeypatch, tenant):
+        """L'outil a écrit, puis le modèle se tait : dire « rappelez » ferait réserver deux fois."""
+        jour = (date.today() + timedelta(days=4)).isoformat()
+        arguments = {"customer_name": "Tenace", "date": jour, "time": "12:30", "party_size": 2}
+        session, confie = self._une_table(
+            client, monkeypatch, "CA-live-fait", _generation(outil=("create_reservation", arguments)),
+            "muet", "muet", "muet")
+        rendu = session.de_type("session.commentary.append")[1]["content"]
+        assert "la réservation est enregistrée" in rendu and "rappeler" not in rendu
+        assert confie["outils"] == ["create_reservation"]
+        assert _ligne("CA-live-fait")["reservation_id"] is not None
+
+    def test_un_outil_en_train_d_ecrire_finit_malgre_le_delai(self, tenant):
+        """Le délai du travail tombe pendant l'écriture : elle aboutit, et l'appel le sait."""
+        async def lent(*args, **kwargs):
+            await asyncio.sleep(0.2)
+            return '{"status": "confirmed", "reservation_id": 77}'
+
+        async def jouer():
+            appel = live.Appel(None, None, "MZ", "CA", tenant, "+33612345678", None, "PROMPT")
+            with patch("app.voice.live.llm.run_tool", new=lent):
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(appel._executer("create_reservation", {}), timeout=0.05)
+                assert appel.outils_appeles == [] and len(appel._outils_en_cours) == 1
+                await asyncio.wait(appel._outils_en_cours, timeout=2)
+            return appel
+
+        appel = asyncio.run(jouer())
+        assert [o["nom"] for o in appel.outils_appeles] == ["create_reservation"]
+        assert appel.reservations == [77] and not appel._outils_en_cours
+
+    def test_le_delai_d_une_generation_est_borne(self, monkeypatch):
+        for valeur, attendu in (("", 6.0), ("inf", 15.0), ("0", 1.0), ("3", 3.0), ("pas un nombre", 6.0)):
+            monkeypatch.setenv("GPT_LIVE_DELAI_GENERATION", valeur)
+            assert live._delai_generation() == attendu
+
     def test_une_erreur_du_fournisseur_est_redemandee(self, client, monkeypatch):
         session, confie = self._une_table(
             client, monkeypatch, "CA-live-502", RuntimeError("OpenRouter 502"),
