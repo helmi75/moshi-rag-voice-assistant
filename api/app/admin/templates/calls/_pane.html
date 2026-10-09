@@ -45,6 +45,14 @@
   <b>Demande de réservation envoyée à resOS pendant cet appel</b>
   À valider par le restaurant dans resOS · référence <code>{{ call.reservation_externe }}</code>
 </div>
+{% elif call.outcome == 'a_verifier' %}
+{# ASSISTANTE-137 : on écrit ce qu'on sait — ce qu'elle a dit, et ce que le carnet n'a pas. #}
+<div class="callout" style="background: var(--app-bad-soft)">
+  <b>À vérifier : annoncé au client, rien d'enregistré</b>
+  L'assistante a dit « {{ call.annonce_sans_trace }} », mais aucune réservation ni aucun
+  message n'a été enregistré pendant cet appel. Le client pense probablement que c'est fait :
+  ce qu'il a demandé se lit dans la conversation ci-dessous.
+</div>
 {% elif call.outcome == 'failed' %}
 <div class="callout" style="background: var(--app-bad-soft)">
   <b>Appel en échec</b>

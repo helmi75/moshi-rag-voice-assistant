@@ -36,7 +36,7 @@ from loguru import logger
 from . import horloge, taches, users
 
 EVENEMENTS = ("reservation_creee", "reservation_modifiee", "reservation_annulee", "message_pris",
-              "message_vocal")
+              "message_vocal", "annonce_sans_trace")
 
 
 def _config() -> dict:
@@ -161,6 +161,16 @@ def sujet_et_corps(evenement: str, tenant, donnees: dict) -> tuple[str, str]:
                  f"Rappeler le : {_telephone(donnees.get('caller_number'))}",
                  "Le message s'écoute dans la fiche de l'appel (lien ci-dessous), quelques "
                  "instants après cet e-mail."]
+    elif evenement == "annonce_sans_trace":
+        # ASSISTANTE-137 : le client est reparti en croyant sa table réservée. On ne dit
+        # que ce qu'on sait : ce qu'elle a dit, et que rien n'est au carnet pour cet appel.
+        sujet = "À vérifier — une réservation annoncée au téléphone n'est pas enregistrée"
+        corps = [f"Pendant un appel pour {nom_resto}, l'assistante a dit au client :", "",
+                 f"« {donnees.get('phrase') or '—'} »", "",
+                 "Or rien n'a été enregistré pendant cet appel : ni réservation, ni message.",
+                 "Le client pense probablement que sa table est réservée.", "",
+                 f"Rappeler le : {_telephone(donnees.get('caller_number'))}",
+                 "Ce qu'il a demandé (jour, heure, couverts, nom) se lit dans la fiche de l'appel."]
     elif evenement == "carnet_injoignable":
         # SCRUM-87 : pendant la panne, l'assistante n'enregistre rien et prend des
         # messages. Le restaurateur doit le savoir avant le service, pas après.

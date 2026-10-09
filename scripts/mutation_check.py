@@ -1106,6 +1106,27 @@ GARDE_FOUS = [
         panne="un restaurant que l'exploitant a remis sur la chaîne classique continuerait de "
               "partir chez OpenAI tant que le .env le nomme : le réglage de l'admin mentirait",
     ),
+    # ---- ASSISTANTE-137 : une réservation annoncée et rien d'enregistré ---------------------
+    GardeFou(
+        nom="GPT-Live : le cerveau qui annonce un enregistrement sans l'avoir fait n'est pas répété",
+        fichier="api/app/voice/live.py",
+        avant="        if not annonce.phrase_d_annonce(texte) or annonce.expliquee(self.outils_appeles):",
+        apres="        if True:  # mutation",
+        tests=["test_live.py"],
+        k="n_est_pas_repete or tourne_pas_en_rond",
+        panne="l'assistante dirait « c'est enregistré » au client sur la seule parole du modèle, "
+              "sans qu'aucune table soit au carnet (appel 265 du 08/10/2026)",
+    ),
+    GardeFou(
+        nom="Une annonce que rien n'explique est signalée, pas une réservation réellement créée",
+        fichier="api/app/annonce.py",
+        avant="    if expliquee(outils_appeles):",
+        apres="    if True:  # mutation",
+        tests=["test_annonce.py", "test_live.py"],
+        k="265 or refuse_ou_en_panne or prevenu",
+        panne="un client reparti en croyant sa table réservée ne serait signalé à personne : ni "
+              "dans la fiche de l'appel, ni par e-mail au restaurant",
+    ),
     GardeFou(
         nom="Le moteur de l'appel ne se choisit pas soi-même",
         fichier="api/app/admin/routes_tenants.py",

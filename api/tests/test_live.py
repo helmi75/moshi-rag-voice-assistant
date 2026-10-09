@@ -753,6 +753,112 @@ class TestLeCerveauEstLeNotre:
         creer.assert_not_awaited()
 
 
+class TestUneReservationAnnonceeSansEtreEnregistree:
+    """ASSISTANTE-137, appel 265 du 08/10/2026 : « C'est réservé » et aucune table en base."""
+
+    def _appel_265(self, client, monkeypatch, call_sid):
+        """La voix annonce d'elle-même, sans rien confier au cerveau."""
+        def scenario(evt, session):
+            if evt["type"] == "session.commentary.append":
+                return [_fragment("user", " Oui.", 0, 300),
+                        _fragment("assistant", " Très bien, j'enregistre ça. C'est réservé. Au revoir.", 500, 2500)]
+            return []
+
+        session = FausseSession(scenario)
+        _brancher(monkeypatch, session)
+        with patch("app.notifications.planifier") as planifier:
+            _appeler(client, call_sid)
+        return planifier
+
+    def test_l_appel_est_marque_a_verifier_et_le_restaurant_est_prevenu(self, client, monkeypatch, tenant):
+        planifier = self._appel_265(client, monkeypatch, "CA-live-265")
+        ligne = _ligne("CA-live-265")
+        assert json.loads(ligne["journal"])["a_verifier"] == {
+            "motif": "annonce_sans_trace", "phrase": "C'est réservé."}
+        assert ligne["reservation_id"] is None
+        (resto, evenement, donnees), _ = planifier.call_args
+        assert resto.id == tenant.id and evenement == "annonce_sans_trace"
+        assert donnees == {"phrase": "C'est réservé.", "caller_number": "+33612345678",
+                           "appel_id": ligne["id"]}
+
+    def test_la_fiche_de_l_appel_le_dit_au_restaurateur(self, client, monkeypatch):
+        self._appel_265(client, monkeypatch, "CA-live-265-admin")
+        identifiant = _ligne("CA-live-265-admin")["id"]
+        admin = TestClient(app)
+        admin.post("/admin/login", data={"email": "admin@test.local", "password": "test-admin-pass"})
+        page = admin.get(f"/admin/calls/{identifiant}").text.replace("&#39;", "'")
+        assert "À vérifier : annoncé au client, rien d'enregistré" in page
+        assert "« C'est réservé. »" in page
+        assert "À vérifier" in admin.get("/admin/calls").text
+
+    def test_une_reservation_reellement_creee_ne_declenche_rien(self, client, monkeypatch, tenant):
+        jour = (date.today() + timedelta(days=3)).isoformat()
+        modele, _ = _notre_modele(
+            _generation(outil=("create_reservation", {"customer_name": "Vrai", "date": jour,
+                                                      "time": "20:30", "party_size": 2})),
+            _generation("C'est enregistré pour deux personnes."))
+
+        def scenario(evt, session):
+            dits = session.de_type("session.commentary.append")
+            if evt["type"] == "session.commentary.append" and len(dits) == 1:
+                return [_fragment("user", " Une table pour deux, au nom de Vrai.", 0, 900), CONFIE]
+            if evt["type"] == "session.commentary.append" and len(dits) == 2:
+                return [_fragment("assistant", " C'est enregistré. Au revoir.", 2000, 3000)]
+            return []
+
+        session = FausseSession(scenario)
+        _brancher(monkeypatch, session)
+        with patch.object(llm, "get_client", return_value=modele), \
+                patch("app.notifications.planifier") as planifier:
+            _appeler(client, "CA-live-vraie")
+        journal = json.loads(_ligne("CA-live-vraie")["journal"])
+        assert "a_verifier" not in journal
+        assert [a.args[1] for a in planifier.call_args_list] == ["reservation_creee"]
+        assert session.de_type("session.commentary.append")[1]["content"] == "C'est enregistré pour deux personnes."
+        assert journal["delegations"] == [{"t_ms": journal["delegations"][0]["t_ms"],
+                                           "outils": ["create_reservation"],
+                                           "rendu": "C'est enregistré pour deux personnes.", "dementi": False}]
+
+    def test_le_cerveau_qui_annonce_sans_avoir_rien_enregistre_n_est_pas_repete(self, client, monkeypatch):
+        """Il rend « c'est enregistré » sans avoir appelé l'outil : ce n'est pas donné à dire."""
+        modele, _ = _notre_modele(_generation("C'est enregistré pour quatre personnes."))
+
+        def scenario(evt, session):
+            dits = session.de_type("session.commentary.append")
+            if evt["type"] == "session.commentary.append" and len(dits) == 1:
+                return [_fragment("user", " Oui, c'est bien ça.", 0, 900), CONFIE]
+            if evt["type"] == "session.commentary.append" and len(dits) == 2:
+                return [_fragment("assistant", " Je l'enregistre maintenant. Au revoir.", 2000, 3000)]
+            return []
+
+        session = FausseSession(scenario)
+        _brancher(monkeypatch, session)
+        with patch.object(llm, "get_client", return_value=modele):
+            _appeler(client, "CA-live-dementi")
+        rendu = session.de_type("session.commentary.append")[1]["content"]
+        assert "Rien n'a été enregistré" in rendu and "C'est enregistré pour quatre" not in rendu
+        journal = json.loads(_ligne("CA-live-dementi")["journal"])
+        assert journal["delegations"][0]["dementi"] is True
+        assert journal["delegations"][0]["rendu"] == "C'est enregistré pour quatre personnes."
+        assert "a_verifier" not in journal       # elle ne l'a pas annoncé au client
+
+    def test_au_second_dementi_on_ne_tourne_pas_en_rond(self, tenant):
+        appel = live.Appel(None, None, "MZ", "CA", tenant, "+33612345678", None, "PROMPT")
+        premier = appel._dementi("C'est enregistré.")
+        assert "confie de nouveau ce travail" in premier
+        appel.delegations.append({"t_ms": 0, "outils": [], "rendu": "C'est enregistré.", "dementi": True})
+        assert "Constat du serveur : RIEN n'est enregistré" in appel._demande_au_cerveau()
+        second = appel._dementi("C'est enregistré.")
+        assert "n'a pas pu être enregistrée" in second and "confie" not in second
+
+    def test_apres_une_vraie_ecriture_le_cerveau_est_cru(self, tenant):
+        appel = live.Appel(None, None, "MZ", "CA", tenant, "+33612345678", None, "PROMPT")
+        appel.outils_appeles.append({"nom": "create_reservation", "arguments": {},
+                                     "resultat": '{"status": "confirmed", "reservation_id": 7}'})
+        assert appel._dementi("C'est enregistré.") is None
+        assert appel._dementi("Le créneau est disponible.") is None
+
+
 class TestLAccueilEtLEnregistrement:
     def test_si_elle_n_ouvre_pas_l_appel_l_accueil_lui_est_redonne_une_fois(self, client, monkeypatch, tenant):
         from app import rgpd
