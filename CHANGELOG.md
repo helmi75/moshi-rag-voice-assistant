@@ -7,6 +7,38 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — « c'est réservé » sans réservation : on le voit, et on prévient (ASSISTANTE-137, 09/10/2026)
+
+Le 08/10/2026 (appel 265, GPT-Live), l'assistante a dit « Très bien, j'enregistre ça. C'est
+réservé. » alors que l'outil de création n'avait pas tourné : aucune table en base, et un
+résumé d'appel qui disait lui aussi « a réservé ». La consigne qui l'interdit existait déjà.
+On ne sait pas lequel des deux modèles a fauté : rien ne notait ce que le cerveau rendait à
+la voix.
+
+### Corrigé
+- **Un appel où l'assistante annonce un enregistrement que rien n'explique est marqué « À
+  vérifier »** dans Admin → Appels (filtre « À vérifier »), avec la phrase dite ; le restaurant reçoit un e-mail
+  avec le numéro à rappeler ; le résumé de l'appel dit que la réservation n'est pas
+  enregistrée. Le constat compare ce qui s'est dit à ce que les outils ont fait
+  (`annonce.py`) : il ne dépend d'aucun modèle.
+- **Le cerveau qui rend « c'est enregistré » sans avoir rien enregistré n'est pas répété**
+  au client : la voix reçoit à la place la consigne de l'enregistrer maintenant, une fois,
+  puis celle de dire que ça n'a pas pu se faire.
+
+### Ajouté
+- Le journal d'un appel GPT-Live garde ce que le cerveau a rendu à chaque travail confié
+  (`delegations` : outils appelés, texte rendu) : la prochaine fois, on saura qui a fauté.
+
+### Ce que ça ne fait pas
+- **La voix qui annonce d'elle-même, sans attendre, n'est pas empêchée de le dire** : elle
+  est détectée après coup, à la clôture de l'appel. La corriger pendant l'appel demande un
+  essai contre le vrai service, non fait.
+- Seul le moteur GPT-Live est couvert. La chaîne classique n'a pas ce filet.
+- Le texte du cerveau n'est contrôlé que quand le cerveau est le nôtre : confié à un modèle
+  d'OpenAI (`GPT_LIVE_MODELE`), seul le constat de clôture s'applique.
+- Une annonce faite dans une autre langue que le français n'est pas reconnue.
+- Les appels passés avant ce lot ne sont pas réexaminés : l'appel 265 reste « Renseignement ».
+
 ## Non publiée — sur téléphone, la fiche d'un appel s'ouvre sous sa ligne (ASSISTANTE-136, 07/10/2026)
 
 ### Modifié

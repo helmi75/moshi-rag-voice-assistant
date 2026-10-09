@@ -17,6 +17,8 @@ OUTCOMES = {
     "failed": ("Échec", "chip-bad", "dot-bad"),
     "unfinished": ("Inachevé", "chip-warn", "dot-warn"),
     "info": ("Renseignement", "chip", "dot"),
+    # L'assistante a annoncé un enregistrement que rien n'explique (ASSISTANTE-137).
+    "a_verifier": ("À vérifier", "chip-bad", "dot-bad"),
     # L'assistante en panne a passé la main (ASSISTANTE-118).
     "forwarded": ("Renvoyé au restaurant", "chip-warn", "dot-warn"),
     "voicemail": ("Message vocal", "chip-warn", "dot-warn"),
@@ -42,11 +44,27 @@ def outcome_key(call: dict) -> str:
         return "failed"
     if call.get("reservation_id") or call.get("reservation_externe"):
         return "reservation"
+    if annonce_sans_trace(call):
+        return "a_verifier"
     if not call.get("ended_at"):
         # Le worker n'a jamais clôturé l'appel (arrêt brutal) : l'appel n'est pas
         # « en cours » pour autant — on ne prétend pas suivre un état live.
         return "unfinished"
     return "info"
+
+
+def annonce_sans_trace(call: dict) -> Optional[str]:
+    """La phrase par laquelle l'assistante a annoncé un enregistrement alors que rien n'a
+    été enregistré pendant l'appel, telle que la clôture l'a rangée au journal. Le journal
+    n'est déplié que s'il porte ce constat : la liste des appels en lit vingt-cinq."""
+    brut = call.get("journal") or ""
+    if not isinstance(brut, str) or '"a_verifier"' not in brut:
+        return None
+    try:
+        constat = json.loads(brut).get("a_verifier")
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return (constat.get("phrase") or "—") if isinstance(constat, dict) else None
 
 
 def parse_transcript(raw: Optional[str]) -> list[dict]:
@@ -105,6 +123,7 @@ def call_view(call: dict) -> dict:
         # C'est Marie qui a appelé : un rappel demandé sur le site (app/rappel.py). Le
         # numéro affiché est alors celui de la personne APPELÉE.
         "sortant": bool(call.get("sortant")),
+        "annonce_sans_trace": annonce_sans_trace(call) if key == "a_verifier" else None,
         # Le moteur qui a RÉELLEMENT servi l'appel, lu à la voix rangée à sa clôture : un
         # établissement réglé sur GPT-Live peut avoir été servi par la chaîne classique.
         "moteur_libelle": MOTEURS_SERVIS.get(call.get("voix_fournisseur") or ""),

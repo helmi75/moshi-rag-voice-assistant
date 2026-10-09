@@ -333,6 +333,32 @@ rappel déjà connu (champ retiré) ; la phrase d'attente était dite deux fois 
 ajoutée au cerveau). Vu et laissé : l'accueil est parfois suivi d'une phrase de son cru
 (« Que puis-je faire pour vous ? »).
 
+### Une réservation annoncée, rien d'enregistré (ASSISTANTE-137, 09/10/2026)
+
+Appel 265 du 08/10/2026 : après le « oui » du client, « Très bien, j'enregistre ça. C'est
+réservé. » d'une seule traite, et aucune table en base. Le journal comptait deux outils (les
+deux vérifications de créneau) et cinq générations du cerveau ; rien ne disait ce que le
+cerveau avait rendu, donc on ne sait pas si la voix a annoncé sans attendre ou si le cerveau
+a rendu « c'est fait » sans appeler l'outil.
+
+Depuis, trois choses, dont aucune ne repose sur une consigne :
+
+- `annonce.sans_trace` compare, à la clôture, ce que l'assistante a dit à ce que les outils
+  ont fait. Une annonce (« c'est réservé », « votre réservation est enregistrée »…) sans
+  qu'aucun outil d'écriture ni de recherche ait abouti range `a_verifier` au journal : la
+  fiche de l'appel le dit, le restaurant reçoit un e-mail, le résumé ne dit pas « a réservé ».
+- `Appel._dementi` : le cerveau qui rend une telle annonce sans rien avoir enregistré de
+  tout l'appel n'est pas donné à dire. La voix reçoit la consigne de l'enregistrer
+  maintenant ; à la seconde fois, celle de dire que ça n'a pas pu se faire.
+- Le journal garde `delegations` : pour chaque travail confié, les outils appelés et le
+  texte rendu.
+
+Ce qui reste ouvert : la voix qui annonce d'elle-même n'est constatée qu'après l'appel ;
+`_dementi` ne s'applique pas quand le cerveau est chez OpenAI (`GPT_LIVE_MODELE`), où seul
+le constat de clôture joue ; une annonce dans une autre langue que le français n'est pas
+reconnue ; et personne n'a encore vu, sur un vrai appel, la voix reconfier le travail après
+un démenti.
+
 ### Choisir le moteur d'un établissement (depuis le 05/10/2026)
 
 Après dix vrais appels, Helmi a demandé de choisir le moteur dans l'admin, restaurant par

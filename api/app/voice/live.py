@@ -41,7 +41,7 @@ from loguru import logger
 from starlette.websockets import WebSocketDisconnect
 from websockets.asyncio.client import connect as _connexion
 
-from .. import llm, rgpd
+from .. import annonce, llm, rgpd
 from ..tenants import Tenant
 from . import ulaw
 
@@ -327,6 +327,7 @@ class Appel:
         self.call_id = call_id
         self.fragments: list[dict] = []      # {"role", "texte", "debut", "fin"}
         self.outils_appeles: list[dict] = []
+        self.delegations: list[dict] = []    # ce que le cerveau a rendu, travail par travail
         self.reservations: list = []
         self.secondes_voix: Optional[float] = None
         self.jetons = {"generations": 0, "jetons_entree": 0, "jetons_cache": 0, "jetons_sortie": 0}
@@ -519,6 +520,7 @@ class Appel:
         conversation. Notre modèle raisonne, appelle les outils, et ce qu'il rend est
         donné à dire à l'assistante. Elle garde la parole tant que rien ne revient : un
         cerveau en panne rend donc lui aussi une phrase."""
+        deja = len(self.outils_appeles)
         try:
             texte = await asyncio.wait_for(self._raisonner(), timeout=_DELAI_DU_CERVEAU)
         except Exception as exc:
@@ -527,8 +529,42 @@ class Appel:
         if not texte:
             texte = ("Le travail demandé n'a pas pu être fait. Dis-le simplement au client, sans "
                      "inventer de raison, et propose-lui de rappeler dans quelques minutes.")
+        dementi = self._dementi(texte)
+        self.delegations.append({
+            "t_ms": int((time.monotonic() - self._debut) * 1000),
+            "outils": [o["nom"] for o in self.outils_appeles[deja:]],
+            "rendu": texte[:300], "dementi": bool(dementi)})
+        if dementi:
+            logger.warning(f"[gpt-live] appel {self.call_sid} : le cerveau annonce un enregistrement "
+                           "qu'aucun outil n'a fait, phrase remplacée")
+            texte = dementi
         await self.session.send(_evenement("session.commentary.append", delegation_id=delegation_id,
                                            content=texte[:1800]))
+
+    def _dementi(self, texte: str) -> Optional[str]:
+        """Le cerveau rend « c'est enregistré » alors qu'aucun outil n'a rien enregistré de
+        tout l'appel : ce n'est pas donné à dire. Le serveur sait ce qui est écrit, le
+        modèle le suppose (ASSISTANTE-137, appel 265 du 08/10/2026)."""
+        if not annonce.phrase_d_annonce(texte) or annonce.expliquee(self.outils_appeles):
+            return None
+        if any(d["dementi"] for d in self.delegations):
+            # Deuxième fois dans le même appel : on ne tourne pas en rond avec le client.
+            return ("La réservation n'a pas pu être enregistrée. Dis-le simplement au client, sans "
+                    "inventer de raison, et propose-lui de rappeler dans quelques minutes.")
+        return ("Rien n'a été enregistré : la réservation n'existe pas encore. Ne dis surtout pas "
+                "qu'elle est faite. Dis au client que tu l'enregistres maintenant, et confie de "
+                "nouveau ce travail.")
+
+    def a_verifier(self) -> Optional[dict]:
+        """L'assistante a annoncé au client un enregistrement que rien n'explique dans ce
+        que les outils ont fait : le restaurateur doit le savoir (`annonce.sans_trace`)."""
+        dit = self.transcription()
+        phrase = annonce.sans_trace(dit, self.outils_appeles)
+        if not phrase and any(d["dementi"] for d in self.delegations):
+            # Après un démenti, on lui a fait dire qu'elle enregistrait : si rien n'a suivi
+            # (elle n'a pas reconfié le travail, le client a raccroché), il attend sa table.
+            phrase = annonce.promesse_sans_suite(dit, self.outils_appeles)
+        return {"motif": annonce.MOTIF, "phrase": phrase[:200]} if phrase else None
 
     def _demande_au_cerveau(self) -> str:
         """La conversation telle qu'elle s'est dite, et ce que les outils ont déjà rendu
@@ -542,6 +578,10 @@ class Appel:
             for outil in self.outils_appeles:
                 lignes.append(f"- {outil['nom']}({json.dumps(outil['arguments'], ensure_ascii=False)}) "
                               f"→ {str(outil.get('resultat'))[:600]}")
+        if any(d["dementi"] for d in self.delegations):
+            lignes.append("")
+            lignes.append("Constat du serveur : RIEN n'est enregistré pour cet appel à cet instant. Si le "
+                          "client a confirmé sa réservation, appelle create_reservation maintenant.")
         lignes.append("")
         lignes.append("L'assistante vocale te confie la suite : fais ce que le client vient de demander.")
         return "\n".join(lignes)
@@ -721,6 +761,10 @@ class Appel:
                           "file_ligne_max_ms": self._file_ms("max"),
                           "file_ligne_fin_ms": self._file_ms("fin")},
             "tours": [], "evenements": [],
+            # Ce que le cerveau a rendu à la voix, travail par travail : le 08/10/2026, rien
+            # ne permettait de dire lequel des deux modèles avait annoncé à tort.
+            "delegations": self.delegations[-40:],
+            **({"a_verifier": constat} if (constat := self.a_verifier()) else {}),
         }
 
 
@@ -777,6 +821,7 @@ async def run_live(websocket, session, stream_sid: str, call_sid: Optional[str],
                 from .. import resume
 
                 resume.planifier(identifiant)
+                _prevenir_si_annonce_sans_trace(appel, identifiant)
             except Exception as exc:
                 logger.warning(f"[gpt-live] clôture au journal KO (sans conséquence): {exc}")
     if erreur is not None:
@@ -787,6 +832,20 @@ async def run_live(websocket, session, stream_sid: str, call_sid: Optional[str],
             await websocket.close()
         except RuntimeError:
             pass
+
+
+def _prevenir_si_annonce_sans_trace(appel: Appel, identifiant: Optional[int]) -> None:
+    """Le client est reparti en croyant sa table réservée : le restaurant reçoit de quoi
+    le rappeler. Accessoire à l'appel, donc muet en cas d'échec."""
+    constat = appel.a_verifier()
+    if not constat:
+        return
+    logger.warning(f"[gpt-live] appel {appel.call_sid} : enregistrement annoncé au client, rien "
+                   f"d'enregistré (« {constat['phrase'][:80]} »)")
+    from .. import notifications
+
+    notifications.planifier(appel.tenant, "annonce_sans_trace", {
+        "phrase": constat["phrase"], "caller_number": appel.caller_number, "appel_id": identifiant})
 
 
 async def _fermer(session, appel: Appel) -> None:
