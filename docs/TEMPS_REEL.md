@@ -396,11 +396,13 @@ restaurant, « en général GPT-Live par défaut et l'ancienne version en secour
   est à l'écart, le défaut est tenu pour commun et tout le parc passe par la chaîne
   classique. Une ouverture trop longue ou impossible, et une session tombée en cours
   d'appel, écartent tout le monde dès la première fois : elles coûtent du silence à
-  chaque appelant.
+  chaque appelant. Limite connue : deux établissements refusés durablement, chacun pour
+  une cause propre, se relancent l'un l'autre, et tout le parc reste alors sur la chaîne
+  classique.
 - **Session tombée en cours d'appel** (ASSISTANTE-129, décision de Helmi du 09/10/2026).
   Ce client-là est renvoyé vers le numéro de secours du restaurant, ou vers le répondeur :
   on ne reprend pas un appel en route avec une autre voix. La fiche de l'appel le dit
-  (« sa voix s'est interrompue au milieu de l'appel », motif `session`). Les appels
+  (« la voix s'est interrompue au milieu de l'appel », motif `session`). Les appels
   suivants passent par la chaîne classique, au lieu d'être tous renvoyés au restaurant. La mémoire de l'échec est celle du processus : « Santé & coûts » affiche le
   dernier, un redéploiement l'efface. **Aucun contrôle de supervision ne le surveille** :
   un crédit OpenAI épuisé se voit dans « Santé & coûts » et au journal du conteneur

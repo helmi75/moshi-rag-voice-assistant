@@ -21,7 +21,7 @@ Deux constats de la relecture du 06/10/2026, restés ouverts.
 
 ### Modifié
 - **Quand la voix-à-voix tombe au milieu d'un appel, la fiche de l'appel le dit** (129) :
-  « sa voix s'est interrompue au milieu de l'appel », au lieu de « le pipeline vocal s'est
+  « la voix s'est interrompue au milieu de l'appel », au lieu de « le pipeline vocal s'est
   arrêté sur une erreur ». Le comportement ne change pas, par décision de Helmi du
   09/10/2026 : le client en ligne est renvoyé au restaurant ou au répondeur, on ne reprend
   pas un appel en route avec une autre voix ; les appels suivants passent par la chaîne

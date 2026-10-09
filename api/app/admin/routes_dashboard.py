@@ -291,6 +291,11 @@ def _health(request: Request):
     # posée, pas à l'écart après un échec. La mémoire de l'échec est celle du processus.
     sur_gpt_live = sum(1 for r in rows if live.moteur(r["tenant"]) == live.GPT_LIVE)
     echec = live.dernier_echec()
+    if echec and echec["etablissement"] is not None:
+        # Le nom, pas le numéro : c'est lui qu'on cherche ensuite dans Enseignes.
+        echec["etablissement_nom"] = next(
+            (r["tenant"].name for r in rows if r["tenant"].id == echec["etablissement"]),
+            f"établissement n° {echec['etablissement']}")
     if not live.cle():
         etat_gpt_live = "clé absente"
     elif echec and echec["a_l_ecart"]:

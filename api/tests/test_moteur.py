@@ -320,6 +320,20 @@ class TestCeQueChaqueMoteurCoute:
         monkeypatch.delenv("OPENAI_API_KEY")
         assert "clé absente" in _page(client.get("/admin/health"))
 
+    def test_sante_et_couts_nomme_l_etablissement_seul_a_l_ecart(self, client, resto):
+        """ASSISTANTE-128 : un refus n'écarte que son restaurant, et la page dit lequel."""
+        live.mettre_a_l_ecart("session refusée (invalid_prompt)", resto.id)
+        _admin(client)
+        page = " ".join(_page(client.get("/admin/health")).split())
+        assert "à l'écart pour un établissement" in page
+        assert f"session refusée (invalid_prompt) ({resto.name})" in page
+        assert "sert les appels de cet établissement pendant trois minutes." in page
+        assert "sert tous les appels" not in page
+        # Passé le délai, l'échec reste affiché, mais plus personne n'est à l'écart.
+        live._echecs_propres[resto.id]["depuis"] -= live.MISE_A_L_ECART_SECONDES + 1
+        page = " ".join(_page(client.get("/admin/health")).split())
+        assert f"({resto.name})." in page and "pendant trois minutes" not in page and "prêt" in page
+
     def test_la_fiche_d_un_appel_dit_le_moteur_qui_l_a_servi_a_l_exploitant_seulement(self, client, resto):
         _appel(resto.id, "CA-fiche-live", "gpt-live", 90, telephonie=0.02, transcription=0.0,
                comprehension=0.003, cout_voix=0.075)

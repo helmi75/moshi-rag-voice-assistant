@@ -42,7 +42,7 @@ LIBELLES = {
     MODELE: "le modèle ne répondait plus",
     TRANSCRIPTION: "la transcription ne répondait plus",
     PIPELINE: "le pipeline vocal s'est arrêté sur une erreur",
-    SESSION: "sa voix s'est interrompue au milieu de l'appel",
+    SESSION: "la voix s'est interrompue au milieu de l'appel",
     FLUX: "le flux audio n'a pas pu s'ouvrir",
     PANNE_RECENTE: "une panne venait d'être constatée sur un autre appel",
     ESSAI: "essai de renvoi lancé depuis l'admin",

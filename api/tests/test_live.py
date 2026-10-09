@@ -393,7 +393,7 @@ class TestLaChaineClassiqueEstLeSecours:
         # Ce client-là est passé au restaurant : on ne reprend pas un appel en route.
         # Et la fiche de l'appel dira pourquoi (ASSISTANTE-129), sans nommer le moteur.
         assert renvoi.motif_a_la_fin_du_flux("CA-live-tombe") == renvoi.SESSION
-        assert "interrompue au milieu de l'appel" in renvoi.LIBELLES[renvoi.SESSION]
+        assert renvoi.LIBELLES[renvoi.SESSION] == "la voix s'est interrompue au milieu de l'appel"
         # Mais la chaîne classique n'a rien montré : l'établissement n'est pas « en panne »,
         # c'est GPT-Live qui est mis de côté.
         assert renvoi.panne_recente(tenant.id) is None

@@ -309,8 +309,6 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T7 | Parler anglais | Elle répond en anglais | |
 | T8 | « Non merci, au revoir » | Elle prend congé, et la ligne est raccrochée deux secondes après | |
 | T9 | Admin → Appels → cet appel | Les deux côtés de la conversation, l'enregistrement, et le coût : voix = durée × 0,05 $, transcription à zéro, cerveau = les jetons de Gemini | |
-| T20 | Sans téléphone (tests) : une session refusée pour un établissement | Lui seul est à l'écart trois minutes ; « Santé & coûts » nomme l'établissement ; un deuxième établissement refusé pendant ce temps écarte tout le parc (ASSISTANTE-128) | |
-| T21 | Sans téléphone (tests) : la session tombe au milieu d'un appel | Le client est renvoyé au restaurant ; la fiche de l'appel dit « sa voix s'est interrompue au milieu de l'appel », sans nommer le moteur ; l'appel suivant est servi par la chaîne classique (ASSISTANTE-129) | |
 | T10 | Appeler un établissement hors essai | Marie, comme d'habitude | |
 | T11 | Dix appels de chaque côté, puis « Santé & coûts » | Le blanc médian et le coût par minute des deux, côte à côte : c'est le verdict de l'essai | |
 | T12 | Admin → Appels → réécouter un appel GPT-Live passé après le 04/10/2026 au soir | Les deux voix se répondent comme au téléphone : elle ne parle jamais avant la fin de la question | |
@@ -321,6 +319,8 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T17 | Trois réservations de suite sur GPT-Live, en confirmant chaque récapitulatif par un simple « oui » ; puis Admin → Appels et Réservations | Chaque « c'est enregistré » a sa table au carnet. Si un appel porte « À vérifier », sa fiche cite la phrase dite, un e-mail « À vérifier » est arrivé, et son résumé ne dit pas « a réservé » (ASSISTANTE-137) | |
 | T18 | Après un appel « À vérifier » : `docker compose exec api` puis lire `delegations` dans le journal de l'appel | On lit ce que le cerveau a rendu à chaque travail confié : c'est ce qui dit lequel des deux modèles a annoncé à tort | |
 | T19 | Après quelques jours d'appels GPT-Live : chercher « génération du cerveau sans réponse » dans le journal du conteneur, et lire `generations_ms` au journal d'un appel | Une requête restée sans réponse est suivie d'un nouvel essai, et l'appel a quand même eu sa réponse ; les durées habituelles se lisent en millisecondes (ASSISTANTE-148) | |
+| T20 | Sans téléphone (tests) : une session refusée pour un établissement | Lui seul est à l'écart trois minutes ; « Santé & coûts » nomme l'établissement ; un deuxième établissement refusé pendant ce temps écarte tout le parc (ASSISTANTE-128) | |
+| T21 | Sans téléphone (tests) : la session tombe au milieu d'un appel | Le client est renvoyé au restaurant ; la fiche de l'appel dit « la voix s'est interrompue au milieu de l'appel », sans nommer le moteur ; l'appel suivant est servi par la chaîne classique (ASSISTANTE-129) | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 
