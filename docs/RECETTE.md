@@ -318,6 +318,7 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T16 | Se connecter en restaurateur, ouvrir sa fiche | Pas de « Moteur de l'appel » ; ni la fiche ni ses appels ne nomment GPT-Live | |
 | T17 | Trois réservations de suite sur GPT-Live, en confirmant chaque récapitulatif par un simple « oui » ; puis Admin → Appels et Réservations | Chaque « c'est enregistré » a sa table au carnet. Si un appel porte « À vérifier », sa fiche cite la phrase dite, un e-mail « À vérifier » est arrivé, et son résumé ne dit pas « a réservé » (ASSISTANTE-137) | |
 | T18 | Après un appel « À vérifier » : `docker compose exec api` puis lire `delegations` dans le journal de l'appel | On lit ce que le cerveau a rendu à chaque travail confié : c'est ce qui dit lequel des deux modèles a annoncé à tort | |
+| T19 | Après quelques jours d'appels GPT-Live : chercher « génération du cerveau sans réponse » dans le journal du conteneur, et lire `generations_ms` au journal d'un appel | Une requête restée sans réponse est suivie d'un nouvel essai, et l'appel a quand même eu sa réponse ; les durées habituelles se lisent en millisecondes (ASSISTANTE-148) | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

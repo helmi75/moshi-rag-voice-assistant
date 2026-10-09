@@ -7,6 +7,36 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le cerveau qui ne répond pas est redemandé (ASSISTANTE-148, 09/10/2026)
+
+Le 09/10/2026 à 10 h 02 et 10 h 04 (appels 268 et 269, GPT-Live), l'assistante a dit deux
+fois « je ne peux pas vérifier, rappelez dans quelques minutes » : le modèle qui raisonne
+n'avait pas rendu son travail en vingt secondes (`TimeoutError` au journal du conteneur).
+Le même modèle a résumé l'appel 269 en une seconde environ, trente secondes plus tard : ce
+sont des requêtes isolées qui ne sont pas revenues, et aucune n'avait son propre délai.
+
+### Corrigé
+- **Une requête au cerveau qui ne revient pas en six secondes est abandonnée et
+  redemandée**, trois essais au plus (`GPT_LIVE_DELAI_GENERATION`), de même après une
+  erreur du fournisseur. Un outil ne s'exécute qu'une fois la réponse reçue : rien n'est
+  enregistré deux fois. Le délai de vingt secondes pour l'ensemble du travail reste.
+
+- **Une réservation faite est dite, même si le modèle ne rend pas sa phrase** : quand un
+  outil a écrit puis que le cerveau se tait, l'assistante annonce ce qui est fait au lieu
+  de demander de rappeler (le client aurait réservé une seconde fois). Un outil en train
+  d'écrire quand le délai tombe finit son travail, et l'appel en garde la trace.
+
+### Ajouté
+- Le journal de l'appel garde, pour chaque travail confié, sa durée et celle de chaque
+  requête au modèle ; le journal du conteneur nomme chaque requête restée sans réponse.
+
+### Ce que ça ne fait pas
+- On ne sait toujours pas pourquoi ces requêtes ne sont pas revenues. Les six secondes sont
+  un choix, pas une mesure : les durées maintenant journalisées permettront de le régler.
+- Pendant qu'on redemande, le client attend en silence, jusqu'à vingt secondes au pire.
+- Les jetons d'une requête abandonnée ne sont pas comptés dans le coût de l'appel, alors
+  que le fournisseur les facture peut-être.
+
 ## Non publiée — sur GPT-Live, la page « Voix » ne propose que la voix par défaut (ASSISTANTE-133, 09/10/2026)
 
 ### Modifié
