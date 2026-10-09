@@ -152,8 +152,12 @@
         {% if echec_gpt_live %}
         <br><b>Dernier échec de GPT-Live</b> depuis le démarrage du serveur :
         {{ echec_gpt_live.le | jour_paris }} à {{ echec_gpt_live.le | heure_paris }},
-        {{ echec_gpt_live.motif }}{% if echec_gpt_live.a_l_ecart %} — la chaîne classique
-        sert les appels pendant trois minutes{% endif %}.
+        {{ echec_gpt_live.motif }}{% if echec_gpt_live.etablissement %}
+        ({{ echec_gpt_live.etablissement_nom }}){% endif %}
+        {%- if echec_gpt_live.a_l_ecart %} — la chaîne classique sert tous les appels
+        pendant trois minutes
+        {%- elif echec_gpt_live.etablissement_a_l_ecart %} — la chaîne classique sert les
+        appels de cet établissement pendant trois minutes{% endif %}.
         {% endif %}
       </p>
     </section>

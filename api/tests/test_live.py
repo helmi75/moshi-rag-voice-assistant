@@ -307,12 +307,51 @@ class TestLaChaineClassiqueEstLeSecours:
 
         monkeypatch.setattr(live, "_connecter", connecter)
         assert self._decrocher(client, "CA-live-refus-1").await_count == 1
-        assert "credit_balance_exhausted" in live.a_l_ecart()
+        assert "credit_balance_exhausted" in live.a_l_ecart(tenants.get_by_phone(DEMO_NUMBER))
         # Le deuxième appelant est servi par la chaîne classique sans attendre OpenAI.
         assert self._decrocher(client, "CA-live-refus-2").await_count == 1
         assert len(ouvertures) == 1
         echec = live.dernier_echec()
-        assert echec["a_l_ecart"] is True and "refusée" in echec["motif"] and echec["le"].endswith("Z")
+        assert "refusée" in echec["motif"] and echec["le"].endswith("Z")
+        # Un refus ne dit rien des autres établissements : lui seul est à l'écart.
+        assert echec["a_l_ecart"] is False and echec["etablissement_a_l_ecart"] is True
+        assert echec["etablissement"] == tenants.get_by_phone(DEMO_NUMBER).id and live.a_l_ecart() is None
+
+    def test_un_refus_chez_un_restaurant_n_ecarte_pas_les_autres(self, tenant):
+        """ASSISTANTE-128 : un seul échec pour tout le processus envoyait tout le parc sur
+        la chaîne classique pour le défaut d'un seul."""
+        autre, troisieme = replace(tenant, id=tenant.id + 1000), replace(tenant, id=tenant.id + 2000)
+        live.mettre_a_l_ecart("session refusée (invalid_prompt)", tenant.id)
+        assert "invalid_prompt" in live.a_l_ecart(tenant)
+        assert live.a_l_ecart(autre) is None and live.a_l_ecart() is None
+        # Un deuxième établissement refusé à son tour : le défaut est commun.
+        live.mettre_a_l_ecart("session refusée (invalid_prompt)", autre.id)
+        assert "plusieurs établissements" in live.a_l_ecart(troisieme)
+        assert live.dernier_echec()["a_l_ecart"] is True
+
+    def test_deux_refus_du_meme_restaurant_ne_l_etendent_pas_aux_autres(self, tenant):
+        autre = replace(tenant, id=tenant.id + 1000)
+        live.mettre_a_l_ecart("session refusée (invalid_prompt)", tenant.id)
+        live.mettre_a_l_ecart("session refusée (invalid_prompt)", tenant.id)
+        assert live.a_l_ecart(autre) is None
+
+    def test_un_vieux_refus_ailleurs_ne_rend_pas_le_defaut_commun(self, tenant):
+        autre = replace(tenant, id=tenant.id + 1000)
+        live.mettre_a_l_ecart("session refusée (invalid_prompt)", tenant.id)
+        live._echecs_propres[tenant.id]["depuis"] -= live.MISE_A_L_ECART_SECONDES + 1
+        assert live.a_l_ecart(tenant) is None
+        live.mettre_a_l_ecart("session refusée (invalid_prompt)", autre.id)
+        assert live.a_l_ecart(tenant) is None and "invalid_prompt" in live.a_l_ecart(autre)
+
+    def test_une_ouverture_lente_ou_impossible_ecarte_tout_le_monde(self, monkeypatch, tenant):
+        """Un réseau ou un service en panne coûte quatre secondes de silence à CHAQUE
+        appelant : celui-là reste commun dès le premier échec."""
+        async def connecter():
+            raise OSError("réseau")
+
+        monkeypatch.setattr(live, "_connecter", connecter)
+        assert asyncio.run(live.ouvrir(tenant, "prompt")) is None
+        assert "OSError" in live.a_l_ecart(replace(tenant, id=tenant.id + 1000))
 
     def test_passe_le_delai_un_appel_retente_gpt_live(self, client, monkeypatch):
         live.mettre_a_l_ecart("session refusée (essai)")
@@ -352,7 +391,9 @@ class TestLaChaineClassiqueEstLeSecours:
         _brancher(monkeypatch, SessionQuiTombe())
         _appeler(client, "CA-live-tombe")
         # Ce client-là est passé au restaurant : on ne reprend pas un appel en route.
-        assert renvoi.motif_a_la_fin_du_flux("CA-live-tombe") == renvoi.PIPELINE
+        # Et la fiche de l'appel dira pourquoi (ASSISTANTE-129), sans nommer le moteur.
+        assert renvoi.motif_a_la_fin_du_flux("CA-live-tombe") == renvoi.SESSION
+        assert renvoi.LIBELLES[renvoi.SESSION] == "la voix s'est interrompue au milieu de l'appel"
         # Mais la chaîne classique n'a rien montré : l'établissement n'est pas « en panne »,
         # c'est GPT-Live qui est mis de côté.
         assert renvoi.panne_recente(tenant.id) is None
