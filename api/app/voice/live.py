@@ -130,35 +130,70 @@ def actif(tenant: Optional[Tenant]) -> bool:
 # s'ouvre pas : jusqu'à GPT_LIVE_DELAI_OUVERTURE secondes de silence au décroché. Passé le
 # délai, un appel retente GPT-Live. Même durée que la mémoire des pannes (app/renvoi.py).
 MISE_A_L_ECART_SECONDES = 180.0
-_echec: dict = {}          # le dernier échec : {"depuis": horloge monotone, "le": UTC, "motif": …}
+_echec: dict = {}          # le dernier échec commun : {"depuis": horloge monotone, "le": UTC, "motif": …}
+# Une session REFUSÉE par OpenAI peut ne tenir qu'à l'établissement (ses consignes, son
+# réglage) : lui seul est mis à l'écart. Un seul échec pour tout le processus envoyait
+# tous les restaurants sur la chaîne classique pour le défaut d'un seul (ASSISTANTE-128).
+# On ne devine pas la cause au code d'erreur : si un DEUXIÈME établissement est refusé
+# pendant que le premier est à l'écart, le défaut est commun et tout le monde l'est. Un
+# refus est rendu tout de suite : l'appelant qui le découvre n'attend pas.
+_echecs_propres: dict[int, dict] = {}
 
 
-def mettre_a_l_ecart(motif: str) -> None:
-    """GPT-Live vient d'échouer : la chaîne classique sert les appels qui suivent."""
-    _echec.update(depuis=time.monotonic(), motif=motif,
-                  le=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+def _frais(echec: Optional[dict]) -> bool:
+    return bool(echec) and time.monotonic() - echec["depuis"] <= MISE_A_L_ECART_SECONDES
+
+
+def _echec_de(motif: str) -> dict:
+    return {"depuis": time.monotonic(), "motif": motif,
+            "le": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+
+def mettre_a_l_ecart(motif: str, tenant_id: Optional[int] = None) -> None:
+    """GPT-Live vient d'échouer : la chaîne classique sert les appels qui suivent. Avec
+    `tenant_id`, ceux de cet établissement seulement — sauf si un autre l'est déjà."""
+    if tenant_id is not None:
+        ailleurs = any(_frais(e) for autre, e in _echecs_propres.items() if autre != tenant_id)
+        _echecs_propres[tenant_id] = _echec_de(motif)
+        if not ailleurs:
+            logger.warning(f"[gpt-live] établissement {tenant_id} mis à l'écart "
+                           f"{MISE_A_L_ECART_SECONDES:.0f} s ({motif}) : la chaîne classique sert ses appels")
+            return
+        motif = f"{motif}, chez plusieurs établissements"
+    _echec.clear()
+    _echec.update(_echec_de(motif))
     logger.warning(f"[gpt-live] mis à l'écart {MISE_A_L_ECART_SECONDES:.0f} s ({motif}) : "
                    "la chaîne classique sert les appels")
 
 
-def a_l_ecart() -> Optional[str]:
-    """Le motif du dernier échec s'il est encore frais, sinon None."""
-    if _echec and time.monotonic() - _echec["depuis"] <= MISE_A_L_ECART_SECONDES:
+def a_l_ecart(tenant: Optional[Tenant] = None) -> Optional[str]:
+    """Le motif de l'échec encore frais qui concerne cet établissement — commun à tous,
+    ou propre à lui —, sinon None. Sans établissement : l'échec commun seulement."""
+    if _frais(_echec):
         return _echec["motif"]
-    return None
+    propre = _echecs_propres.get(tenant.id) if tenant is not None else None
+    return propre["motif"] if _frais(propre) else None
 
 
 def dernier_echec() -> Optional[dict]:
     """Pour l'admin : quand GPT-Live a échoué pour la dernière fois depuis le démarrage, et
-    pourquoi. La mémoire est celle du processus : un redéploiement l'efface."""
-    if not _echec:
+    pourquoi. `a_l_ecart` : tout le parc ; `etablissement` : celui que l'échec concerne
+    seul, et `etablissement_a_l_ecart` s'il l'est encore. La mémoire est celle du
+    processus : un redéploiement l'efface."""
+    candidats = [(e["depuis"], None, e) for e in ([_echec] if _echec else [])]
+    candidats += [(e["depuis"], tenant_id, e) for tenant_id, e in _echecs_propres.items()]
+    if not candidats:
         return None
-    return {"le": _echec["le"], "motif": _echec["motif"], "a_l_ecart": a_l_ecart() is not None}
+    _, tenant_id, echec = max(candidats, key=lambda c: c[0])
+    return {"le": echec["le"], "motif": echec["motif"], "a_l_ecart": _frais(_echec),
+            "etablissement": tenant_id,
+            "etablissement_a_l_ecart": tenant_id is not None and _frais(echec)}
 
 
 def reinitialiser() -> None:
     """Pour les tests."""
     _echec.clear()
+    _echecs_propres.clear()
 
 
 def voix() -> str:
@@ -314,7 +349,8 @@ async def ouvrir(tenant: Tenant, prompt_systeme: str, numero_connu: bool = True)
                 return ws
             if evt.get("type") == "error":
                 erreur = evt.get("error") or {}
-                mettre_a_l_ecart(f"session refusée ({erreur.get('code') or erreur.get('type')})")
+                mettre_a_l_ecart(f"session refusée ({erreur.get('code') or erreur.get('type')})",
+                                 tenant.id)
                 break
         else:
             mettre_a_l_ecart("session trop longue à s'ouvrir")

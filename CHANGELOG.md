@@ -7,6 +7,30 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le secours de GPT-Live, plus juste et dit clairement (ASSISTANTE-128 et 129, 09/10/2026)
+
+Deux constats de la relecture du 06/10/2026, restés ouverts.
+
+### Corrigé
+- **Une session refusée pour un restaurant n'écarte plus tous les autres** (128). Un seul
+  échec, gardé pour tout le processus, envoyait tout le parc sur la chaîne classique trois
+  minutes. Seul l'établissement refusé est maintenant mis à l'écart ; si un deuxième est
+  refusé pendant ce temps, le défaut est tenu pour commun. Une ouverture trop longue ou
+  impossible, et une session tombée en cours d'appel, restent communes dès la première fois.
+  « Santé & coûts » dit quel établissement est concerné.
+
+### Modifié
+- **Quand la voix-à-voix tombe au milieu d'un appel, la fiche de l'appel le dit** (129) :
+  « sa voix s'est interrompue au milieu de l'appel », au lieu de « le pipeline vocal s'est
+  arrêté sur une erreur ». Le comportement ne change pas, par décision de Helmi du
+  09/10/2026 : le client en ligne est renvoyé au restaurant ou au répondeur, on ne reprend
+  pas un appel en route avec une autre voix ; les appels suivants passent par la chaîne
+  classique.
+
+### Ce que ça ne fait pas
+- Aucun des deux cas n'a été vu en production : ils sont tenus par des tests, pas par un
+  appel. Un seul établissement est sur GPT-Live aujourd'hui : pour lui, le 128 ne change rien.
+
 ## Non publiée — le cerveau qui ne répond pas est redemandé (ASSISTANTE-148, 09/10/2026)
 
 Le 09/10/2026 à 10 h 02 et 10 h 04 (appels 268 et 269, GPT-Live), l'assistante a dit deux

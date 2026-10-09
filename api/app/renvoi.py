@@ -30,6 +30,10 @@ from . import calls, connecteurs, disponibilite, horloge
 # Pourquoi l'assistante passe la main. Rangé dans `calls.secours_motif`.
 VOIX, MODELE, TRANSCRIPTION = "voix", "modele", "transcription"
 PIPELINE, FLUX, PANNE_RECENTE = "pipeline", "flux", "panne_recente"
+# La voix-à-voix est tombée au milieu de l'appel. Le client en ligne est passé au
+# restaurant : on ne reprend pas un appel en route avec une autre voix (décision de Helmi
+# du 09/10/2026, ASSISTANTE-129). La chaîne classique sert les appels SUIVANTS.
+SESSION = "session"
 # Un essai lancé depuis l'admin : le prochain appel de l'établissement est renvoyé, pour
 # vérifier que le téléphone du restaurant sonne — sans attendre une vraie panne.
 ESSAI = "essai"
@@ -38,6 +42,7 @@ LIBELLES = {
     MODELE: "le modèle ne répondait plus",
     TRANSCRIPTION: "la transcription ne répondait plus",
     PIPELINE: "le pipeline vocal s'est arrêté sur une erreur",
+    SESSION: "sa voix s'est interrompue au milieu de l'appel",
     FLUX: "le flux audio n'a pas pu s'ouvrir",
     PANNE_RECENTE: "une panne venait d'être constatée sur un autre appel",
     ESSAI: "essai de renvoi lancé depuis l'admin",

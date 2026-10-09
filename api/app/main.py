@@ -572,7 +572,7 @@ async def voice_stream(websocket: WebSocket):
         # GPT-Live (app/voice/live.py) : seulement pour les établissements dont c'est le
         # moteur, seulement s'il n'est pas à l'écart après un échec, et seulement si la
         # session s'ouvre. Sinon l'appel suit la chaîne classique, son secours.
-        if live.actif(tenant) and not live.a_l_ecart():
+        if live.actif(tenant) and not live.a_l_ecart(tenant):
             tenant_live, prompt_live = await live.preparer(tenant, from_number, demonstration)
             session_live = await live.ouvrir(tenant_live, prompt_live, bool(from_number))
         if session_live is not None:
@@ -589,7 +589,7 @@ async def voice_stream(websocket: WebSocket):
         logger.exception(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
         # Le client est toujours en ligne : à la fermeture du flux, Twilio le passe au
         # restaurant (ASSISTANTE-118).
-        renvoi.demander(call_sid, renvoi.PIPELINE)
+        renvoi.demander(call_sid, renvoi.SESSION if session_live is not None else renvoi.PIPELINE)
         if session_live is not None:
             # C'est GPT-Live qui servait l'appel : la chaîne classique, elle, n'a rien
             # montré. Les appels suivants passent par elle, pas au restaurant.

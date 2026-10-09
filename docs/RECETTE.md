@@ -309,6 +309,8 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T7 | Parler anglais | Elle répond en anglais | |
 | T8 | « Non merci, au revoir » | Elle prend congé, et la ligne est raccrochée deux secondes après | |
 | T9 | Admin → Appels → cet appel | Les deux côtés de la conversation, l'enregistrement, et le coût : voix = durée × 0,05 $, transcription à zéro, cerveau = les jetons de Gemini | |
+| T20 | Sans téléphone (tests) : une session refusée pour un établissement | Lui seul est à l'écart trois minutes ; « Santé & coûts » nomme l'établissement ; un deuxième établissement refusé pendant ce temps écarte tout le parc (ASSISTANTE-128) | |
+| T21 | Sans téléphone (tests) : la session tombe au milieu d'un appel | Le client est renvoyé au restaurant ; la fiche de l'appel dit « sa voix s'est interrompue au milieu de l'appel », sans nommer le moteur ; l'appel suivant est servi par la chaîne classique (ASSISTANTE-129) | |
 | T10 | Appeler un établissement hors essai | Marie, comme d'habitude | |
 | T11 | Dix appels de chaque côté, puis « Santé & coûts » | Le blanc médian et le coût par minute des deux, côte à côte : c'est le verdict de l'essai | |
 | T12 | Admin → Appels → réécouter un appel GPT-Live passé après le 04/10/2026 au soir | Les deux voix se répondent comme au téléphone : elle ne parle jamais avant la fin de la question | |

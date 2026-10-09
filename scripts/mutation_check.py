@@ -1138,6 +1138,16 @@ GARDE_FOUS = [
               "sans réservation (appels 268 et 269 du 09/10/2026)",
     ),
     GardeFou(
+        nom="GPT-Live : un refus chez un restaurant n'écarte pas les autres",
+        fichier="api/app/voice/live.py",
+        avant="        if not ailleurs:",
+        apres="        if False:  # mutation",
+        tests=["test_live.py"],
+        k="n_ecarte_pas_les_autres or ne_l_etendent_pas or vieux_refus",
+        panne="le défaut d'un seul restaurant (ses consignes refusées par OpenAI) enverrait de "
+              "nouveau tout le parc sur la chaîne classique",
+    ),
+    GardeFou(
         nom="Le moteur de l'appel ne se choisit pas soi-même",
         fichier="api/app/admin/routes_tenants.py",
         avant="    if user.is_superadmin and moteur_voix in live.MOTEURS:",

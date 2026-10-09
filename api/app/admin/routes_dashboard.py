@@ -295,6 +295,8 @@ def _health(request: Request):
         etat_gpt_live = "clé absente"
     elif echec and echec["a_l_ecart"]:
         etat_gpt_live = "à l'écart"
+    elif echec and echec["etablissement_a_l_ecart"]:
+        etat_gpt_live = "à l'écart pour un établissement"
     else:
         etat_gpt_live = "prêt"
     stack.append({
