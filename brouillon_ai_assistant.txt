@@ -1,0 +1,90 @@
+Comercial ciblé :
+
+Une épopée à créer dans Jira, en priorité haute. Tu ne codes rien, tu n'étudies rien, tu ne
+dépenses rien : tu crées seulement les tickets, en « À faire », hors du sprint en cours.
+
+Épopée « Démonstration personnalisée avant un rendez-vous »
+
+Le but : avant d'entrer chez un restaurateur pour lui vendre Helmane, je prépare une
+démonstration à son nom. Sur place, il appelle (ou se fait rappeler), tombe sur SON
+restaurant, et simule une réservation chez lui : son nom, ses horaires, sa carte, son
+adresse. Il essaie son propre restaurant, plus Le Bouchon Doré.
+
+Le parcours, à découper en user stories :
+1. Dans l'admin, je saisis le nom du restaurant (et sa ville).
+2. Les informations publiques du restaurant sont récupérées automatiquement : nom,
+   adresse, téléphone, horaires, type de cuisine, carte et prix quand ils sont publics,
+   moyens de paiement, accès, ce qui se trouve sur son site et sa fiche en ligne.
+3. Je relis et je corrige ce qui a été récupéré avant de m'en servir : rien n'est présenté
+   au gérant sans que je l'aie validé. Une information non trouvée est laissée vide, jamais
+   inventée.
+4. Ces informations deviennent un établissement de démonstration : sa fiche, ses horaires,
+   son accueil (« Bonjour, <son restaurant> »).
+5. Je présente la simulation au gérant : il appelle un numéro, ou il est rappelé, et il
+   réserve chez lui. La réservation est une réservation d'essai, visible dans un admin de
+   démonstration que je peux lui montrer.
+6. Je recueille son retour d'expérience juste après : quelques questions simples, la
+   réponse rangée avec la démonstration, pour que je voie ce qui a plu et ce qui a bloqué
+   d'un rendez-vous à l'autre.
+7. Après le rendez-vous, la démonstration s'efface ou se transforme en vrai compte s'il
+   signe.
+
+Cette épopée tourne sur le serveur de pré-production, jamais sur la production : note la
+dépendance avec l'épopée « Pré-production » et dis-moi dans quel ordre les faire.
+
+À noter dans les tickets, comme points à trancher avec moi avant de coder :
+- d'où viennent les données, et ce qu'on a le droit de récupérer automatiquement (conditions
+  d'utilisation des sites, données publiques d'une entreprise seulement, aucune donnée de
+  personne) ; regarde ce qui existe déjà du côté de l'étude de marché et du collecteur
+  Google Maps avant de proposer du neuf ;
+- le coût par démonstration (récupération des données, appel, minutes), à relever, pas à
+  estimer ;
+- comment le gérant tombe sur son restaurant : un numéro de démonstration partagé avec un
+  établissement « du jour », un numéro par démonstration, ou le rappel depuis le site ;
+- aucune réservation d'essai ne doit prévenir un vrai restaurateur ni toucher un vrai
+  carnet ;
+- combien de temps une démonstration et son enregistrement sont gardés, avec la ligne
+  correspondante dans docs/RGPD.md, et ce qu'on dit au gérant sur l'enregistrement ;
+- le temps de préparation visé : je veux pouvoir la préparer en quelques minutes, la veille
+  ou dans la voiture.
+
+Mets l'épopée et ses stories en priorité haute. Quand c'est fait, rends-moi la liste des
+tickets créés avec leurs clés, et l'ordre que tu recommandes entre cette épopée et la
+pré-production.
+
+User storie préprod
+
+Je vais bientôt prendre de vrais clients. Je veux une pré-production : une deuxième copie
+d'Helmane sur laquelle on déploie et on appelle AVANT la production, pour qu'aucun client
+ne tombe sur une version que personne n'a essayée au téléphone.
+
+Ce que je veux à la fin :
+- une adresse à part (par exemple preprod.helmane.fr), avec sa propre base, ses propres
+  enregistrements et son propre fichier .env : rien de partagé avec la production ;
+- son propre numéro de téléphone, pour passer de vrais appels d'essai sur les deux moteurs
+  (GPT-Live et chaîne classique) ;
+- un déploiement en deux temps : d'abord la pré-production, j'appelle, puis seulement la
+  production. Le script de déploiement doit refuser la production si la même version n'est
+  pas passée par la pré-production ;
+- les e-mails et notifications de la pré-production ne partent jamais vers un vrai
+  restaurateur ;
+- la pré-production ne peut pas écrire dans un vrai carnet resOS ;
+- une bannière visible dans l'admin de pré-production, pour ne jamais la confondre avec
+  la vraie ;
+- la recette (docs/RECETTE.md) et docs/DEPLOY.md mises à jour avec ce nouveau parcours.
+
+Commence par une étude, sans rien créer ni rien acheter. Rends-moi :
+1. Deux ou trois façons de faire (même serveur ou second serveur, par exemple), avec ta
+   recommandation.
+2. Le coût mensuel de chacune, relevé chez le fournisseur avec la date : numéro Twilio,
+   minutes d'essai, serveur, clés. Aucun chiffre inventé ; ce que tu n'as pas pu relever,
+   dis-le.
+3. Les risques : ce qui pourrait faire toucher la production par erreur, et comment tu
+   l'empêches.
+4. Ce que je dois faire moi-même (achat du numéro, DNS, console Twilio, fichier .env du
+   serveur), dans l'ordre.
+5. Le découpage en tickets Jira, dans une épopée « Pré-production ».
+
+Règles habituelles : tu ne dépenses rien, tu n'écris rien sur le serveur, tu ne touches ni
+à la console Twilio ni au DNS sans mon accord explicite. Tu ne copies aucune clé de
+production. Attends ma décision sur l'option avant de coder.

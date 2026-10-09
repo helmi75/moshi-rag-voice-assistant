@@ -190,6 +190,49 @@ class TestChoixDeVoix:
         assert avant != apres
 
 
+class TestUnEtablissementSurLaVoixAVoix:
+    """ASSISTANTE-133 : le client n'entend ni les voix du catalogue ni l'aperçu pré-rendu.
+    La page ne les propose donc pas, et ne nomme pas le moteur au restaurateur."""
+
+    @pytest.fixture()
+    def en_direct(self, resto, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-jamais-utilisee")
+        tenants.update_tenant(resto.id, moteur_voix="gpt_live")
+        return tenants.get_by_id(resto.id)
+
+    def test_la_page_montre_la_voix_par_defaut_sans_choix_ni_apercu(self, client, en_direct):
+        page = _login(client).get(f"/admin/tenants/{en_direct.id}/voice").text.replace("&#39;", "'")
+        assert "Marie — voix par défaut" in page
+        assert 'name="voice"' not in page and "extrait.wav" not in page
+        assert "greeting.wav" not in page and "Rendu de la voix en cours" not in page
+        assert "Musique d'attente" not in page
+        assert "GPT" not in page and "OpenAI" not in page
+        # L'accueil reste modifiable : c'est le texte qu'elle dit au décroché.
+        assert 'name="greeting"' in page and "Texte prononcé au décroché" in page
+
+    def test_le_fragment_d_etat_ne_fait_pas_ecouter_l_apercu(self, client, en_direct):
+        fragment = _login(client).get(f"/admin/tenants/{en_direct.id}/greeting/status").text
+        assert "<audio" not in fragment and "hx-get" not in fragment
+
+    def test_un_formulaire_bricole_ne_change_pas_la_voix(self, client, en_direct, monkeypatch):
+        monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
+        autre = next(v for v in voices.voix_voxtral() if v.id != voices.resolve(en_direct))
+        _login(client)
+        resp = client.post(f"/admin/tenants/{en_direct.id}/voice", data={"voice": autre.id},
+                           headers={"X-CSRF-Token": _csrf(client)}, follow_redirects=False)
+        assert resp.status_code == 303
+        assert tenants.get_by_id(en_direct.id).voice == en_direct.voice
+
+    def test_sans_cle_la_chaine_classique_sert_et_la_page_redevient_la_sienne(self, client, en_direct, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        page = _login(client).get(f"/admin/tenants/{en_direct.id}/voice").text
+        assert 'name="voice"' in page and "Marie — voix par défaut" not in page
+
+    def test_un_etablissement_sur_la_chaine_classique_garde_son_choix(self, client, resto):
+        page = _login(client).get(f"/admin/tenants/{resto.id}/voice").text
+        assert 'name="voice"' in page and "Marie — voix par défaut" not in page
+
+
 class TestHoldMusicUpload:
     def test_upload_stereo_44k_converted_to_mono_8k(self, client, resto):
         _login(client)

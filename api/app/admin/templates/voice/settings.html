@@ -16,15 +16,17 @@
 <div class="split">
   <article class="card">
     <h2>Message d'accueil</h2>
-    <p class="card-sub">Joué instantanément au décroché (pré-rendu en voix IA).
-       {% if voix_sans_gpu %}L'assistante enchaîne tout de suite : pas de mise en
+    <p class="card-sub">{% if voix_par_defaut_seule %}Dit par l'assistante dès qu'elle décroche.
+       {% elif voix_sans_gpu %}Joué instantanément au décroché (pré-rendu en voix IA).
+       L'assistante enchaîne tout de suite : pas de mise en
        route, donc pas de musique d'attente.
-       {% else %}Terminez par « un instant s'il vous plaît » : la musique d'attente enchaîne
+       {% else %}Joué instantanément au décroché (pré-rendu en voix IA).
+       Terminez par « un instant s'il vous plaît » : la musique d'attente enchaîne
        pendant la mise en route, puis l'assistante reprend la parole.{% endif %}</p>
     <form method="post" action="/admin/tenants/{{ tenant.id }}/voice" style="margin-top: 1rem">
       <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
       <textarea name="greeting" rows="3" required>{{ tenant.greeting }}</textarea>
-      <button type="submit">Enregistrer et re-rendre la voix</button>
+      <button type="submit">{% if voix_par_defaut_seule %}Enregistrer{% else %}Enregistrer et re-rendre la voix{% endif %}</button>
     </form>
     <div id="greeting-status">
       {% include "voice/_greeting_status.html" %}
@@ -34,6 +36,11 @@
   <div class="stack">
     <article class="card">
       <h2>Voix de l'assistant</h2>
+      {% if voix_par_defaut_seule %}
+      <p class="row-sub" style="margin-top: .7rem">Marie — voix par défaut</p>
+      <p class="card-sub" style="margin-top: .5rem">Le choix de la voix n'est pas proposé
+         pour cet établissement pour le moment.</p>
+      {% else %}
       <p class="card-sub">Propre à cet établissement. Changer de voix regénère le message
          d'accueil&nbsp;: écoutez-le ci-contre pour entendre le rendu réel avant le
          prochain appel.</p>
@@ -67,9 +74,10 @@
          <code>MISTRAL_API_KEY</code> au fichier <code>.env</code> du serveur, puis redéployez.
          D'ici là, l'assistante parle avec la voix de secours.</p>
       {% endif %}
+      {% endif %}
     </article>
 
-    {% if not voix_sans_gpu %}
+    {% if not voix_sans_gpu and not voix_par_defaut_seule %}
     <article class="card">
       <h2>Musique d'attente</h2>
       <p class="card-sub">Ne sert qu'avec la voix de secours (Moshi), qui doit réveiller un GPU.</p>

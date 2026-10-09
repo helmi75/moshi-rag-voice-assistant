@@ -1,4 +1,6 @@
-{% if greeting_ready %}
+{% if voix_par_defaut_seule %}
+{# L'aperçu pré-rendu n'est pas la voix que le client entend : on ne le fait pas écouter. #}
+{% elif greeting_ready %}
 <p>✅ Accueil rendu — écoutez l'aperçu :</p>
 <audio controls src="/admin/tenants/{{ tenant.id }}/greeting.wav?v={{ greeting_version }}"></audio>
 {% else %}

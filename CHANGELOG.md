@@ -7,6 +7,20 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — sur GPT-Live, la page « Voix » ne propose que la voix par défaut (ASSISTANTE-133, 09/10/2026)
+
+### Modifié
+- **Voix & accueil, pour un établissement servi par GPT-Live** : la page affiche « Marie —
+  voix par défaut », sans liste de voix, sans aperçu de l'accueil et sans musique
+  d'attente. Elle proposait jusque-là le catalogue des voix Mistral et faisait écouter un
+  accueil pré-rendu avec l'une d'elles : ni l'un ni l'autre n'est ce que le client entend.
+  Décision de Helmi du 09/10/2026 : le choix reviendra quand GPT-Live proposera d'autres
+  voix. Le texte de l'accueil reste modifiable. Un formulaire bricolé ne change pas la
+  voix non plus. Rien ne change pour un établissement sur la chaîne classique.
+  Limite : quand la chaîne classique prend le relais d'un appel (GPT-Live en panne ou mis à
+  l'écart trois minutes), le client entend la voix Mistral enregistrée pour l'établissement ;
+  elle n'est plus réglable depuis cette page tant que son moteur est GPT-Live.
+
 ## Non publiée — « c'est réservé » sans réservation : on le voit, et on prévient (ASSISTANTE-137, 09/10/2026)
 
 Le 08/10/2026 (appel 265, GPT-Live), l'assistante a dit « Très bien, j'enregistre ça. C'est
