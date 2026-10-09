@@ -1128,6 +1128,16 @@ GARDE_FOUS = [
               "e-mail d'alerte au restaurant, et le cerveau serait démenti après une vraie création",
     ),
     GardeFou(
+        nom="GPT-Live : une génération du cerveau restée sans réponse est redemandée",
+        fichier="api/app/voice/live.py",
+        avant="                if essai == _ESSAIS_PAR_GENERATION:",
+        apres="                if True:  # mutation",
+        tests=["test_live.py"],
+        k="redemandee or en_panne",
+        panne="une seule requête au modèle restée sans réponse ferait dire au client de rappeler, "
+              "sans réservation (appels 268 et 269 du 09/10/2026)",
+    ),
+    GardeFou(
         nom="Le moteur de l'appel ne se choisit pas soi-même",
         fichier="api/app/admin/routes_tenants.py",
         avant="    if user.is_superadmin and moteur_voix in live.MOTEURS:",

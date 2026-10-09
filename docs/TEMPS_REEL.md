@@ -359,6 +359,19 @@ le constat de clôture joue ; une annonce dans une autre langue que le français
 reconnue ; et personne n'a encore vu, sur un vrai appel, la voix reconfier le travail après
 un démenti.
 
+### Le cerveau qui ne répond pas (ASSISTANTE-148, 09/10/2026)
+
+Appels 268 et 269 du 09/10/2026 : « rappelez dans quelques minutes », parce que le modèle
+qui raisonne n'avait rien rendu en vingt secondes. Il n'était pas en panne : il a résumé
+l'appel 269 en une seconde environ juste après. Une seule requête restée sans réponse
+consommait tout le délai.
+
+`Appel._generation` donne à chaque requête `GPT_LIVE_DELAI_GENERATION` secondes (six par
+défaut, un choix et non une mesure) et la redemande, trois essais au plus ; le délai de
+vingt secondes pour l'ensemble du travail (`_DELAI_DU_CERVEAU`) est inchangé. Chaque entrée
+de `delegations` au journal porte `ms` et `generations_ms` (`null` : restée sans réponse).
+Pendant ces essais le client attend en silence.
+
 ### Choisir le moteur d'un établissement (depuis le 05/10/2026)
 
 Après dix vrais appels, Helmi a demandé de choisir le moteur dans l'admin, restaurant par

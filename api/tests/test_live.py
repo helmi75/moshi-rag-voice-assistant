@@ -735,6 +735,64 @@ class TestLeCerveauEstLeNotre:
             _appeler(client, "CA-live-cerveau-" + type(panne).__name__)
         rendu = session.de_type("session.commentary.append")[1]
         assert rendu["delegation_id"] == "del_9" and "n'a pas pu être fait" in rendu["content"]
+        # Redemandé avant d'abandonner (ASSISTANTE-148).
+        assert modele.chat.completions.create.await_count == 3
+        confie = json.loads(_ligne("CA-live-cerveau-" + type(panne).__name__)["journal"])["delegations"][0]
+        assert confie["generations_ms"] == [None, None, None]
+
+    def _une_table(self, client, monkeypatch, call_sid, *reponses):
+        """Un client demande une table ; `reponses` sont ce que le modèle fait à chaque
+        requête : une génération, une exception, ou « muet » (ne revient jamais)."""
+        monkeypatch.setattr(live, "_delai_generation", lambda: 0.1)
+        suite = list(reponses)
+
+        async def creer(**kwargs):
+            reponse = suite.pop(0)
+            if reponse == "muet":
+                await asyncio.sleep(30)
+            if isinstance(reponse, Exception):
+                raise reponse
+            return reponse
+
+        modele = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=creer)))
+
+        def scenario(evt, session):
+            dits = session.de_type("session.commentary.append")
+            if evt["type"] == "session.commentary.append" and len(dits) == 1:
+                return [_fragment("user", " Une table pour deux, au nom de Tenace.", 0, 900), CONFIE]
+            if evt["type"] == "session.commentary.append" and len(dits) == 2:
+                return [_fragment("assistant", " C'est enregistré. Au revoir.", 2000, 3000)]
+            return []
+
+        session = FausseSession(scenario)
+        _brancher(monkeypatch, session)
+        with patch.object(llm, "get_client", return_value=modele):
+            _appeler(client, call_sid)
+        assert not suite, "le modèle n'a pas été redemandé"
+        return session, json.loads(_ligne(call_sid)["journal"])["delegations"][0]
+
+    def test_une_generation_qui_ne_revient_pas_est_redemandee(self, client, monkeypatch, tenant):
+        """Appels 268 et 269 du 09/10/2026 : une requête sans réponse mangeait les vingt
+        secondes, et le client s'entendait dire de rappeler."""
+        jour = (date.today() + timedelta(days=3)).isoformat()
+        arguments = {"customer_name": "Tenace", "date": jour, "time": "20:30", "party_size": 2}
+        session, confie = self._une_table(
+            client, monkeypatch, "CA-live-muet", "muet",
+            _generation(outil=("create_reservation", arguments)), "muet",
+            _generation("C'est enregistré pour deux personnes."))
+        assert session.de_type("session.commentary.append")[1]["content"] == "C'est enregistré pour deux personnes."
+        # L'outil n'a tourné qu'une fois : seule la requête au modèle est rejouée.
+        assert len([r for r in reservations.list_reservations(tenant.id) if r["customer_name"] == "Tenace"]) == 1
+        durees = confie["generations_ms"]
+        assert [d is None for d in durees] == [True, False, True, False]
+        assert confie["outils"] == ["create_reservation"] and confie["ms"] >= 200
+
+    def test_une_erreur_du_fournisseur_est_redemandee(self, client, monkeypatch):
+        session, confie = self._une_table(
+            client, monkeypatch, "CA-live-502", RuntimeError("OpenRouter 502"),
+            _generation("Il me manque le jour et l'heure."))
+        assert session.de_type("session.commentary.append")[1]["content"] == "Il me manque le jour et l'heure."
+        assert [d is None for d in confie["generations_ms"]] == [True, False]
 
     def test_un_travail_confie_a_openai_ne_reveille_pas_notre_modele(self, client, monkeypatch, cerveau_openai):
         modele, creer = _notre_modele(_generation("jamais"))
@@ -815,9 +873,11 @@ class TestUneReservationAnnonceeSansEtreEnregistree:
         assert "a_verifier" not in journal
         assert [a.args[1] for a in planifier.call_args_list] == ["reservation_creee"]
         assert session.de_type("session.commentary.append")[1]["content"] == "C'est enregistré pour deux personnes."
-        assert journal["delegations"] == [{"t_ms": journal["delegations"][0]["t_ms"],
-                                           "outils": ["create_reservation"],
-                                           "rendu": "C'est enregistré pour deux personnes.", "dementi": False}]
+        confie = journal["delegations"][0]
+        assert len(journal["delegations"]) == 1 and len(confie["generations_ms"]) == 2
+        assert {c: v for c, v in confie.items() if c not in ("t_ms", "ms", "generations_ms")} == {
+            "outils": ["create_reservation"],
+            "rendu": "C'est enregistré pour deux personnes.", "dementi": False}
 
     def test_le_cerveau_qui_annonce_sans_avoir_rien_enregistre_n_est_pas_repete(self, client, monkeypatch):
         """Il rend « c'est enregistré » sans avoir appelé l'outil : ce n'est pas donné à dire."""

@@ -65,6 +65,19 @@ _SILENCE_MAXIMAL = 45.0
 # Le cerveau a ce temps-là pour rendre son travail. Au-delà, l'assistante le dit au client
 # plutôt que de le laisser attendre dans le vide.
 _DELAI_DU_CERVEAU = 20.0
+# Une génération du cerveau qui ne revient pas est abandonnée et redemandée. Le 09/10/2026
+# (appels 268 et 269), une seule requête restée sans réponse a mangé les vingt secondes :
+# le client a eu vingt secondes de silence puis « rappelez dans quelques minutes », alors
+# que le même modèle répondait en une seconde trente secondes plus tard. Trois essais de
+# `GPT_LIVE_DELAI_GENERATION` secondes tiennent dans le délai ci-dessus.
+_ESSAIS_PAR_GENERATION = 3
+
+
+def _delai_generation() -> float:
+    try:
+        return max(1.0, float(os.getenv("GPT_LIVE_DELAI_GENERATION", "").strip() or 6.0))
+    except ValueError:
+        return 6.0
 # L'enregistreur absorbe des tranches, pas des trames : on lui en donne cinq par seconde.
 _TRANCHE_ENREGISTREMENT = 1600
 _SILENCE_ULAW = b"\xff"                 # un échantillon de silence, au format du téléphone
@@ -521,8 +534,10 @@ class Appel:
         donné à dire à l'assistante. Elle garde la parole tant que rien ne revient : un
         cerveau en panne rend donc lui aussi une phrase."""
         deja = len(self.outils_appeles)
+        durees: list = []
+        debut = time.monotonic()
         try:
-            texte = await asyncio.wait_for(self._raisonner(), timeout=_DELAI_DU_CERVEAU)
+            texte = await asyncio.wait_for(self._raisonner(durees), timeout=_DELAI_DU_CERVEAU)
         except Exception as exc:
             logger.warning(f"[gpt-live] le cerveau n'a pas rendu son travail ({type(exc).__name__})")
             texte = ""
@@ -533,6 +548,9 @@ class Appel:
         self.delegations.append({
             "t_ms": int((time.monotonic() - self._debut) * 1000),
             "outils": [o["nom"] for o in self.outils_appeles[deja:]],
+            # La durée du travail, et celle de chaque génération demandée au modèle (None :
+            # restée sans réponse) : le 09/10/2026, rien ne disait où le temps était passé.
+            "ms": int((time.monotonic() - debut) * 1000), "generations_ms": durees[:12],
             "rendu": texte[:300], "dementi": bool(dementi)})
         if dementi:
             logger.warning(f"[gpt-live] appel {self.call_sid} : le cerveau annonce un enregistrement "
@@ -586,7 +604,7 @@ class Appel:
         lignes.append("L'assistante vocale te confie la suite : fais ce que le client vient de demander.")
         return "\n".join(lignes)
 
-    async def _raisonner(self) -> str:
+    async def _raisonner(self, durees: Optional[list] = None) -> str:
         """Un tour de notre modèle (`llm.MODEL`), outils compris — la même boucle que
         `llm.respond`, sur la conversation entendue."""
         from .bot import llm_extra_body
@@ -596,9 +614,7 @@ class Appel:
                     {"role": "user", "content": self._demande_au_cerveau()}]
         message = None
         for _ in range(llm.MAX_TOOL_ROUNDS):
-            reponse = await client.chat.completions.create(
-                model=llm.MODEL, max_tokens=400, tools=llm._openai_tools(), messages=messages,
-                **llm_extra_body())
+            reponse = await self._generation(client, messages, llm_extra_body(), durees)
             self._noter_jetons_du_cerveau(getattr(reponse, "usage", None))
             message = reponse.choices[0].message
             if not message.tool_calls:
@@ -616,6 +632,28 @@ class Appel:
                                                 arguments if isinstance(arguments, dict) else {})
                 messages.append({"role": "tool", "tool_call_id": a.id, "content": resultat})
         return (getattr(message, "content", None) or "").strip()
+
+    async def _generation(self, client, messages: list, extra: dict, durees: Optional[list] = None):
+        """Une réponse de notre modèle, redemandée si elle ne revient pas ou si le
+        fournisseur échoue. Rien n'est rejoué deux fois : un outil ne s'exécute qu'une fois
+        la réponse reçue, donc après cette fonction."""
+        for essai in range(1, _ESSAIS_PAR_GENERATION + 1):
+            debut = time.monotonic()
+            try:
+                reponse = await asyncio.wait_for(client.chat.completions.create(
+                    model=llm.MODEL, max_tokens=400, tools=llm._openai_tools(), messages=messages,
+                    **extra), timeout=_delai_generation())
+            except Exception as exc:
+                if durees is not None:
+                    durees.append(None)
+                logger.warning(f"[gpt-live] appel {self.call_sid} : génération du cerveau sans réponse "
+                               f"({type(exc).__name__}, {time.monotonic() - debut:.1f} s, essai {essai})")
+                if essai == _ESSAIS_PAR_GENERATION:
+                    raise
+                continue
+            if durees is not None:
+                durees.append(int((time.monotonic() - debut) * 1000))
+            return reponse
 
     def _noter_jetons_du_cerveau(self, usage) -> None:
         if usage is None:
