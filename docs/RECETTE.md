@@ -230,6 +230,7 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P30 | Fiche établissement, sur un téléphone | Les listes déroulantes ont leur flèche ; la formule s'affiche entière (« Service · 149 €/mois · 600 min ») | |
 | P31 | Un montant, n'importe où dans l'admin | Une virgule : « 3,89 $ », « 6,42 € » | |
 | P32 | Appels, sur un téléphone : toucher un appel au milieu de la liste (ASSISTANTE-136) | Sa fiche s'ouvre juste sous la ligne touchée, l'écran s'y cale ; sur ordinateur, la fiche reste à droite | |
+| P33 | Établissement dont le moteur est GPT-Live : Admin → Voix & accueil | « Marie — voix par défaut », sans liste de voix, sans aperçu à écouter, sans musique d'attente ; l'accueil reste modifiable et le texte prononcé est affiché. Un établissement sur la chaîne classique garde sa liste de voix (ASSISTANTE-133) | |
 
 ## S. En cas de panne : le renvoi vers le restaurant (ASSISTANTE-118)
 

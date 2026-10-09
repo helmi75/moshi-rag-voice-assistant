@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from .. import db, taches, tenants
 from ..users import User
 from ..voice import greeting as greeting_mod
+from ..voice import live
 from ..voice import voices
 from . import deps, presenters
 
@@ -51,6 +52,11 @@ def _etat_accueil(tenant) -> dict:
 
     chemin = greeting_mod.cached_greeting_path(tenant)
     return {
+        # Servi par la voix-à-voix : l'accueil est DIT par l'assistante au décroché, et
+        # sa voix est celle par défaut du moteur. L'aperçu pré-rendu et le catalogue sont
+        # ceux de la chaîne classique : les montrer ferait écouter et choisir une voix
+        # que le client n'entend pas (ASSISTANTE-133, décision de Helmi du 09/10/2026).
+        "voix_par_defaut_seule": live.actif(tenant),
         "greeting_ready": chemin is not None,
         "greeting_version": chemin.stem if chemin is not None else "",
         "texte_prononce": rgpd.accueil(tenant),
@@ -98,6 +104,10 @@ async def voice_update(
     # qui la remplacerait en silence par sa voix de repli — l'appelant serait le seul
     # à s'en apercevoir. Hors catalogue -> on ne touche pas au réglage existant.
     chosen = voices.get((voice or "").strip())
+    if live.actif(tenant):
+        # La page ne propose pas de choix à cet établissement : un formulaire bricolé
+        # n'en fait pas un non plus.
+        chosen = None
     if chosen is not None and chosen.fournisseur == voices.VOXTRAL \
             and not voices.voxtral_disponible():
         # Voix Mistral sans clé : l'appel retomberait sur la voix de secours sans que
