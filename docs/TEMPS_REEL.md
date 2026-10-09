@@ -353,7 +353,11 @@ Depuis, trois choses, dont aucune ne repose sur une consigne :
 - Le journal garde `delegations` : pour chaque travail confié, les outils appelés et le
   texte rendu.
 
-Ce qui reste ouvert : la voix qui annonce d'elle-même n'est constatée qu'après l'appel.
+Ce qui reste ouvert : la voix qui annonce d'elle-même n'est constatée qu'après l'appel ;
+`_dementi` ne s'applique pas quand le cerveau est chez OpenAI (`GPT_LIVE_MODELE`), où seul
+le constat de clôture joue ; une annonce dans une autre langue que le français n'est pas
+reconnue ; et personne n'a encore vu, sur un vrai appel, la voix reconfier le travail après
+un démenti.
 
 ### Choisir le moteur d'un établissement (depuis le 05/10/2026)
 

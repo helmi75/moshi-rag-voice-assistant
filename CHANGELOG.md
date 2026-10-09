@@ -17,7 +17,7 @@ la voix.
 
 ### Corrigé
 - **Un appel où l'assistante annonce un enregistrement que rien n'explique est marqué « À
-  vérifier »** dans Admin → Appels, avec la phrase dite ; le restaurant reçoit un e-mail
+  vérifier »** dans Admin → Appels (filtre « À vérifier »), avec la phrase dite ; le restaurant reçoit un e-mail
   avec le numéro à rappeler ; le résumé de l'appel dit que la réservation n'est pas
   enregistrée. Le constat compare ce qui s'est dit à ce que les outils ont fait
   (`annonce.py`) : il ne dépend d'aucun modèle.
@@ -34,6 +34,9 @@ la voix.
   est détectée après coup, à la clôture de l'appel. La corriger pendant l'appel demande un
   essai contre le vrai service, non fait.
 - Seul le moteur GPT-Live est couvert. La chaîne classique n'a pas ce filet.
+- Le texte du cerveau n'est contrôlé que quand le cerveau est le nôtre : confié à un modèle
+  d'OpenAI (`GPT_LIVE_MODELE`), seul le constat de clôture s'applique.
+- Une annonce faite dans une autre langue que le français n'est pas reconnue.
 - Les appels passés avant ce lot ne sont pas réexaminés : l'appel 265 reste « Renseignement ».
 
 ## Non publiée — sur téléphone, la fiche d'un appel s'ouvre sous sa ligne (ASSISTANTE-136, 07/10/2026)

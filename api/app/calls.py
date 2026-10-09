@@ -399,6 +399,9 @@ OUTCOME_FILTERS = {
     # L'assistante n'a pas pu servir l'appel : renvoyé au restaurant, message vocal, ou
     # client reparti sans personne (ASSISTANTE-118).
     "secours": "secours_motif IS NOT NULL",
+    # L'assistante a annoncé un enregistrement que rien n'explique (ASSISTANTE-137) : le
+    # constat est au journal de l'appel, posé à sa clôture (`annonce.sans_trace`).
+    "a_verifier": f"journal LIKE '%\"a_verifier\"%' AND NOT {A_RESERVE}",
 }
 
 

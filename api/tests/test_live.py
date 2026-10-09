@@ -840,7 +840,15 @@ class TestUneReservationAnnonceeSansEtreEnregistree:
         journal = json.loads(_ligne("CA-live-dementi")["journal"])
         assert journal["delegations"][0]["dementi"] is True
         assert journal["delegations"][0]["rendu"] == "C'est enregistré pour quatre personnes."
-        assert "a_verifier" not in journal       # elle ne l'a pas annoncé au client
+        # Elle a promis d'enregistrer et rien n'a suivi : le client attend sa table.
+        assert journal["a_verifier"]["phrase"] == "Je l'enregistre maintenant."
+        # Le filtre « À vérifier » de la liste ne sort que des appels qui portent le constat.
+        filtres = calls.list_calls(outcome="a_verifier", limit=200)
+        assert _ligne("CA-live-dementi")["id"] in [c["id"] for c in filtres]
+        assert all("a_verifier" in json.loads(c["journal"]) for c in filtres)
+        admin = TestClient(app)
+        admin.post("/admin/login", data={"email": "admin@test.local", "password": "test-admin-pass"})
+        assert admin.get("/admin/calls?outcome=a_verifier").status_code == 200
 
     def test_au_second_dementi_on_ne_tourne_pas_en_rond(self, tenant):
         appel = live.Appel(None, None, "MZ", "CA", tenant, "+33612345678", None, "PROMPT")

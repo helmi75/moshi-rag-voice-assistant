@@ -16,19 +16,26 @@ from typing import Optional
 # Le motif rangé au journal de l'appel (`journal["a_verifier"]["motif"]`).
 MOTIF = "annonce_sans_trace"
 
-# Les outils qui écrivent ou qui retrouvent une réservation. Après l'un d'eux, « c'est
-# enregistré » peut être vrai (une table créée, modifiée, un message pris) ou porter sur
-# une réservation retrouvée (« celle de vingt heures est bien enregistrée ») : on ne
-# signale pas. On préfère manquer un cas douteux que crier au loup à chaque appel.
-_EXPLIQUENT = ("create_reservation", "modify_reservation", "cancel_reservation",
-               "take_message", "find_reservation")
+# Les outils qui écrivent. Après l'un d'eux, « c'est enregistré » peut être vrai (une table
+# créée, modifiée, un message pris) : on ne signale pas. On préfère manquer un cas douteux
+# que crier au loup à chaque appel.
+_ECRIVENT = ("create_reservation", "modify_reservation", "cancel_reservation", "take_message")
+# Une réservation RETROUVÉE explique aussi « celle de vingt heures est bien enregistrée ».
+# Une recherche qui ne trouve rien, non : elle rend une liste vide, sans erreur.
+_RETROUVE = "find_reservation"
 
+# « C'est confirmé » seul n'y est pas : elle le dit aussi d'un horaire (« oui, c'est bien
+# confirmé, nous sommes ouverts le dimanche »). En français seulement : une annonce faite
+# dans une autre langue n'est pas reconnue.
 _ANNONCE = re.compile(
-    r"\bc'est (?:bien |bon,? c'est )?(?:réservé|enregistré|confirmé)\b"
-    r"|\b(?:réservation|table) (?:est|a été|a bien été) (?:bien |désormais )?(?:réservée|enregistrée|confirmée)\b"
-    r"|\bj'ai (?:bien )?(?:réservé|enregistré)\b",
+    r"\bc'est (?:donc |bien |bon,? c'est )*(?:réservé|enregistré)\b"
+    r"|\b(?:réservation|table) (?:est|a été|a bien été) (?:donc |bien |désormais )*"
+    r"(?:réservée|enregistrée|confirmée|faite)\b"
+    r"|\bj'ai (?:donc |bien )*(?:réservé|enregistré)\b",
     re.IGNORECASE)
-# « La réservation n'a pas été enregistrée », « rien n'est confirmé » : le contraire d'une annonce.
+# « Rien n'est réservé », « ce n'est pas enregistré » : le contraire d'une annonce. La
+# négation ne compte que DANS l'annonce ou juste avant elle : « c'est réservé, n'hésitez
+# pas à rappeler » reste une annonce.
 _NEGATION = re.compile(r"\b(?:pas|rien|aucune?|jamais)\b|\bn'", re.IGNORECASE)
 _PHRASES = re.compile(r"[^.!?…]+[.!?…]*")
 
@@ -39,26 +46,34 @@ def phrase_d_annonce(texte: Optional[str]) -> Optional[str]:
     propre = " ".join((texte or "").replace("’", "'").split())
     for phrase in _PHRASES.findall(propre):
         phrase = phrase.strip()
-        if (_ANNONCE.search(phrase) and not phrase.endswith("?")
-                and not _NEGATION.search(phrase)):
+        trouve = _ANNONCE.search(phrase)
+        if (trouve and not phrase.endswith("?")
+                and not _NEGATION.search(phrase[:trouve.end()])):
             return phrase
     return None
 
 
-def a_abouti(resultat) -> bool:
-    """Ce que `llm.run_tool` a rendu est-il un travail fait ? Un refus du serveur porte
+def _rendu(resultat) -> Optional[dict]:
+    """Ce que `llm.run_tool` a rendu, s'il a fait son travail. Un refus du serveur porte
     `error` ; une exception rend un texte qui n'est pas du JSON."""
     try:
         rendu = json.loads(resultat) if isinstance(resultat, str) else resultat
     except ValueError:
-        return False
-    return isinstance(rendu, dict) and not rendu.get("error")
+        return None
+    return rendu if isinstance(rendu, dict) and not rendu.get("error") else None
 
 
 def expliquee(outils_appeles) -> bool:
-    """Un outil de la liste a-t-il abouti pendant l'appel ?"""
-    return any(o.get("nom") in _EXPLIQUENT and a_abouti(o.get("resultat"))
-               for o in outils_appeles or [] if isinstance(o, dict))
+    """Un outil a-t-il, pendant l'appel, écrit quelque chose ou retrouvé une réservation ?"""
+    for outil in outils_appeles or []:
+        if not isinstance(outil, dict):
+            continue
+        rendu = _rendu(outil.get("resultat"))
+        if rendu is None:
+            continue
+        if outil.get("nom") in _ECRIVENT or (outil.get("nom") == _RETROUVE and rendu.get("reservations")):
+            return True
+    return False
 
 
 def sans_trace(transcription, outils_appeles) -> Optional[str]:
@@ -71,4 +86,23 @@ def sans_trace(transcription, outils_appeles) -> Optional[str]:
             phrase = phrase_d_annonce(tour.get("content"))
             if phrase:
                 return phrase
+    return None
+
+
+_PROMESSE = re.compile(r"\bj(?:e l)?'enregistre\b|\bje (?:l'|vous l')?enregistre\b", re.IGNORECASE)
+
+
+def promesse_sans_suite(transcription, outils_appeles) -> Optional[str]:
+    """« Je l'enregistre maintenant » et plus rien : la dernière phrase par laquelle
+    l'assistante a promis d'enregistrer, quand aucun outil n'a rien écrit de tout l'appel.
+    Ne se regarde qu'après un démenti (`voice/live.py`) : dite avant chaque création, cette
+    phrase est ordinaire, et un client qui raccroche en cours de route n'est pas une alerte."""
+    if expliquee(outils_appeles):
+        return None
+    for tour in reversed(transcription or []):
+        if isinstance(tour, dict) and tour.get("role") == "assistant":
+            propre = " ".join((tour.get("content") or "").replace("’", "'").split())
+            for phrase in _PHRASES.findall(propre):
+                if _PROMESSE.search(phrase) and not _NEGATION.search(phrase):
+                    return phrase.strip()
     return None

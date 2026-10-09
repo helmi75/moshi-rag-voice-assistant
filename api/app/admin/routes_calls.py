@@ -18,6 +18,7 @@ FILTERS = [
     ("info", "Sans réservation"),
     ("failed", "Échecs"),
     ("secours", "Pannes"),
+    ("a_verifier", "À vérifier"),
 ]
 
 

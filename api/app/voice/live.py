@@ -558,7 +558,12 @@ class Appel:
     def a_verifier(self) -> Optional[dict]:
         """L'assistante a annoncé au client un enregistrement que rien n'explique dans ce
         que les outils ont fait : le restaurateur doit le savoir (`annonce.sans_trace`)."""
-        phrase = annonce.sans_trace(self.transcription(), self.outils_appeles)
+        dit = self.transcription()
+        phrase = annonce.sans_trace(dit, self.outils_appeles)
+        if not phrase and any(d["dementi"] for d in self.delegations):
+            # Après un démenti, on lui a fait dire qu'elle enregistrait : si rien n'a suivi
+            # (elle n'a pas reconfié le travail, le client a raccroché), il attend sa table.
+            phrase = annonce.promesse_sans_suite(dit, self.outils_appeles)
         return {"motif": annonce.MOTIF, "phrase": phrase[:200]} if phrase else None
 
     def _demande_au_cerveau(self) -> str:

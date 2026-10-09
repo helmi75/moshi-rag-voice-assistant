@@ -29,9 +29,11 @@ VERIFICATION = {"nom": "check_availability", "arguments": {}, "resultat": '{"ava
 
 class TestReconnaitreUneAnnonce:
     @pytest.mark.parametrize("phrase", [
-        "C'est réservé.", "C’est enregistré au nom de L, B.", "Parfait, c'est bien confirmé !",
+        "C'est réservé.", "C’est enregistré au nom de L, B.", "Parfait, c'est bien réservé !",
         "Votre réservation est bien enregistrée.", "La table a bien été réservée pour ce soir.",
-        "J'ai enregistré votre demande."])
+        "J'ai enregistré votre demande.", "C'est donc réservé.", "Votre réservation est faite.",
+        "C'est réservé, n'hésitez pas à nous rappeler si besoin.",
+        "Parfait, c'est enregistré, pas de souci."])
     def test_ce_qui_annonce_un_enregistrement_comme_fait(self, phrase):
         assert annonce.phrase_d_annonce(phrase)
 
@@ -39,7 +41,8 @@ class TestReconnaitreUneAnnonce:
         "Je suis l'assistante vocale, cet appel est enregistré.",
         "Très bien, j'enregistre ça.", "Je vérifie tout de suite.",
         "La réservation n'a pas pu être enregistrée.", "Rien n'est réservé pour l'instant.",
-        "C'est bien enregistré à ce nom ?", "C'est noté, merci.", "", None])
+        "C'est bien enregistré à ce nom ?", "C'est noté, merci.", "Ce n'est pas enregistré.",
+        "Oui, c'est bien confirmé, nous sommes ouverts le dimanche midi.", "", None])
     def test_ce_qui_n_en_est_pas_une(self, phrase):
         assert annonce.phrase_d_annonce(phrase) is None
 
@@ -56,7 +59,7 @@ class TestAnnonceSansTrace:
         ("create_reservation", '{"status": "pending_restaurant_approval", "reservation_id": "r1"}'),
         ("modify_reservation", '{"status": "modified", "reservation_id": 91}'),
         ("take_message", '{"status": "recorded", "message_id": 4}'),
-        ("find_reservation", '{"reservations": [{"id": 91}]}')])
+        ("find_reservation", '{"reservations": [{"reservation_id": 91}]}')])
     def test_un_outil_qui_a_abouti_explique_l_annonce(self, outil, resultat):
         assert annonce.sans_trace(APPEL_265, [{"nom": outil, "resultat": resultat}]) is None
 
@@ -65,6 +68,18 @@ class TestAnnonceSansTrace:
     def test_un_outil_refuse_ou_en_panne_n_explique_rien(self, resultat):
         outils = [{"nom": "create_reservation", "resultat": resultat}]
         assert annonce.sans_trace(APPEL_265, outils) == "C'est réservé."
+
+    def test_une_recherche_qui_ne_trouve_rien_n_explique_rien(self):
+        outils = [{"nom": "find_reservation", "resultat": '{"reservations": []}'}]
+        assert annonce.sans_trace(APPEL_265, outils) == "C'est réservé."
+
+    def test_une_promesse_d_enregistrer_restee_sans_suite(self):
+        dit = APPEL_265[:4] + [{"role": "assistant", "content": "Pardon. Je l'enregistre maintenant."}]
+        assert annonce.promesse_sans_suite(dit, [VERIFICATION]) == "Je l'enregistre maintenant."
+        cree = [{"nom": "create_reservation", "resultat": '{"status": "confirmed", "reservation_id": 1}'}]
+        assert annonce.promesse_sans_suite(dit, cree) is None
+        honnete = APPEL_265[:4] + [{"role": "assistant", "content": "Je n'ai pas pu l'enregistrer."}]
+        assert annonce.promesse_sans_suite(honnete, []) is None
 
     def test_ce_que_dit_le_client_ne_compte_pas(self):
         assert annonce.sans_trace([{"role": "user", "content": "C'est réservé ? Super."}], []) is None

@@ -1118,14 +1118,14 @@ GARDE_FOUS = [
               "sans qu'aucune table soit au carnet (appel 265 du 08/10/2026)",
     ),
     GardeFou(
-        nom="Une annonce que rien n'explique est signalée, pas une réservation réellement créée",
+        nom="Une réservation réellement créée n'est jamais signalée comme annoncée à tort",
         fichier="api/app/annonce.py",
-        avant="    if expliquee(outils_appeles):",
-        apres="    if True:  # mutation",
+        avant="            return True",
+        apres="            return False  # mutation",
         tests=["test_annonce.py", "test_live.py"],
-        k="265 or refuse_ou_en_panne or prevenu",
-        panne="un client reparti en croyant sa table réservée ne serait signalé à personne : ni "
-              "dans la fiche de l'appel, ni par e-mail au restaurant",
+        k="explique_l_annonce or reellement_creee",
+        panne="chaque réservation prise par GPT-Live serait marquée « À vérifier » et vaudrait un "
+              "e-mail d'alerte au restaurant, et le cerveau serait démenti après une vraie création",
     ),
     GardeFou(
         nom="Le moteur de l'appel ne se choisit pas soi-même",
