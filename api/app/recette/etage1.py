@@ -101,6 +101,7 @@ async def jouer(depense: float = 0.0, moteurs=MOTEURS, seulement: Optional[set[s
 
     from .. import calls, db, reservations
     from ..main import app
+    from ..voice import live
     from . import budget, scenarios, verdicts, voix
     from .tarifs import borne
 
@@ -135,6 +136,9 @@ async def jouer(depense: float = 0.0, moteurs=MOTEURS, seulement: Optional[set[s
                     etat, preuve = verdicts.juger(scenario, appel, du_client)
                     if moteur == "classique":
                         etat, preuve = verdicts.sur_la_chaine_classique(etat, preuve)
+                    autre = verdicts.pas_le_bon_moteur(moteur, appel, live.a_l_ecart(tenant))
+                    if autre:
+                        etat, preuve = verdicts.ECHEC, autre
                     if forcees:
                         preuve += f" ; répliques dites sans l'avoir entendue : {forcees}"
                     ligne["cout"] = round(float((appel or {}).get("estimated_cost") or 0)
