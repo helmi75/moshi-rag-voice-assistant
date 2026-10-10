@@ -15,7 +15,8 @@ qui ne peut pas se vérifier autrement.
 
 - **Aucune écriture en production** : ni base, ni fichier, ni réglage, ni déploiement, ni
   `git push`, ni PR. Sur le serveur, tu lis.
-- **Aucun appel** : tu n'envoies jamais à `/rappel` un numéro qui pourrait sonner. Les
+- **Aucun appel**, sauf ceux que `scripts/recette_appels.py` passe lui-même vers
+  l'établissement d'essai (« 2 bis ») : tu n'envoies jamais à `/rappel` un numéro qui pourrait sonner. Les
   seuls numéros permis sont ceux que le serveur refuse (`06 12 34`, un numéro en `08`), et
   pas plus de deux envois par passage — la limite est de trois demandes par heure.
 - **Aucune correction** : tu ne touches pas au code du dépôt. Un défaut se décrit (page,
@@ -39,6 +40,23 @@ du compte rendu** : une page correcte en local n'est pas une page livrée.
 La commande est dans `CLAUDE.md` (« Analyse statique + toute la suite », environ trois
 minutes). Le contrôle par mutation (huit minutes et plus, arbre committé) seulement si on
 te le demande ou si une protection a changé.
+
+### 2 bis. La recette d'appels automatique (après chaque déploiement)
+
+`python3 scripts/recette_appels.py` joue les scénarios marqués 🤖 dans `docs/RECETTE.md` :
+d'abord les bancs sans Twilio (étage 1), puis de vrais appels vers l'établissement d'essai
+(étage 2). Lance-la **d'office après chaque déploiement**, une seule fois. Elle dépense de
+l'argent, dans un plafond que Helmi a fixé (3 $ par recette, 30 $ par mois) et que
+l'application fait respecter elle-même : tu ne le contournes pas, tu ne relances pas un
+passage refusé, et tu ne changes aucune variable.
+
+- Si elle refuse (nuit, appel réel en cours, plafond, passage déjà joué pour ce
+  déploiement), rapporte la raison telle quelle : ce n'est pas un défaut.
+- Si l'étage 2 n'est pas activé sur le serveur, l'étage 1 se joue seul : dis-le.
+- Recopie le tableau « Scénario / État / Preuve / Coût » et le coût réel du passage dans ton
+  compte rendu. Un scénario ❌ est un défaut : décris-le avec sa preuve, ne le rejoue pas.
+- Elle ne compose QUE le numéro de l'établissement d'essai. N'appelle jamais toi-même
+  l'API de Twilio.
 
 ### 3. La production, en lecture seule
 

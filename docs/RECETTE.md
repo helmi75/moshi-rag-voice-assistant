@@ -11,6 +11,33 @@
 >
 > Préalable unique : **compte Twilio actif** (suspendu au 31/08, solde d'essai négatif).
 
+## Ce que joue la machine (depuis le 10/10/2026)
+
+Les lignes marquées 🤖 ne sont plus à faire au téléphone : `python3 scripts/recette_appels.py`
+les joue et rend un tableau « Scénario / État / Preuve / Coût », verdict lu en base et au
+journal de l'appel. Toute ligne sans 🤖 reste à Helmi (un appel) ou à l'agent `qa-recette`
+(une page, un contrôle).
+
+| Étage | Ce qu'il fait | Ce qu'il prouve | Ce qu'il ne prouve pas |
+|---|---|---|---|
+| 1 · bancs | Un faux Twilio joue chaque scénario sur une copie jetable de l'application, pour GPT-Live puis pour la chaîne classique | La compréhension, les outils, la réservation en base, l'absence d'appel « À vérifier », les durées du cerveau | La signature, `/twilio/voice`, `/twilio/suite`, le coût de Twilio |
+| 2 · vrais appels | Twilio compose le numéro de l'établissement d'essai ; le même client parle par `/ws/recette` | Tout l'étage 1, plus la signature, le TwiML, l'ouverture du flux, `/twilio/suite`, S10, et le coût réel | Le renvoi et le répondeur (S3 à S8) tant qu'aucun numéro de secours n'est à nous |
+
+**Sur la chaîne classique, la machine ne conclut pas sur une réservation.** Elle rend la
+parole au moindre blanc et pose ses questions une à une : le client de script, qui ne
+répond pas à ce qu'on lui demande, y perd son heure ou son nom (essai du 10/10/2026 : quatre
+réservations sur cinq manquées, toutes par le script). Ces lignes sortent ⚠️ « à regarder »,
+avec la conversation, sans faire échouer la recette. Sur GPT-Live, un ❌ est un défaut.
+
+Aucun des deux ne juge la voix à l'oreille, un vrai réseau mobile, ni un accent : ces
+essais-là restent à Helmi.
+
+Garde-fous (dans `api/app/recette/`, pas dans le script) : plafond de dépense par recette
+et par mois, jamais hors de 8 h-22 h, jamais pendant un appel réel, un seul passage de vrais
+appels par déploiement, un seul destinataire possible (le numéro de l'établissement
+d'essai, s'il est à nous chez Twilio). Les appels d'essai sont écartés des chiffres du
+parc, des quotas et de la supervision, et purgés à la fin du passage.
+
 ## Comment s'en servir
 
 Chaque test tient en un appel. Note le résultat dans la colonne, et **ce que tu as
@@ -69,7 +96,7 @@ jusqu'à `run_tool`.
 | C4 | Admin → Réservations, vue **Jour** de la réservation | Carte **barrée**, pastille « Annulée », date d'annulation ; elle ne compte plus dans les couverts du jour | |
 | C5 | Rappeler et redemander le même créneau | Il est **de nouveau libre** | |
 | C6 | Appeler en masqué et demander une annulation | Elle prend le message, **n'annule rien**, n'invente pas | |
-| C8 | Réserver, puis dire « mon nom a été mal noté, c'est K, I, K, A, O » (ASSISTANTE-126) | Elle corrige le nom. Dans l'admin : **une seule** réservation, au bon nom ; un e-mail « Réservation modifiée », pas de seconde « Nouvelle réservation » | |
+| C8 🤖 (étages 1 et 2) | Réserver, puis dire « mon nom a été mal noté, c'est K, I, K, A, O » (ASSISTANTE-126) | Elle corrige le nom. Dans l'admin : **une seule** réservation, au bon nom ; un e-mail « Réservation modifiée », pas de seconde « Nouvelle réservation » | |
 
 **C5 est le piège silencieux** : si le créneau est refusé, `ACTIVES` ne s'applique pas
 partout et une table annulée compte encore.
@@ -248,7 +275,7 @@ l'établissement. Il faut deux téléphones : celui qui appelle, et celui du num
 | S7 | Relancer l'essai **hors horaires** (ou retirer le numéro de secours), appeler | Le répondeur tout de suite, sans faire sonner personne | |
 | S8 | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
 | S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
-| S10 | Appeler la ligne et raccrocher dès la première sonnerie, puis rappeler aussitôt (ASSISTANTE-127) | Le second appel est servi par l'assistante, pas par le répondeur ; « Appels passés en secours » ne bouge pas | |
+| S10 🤖 (étage 2) | Appeler la ligne et raccrocher dès la première sonnerie, puis rappeler aussitôt (ASSISTANTE-127) | Le second appel est servi par l'assistante, pas par le répondeur ; « Appels passés en secours » ne bouge pas | |
 
 ## W. Le site et « Rappelez-moi » (ASSISTANTE-119)
 
@@ -305,8 +332,8 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T3 | Réserver une table | Une phrase d'attente (« Je vérifie… »), puis la confirmation ; la table est dans le carnet, avec le numéro de l'appelant | |
 | T4 | Lui couper la parole au milieu d'une phrase | Elle se tait aussitôt et écoute | |
 | T5 | Hésiter : « Alors… ce serait pour… euh… samedi » | Elle attend la fin, sans répondre dans le blanc | |
-| T6 | Demander un jour de fermeture | Refus, et une autre proposition : le refus vient du serveur | |
-| T7 | Parler anglais | Elle répond en anglais | |
+| T6 🤖 (étages 1 et 2) | Demander un jour de fermeture | Refus, et une autre proposition : le refus vient du serveur | |
+| T7 🤖 (étages 1 et 2) | Parler anglais | Elle répond en anglais | |
 | T8 | « Non merci, au revoir » | Elle prend congé, et la ligne est raccrochée deux secondes après | |
 | T9 | Admin → Appels → cet appel | Les deux côtés de la conversation, l'enregistrement, et le coût : voix = durée × 0,05 $, transcription à zéro, cerveau = les jetons de Gemini | |
 | T10 | Appeler un établissement hors essai | Marie, comme d'habitude | |
@@ -316,9 +343,9 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T14 | Remettre « GPT-Live · secours classique », enregistrer, appeler | GPT-Live répond, sans redéploiement ; l'appel porte « GPT-Live » ; Enseignes affiche « Moteur : GPT-Live » | |
 | T15 | Après des appels sur les deux moteurs : « Santé & coûts » → « Coût par moteur » | Une ligne par moteur : appels, minutes, coût, coût à la minute ; « Voix GPT-Live (OpenAI) » a sa ligne dans la répartition | |
 | T16 | Se connecter en restaurateur, ouvrir sa fiche | Pas de « Moteur de l'appel » ; ni la fiche ni ses appels ne nomment GPT-Live | |
-| T17 | Trois réservations de suite sur GPT-Live, en confirmant chaque récapitulatif par un simple « oui » ; puis Admin → Appels et Réservations | Chaque « c'est enregistré » a sa table au carnet. Si un appel porte « À vérifier », sa fiche cite la phrase dite, un e-mail « À vérifier » est arrivé, et son résumé ne dit pas « a réservé » (ASSISTANTE-137) | |
+| T17 🤖 (étages 1 et 2) | Trois réservations de suite sur GPT-Live, en confirmant chaque récapitulatif par un simple « oui » ; puis Admin → Appels et Réservations | Chaque « c'est enregistré » a sa table au carnet. Si un appel porte « À vérifier », sa fiche cite la phrase dite, un e-mail « À vérifier » est arrivé, et son résumé ne dit pas « a réservé » (ASSISTANTE-137) | |
 | T18 | Après un appel « À vérifier » : `docker compose exec api` puis lire `delegations` dans le journal de l'appel | On lit ce que le cerveau a rendu à chaque travail confié : c'est ce qui dit lequel des deux modèles a annoncé à tort | |
-| T19 | Après quelques jours d'appels GPT-Live : chercher « génération du cerveau sans réponse » dans le journal du conteneur, et lire `generations_ms` au journal d'un appel | Une requête restée sans réponse est suivie d'un nouvel essai, et l'appel a quand même eu sa réponse ; les durées habituelles se lisent en millisecondes (ASSISTANTE-148) | |
+| T19 🤖 (étages 1 et 2) | Après quelques jours d'appels GPT-Live : chercher « génération du cerveau sans réponse » dans le journal du conteneur, et lire `generations_ms` au journal d'un appel | Une requête restée sans réponse est suivie d'un nouvel essai, et l'appel a quand même eu sa réponse ; les durées habituelles se lisent en millisecondes (ASSISTANTE-148) | |
 | T20 | Sans téléphone (tests) : une session refusée pour un établissement | Lui seul est à l'écart trois minutes ; « Santé & coûts » nomme l'établissement ; un deuxième établissement refusé pendant ce temps écarte tout le parc (ASSISTANTE-128) | |
 | T21 | Sans téléphone (tests) : la session tombe au milieu d'un appel | Le client est renvoyé au restaurant ; la fiche de l'appel dit « la voix s'est interrompue au milieu de l'appel », sans nommer le moteur ; l'appel suivant est servi par la chaîne classique (ASSISTANTE-129) | |
 

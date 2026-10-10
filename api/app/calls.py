@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from . import db, horloge
+from . import db, essai, horloge
 
 # Coût d'un appel, poste par poste (SCRUM-99, 28/09/2026). Chaque tarif se surcharge
 # par variable d'environnement. Le coût EXACT reste l'affaire des factures
@@ -366,17 +366,31 @@ def par_sid(call_sid: Optional[str]) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def _hors_essai(tenant_id: Optional[int]) -> tuple[str, list]:
+    """Le fragment SQL (commençant par « AND ») et ses paramètres qui écartent
+    l'établissement d'essai de la recette automatique des chiffres du PARC. Ses appels
+    portent de vrais `CA…` de Twilio, donc le préfixe du banc ne les distingue pas, et un
+    appel raccroché exprès à la première sonnerie ne doit alerter personne. Appelée pour
+    un établissement précis (même celui d'essai), rien n'est écarté : sa page montre ses
+    appels."""
+    exclu = essai.etablissement_id()
+    if tenant_id is not None or exclu is None:
+        return "", []
+    return " AND tenant_id != ?", [exclu]
+
+
 def secours_recents(heures: int = 24) -> list[dict]:
     """Les appels passés en secours depuis `heures` heures : la matière du contrôle de
     supervision. Un seul suffit à dire que des clients n'ont pas eu l'assistante. Les
     essais lancés depuis l'admin n'en sont pas : personne n'est tombé en panne."""
     depuis = horloge.utc_iso(datetime.now(timezone.utc) - timedelta(hours=heures))
+    hors, hors_params = _hors_essai(None)
     with db.get_conn() as conn:
         rows = conn.execute(
-            """SELECT id, tenant_id, started_at, status, secours_motif FROM calls
+            f"""SELECT id, tenant_id, started_at, status, secours_motif FROM calls
                WHERE secours_motif IS NOT NULL AND secours_motif != 'essai'
-                 AND started_at >= ?
-               ORDER BY started_at DESC""", (depuis,)).fetchall()
+                 AND started_at >= ?{hors}
+               ORDER BY started_at DESC""", (depuis, *hors_params)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -427,7 +441,9 @@ def list_calls(tenant_id: Optional[int] = None, limit: int = 50, offset: int = 0
 def count_calls(tenant_id: Optional[int] = None) -> int:
     with db.get_conn() as conn:
         if tenant_id is None:
-            return conn.execute("SELECT COUNT(*) FROM calls").fetchone()[0]
+            hors, params = _hors_essai(None)
+            return conn.execute(f"SELECT COUNT(*) FROM calls WHERE 1 = 1{hors}",
+                                params).fetchone()[0]
         return conn.execute(
             "SELECT COUNT(*) FROM calls WHERE tenant_id = ?", (tenant_id,)
         ).fetchone()[0]
@@ -454,6 +470,11 @@ def stats_daily(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
         where_resas += " AND tenant_id = ?"
         params_calls.append(tenant_id)
         params_resas.append(tenant_id)
+    hors, hors_params = _hors_essai(tenant_id)
+    where_calls += hors
+    where_resas += hors
+    params_calls += hors_params
+    params_resas += hors_params
     with db.get_conn() as conn:
         calls_rows = conn.execute(
             f"SELECT started_at, {A_RESERVE} AS a_reserve, estimated_cost FROM calls {where_calls}",
@@ -521,6 +542,11 @@ def totals(tenant_id: Optional[int] = None, days: int = 30,
         resas_where += " AND tenant_id = ?"
         calls_params.append(tenant_id)
         resas_params.append(tenant_id)
+    hors, hors_params = _hors_essai(tenant_id)
+    calls_where += hors
+    resas_where += hors
+    calls_params += hors_params
+    resas_params += hors_params
     with db.get_conn() as conn:
         c = conn.execute(
             f"""SELECT COUNT(*) AS n_calls,
@@ -561,19 +587,20 @@ def stats_by_tenant(days: int = 30) -> dict[int, dict]:
     Un seul GROUP BY pour les appels + un pour les réservations : la vue du parc
     affiche N établissements sans faire N requêtes."""
     clause, params = _window(days, 0)
+    hors, hors_params = _hors_essai(None)
     with db.get_conn() as conn:
         call_rows = conn.execute(
             f"""SELECT tenant_id, COUNT(*) AS n_calls,
                        COALESCE(SUM(CASE WHEN {A_RESERVE} THEN 1 ELSE 0 END), 0)
                            AS n_with_reservation,
                        COALESCE(SUM(estimated_cost), 0) AS total_cost
-                FROM calls WHERE {clause.format(col='started_at')} GROUP BY tenant_id""",
-            params,
+                FROM calls WHERE {clause.format(col='started_at')}{hors} GROUP BY tenant_id""",
+            [*params, *hors_params],
         ).fetchall()
         resa_rows = conn.execute(
             f"""SELECT tenant_id, COUNT(*) AS n_reservations
-                FROM reservations WHERE {clause.format(col='created_at')} GROUP BY tenant_id""",
-            params,
+                FROM reservations WHERE {clause.format(col='created_at')}{hors} GROUP BY tenant_id""",
+            [*params, *hors_params],
         ).fetchall()
     stats: dict[int, dict] = {}
 
@@ -607,6 +634,9 @@ def latency_stats(tenant_id: Optional[int] = None, days: int = 30) -> Optional[d
     if tenant_id is not None:
         where += " AND tenant_id = ?"
         params = [*params, tenant_id]
+    hors, hors_params = _hors_essai(tenant_id)
+    where += hors
+    params = [*params, *hors_params]
     with db.get_conn() as conn:
         rows = conn.execute(f"SELECT turn_latencies FROM calls WHERE {where}", params).fetchall()
     mesures: list[int] = []
@@ -644,6 +674,9 @@ def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict
     if tenant_id is not None:
         where += " AND tenant_id = ?"
         params.append(tenant_id)
+    hors, hors_params = _hors_essai(tenant_id)
+    where += hors
+    params += hors_params
     with db.get_conn() as conn:
         r = conn.execute(
             f"""SELECT COALESCE(SUM(cout_telephonie), 0) AS telephonie,
@@ -697,6 +730,9 @@ def par_moteur(tenant_id: Optional[int] = None, days: int = 30) -> dict[str, dic
     if tenant_id is not None:
         where += " AND tenant_id = ?"
         params.append(tenant_id)
+    hors, hors_params = _hors_essai(tenant_id)
+    where += hors
+    params += hors_params
     with db.get_conn() as conn:
         lignes = conn.execute(
             f"""SELECT voix_fournisseur AS voix, COUNT(*) AS n,
@@ -750,6 +786,9 @@ def enregistrements_stats(tenant_id: Optional[int] = None, days: int = 7) -> dic
     if tenant_id is not None:
         where += " AND tenant_id = ?"
         params = [*params, tenant_id]
+    hors, hors_params = _hors_essai(tenant_id)
+    where += hors
+    params = [*params, *hors_params]
     with db.get_conn() as conn:
         row = conn.execute(
             f"""SELECT COUNT(*) AS clos,

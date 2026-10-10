@@ -81,12 +81,18 @@ variable d'environnement dans `docker-compose.yml` et `env.example`.
 **Sans demander à Helmi** : prendre un ticket « À faire » qu'il a priorisé, créer la
 branche, coder, tester, pousser, attendre la CI, faire relire, corriger les constats
 confirmés, lancer `qa-recette`, ouvrir la PR, tenir Jira à jour jusqu'à « En cours de
-revue », mettre à jour `CHANGELOG.md`, `docs/RECETTE.md` et la documentation.
+revue », mettre à jour `CHANGELOG.md`, `docs/RECETTE.md` et la documentation ; après un
+déploiement, faire jouer par `qa-recette` la recette d'appels automatique
+(`scripts/recette_appels.py`), dans le plafond que l'application fait respecter (3 $ par
+recette, 30 $ par mois, décision du 10/10/2026).
 
 **Avec son accord explicite, à chaque fois** : fusionner, déployer, toute écriture en
 production (base, `.env` du serveur, console Twilio, `modal deploy`), toute dépense (appel
 sortant, achat, nouveau service payant), tout changement de prix ou de promesse faite au
-client, toute suppression de données, clore un ticket. La recette au téléphone reste à lui.
+client, toute suppression de données, clore un ticket. Relever un plafond de la recette
+automatique, ou lui donner un autre destinataire que l'établissement d'essai, en fait
+partie. Restent à lui au téléphone : ce que la machine ne juge pas (la voix à l'oreille, un
+vrai réseau mobile) et les lignes de `docs/RECETTE.md` sans 🤖.
 
 Un agent ne donne jamais un accord à sa place. Lui rendre compte en français, **un seul
 message par lot, quand il est prêt à fusionner** : le verdict en titre, un tableau
@@ -153,6 +159,10 @@ Twilio ─▶ POST /twilio/voice (signé) ─▶ TwiML <Connect><Stream>, puis <
   région a son jeton et son API. Tout appel à l'API Twilio passe par `twilio_region.py`
   (`hote`, `identifiants`), jamais par `api.twilio.com` écrit en dur ; la signature
   accepte le jeton de chaque région. Basculer un numéro : `scripts/twilio_region.py`.
+- Recette automatique : `recette/` joue les scénarios de `docs/RECETTE.md` sans téléphone
+  (un client qui n'entend que du son, des verdicts lus en base). `/ws/recette` est la jambe
+  qui appelle pendant un vrai appel d'essai ; `essai.py` désigne l'établissement d'essai
+  (`RECETTE_ETABLISSEMENT`), écarté des comptes et purgé.
 - Panne : `renvoi.py` (décision, TwiML, mémoire des pannes), `voice/vigie.py` (deux
   erreurs de suite sur la voix, le modèle ou la transcription), `repondeur.py` (message
   vocal rapatrié de chez Twilio). L'assistante rend la ligne **sans raccrocher** et

@@ -1148,6 +1148,25 @@ GARDE_FOUS = [
               "nouveau tout le parc sur la chaîne classique",
     ),
     GardeFou(
+        nom="Recette automatique : un établissement qui ne s'appelle pas « essai » n'est ni appelé ni purgé",
+        fichier="api/app/essai.py",
+        avant="    if \"essai\" not in (ligne[\"name\"] or \"\").lower():",
+        apres="    if False:  # mutation",
+        tests=["test_recette.py"],
+        k="ne_s_appelle_pas_essai or prealables",
+        panne="une faute de frappe dans RECETTE_ETABLISSEMENT ferait appeler un vrai restaurant "
+              "par la machine, puis effacer ses appels, ses réservations et ses messages",
+    ),
+    GardeFou(
+        nom="Recette automatique : /ws/recette n'obéit qu'à un jeton valable",
+        fichier="api/app/recette/appelant.py",
+        avant="    if not valable:",
+        apres="    if False:  # mutation",
+        tests=["test_recette.py"],
+        k="jeton_forge",
+        panne="n'importe qui pourrait faire parler le client d'essai sur une connexion ouverte",
+    ),
+    GardeFou(
         nom="Le moteur de l'appel ne se choisit pas soi-même",
         fichier="api/app/admin/routes_tenants.py",
         avant="    if user.is_superadmin and moteur_voix in live.MOTEURS:",
@@ -1156,6 +1175,15 @@ GARDE_FOUS = [
         k="restaurateur",
         panne="un restaurateur se mettrait sur GPT-Live, qui coûte le double à la minute et "
               "envoie la voix de ses clients chez OpenAI, sans que l'exploitant l'ait décidé",
+    ),
+    GardeFou(
+        nom="La purge de la recette ne sort pas de l'établissement d'essai",
+        fichier="api/app/essai.py",
+        avant='            "DELETE FROM calls WHERE tenant_id = ?", (tenant_id,)).rowcount',
+        apres='            "DELETE FROM calls WHERE ? IS NOT NULL", (tenant_id,)).rowcount  # mutation',
+        tests=["test_essai.py"],
+        k="purge",
+        panne="la purge d'après-recette effacerait les appels des vrais restaurants, en production",
     ),
 ]
 

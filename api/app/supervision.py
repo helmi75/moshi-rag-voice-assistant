@@ -346,12 +346,15 @@ _MAX_APPELS = 500
 
 def _appels_fenetre() -> list[dict]:
     depuis = horloge.il_y_a(fenetre_jours())
+    # Les appels de la recette automatique (raccrochés exprès, coupés en plein milieu) ne
+    # sont pas des pannes : l'établissement d'essai n'entre pas dans le verdict.
+    hors, hors_params = calls._hors_essai(None)
     with db.get_conn() as conn:
         rows = conn.execute(
-            """SELECT started_at, ended_at, duration_seconds, status, transcript
-               FROM calls WHERE started_at >= ?
+            f"""SELECT started_at, ended_at, duration_seconds, status, transcript
+               FROM calls WHERE started_at >= ?{hors}
                ORDER BY started_at DESC LIMIT ?""",
-            (depuis, _MAX_APPELS),
+            (depuis, *hors_params, _MAX_APPELS),
         ).fetchall()
     return [dict(r) for r in rows]
 
