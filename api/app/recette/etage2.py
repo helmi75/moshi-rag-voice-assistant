@@ -191,6 +191,9 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                 du_client = [r for r in await db.hors_boucle(reservations.list_reservations, tenant.id)
                              if r.get("customer_phone") == de and (r.get("created_at") or "") >= depuis]
                 verdict, preuve = verdicts.juger(scenario, appel, du_client)
+                autre = verdicts.pas_le_bon_moteur(moteur, appel, live.a_l_ecart(tenant))
+                if autre:
+                    verdict, preuve = verdicts.ECHEC, autre
                 if etat.get("status") != "completed":
                     verdict, preuve = verdicts.ECHEC, f"Twilio : appel {etat.get('status') or 'sans état'} ; {preuve}"
                 prix, publie = await _prix(client, sid, etat)

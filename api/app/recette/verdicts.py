@@ -26,6 +26,20 @@ def sur_la_chaine_classique(etat: str, preuve: str) -> tuple[str, str]:
     return A_REGARDER, "client de script dépassé, pas un verdict — " + preuve
 
 
+def pas_le_bon_moteur(moteur: str, appel: Optional[dict], motif: Optional[str] = None) -> Optional[str]:
+    """Pourquoi cet appel ne prouve rien du moteur demandé, ou None. Le 10/10/2026, OpenAI
+    refusait les sessions (crédit épuisé) : les six appels « GPT-Live » de la recette ont
+    été servis par la chaîne classique, et l'un d'eux sortait en ✅. Le moteur d'un appel
+    se lit à la voix qui l'a servi (`calls.MOTEURS_PAR_VOIX`), pas à ce qu'on a demandé."""
+    from ..calls import MOTEURS_PAR_VOIX
+
+    servi = MOTEURS_PAR_VOIX.get((appel or {}).get("voix_fournisseur") or "")
+    if appel is None or servi is None or servi == moteur:
+        return None
+    return (f"appel {appel.get('id')} servi par la chaîne « {servi} », pas par « {moteur} »"
+            + (f" ({motif})" if motif else ""))
+
+
 def _plat(texte) -> str:
     sans = unicodedata.normalize("NFKD", str(texte or "")).encode("ascii", "ignore").decode()
     return " ".join(sans.lower().split())

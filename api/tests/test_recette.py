@@ -187,6 +187,15 @@ class TestLeVerdictSeLitEnBase:
                                                    "elle : C'est enregistré au nom de Martin. Autre chose ?"]
         assert verdicts.conversation(None) == []
 
+    def test_un_appel_gpt_live_servi_par_la_chaine_classique_n_est_pas_une_reussite(self):
+        # Le 10/10/2026 : crédit OpenAI épuisé, la chaîne classique a servi les appels « GPT-Live ».
+        appel = {"id": 4, "voix_fournisseur": "voxtral"}
+        refus = verdicts.pas_le_bon_moteur("gpt_live", appel, "session refusée (credit_balance_exhausted)")
+        assert "classique" in refus and "appel 4" in refus and "credit_balance_exhausted" in refus
+        assert verdicts.pas_le_bon_moteur("gpt_live", {"id": 4, "voix_fournisseur": "gpt-live"}) is None
+        assert verdicts.pas_le_bon_moteur("classique", appel) is None
+        assert verdicts.pas_le_bon_moteur("gpt_live", None) is None
+
     def test_sur_la_chaine_classique_un_echec_est_a_regarder_pas_un_verdict(self):
         etat, preuve = verdicts.sur_la_chaine_classique(verdicts.ECHEC, "appel 3 : 0 réservation")
         assert etat == verdicts.A_REGARDER and "pas un verdict" in preuve and "appel 3" in preuve
