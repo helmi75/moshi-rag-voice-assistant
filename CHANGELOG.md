@@ -7,6 +7,46 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la recette des appels se joue sans téléphone (10/10/2026)
+
+Le 09/10/2026, trois déploiements dans la journée, et chaque essai d'appel attendait Helmi.
+Demande du 10/10 : que la recette des appels se fasse toute seule, même si elle coûte un peu.
+
+### Ajouté
+- **`scripts/recette_appels.py`** : une commande joue les scénarios T17 (trois réservations
+  confirmées par « oui »), C8 (nom corrigé), T6 (jour fermé), T7 (anglais), S10 (raccrocher
+  puis rappeler) et relève T19 (durées du cerveau). Elle rend un tableau « Scénario / État /
+  Preuve / Coût » et sort en erreur si un scénario échoue. Le verdict se lit en base et au
+  journal de l'appel.
+- **Deux étages.** Sans Twilio : un faux Twilio sur une copie jetable de l'application,
+  pour GPT-Live et pour la chaîne classique. Avec Twilio : de vrais appels vers
+  l'établissement d'essai, la jambe qui appelle branchée sur `/ws/recette`.
+- **Un client qui n'entend que du son** (`recette/client.py`) : il parle quand l'assistante
+  s'est tue, comme au téléphone, et sert aux deux étages. Ses répliques sont rendues une
+  fois par une voix Mistral qui n'est pas Marie.
+- **Un plafond de dépense** : 3 $ par recette, 30 $ par mois (décision de Helmi), tenu dans
+  un carnet ; un appel qui pourrait le dépasser ne part pas. Le coût rendu est celui que
+  l'application a chiffré à la clôture de chaque appel et que Twilio a facturé.
+- **Un établissement d'essai** (`RECETTE_ETABLISSEMENT`) : ses appels sont écartés des
+  chiffres du parc, des quotas et de la supervision, et purgés à la fin du passage.
+
+### Garde-fous
+- Aucun appel d'essai hors de 8 h-22 h, pendant un appel réel, ni deux fois pour un même
+  déploiement. Un seul destinataire possible : le numéro de l'établissement d'essai, s'il
+  est à nous chez Twilio.
+- `/ws/recette` est fermée tant que `RECETTE_JETON` et `RECETTE_ETABLISSEMENT` ne sont pas
+  posés ; ouverte, elle exige la signature de Twilio et un jeton à usage unique.
+
+### Ce que ça ne fait pas
+- Le renvoi et le répondeur (S3 à S8) : il faut un numéro de secours à nous, second lot.
+- **Sur la chaîne classique, une réservation manquée n'est pas un verdict** : le client de
+  script ne répond pas aux questions qu'on lui pose, et la chaîne classique en pose. Ces
+  lignes sortent « à regarder », avec la conversation. Essai du 10/10/2026 : GPT-Live six
+  scénarios sur six, chaîne classique deux sur six.
+- La voix à l'oreille, un vrai réseau mobile, un accent : ils restent à Helmi.
+- L'étage 2 n'a jamais tourné avant ce déploiement : il a besoin du numéro d'essai et de la
+  route `/ws/recette` en production. Son premier passage est sa première preuve.
+
 ## Non publiée — le secours de GPT-Live, plus juste et dit clairement (ASSISTANTE-128 et 129, 09/10/2026)
 
 Deux constats de la relecture du 06/10/2026, restés ouverts.

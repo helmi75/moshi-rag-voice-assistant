@@ -501,6 +501,15 @@ def _get_bot_runner():
     return run_bot
 
 
+@app.websocket("/ws/recette")
+async def flux_du_client_d_essai(websocket: WebSocket):
+    """La jambe qui appelle, pendant un vrai appel d'essai (app/recette/appelant.py).
+    Fermée tant que la recette automatique n'est pas activée dans le `.env`."""
+    from .recette import appelant
+
+    await appelant.servir(websocket)
+
+
 # Nombre max de messages lus avant le "start" Twilio (protocole: connected -> start)
 _WS_START_MAX_MESSAGES = 10
 

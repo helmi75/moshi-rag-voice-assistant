@@ -8,13 +8,12 @@ ni dans la supervision, et `purger` les efface après chaque recette.
 
 Pas d'import de `calls` au niveau du module : `calls` importe ce module.
 """
-import logging
 import os
 from typing import Optional
 
-from . import db
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from . import db
 
 
 def etablissement_id() -> Optional[int]:
@@ -53,5 +52,5 @@ def purger() -> dict:
             "DELETE FROM calls WHERE tenant_id = ?", (tenant_id,)).rowcount
         comptes["reservations"] = conn.execute(
             "DELETE FROM reservations WHERE tenant_id = ?", (tenant_id,)).rowcount
-    logger.info(f"essai : purge de l'établissement {tenant_id} {comptes}")
+    logger.info(f"[recette] purge de l'établissement {tenant_id} {comptes}")
     return comptes

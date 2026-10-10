@@ -70,6 +70,16 @@ services:
       # Recette automatique : l'établissement dédié aux appels d'essai (api/app/essai.py). Ses
       # appels sont écartés du parc, des quotas et de la supervision, et se purgent.
       RECETTE_ETABLISSEMENT:
+      # Le secret qui ouvre `/ws/recette` (32 caractères au moins) : sans lui, aucun appel
+      # d'essai ne peut partir. Plafonds décidés par Helmi le 10/10/2026.
+      RECETTE_JETON:
+      RECETTE_PLAFOND_PAR_RECETTE: "${RECETTE_PLAFOND_PAR_RECETTE:-3}"
+      RECETTE_PLAFOND_PAR_MOIS: "${RECETTE_PLAFOND_PAR_MOIS:-30}"
+      RECETTE_HEURES: "${RECETTE_HEURES:-8-22}"
+      RECETTE_LIGNE:
+      RECETTE_CARNET:
+      RECETTE_REPLIQUES_DIR:
+      RECETTE_DEJA_CE_MOIS:
       VOXTRAL_MODEL: "${VOXTRAL_MODEL:-voxtral-mini-tts-2603}"
       # Voix des établissements qui n'ont rien choisi (défaut : Marie neutre).
       VOIX_PAR_DEFAUT: "${VOIX_PAR_DEFAUT:-}"
