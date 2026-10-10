@@ -37,7 +37,12 @@ def _etat() -> dict:
     from .. import essai
     from . import budget, gardes
 
-    passages = budget.lire()
+    try:
+        passages = budget.lire()
+    except budget.CarnetIllisible as exc:
+        return {"active": gardes.active(), "etablissement": essai.etablissement_id(), "du_mois": 0.0,
+                "plafond_recette": budget.plafond_par_recette(), "plafond_mois": budget.plafond_par_mois(),
+                "interdit": str(exc), "deja_joue": None, "demarrage": gardes.demarrage()}
     return {"active": gardes.active(), "etablissement": essai.etablissement_id(),
             "du_mois": budget.du_mois(passages), "plafond_recette": budget.plafond_par_recette(),
             "plafond_mois": budget.plafond_par_mois(),
@@ -59,15 +64,21 @@ async def _etage2(avant: dict, seulement, sans_appels: bool) -> dict:
 
     lignes1 = avant.get("lignes") or []
     depense = sum(float(l.get("cout") or 0) for l in lignes1)
-    lignes2, refus = ([], "vrais appels non demandés") if sans_appels else await etage2.jouer(depense, seulement)
+    lignes2, refus, purge = [], "vrais appels non demandés", {}
+    try:
+        if not sans_appels:
+            lignes2, refus = await etage2.jouer(depense, seulement)
+        # Les appels d'essai ne restent pas : ni dans les comptes, ni au carnet de réservations.
+        purge = essai.purger() if lignes2 else {}
+    finally:
+        # Quoi qu'il arrive ensuite, ce qui a été dépensé est noté : un passage oublié
+        # ferait sauter le plafond du mois et rejouer de vrais appels pour ce déploiement.
+        lignes = lignes1 + _propre(lignes2)
+        total = round(sum(float(l.get("cout") or 0) for l in lignes), 6)
+        budget.noter({"le": horloge.maintenant().strftime("%Y-%m-%dT%H:%M"), "cout": total,
+                      "demarrage": gardes.demarrage(), "etage2": bool(lignes2),
+                      "scenarios": len(lignes), "echecs": sum(l.get("etat") == "echec" for l in lignes)})
     cerveau = verdicts.cerveau([l["appel"] for l in lignes2 if l.get("appel")])
-    # Les appels d'essai ne restent pas : ni dans les comptes, ni dans le carnet de réservations.
-    purge = essai.purger() if lignes2 else {}
-    lignes = lignes1 + _propre(lignes2)
-    total = round(sum(float(l.get("cout") or 0) for l in lignes), 6)
-    budget.noter({"le": horloge.maintenant().strftime("%Y-%m-%dT%H:%M"), "cout": total,
-                  "demarrage": gardes.demarrage(), "etage2": bool(lignes2),
-                  "scenarios": len(lignes), "echecs": sum(l.get("etat") == "echec" for l in lignes)})
     return {"lignes": lignes, "refus_etage2": refus, "cout": total, "du_mois": budget.du_mois(),
             "cerveau": {"etage1": avant.get("cerveau"), "etage2": cerveau}, "purge": purge}
 
@@ -78,8 +89,8 @@ def _preparer() -> dict:
 
     identifiant = essai.etablissement_id()
     tenant = tenants.get_by_id(identifiant) if identifiant else None
-    if tenant is None:
-        return {"erreur": "RECETTE_ETABLISSEMENT ne désigne aucun établissement"}
+    if tenant is None or essai.refus(tenant.id):
+        return {"erreur": essai.refus(identifiant)}
     tenants.update_tenant(tenant.id, greeting=scenarios.ACCUEIL, greeting_customized=1,
                           knowledge_base=scenarios.FICHE, opening_hours=json.dumps(scenarios.HORAIRES))
     return {"etablissement": tenant.id, "nom": tenant.name, "regle": ["accueil", "fiche", "horaires"]}
@@ -103,7 +114,18 @@ def main(arguments=None) -> int:
         moteurs = tuple(m for m in etage1.MOTEURS if m in choix.moteurs.split(",")) or etage1.MOTEURS
         resultat = asyncio.run(_etage1(seulement, moteurs))
     elif choix.commande == "etage2":
-        resultat = asyncio.run(_etage2(json.loads(choix.etage1 or "{}"), seulement, choix.sans_appels))
+        from . import budget
+
+        try:
+            with budget.verrou():
+                budget.lire()                  # illisible : on refuse avant de dépenser
+                resultat = asyncio.run(_etage2(json.loads(choix.etage1 or "{}"), seulement, choix.sans_appels))
+        except BlockingIOError:
+            print("Un autre passage de recette est en cours : refus.")
+            return 2
+        except budget.CarnetIllisible as exc:
+            print(f"Recette refusée : {exc}")
+            return 2
         print(tableau(resultat["lignes"]))
     elif choix.commande == "preparer":
         if not choix.oui:

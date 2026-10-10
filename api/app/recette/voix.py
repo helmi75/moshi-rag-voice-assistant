@@ -19,7 +19,9 @@ def voix_du_client(langue: str) -> str:
     """Une voix du catalogue pour cette langue, autre que Marie : à la réécoute, on doit
     distinguer le client de l'assistante. `RECETTE_VOIX_FR` / `RECETTE_VOIX_EN` la
     choisissent ; sinon la première du catalogue dans cette langue."""
-    choisie = os.getenv(f"RECETTE_VOIX_{langue.upper()}", "").strip()
+    # Lues par leur nom entier : `TestCablage` ne voit pas un nom fabriqué.
+    reglees = {"fr": os.getenv("RECETTE_VOIX_FR", ""), "en": os.getenv("RECETTE_VOIX_EN", "")}
+    choisie = reglees.get(langue, "").strip()
     if choisie and voices.get(choisie) is not None:
         return choisie
     candidates = [v for v in voices.voix_voxtral() if (v.langue or "").startswith(langue)]

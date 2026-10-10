@@ -59,10 +59,14 @@ def twiml(scenario: str) -> str:
             + "</Stream></Connect><Hangup/></Response>")
 
 
-async def _composer(client: httpx.AsyncClient, vers: str, de: str, scenario: str) -> str:
+RACCROCHE = "<Response><Hangup/></Response>"
+
+
+async def _composer(client: httpx.AsyncClient, vers: str, de: str, scenario: str,
+                    instructions: Optional[str] = None) -> str:
     base, _ = _api()
     reponse = await client.post(f"{base}/Calls.json", data={
-        "To": vers, "From": de, "Twiml": twiml(scenario),
+        "To": vers, "From": de, "Twiml": instructions or twiml(scenario),
         "Timeout": "20", "TimeLimit": str(DUREE_MAX_SECONDES)})
     reponse.raise_for_status()
     return str(reponse.json().get("sid") or "")
@@ -110,17 +114,20 @@ def prealables(passages: list[dict], tenant, numeros: set[str], de: str) -> Opti
         return "recette automatique non activée (RECETTE_JETON et RECETTE_ETABLISSEMENT)"
     if tenant is None:
         return "l'établissement d'essai n'existe pas"
+    pas_d_essai = essai.refus(tenant.id)
+    if pas_d_essai:
+        return pas_d_essai
     return (gardes.la_nuit() or gardes.appel_reel_en_cours() or gardes.deja_joue(passages)
             or gardes.destinataire_refuse(tenant.phone_number, numeros, tenant.phone_number)
             or (None if de in numeros and de != tenant.phone_number
                 else "la ligne présentée n'est pas un autre de nos numéros"))
 
 
-async def _prix(client: httpx.AsyncClient, sid: str, etat: dict) -> tuple[float, bool]:
+async def _prix(client: httpx.AsyncClient, sid: str, etat: dict, essais: int = 6) -> tuple[float, bool]:
     """(ce que Twilio a facturé pour la jambe qui appelle, vrai si c'est le prix publié).
     Twilio publie le prix quelques minutes après l'appel : tant qu'il manque, on compte les
     minutes entamées au tarif relevé, et on le DIT."""
-    for _ in range(6):
+    for _ in range(essais):
         if etat.get("price") not in (None, ""):
             return abs(float(etat["price"])), True
         await asyncio.sleep(5)
@@ -148,6 +155,7 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
             ligne = {"etage": 2, "moteur": moteur, "scenario": scenario.cle,
                      "recette": scenario.recette, "titre": scenario.titre, "cout": 0.0}
             lignes.append(ligne)
+            partis: list[str] = []
             refus_budget = budget.refus(borne(moteur, etage=2), depense)
             en_cours = gardes.appel_reel_en_cours()
             if refus_budget or en_cours:
@@ -158,15 +166,26 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                 if scenario is S10:
                     # Le premier appel est raccroché dès qu'il sonne : il ne doit ni être
                     # compté comme une panne, ni empêcher le suivant d'être servi.
-                    premier = await _composer(client, tenant.phone_number, de, scenario.cle)
+                    # Il ne porte aucun jeton : décroché malgré tout, il raccroche aussitôt
+                    # au lieu de jouer le scénario en double.
+                    premier = await _composer(client, tenant.phone_number, de, scenario.cle, RACCROCHE)
+                    partis.append(premier)
                     fin = time.monotonic() + 8
                     while time.monotonic() < fin and (await _etat(client, premier)).get("status") == "queued":
                         await asyncio.sleep(0.3)
                     base, _ = _api()
-                    await client.post(f"{base}/Calls/{premier}.json", data={"Status": "canceled"})
-                    await asyncio.sleep(3)
+                    # `canceled` n'agit que sur un appel qui sonne ; `completed` coupe aussi
+                    # un appel décroché. Aucun appel d'essai ne reste ouvert derrière nous.
+                    for arret in ("canceled", "completed"):
+                        if (await _etat(client, premier)).get("status") in _FINIS:
+                            break
+                        await client.post(f"{base}/Calls/{premier}.json", data={"Status": arret})
+                        await asyncio.sleep(2)
+                    du_premier, _ = await _prix(client, premier, await _etat(client, premier), essais=1)
+                    ligne["cout"] = du_premier
                 depuis = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 1))
                 sid = await _composer(client, tenant.phone_number, de, scenario.cle)
+                partis.append(sid)
                 etat = await _attendre_la_fin(client, sid, time.monotonic() + DUREE_MAX_SECONDES + 40)
                 appel = await _clos(tenant.id, depuis)
                 du_client = [r for r in await db.hors_boucle(reservations.list_reservations, tenant.id)
@@ -175,7 +194,7 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                 if etat.get("status") != "completed":
                     verdict, preuve = verdicts.ECHEC, f"Twilio : appel {etat.get('status') or 'sans état'} ; {preuve}"
                 prix, publie = await _prix(client, sid, etat)
-                ligne["cout"] = round(float((appel or {}).get("estimated_cost") or 0) + prix
+                ligne["cout"] = round(ligne["cout"] + float((appel or {}).get("estimated_cost") or 0) + prix
                                       + sum(n for _, n in rendues) * calls._COST_VOIX_PAR_CARACTERE, 6)
                 if not publie:
                     preuve += " ; prix Twilio pas encore publié : jambe appelante comptée au tarif"
@@ -185,5 +204,10 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
             except Exception as exc:
                 ligne.update(etat=verdicts.ECHEC,
                              preuve=f"le scénario n'a pas pu être joué : {type(exc).__name__} {exc}"[:200])
+                if partis:
+                    # Un appel est parti et on n'a pas pu lire ce qu'il a coûté : on compte
+                    # la borne haute. Sous-compter ferait sauter le plafond en silence.
+                    ligne["cout"] = max(ligne["cout"], borne(moteur, etage=2))
+                    ligne["preuve"] += " ; coût non lu : borne haute comptée"
             depense += ligne["cout"]
     return lignes, None

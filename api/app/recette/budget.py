@@ -33,12 +33,40 @@ def chemin() -> Path:
     return Path(os.getenv("RECETTE_CARNET", "/app/data/recette/depenses.json"))
 
 
+class CarnetIllisible(RuntimeError):
+    """Le carnet existe mais ne se lit pas : on ne sait plus ce que le mois a coûté."""
+
+
 def lire() -> list[dict]:
-    try:
-        passages = json.loads(chemin().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    """Les passages notés. Un carnet ABSENT est un carnet vide ; un carnet illisible lève :
+    le prendre pour vide remettrait le mois à zéro, ferait oublier le passage déjà joué
+    pour ce déploiement, et le prochain `noter` l'écraserait."""
+    fichier = chemin()
+    if not fichier.exists():
         return []
-    return passages if isinstance(passages, list) else []
+    try:
+        passages = json.loads(fichier.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise CarnetIllisible(f"carnet des dépenses illisible ({fichier}) : {exc}") from exc
+    if not isinstance(passages, list):
+        raise CarnetIllisible(f"carnet des dépenses illisible ({fichier}) : ce n'est pas une liste")
+    return passages
+
+
+class verrou:
+    """Un seul passage à la fois : deux passages simultanés franchiraient tous deux le
+    plafond et le « un par déploiement ». Lève `BlockingIOError` si un autre tourne."""
+
+    def __enter__(self):
+        import fcntl
+
+        chemin().parent.mkdir(parents=True, exist_ok=True)
+        self._fichier = open(chemin().with_suffix(".verrou"), "w", encoding="ascii")
+        fcntl.flock(self._fichier, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return self
+
+    def __exit__(self, *exc):
+        self._fichier.close()
 
 
 def du_mois(passages: Optional[list[dict]] = None, mois: Optional[str] = None) -> float:

@@ -224,10 +224,24 @@ class TestLePlafond:
         assert budget.refus(0.25, 0.0) is None
         assert "plafond du mois" in budget.refus(0.25, 0.30)
 
-    def test_un_carnet_illisible_ne_casse_rien(self, carnet):
+    def test_un_carnet_absent_est_vide_un_carnet_illisible_arrete_tout(self, carnet):
+        """Pris pour vide, un carnet abîmé remettrait le mois à zéro et serait écrasé."""
+        assert budget.lire() == [] and budget.du_mois() == 0
         budget.chemin().parent.mkdir(parents=True)
         budget.chemin().write_text("{pas du json", encoding="utf-8")
-        assert budget.lire() == [] and budget.du_mois() == 0
+        with pytest.raises(budget.CarnetIllisible):
+            budget.lire()
+        with pytest.raises(budget.CarnetIllisible):
+            budget.noter({"le": "2026-10-10T10:00", "cout": 1.0})
+        assert budget.chemin().read_text(encoding="utf-8") == "{pas du json"
+
+    def test_un_seul_passage_a_la_fois(self, carnet):
+        with budget.verrou():
+            with pytest.raises(BlockingIOError):
+                with budget.verrou():
+                    pass
+        with budget.verrou():
+            pass
 
     def test_l_etage_1_recoit_la_depense_du_mois_du_script(self, carnet, monkeypatch):
         monkeypatch.setenv("RECETTE_DEJA_CE_MOIS", "29.9")
@@ -294,6 +308,7 @@ class TestLesGardeFous:
         bon = gardes.jeton("t17a", nonce)
         assert not gardes.jeton_valide("c8", nonce, bon)            # un autre scénario
         assert not gardes.jeton_valide("t17a", nonce, "0" * 64)
+        assert not gardes.jeton_valide("t17a", nonce, "é" * 64)       # non ASCII : refusé, sans lever
         assert gardes.jeton_valide("t17a", nonce, bon)
         assert not gardes.jeton_valide("t17a", nonce, bon)          # rejoué
         vieux = f"{int(time.time()) - gardes.DUREE_DU_JETON - 5}-abcd"
@@ -307,8 +322,23 @@ class TestLesGardeFous:
         assert "ligne présentée" in etage2.prealables([], essai_actif, nous, "+33612345678")
         assert "ligne présentée" in etage2.prealables([], essai_actif, nous, essai_actif.phone_number)
         assert "n'existe pas" in etage2.prealables([], None, nous, "+17600000002")
+        # Une faute de frappe dans RECETTE_ETABLISSEMENT désigne un vrai restaurant : refus.
+        tenants.update_tenant(essai_actif.id, name="Chez Vrai")
+        assert "ne s'appelle pas" in etage2.prealables([], tenants.get_by_id(essai_actif.id), nous, "+17600000002")
+        tenants.update_tenant(essai_actif.id, name="Banc d'essai (test)")
         monkeypatch.delenv("RECETTE_JETON")
         assert "non activée" in etage2.prealables([], essai_actif, nous, "+17600000002")
+
+    def test_la_purge_refuse_un_etablissement_qui_ne_s_appelle_pas_essai(self, essai_actif):
+        """`RECETTE_ETABLISSEMENT` mal saisi : les appels d'un vrai restaurant ne s'effacent pas."""
+        from app import essai
+
+        calls.start_call("CA-recette-vrai-resto", essai_actif.id, "+33612345678")
+        calls.finish_call("CA-recette-vrai-resto")
+        tenants.update_tenant(essai_actif.id, name="Chez Vrai")
+        assert essai.purger()["appels"] == 0 and calls.par_sid("CA-recette-vrai-resto") is not None
+        tenants.update_tenant(essai_actif.id, name="Banc d'essai (test)")
+        assert essai.purger()["appels"] >= 1 and calls.par_sid("CA-recette-vrai-resto") is None
 
     def test_le_twiml_branche_la_jambe_appelante_sur_notre_flux_avec_un_jeton(self, essai_actif, monkeypatch):
         monkeypatch.setenv("PUBLIC_WS_URL", "wss://app.exemple.fr/ws/voice")
@@ -346,7 +376,12 @@ class TestLaJambeAppelante:
             with pytest.raises(WebSocketDisconnect):
                 ws.receive_text()
 
-    def test_un_jeton_forge_ne_fait_rien_jouer(self, essai_actif, sans_signature):
+    def test_un_jeton_forge_ne_fait_rien_jouer(self, essai_actif, sans_signature, monkeypatch, tmp_path):
+        # Les répliques sont sur le disque : seul le jeton empêche qu'elles soient jouées.
+        monkeypatch.setenv("RECETTE_REPLIQUES_DIR", str(tmp_path))
+        monkeypatch.setattr(voix, "voix_du_client", lambda langue: "voxtral/essai")
+        for texte in scenarios.par_cle("t17a").repliques:
+            voix._chemin(texte, "voxtral/essai").write_bytes(REPLIQUE)
         with TestClient(app).websocket_connect("/ws/recette") as ws:
             ws.send_text(_debut("t17a", gardes.nouveau_nonce(), "0" * 64))
             with pytest.raises(WebSocketDisconnect):
@@ -374,6 +409,14 @@ class TestLaJambeAppelante:
             except WebSocketDisconnect:
                 pass
         assert audibles >= 2 * (len(REPLIQUE) // 160)       # ses deux répliques, puis il raccroche
+
+    @pytest.mark.parametrize("message", ["[1, 2]", "pas du json", '{"event": "start", "start": "texte"}'])
+    def test_un_message_mal_forme_ferme_le_flux_sans_erreur(self, essai_actif, sans_signature, message):
+        with TestClient(app).websocket_connect("/ws/recette") as ws:
+            for _ in range(10):
+                ws.send_text(message)
+            with pytest.raises(WebSocketDisconnect):
+                ws.receive_text()
 
     def test_sans_repliques_sur_le_disque_rien_n_est_joue(self, essai_actif, sans_signature, monkeypatch, tmp_path):
         monkeypatch.setenv("RECETTE_REPLIQUES_DIR", str(tmp_path / "vide"))

@@ -102,7 +102,7 @@ def jeton_valide(scenario: str, nonce: str, fourni: str) -> bool:
     """Le bon secret, un jeton de moins de dix minutes, et qui n'a jamais servi."""
     if not secret() or not scenario or not nonce or not fourni:
         return False
-    if not hmac.compare_digest(jeton(scenario, nonce), fourni):
+    if not hmac.compare_digest(jeton(scenario, nonce).encode(), fourni.encode("utf-8", "replace")):
         return False
     try:
         age = time.time() - int(nonce.split("-", 1)[0])

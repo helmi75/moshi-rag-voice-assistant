@@ -30,6 +30,24 @@ def est_d_essai(tenant_id) -> bool:
     return identifiant is not None and tenant_id == identifiant
 
 
+def refus(tenant_id: Optional[int] = None) -> Optional[str]:
+    """Pourquoi cet établissement ne peut pas servir d'établissement d'essai, ou None. Une
+    faute de frappe dans `RECETTE_ETABLISSEMENT` désignerait un vrai restaurant : il serait
+    appelé, sa fiche réécrite, ses appels et ses réservations effacés. Son NOM doit donc
+    contenir « essai » — celui de la production s'appelle « Banc d'essai (ne pas facturer) »."""
+    tenant_id = etablissement_id() if tenant_id is None else tenant_id
+    if tenant_id is None:
+        return "aucun établissement d'essai (RECETTE_ETABLISSEMENT)"
+    with db.get_conn() as conn:
+        ligne = conn.execute("SELECT name FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+    if ligne is None:
+        return f"l'établissement d'essai n° {tenant_id} n'existe pas"
+    if "essai" not in (ligne["name"] or "").lower():
+        return (f"l'établissement n° {tenant_id} ne s'appelle pas « … essai … » : "
+                "refus de le traiter comme établissement d'essai")
+    return None
+
+
 def purger() -> dict:
     """Efface appels, réservations, messages et enregistrements de l'établissement
     d'essai, et de lui SEUL : chaque suppression porte `tenant_id = ?`. Sans
@@ -39,6 +57,10 @@ def purger() -> dict:
     comptes = {"appels": 0, "reservations": 0, "messages": 0, "enregistrements": 0}
     tenant_id = etablissement_id()
     if tenant_id is None:
+        return comptes
+    motif = refus(tenant_id)
+    if motif:
+        logger.warning(f"[recette] purge refusée : {motif}")
         return comptes
     with db.get_conn() as conn:
         ids = [r[0] for r in conn.execute(

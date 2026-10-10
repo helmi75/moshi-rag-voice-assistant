@@ -50,21 +50,25 @@ async def servir(websocket: WebSocket) -> None:
             if message.get("event") == "start":
                 debut = message
                 break
-    except (WebSocketDisconnect, ValueError, TypeError):
-        pass
-    depart = (debut or {}).get("start") or {}
-    parametres = depart.get("customParameters") or {}
-    scenario = scenarios.par_cle(str(parametres.get("scenario") or ""))
-    flux = (debut or {}).get("streamSid") or depart.get("streamSid")
-    if (scenario is None or not flux or not gardes.jeton_valide(
-            scenario.cle, str(parametres.get("nonce") or ""), str(parametres.get("jeton") or ""))):
+    except Exception:      # déconnexion, trame binaire, JSON qui n'est pas un objet : même refus
+        debut = None
+    try:
+        depart = debut.get("start") or {}
+        parametres = depart.get("customParameters") or {}
+        scenario = scenarios.par_cle(str(parametres.get("scenario") or ""))
+        flux = debut.get("streamSid") or depart.get("streamSid")
+        valable = scenario is not None and bool(flux) and gardes.jeton_valide(
+            scenario.cle, str(parametres.get("nonce") or ""), str(parametres.get("jeton") or ""))
+    except Exception:
+        valable = False
+    if not valable:
         logger.warning("[recette] flux refusé : scénario inconnu ou jeton invalide")
         await websocket.close(code=1008)
         return
     try:
         # Les répliques sont rendues AVANT l'appel par le script : ici on ne lit que le disque.
         repliques = [voix.deja_rendue(texte, scenario.langue) for texte in scenario.repliques]
-    except OSError:
+    except (OSError, RuntimeError):
         logger.warning(f"[recette] répliques du scénario {scenario.cle} absentes du disque")
         await websocket.close(code=1011)
         return
@@ -83,7 +87,9 @@ async def _jouer(websocket: WebSocket, flux: str, client: Client) -> None:
                 message = json.loads(await websocket.receive_text())
             except (WebSocketDisconnect, RuntimeError):
                 return
-            except (ValueError, TypeError):
+            except Exception:
+                continue
+            if not isinstance(message, dict):
                 continue
             if message.get("event") == "media":
                 client.recu(base64.b64decode((message.get("media") or {}).get("payload") or ""))
