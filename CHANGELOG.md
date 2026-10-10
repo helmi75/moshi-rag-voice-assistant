@@ -37,6 +37,12 @@ Demande du 10/10 : que la recette des appels se fasse toute seule, même si elle
 - `/ws/recette` est fermée tant que `RECETTE_JETON` et `RECETTE_ETABLISSEMENT` ne sont pas
   posés ; ouverte, elle exige la signature de Twilio et un jeton à usage unique.
 
+### Corrigé après le premier passage en production
+- **Un appel « GPT-Live » servi par la chaîne classique sort en échec, avec le motif.** Le
+  10/10/2026, OpenAI refusait les sessions (`credit_balance_exhausted`) : le secours a pris les
+  six appels, quatre réservations ont manqué, une ligne sortait en ✅ et le relevé du cerveau
+  était vide sans dire pourquoi. La recette lit maintenant la voix qui a servi l'appel.
+
 ### Ce que ça ne fait pas
 - Le renvoi et le répondeur (S3 à S8) : il faut un numéro de secours à nous, second lot.
 - **Sur la chaîne classique, une réservation manquée n'est pas un verdict** : le client de
