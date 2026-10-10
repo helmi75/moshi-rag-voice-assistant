@@ -21,7 +21,7 @@ en UTC croyait encore au mois précédent, et l'appel changeait de facture.
 """
 from dataclasses import dataclass
 
-from . import calls, db, horloge, plans
+from . import calls, db, essai, horloge, plans
 
 OK = "ok"
 ALERTE = "alerte"
@@ -99,6 +99,9 @@ def _du_mois(tenant_id: int) -> tuple[int, float]:
     si le client raccroche sans réserver. Un appel encore en cours n'a pas de durée : il
     entrera au compteur à sa clôture.
     """
+    # L'établissement des appels automatiques de recette n'a ni forfait ni alerte.
+    if essai.est_d_essai(tenant_id):
+        return 0, 0.0
     with db.get_conn() as conn:
         row = conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0) FROM calls "
@@ -146,11 +149,12 @@ def etat_par_tenant(tenants_liste) -> dict[int, Consommation]:
     La vue du parc affiche N établissements : une requête par établissement ferait
     N requêtes pour une information que SQLite sait agréger d'un coup.
     """
+    hors, hors_params = calls._hors_essai(None)
     with db.get_conn() as conn:
         rows = conn.execute(
             "SELECT tenant_id, COUNT(*) AS n, COALESCE(SUM(duration_seconds), 0) AS secondes "
-            f"FROM calls WHERE {_DECOMPTES} GROUP BY tenant_id",
-            (horloge.debut_du_mois(),),
+            f"FROM calls WHERE {_DECOMPTES}{hors} GROUP BY tenant_id",
+            (horloge.debut_du_mois(), *hors_params),
         ).fetchall()
     par_id = {row["tenant_id"]: (row["n"], float(row["secondes"])) for row in rows}
     return {

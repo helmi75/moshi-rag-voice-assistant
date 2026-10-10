@@ -1157,6 +1157,15 @@ GARDE_FOUS = [
         panne="un restaurateur se mettrait sur GPT-Live, qui coûte le double à la minute et "
               "envoie la voix de ses clients chez OpenAI, sans que l'exploitant l'ait décidé",
     ),
+    GardeFou(
+        nom="La purge de la recette ne sort pas de l'établissement d'essai",
+        fichier="api/app/essai.py",
+        avant='            "DELETE FROM calls WHERE tenant_id = ?", (tenant_id,)).rowcount',
+        apres='            "DELETE FROM calls WHERE ? IS NOT NULL", (tenant_id,)).rowcount  # mutation',
+        tests=["test_essai.py"],
+        k="purge",
+        panne="la purge d'après-recette effacerait les appels des vrais restaurants, en production",
+    ),
 ]
 
 

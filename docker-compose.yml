@@ -67,6 +67,9 @@ services:
       GPT_LIVE_MODELE: "${GPT_LIVE_MODELE:-}"
       GPT_LIVE_DELAI_OUVERTURE:
       GPT_LIVE_DELAI_GENERATION:
+      # Recette automatique : l'établissement dédié aux appels d'essai (api/app/essai.py). Ses
+      # appels sont écartés du parc, des quotas et de la supervision, et se purgent.
+      RECETTE_ETABLISSEMENT:
       VOXTRAL_MODEL: "${VOXTRAL_MODEL:-voxtral-mini-tts-2603}"
       # Voix des établissements qui n'ont rien choisi (défaut : Marie neutre).
       VOIX_PAR_DEFAUT: "${VOIX_PAR_DEFAUT:-}"
