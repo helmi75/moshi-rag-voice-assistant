@@ -187,6 +187,12 @@ class TestLeVerdictSeLitEnBase:
                                                    "elle : C'est enregistré au nom de Martin. Autre chose ?"]
         assert verdicts.conversation(None) == []
 
+    def test_le_client_d_essai_connait_tous_les_scenarios_des_vrais_appels(self):
+        # Le 11/10/2026 : S10 composé par Twilio, puis son flux refusé (« scénario inconnu »).
+        from app.recette import etage2
+        for scenario in scenarios.SCENARIOS + (etage2.S10,):
+            assert scenarios.par_cle(scenario.cle) is scenario
+
     def test_un_appel_gpt_live_servi_par_la_chaine_classique_n_est_pas_une_reussite(self):
         # Le 10/10/2026 : crédit OpenAI épuisé, la chaîne classique a servi les appels « GPT-Live ».
         appel = {"id": 4, "voix_fournisseur": "voxtral"}

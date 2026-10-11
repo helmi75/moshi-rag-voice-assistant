@@ -23,12 +23,7 @@ from .tarifs import DUREE_MAX_SECONDES, borne
 
 _DELAI = httpx.Timeout(20.0, connect=5.0)
 _FINIS = ("completed", "busy", "failed", "no-answer", "canceled")
-# S10 : raccrocher à la première sonnerie, puis rappeler. Le second appel joue ce scénario.
-S10 = scenarios.Scenario(
-    "s10", "S10", "Raccrocher à la première sonnerie puis rappeler : le second appel est servi", (
-        "Je voudrais réserver une table pour deux personnes lundi à dix-neuf heures.",
-        "Au nom de Roux.", "Oui.", "Non merci, c'est tout. Au revoir."),
-    attendu={"party_size": 2, "time": "19:00", "nom": "roux"})
+S10 = scenarios.S10
 
 
 def _api() -> tuple[str, tuple[str, str]]:

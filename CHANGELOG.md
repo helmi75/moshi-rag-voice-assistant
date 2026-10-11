@@ -43,6 +43,11 @@ Demande du 10/10 : que la recette des appels se fasse toute seule, même si elle
   six appels, quatre réservations ont manqué, une ligne sortait en ✅ et le relevé du cerveau
   était vide sans dire pourquoi. La recette lit maintenant la voix qui a servi l'appel.
 
+- **S10 se joue vraiment, et un appel raté garde sa conversation.** Au premier passage de vrais
+  appels (11/10/2026, cinq scénarios verts sur sept), le client d'essai ne connaissait pas S10 et
+  son flux était refusé ; et la purge effaçait ce qui s'était dit dans l'appel raté. La commande
+  affiche maintenant la conversation de chaque ligne qui n'est pas verte.
+
 ### Ce que ça ne fait pas
 - Le renvoi et le répondeur (S3 à S8) : il faut un numéro de secours à nous, second lot.
 - **Sur la chaîne classique, une réservation manquée n'est pas un verdict** : le client de
