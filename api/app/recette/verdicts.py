@@ -4,6 +4,7 @@ Pur : on lui donne la ligne de l'appel et les réservations du numéro, il rend 
 preuve. Qui l'appelle lit la base.
 """
 import json
+from datetime import date
 import unicodedata
 from typing import Optional
 
@@ -68,6 +69,16 @@ def conversation(appel: Optional[dict], tours: int = 16) -> list[str]:
     return lignes
 
 
+_JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+
+def _jour(date_iso) -> Optional[str]:
+    try:
+        return _JOURS[date.fromisoformat(str(date_iso or "")[:10]).weekday()]
+    except ValueError:
+        return None
+
+
 def juger(scenario: Scenario, appel: Optional[dict], reservations: list[dict]) -> tuple[str, str]:
     """(état, preuve). `reservations` : celles du numéro du client, créées depuis le début
     de l'appel, annulées comprises."""
@@ -101,6 +112,11 @@ def juger(scenario: Scenario, appel: Optional[dict], reservations: list[dict]) -
         ecarts.append(f"{resa.get('party_size')} couverts au lieu de {attendu['party_size']}")
     if str(resa.get("time") or "")[:5] != attendu["time"]:
         ecarts.append(f"{resa.get('time')} au lieu de {attendu['time']}")
+    jour = _jour(resa.get("date"))
+    if attendu.get("jour") and jour != attendu["jour"]:
+        # Le 11/10/2026, « lundi à dix-neuf heures » a donné une table le mardi 13 : la
+        # ligne sortait verte, seuls l'heure, les couverts et le nom étaient comparés.
+        ecarts.append(f"le {resa.get('date')} ({jour or 'date illisible'}) au lieu d'un {attendu['jour']}")
     if attendu["nom"] not in _plat(resa.get("customer_name")):
         ecarts.append(f"au nom de « {resa.get('customer_name')} » au lieu de « {attendu['nom']} »")
     if ecarts:

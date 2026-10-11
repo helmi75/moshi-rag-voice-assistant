@@ -37,21 +37,21 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario("t17a", "T17", "Réservation confirmée par un simple « oui » (1/3)", (
         "Je voudrais réserver une table pour deux personnes samedi soir à vingt heures.",
         "Au nom de Martin, s'il vous plaît.", "Oui.", _FIN),
-        attendu={"party_size": 2, "time": "20:00", "nom": "martin"}),
+        attendu={"party_size": 2, "time": "20:00", "nom": "martin", "jour": "samedi"}),
     Scenario("t17b", "T17", "Réservation confirmée par un simple « oui » (2/3)", (
         "Je voudrais une table pour quatre personnes vendredi à midi et demi.",
         "C'est au nom de Bernard.", "Oui.", _FIN),
-        attendu={"party_size": 4, "time": "12:30", "nom": "bernard"}),
+        attendu={"party_size": 4, "time": "12:30", "nom": "bernard", "jour": "vendredi"}),
     Scenario("t17c", "T17", "Réservation confirmée par un simple « oui » (3/3)", (
         "Je souhaite réserver une table pour six personnes jeudi à dix-neuf heures trente.",
         "Au nom de Petit.", "Oui.", _FIN),
-        attendu={"party_size": 6, "time": "19:30", "nom": "petit"}),
+        attendu={"party_size": 6, "time": "19:30", "nom": "petit", "jour": "jeudi"}),
     Scenario("c8", "C8", "Le nom corrigé en cours d'appel : une seule réservation, au bon nom", (
         "Je voudrais une table pour trois personnes mercredi à vingt heures trente.",
         "Au nom de Dupont.",
         "Non, pardon, je me suis trompé : c'est au nom de Lambert. Lambert.",
         "Oui, c'est bien ça.", _FIN),
-        attendu={"party_size": 3, "time": "20:30", "nom": "lambert"}),
+        attendu={"party_size": 3, "time": "20:30", "nom": "lambert", "jour": "mercredi"}),
     Scenario("t6", "T6", "Un jour de fermeture est refusé", (
         "Je voudrais réserver une table pour deux personnes dimanche à midi.",
         "Non, tant pis, merci. Au revoir."),
@@ -59,7 +59,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario("t7", "T7", "Un appel en anglais est servi en anglais", (
         "I would like to book a table for two people on Tuesday at eight p.m.",
         "The name is Smith.", "Yes, that's right.", "No, thank you. Goodbye."),
-        langue="en", attendu={"party_size": 2, "time": "20:00", "nom": "smith"},
+        langue="en", attendu={"party_size": 2, "time": "20:00", "nom": "smith", "jour": "mardi"},
         doit_dire=("table", "thank", "booked", "reservation", "name")),
 )
 
@@ -81,7 +81,7 @@ S10 = Scenario(
     "s10", "S10", "Raccrocher à la première sonnerie puis rappeler : le second appel est servi", (
         "Je voudrais réserver une table pour deux personnes lundi à dix-neuf heures.",
         "Au nom de Roux.", "Oui.", "Non merci, c'est tout. Au revoir."),
-    attendu={"party_size": 2, "time": "19:00", "nom": "roux"})
+    attendu={"party_size": 2, "time": "19:00", "nom": "roux", "jour": "lundi"})
 
 
 def par_cle(cle: str) -> Optional[Scenario]:
