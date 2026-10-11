@@ -81,6 +81,12 @@ def main() -> int:
     print("\n".join(ligne for ligne in sortie.splitlines() if ligne.startswith("|")))
     if final.get("refus_etage2") and not sans_appels:
         print(f"\nÉtage 2 non joué : {final['refus_etage2']}.")
+    # La purge efface les appels d'essai : ce qui s'est dit dans un appel raté ne se lit
+    # plus nulle part ailleurs qu'ici.
+    for ligne in final["lignes"]:
+        if ligne.get("etat") != "ok" and ligne.get("dit"):
+            print(f"\n{ligne.get('recette')} · {ligne.get('scenario')} ({ligne.get('moteur')}) — ce qui s'est dit :")
+            print("\n".join(f"  {tour}" for tour in ligne["dit"]))
     print(f"\nRequêtes au cerveau (T19) : {json.dumps(final.get('cerveau'), ensure_ascii=False)}")
     if final.get("purge"):
         print(f"Appels d'essai purgés : {json.dumps(final['purge'], ensure_ascii=False)}")

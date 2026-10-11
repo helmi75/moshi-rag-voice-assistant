@@ -76,5 +76,15 @@ FICHE = ("## Le restaurant\nLe Banc d'essai est un restaurant fictif qui sert à
          "Cuisine française.\n\n## Horaires\nDu lundi au samedi, midi et soir. Fermé le dimanche.\n")
 
 
+# S10 : raccrocher à la première sonnerie, puis rappeler. Le second appel joue ce scénario.
+S10 = Scenario(
+    "s10", "S10", "Raccrocher à la première sonnerie puis rappeler : le second appel est servi", (
+        "Je voudrais réserver une table pour deux personnes lundi à dix-neuf heures.",
+        "Au nom de Roux.", "Oui.", "Non merci, c'est tout. Au revoir."),
+    attendu={"party_size": 2, "time": "19:00", "nom": "roux"})
+
+
 def par_cle(cle: str) -> Optional[Scenario]:
-    return next((s for s in SCENARIOS if s.cle == cle), None)
+    """Le scénario que le client d'essai doit jouer. S10 compris : le 11/10/2026, au premier
+    passage de vrais appels, `/ws/recette` ne le connaissait pas et refusait son flux."""
+    return next((s for s in SCENARIOS + (S10,) if s.cle == cle), None)
