@@ -41,12 +41,20 @@ class Client:
     # son « Oui » deux fois sur sept dans le blanc qui suit « Je vérifie tout de suite. »,
     # puis « Non merci, au revoir » au récapitulatif — aucune table, sans que l'assistante
     # y soit pour rien.
+    # Après une phrase COURTE (moins de `court` secondes), il attend `silence_court` : le
+    # 12/10/2026, sur deux vrais appels sur sept, le blanc après « Je vérifie tout de
+    # suite. » a dépassé six secondes et le même enchaînement s'est reproduit. Le client
+    # n'entend que du son : la durée est le seul indice qu'elle n'a pas fini, et personne
+    # ne répond « oui » à « je vérifie ». Une vraie question courte attend donc aussi.
     def __init__(self, repliques: list[bytes], silence: float = 6.0, patience: float = 30.0,
                  conge: float = 6.0, duree_max: float = 170.0,
-                 horloge: Callable[[], float] = time.monotonic):
+                 horloge: Callable[[], float] = time.monotonic,
+                 court: float = 2.5, silence_court: float = 12.0):
         self._repliques = list(repliques)
         self._silence, self._patience, self._conge = silence, patience, conge
         self._duree_max = duree_max
+        self._court, self._silence_court = court, silence_court
+        self._parole = 0.0            # ce qu'elle a dit d'audible depuis ma dernière réplique
         self._horloge = horloge
         self._debut = horloge()
         self._fin_de_lecture: Optional[float] = None   # quand le son de l'assistante finit d'être joué
@@ -62,11 +70,13 @@ class Client:
         maintenant = self._horloge()
         depart = max(maintenant, self._fin_de_lecture or maintenant)
         self._fin_de_lecture = depart + len(charge) / 8000
+        self._parole += len(charge) / 8000
         self._entendue = True
 
     def _elle_s_est_tue(self) -> bool:
+        attente = self._silence_court if self._parole < self._court else self._silence
         return (self._fin_de_lecture is not None
-                and self._horloge() - self._fin_de_lecture >= self._silence)
+                and self._horloge() - self._fin_de_lecture >= max(attente, self._silence))
 
     def _a_moi(self) -> bool:
         if self._entendue and self._elle_s_est_tue():
@@ -82,6 +92,7 @@ class Client:
             if not self._en_cours:
                 self._fin_de_replique = self._horloge()
                 self._entendue = False
+                self._parole = 0.0
             return trame.ljust(TRAME, b"\xff")
         if self.dites < len(self._repliques) and self._a_moi():
             self._en_cours = self._repliques[self.dites]

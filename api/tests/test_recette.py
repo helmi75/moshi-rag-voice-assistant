@@ -41,7 +41,8 @@ class Horloge:
 
 def _client(n=2, **reglages):
     h = Horloge()
-    return Client([REPLIQUE] * n, horloge=h, **{"silence": 1.5, "patience": 25.0, **reglages}), h
+    return Client([REPLIQUE] * n, horloge=h,
+                  **{"silence": 1.5, "patience": 25.0, "court": 0.0, **reglages}), h
 
 
 def _trames(client, h, secondes):
@@ -184,12 +185,31 @@ class TestLeVerdictSeLitEnBase:
         assert verdicts.juger(T17, _appel(ended_at=None), [_resa()])[0] == verdicts.ECHEC
 
     def test_le_silence_par_defaut_couvre_le_blanc_d_un_outil(self):
-        """« Je vérifie tout de suite. » puis cinq secondes de blanc : il ne répond pas dedans."""
+        """Une phrase longue puis cinq secondes de blanc : il ne répond pas dedans."""
         h = Horloge()
         client = Client([REPLIQUE], horloge=h)
-        client.recu(VOIX)
-        assert _trames(client, h, 5.5) == 0
+        for _ in range(15):                          # trois secondes de parole
+            client.recu(VOIX)
+        assert _trames(client, h, 3.0 + 5.5) == 0
         assert _trames(client, h, 1.0) > 0
+
+    def test_apres_une_phrase_courte_il_patiente_deux_fois_plus(self):
+        """« Je vérifie tout de suite. » puis dix secondes de blanc (vrais appels du
+        12/10/2026) : il ne dit pas « oui » à une phrase qui n'attendait rien."""
+        h = Horloge()
+        client = Client([REPLIQUE, REPLIQUE], horloge=h)
+        for _ in range(7):                           # 1,4 s : une phrase courte
+            client.recu(VOIX)
+        assert _trames(client, h, 1.4 + 10.0) == 0
+        for _ in range(15):                          # le récapitulatif arrive enfin
+            client.recu(VOIX)
+        assert _trames(client, h, 3.0 + 5.5) == 0, "courte puis longue : c'est le total qui compte"
+        assert _trames(client, h, 1.0) > 0
+
+    def test_une_table_dite_notee_est_annoncee(self):
+        dite = _appel(transcript=json.dumps([{"role": "assistant", "content":
+            "C'est bien noté pour vendredi seize octobre, à midi trente, au nom de Bernard."}]))
+        assert verdicts.juger(T17, dite, [_resa()])[0] == verdicts.OK
 
     def test_un_echec_garde_la_fin_de_la_conversation(self):
         assert verdicts.conversation(_appel()) == ["client : Oui.",
