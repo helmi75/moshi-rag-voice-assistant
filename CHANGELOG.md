@@ -7,6 +7,27 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — une table ne se note plus un autre jour que celui demandé (ASSISTANTE-152, 12/10/2026)
+
+Vrai appel d'essai du 11/10/2026, un dimanche à 20 h 56 : « lundi à dix-neuf heures » a
+donné une table le mardi. Enquête au banc, cerveau seul et horloge fixée : le modèle
+calcule mal les dates (le mardi six fois sur six ce soir-là), pas la voix.
+
+### Corrigé
+- **Le prompt donne les dates des sept jours qui viennent** au lieu de demander au modèle
+  de les calculer.
+- **Le serveur tranche.** Les outils reçoivent le jour de la semaine que le client a dit
+  (`weekday`). La vérification de disponibilité regarde ce jour-là et le dit ; une
+  réservation ou une modification dont la date ne tombe pas ce jour-là est refusée, avec
+  la bonne date. Sans jour dit (« demain », « le quatorze »), rien ne change.
+- **L'outil redit le jour en toutes lettres** (« lundi 19 octobre 2026 ») dans ce qu'il
+  rend, pour que le récapitulatif annonce le jour réellement noté.
+
+Mesuré le 12/10/2026 sur le modèle de production, dans un conteneur jetable : 60
+réservations sur 60 notées le bon jour (dimanche 20 h 56 et samedi 23 h 10 pour
+« lundi », lundi matin pour « samedi »), dont 12 où le modèle avait d'abord envoyé le
+lendemain et où le serveur a rectifié. Non mesuré : un vrai appel, et l'anglais.
+
 ## Non publiée — être prévenu avant le client quand le crédit OpenAI s'épuise (ASSISTANTE-151, 12/10/2026)
 
 Le 10/10/2026 le crédit OpenAI s'est épuisé sans prévenir : les sessions GPT-Live ont été

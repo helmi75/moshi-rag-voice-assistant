@@ -11,7 +11,7 @@ vectoriel n'apporterait rien à cette échelle (voir ARCHITECTURE.md).
 """
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from openai import AsyncOpenAI
@@ -52,6 +52,12 @@ _RAPPEL_DICTE = (
     "plutôt au… ») : les chiffres, ex. « 06 45 75 05 88 ». Jamais inventé, jamais "
     "deviné : demande-le d'abord.")
 
+# Le jour DIT par le client voyage à côté de la date calculée : c'est ce qui permet au
+# serveur de rattraper une date fausse (`_pas_le_jour_dit`).
+_JOUR_DIT = (
+    "Le jour de la semaine tel que le client l'a DIT (« lundi », « samedi »…), recopié. "
+    "À omettre s'il n'a dit aucun jour de la semaine (« demain », « le quatorze »).")
+
 TOOLS = [
     {
         "name": "check_availability",
@@ -63,6 +69,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "date": {"type": "string", "description": "Date au format AAAA-MM-JJ"},
+                "weekday": {"type": "string", "description": _JOUR_DIT},
                 "time": {"type": "string", "description": "Heure au format HH:MM"},
                 "party_size": {"type": "integer", "description": "Nombre de personnes"},
             },
@@ -81,6 +88,7 @@ TOOLS = [
             "properties": {
                 "customer_name": {"type": "string", "description": "Nom du client, reconstitué s'il a été épelé — jamais une suite de lettres"},
                 "date": {"type": "string", "description": "Date au format AAAA-MM-JJ"},
+                "weekday": {"type": "string", "description": _JOUR_DIT},
                 "time": {"type": "string", "description": "Heure au format HH:MM"},
                 "party_size": {"type": "integer", "description": "Nombre de personnes"},
                 "notes": {"type": "string", "description": "Demandes particulières"},
@@ -128,6 +136,7 @@ TOOLS = [
                 "reservation_id": {"type": "string", "description": "Identifiant rendu par find_reservation, recopié tel quel"},
                 "customer_name": {"type": "string", "description": "Nom corrigé, quand le client dit qu'il a été mal noté"},
                 "date": {"type": "string", "description": "Nouvelle date, format AAAA-MM-JJ"},
+                "weekday": {"type": "string", "description": _JOUR_DIT},
                 "time": {"type": "string", "description": "Nouvelle heure, format HH:MM"},
                 "party_size": {"type": "integer", "description": "Nouveau nombre de personnes"},
                 "notes": {"type": "string", "description": "Demandes particulières"},
@@ -265,6 +274,19 @@ l'essai. N'invente rien sur Helmane.
 """
 
 
+def _calendrier(aujourdhui) -> str:
+    """Les sept jours qui suivent, avec leur date : chaque jour de la semaine y figure une
+    fois, le modèle n'a plus rien à calculer.
+
+    Mesuré le 12/10/2026 au banc, raisonnement coupé comme en production : un dimanche à
+    20 h 56, « lundi » donnait le mardi six fois sur six quand le prompt disait « calcule
+    toi-même ». Le prompt repart à chaque tour : on ne va pas plus loin que la semaine,
+    sur une seule ligne, sans le nom du mois que la date porte déjà."""
+    jours = (aujourdhui + timedelta(days=ecart) for ecart in range(1, 8))
+    return "demain " + ", ".join(
+        f"{horloge.JOURS[jour.weekday()]} {jour.day} = {jour.isoformat()}" for jour in jours) + "."
+
+
 def build_system_prompt(tenant: Tenant, appelant: Optional[str] = None,
                         numero_masque: bool = False, demonstration: bool = False) -> str:
     """Prompt système de l'assistante téléphonique.
@@ -317,7 +339,9 @@ vingt-quatre heures. Le client ne les entend jamais.
 
 # Aujourd'hui
 Nous sommes {_date_en_toutes_lettres(aujourdhui)} ({aujourdhui.isoformat()}), il est
-{instant.hour} h {instant.minute:02d} au restaurant. Calcule toi-même « demain », « samedi ».
+{instant.hour} h {instant.minute:02d} au restaurant. Ne calcule AUCUNE date de tête, lis-la ici :
+{_calendrier(aujourdhui)}
+Récapitule avec le `jour` que l'outil t'a rendu.
 Un jour déjà passé désigne le prochain à venir. Une heure d'aujourd'hui déjà passée ne
 se réserve pas : propose la suivante. Si la date reste ambiguë, fais préciser : « Samedi
 quinze août, c'est bien ça ? ».
@@ -486,6 +510,18 @@ def _jour(date_iso) -> str:
         return str(date_iso or "").strip()
 
 
+def _jour_en_clair(date_iso) -> str:
+    """« lundi 19 octobre 2026 » : ce que l'outil redit au modèle, pour que le
+    récapitulatif annonce le jour qui est réellement noté et que le client puisse le
+    corriger."""
+    try:
+        return horloge.en_toutes_lettres(datetime.strptime(_jour(date_iso), "%Y-%m-%d").date())
+    except ValueError:
+        # Un carnet qui rendrait une date sous une autre forme : on la redit telle quelle,
+        # la réservation est faite et l'outil ne doit pas échouer pour une mise en forme.
+        return str(date_iso)
+
+
 def _sur_une_ligne(nom) -> str:
     """Un nom tient sur une ligne : il finit dans l'objet d'un e-mail, qui refuse un
     retour à la ligne — et l'avis au restaurant se perdrait sans un mot."""
@@ -507,7 +543,58 @@ def _inchangee(existante: dict, champs: dict) -> bool:
     return all(norme(cle, valeur) == norme(cle, existante.get(cle)) for cle, valeur in champs.items())
 
 
-def _creneau_refuse(tenant: Tenant, date_iso, heure) -> Optional[str]:
+# Les jours que le modèle peut recopier, en français comme en anglais (l'assistante sert
+# aussi des clients anglophones).
+_JOURS_DITS = {nom: rang for rang, nom in enumerate(horloge.JOURS)} | {
+    nom: rang for rang, nom in enumerate(
+        ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))}
+
+
+def _date_du_jour_dit(date_iso, jour_dit) -> Optional[str]:
+    """La date à retenir quand celle du modèle ne tombe pas le jour de la semaine que le
+    client a dit ; None quand elles s'accordent, ou qu'il n'y a rien à comparer (le client
+    a pu dire « demain » ou « le quatorze »).
+
+    Vrai appel d'essai du 11/10/2026 : « lundi à dix-neuf heures », table notée le mardi.
+    Au banc, même avec un calendrier sous les yeux, le modèle rendait encore le mardi une
+    fois sur deux un samedi à 23 h 10 : une règle écrite ne suffit pas.
+
+    On rend la date de ce jour-là la plus proche de celle calculée : il se trompe d'un
+    jour, pas d'une semaine (« lundi en quinze » reste donc en quinze)."""
+    # Le premier nom de jour trouvé : le modèle recopie aussi « lundi prochain » ou
+    # « Lundi soir. », et un jour non reconnu désarmerait la vérification sans un mot.
+    mots = "".join(c if c.isalpha() else " " for c in str(jour_dit or "").casefold()).split()
+    rang = next((_JOURS_DITS[mot] for mot in mots if mot in _JOURS_DITS), None)
+    try:
+        calculee = datetime.strptime(str(date_iso or "").strip(), "%Y-%m-%d").date()
+        if rang is None or calculee.weekday() == rang:
+            return None
+        bonne = calculee + timedelta(days=(rang - calculee.weekday() + 3) % 7 - 3)
+        if bonne < maintenant().date():
+            bonne += timedelta(days=7)
+    except (ValueError, OverflowError):
+        # Date illisible, ou aux bornes du calendrier : `_creneau_refuse` le dira.
+        return None
+    return bonne.isoformat()
+
+
+def _pas_le_jour_dit(date_iso, jour_dit) -> Optional[str]:
+    """Le motif de refus d'une ÉCRITURE dont la date ne tombe pas le jour dit : rien n'est
+    noté un autre jour que celui que le client a prononcé."""
+    bonne = _date_du_jour_dit(date_iso, jour_dit)
+    if bonne is None:
+        return None
+    # Pas d'ordre de réécrire en silence : le jour recopié peut être périmé (« lundi…
+    # alors mardi »), et c'est alors la date qui a raison. Le modèle choisit selon ce que
+    # le client a dit en dernier, et rien ne s'écrit tant que les deux ne s'accordent pas.
+    faux, dit = _jour_en_clair(date_iso).split()[0], _jour_en_clair(bonne).split()[0]
+    return (f"Date refusée : le {_jour(date_iso)} est un {faux}, et `weekday` dit {dit}. "
+            f"Si le client veut bien le {dit}, c'est le {bonne} : rappelle cet outil avec "
+            f"cette date. S'il a changé d'avis pour le {faux}, rappelle-le avec `weekday` "
+            "corrigé. Si tu ne sais pas, demande-lui en une question courte.")
+
+
+def _creneau_refuse(tenant: Tenant, date_iso, heure, jour_dit=None) -> Optional[str]:
     """Le motif de refus si le créneau est illisible, déjà passé, ou hors des horaires
     d'ouverture de l'établissement ; None s'il est réservable.
 
@@ -521,6 +608,9 @@ def _creneau_refuse(tenant: Tenant, date_iso, heure) -> Optional[str]:
         creneau = datetime.strptime(f"{date_iso} {heure}", "%Y-%m-%d %H:%M").replace(tzinfo=FUSEAU)
     except (TypeError, ValueError):
         return "Date ou heure illisible : date au format AAAA-MM-JJ, heure au format HH:MM."
+    mauvais_jour = _pas_le_jour_dit(date_iso, jour_dit)
+    if mauvais_jour:
+        return mauvais_jour
     instant = maintenant()
     if creneau < instant:
         return (f"Ce créneau est déjà passé : il est {instant:%H:%M}. "
@@ -660,8 +750,12 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                  "consigne": "La réservation est déjà enregistrée ainsi. Dis-le au client, "
                              "sans parler de modification."},
                 ensure_ascii=False)
+        date_change = "date" in champs and _jour(champs["date"]) != _jour(existante["date"])
+        # Le jour dit ne vaut que pour une date qui change : celle qui reste a déjà été
+        # acceptée, et « ma table de lundi » ne doit pas bloquer un changement d'heure.
         refus = _creneau_refuse(tenant, champs.get("date", existante["date"]),
-                                champs.get("time", existante["time"]))
+                                champs.get("time", existante["time"]),
+                                tool_input.get("weekday") if date_change else None)
         if refus:
             return _refus(refus)
         # « 9:00 » passe la vérification ci-dessus : c'est « 09:00 » qu'on range.
@@ -674,8 +768,8 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                                 {"avant": existante, "reservation": modifiee, "appel_id": call_id})
         resultat = {"status": "modified", "reservation_id": reservation_id,
                     "customer_name": modifiee.get("customer_name"),
-                    "date": modifiee["date"], "time": modifiee["time"],
-                    "party_size": modifiee["party_size"]}
+                    "date": modifiee["date"], "jour": _jour_en_clair(modifiee["date"]),
+                    "time": modifiee["time"], "party_size": modifiee["party_size"]}
         if "customer_name" in champs and connecteurs.est_resos(tenant):
             # resOS fait foi et son nom ne se change pas d'ici : il part en note.
             resultat["consigne"] = ("Le nom corrigé est transmis au restaurant, qui met son "
@@ -683,11 +777,22 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
         return json.dumps(resultat, ensure_ascii=False)
 
     if name == "check_availability":
-        refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
+        # Une lecture : plutôt que de refuser, on regarde le jour que le client a dit, et
+        # on le dit. Refusé, le modèle rendait une fois sur deux une phrase embarrassée
+        # au lieu de corriger (banc du 12/10/2026) ; ce sont les écritures qui refusent.
+        rectifiee = _date_du_jour_dit(tool_input.get("date"), tool_input.get("weekday"))
+        jour = rectifiee or tool_input.get("date")
+        refus = _creneau_refuse(tenant, jour, tool_input.get("time"))
         if refus:
             return _refus(refus)
-        reponse = await carnet.disponibilite(tool_input["date"], tool_input["time"],
+        reponse = await carnet.disponibilite(jour, tool_input["time"],
                                              tool_input.get("party_size") or 2)
+        reponse["date"], reponse["jour"] = _jour(jour), _jour_en_clair(jour)
+        if rectifiee:
+            reponse["consigne_date"] = (
+                f"Le {_jour(tool_input['date'])} que tu as envoyé n'est pas un "
+                f"{reponse['jour'].split()[0]} : cette réponse vaut pour le {reponse['jour']} "
+                f"({rectifiee}). C'est cette date qu'il faut annoncer et enregistrer.")
         if not reponse.get("available"):
             reponse["consigne"] = _consigne_complet(reponse.get("autres_horaires") or [])
         return json.dumps(reponse, ensure_ascii=False)
@@ -698,7 +803,8 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     # modification et l'annulation (#33). Laisser le modèle le proposer reviendrait à
     # accepter que l'appelant décide de qui il est. Un appel masqué donne None : la
     # réservation existe, mais elle ne sera pas modifiable au téléphone.
-    refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"))
+    refus = _creneau_refuse(tenant, tool_input.get("date"), tool_input.get("time"),
+                            tool_input.get("weekday"))
     if refus:
         return _refus(refus)
     # Relevé au banc le 10/09/2026 : récapitulatif « …au nom de. C'est bien ça ? »,
@@ -751,9 +857,10 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
         # 25/09/2026). Annoncer « c'est confirmé » serait une promesse qu'on ne tient pas.
         return json.dumps(
             {"status": "pending_restaurant_approval", "reservation_id": reservation["id"],
+             "jour": _jour_en_clair(jour),
              "consigne": CONSIGNE_A_VALIDER}, ensure_ascii=False)
-    return json.dumps({"status": "confirmed", "reservation_id": reservation["id"]},
-                      ensure_ascii=False)
+    return json.dumps({"status": "confirmed", "reservation_id": reservation["id"],
+                       "jour": _jour_en_clair(jour)}, ensure_ascii=False)
 
 
 async def respond(tenant: Tenant, history: list, user_text: str,

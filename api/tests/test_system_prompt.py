@@ -135,9 +135,11 @@ class TestBuildSystemPrompt:
         le 27/09/2026 (environ 60 jetons) pour deux fautes relevées sur 19 appels de
         test : l'heure et le nombre redemandés après un changement de jour, et « je
         vérifie » annoncé sans outil. Le préfixe du prompt est en cache chez le
-        fournisseur : ces jetons se paient peu. Le plafond reste là pour que la prochaine
+        fournisseur : ces jetons se paient peu. Porté à 7 500 le 12/10/2026 pour le
+        calendrier des sept jours (environ 170 caractères) : « calcule toi-même » notait
+        un lundi au mardi (`test_jour_dit.py`). Le plafond reste là pour que la prochaine
         règle se paie par une autre qu'on retire."""
-        assert len(llm.build_system_prompt(_tenant())) < 7300
+        assert len(llm.build_system_prompt(_tenant())) < 7500
 
 
 class TestAppelantConnu:

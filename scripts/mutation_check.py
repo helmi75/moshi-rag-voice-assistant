@@ -223,6 +223,16 @@ GARDE_FOUS = [
         k="reseau or telephone",
         panne="l'appelant déciderait de qui il est, donc à quelles réservations il accède",
     ),
+    GardeFou(
+        nom="Une date qui ne tombe pas le jour dit par le client est refusée",
+        fichier="api/app/llm.py",
+        avant="    mauvais_jour = _pas_le_jour_dit(date_iso, jour_dit)",
+        apres="    mauvais_jour = None  # mutation",
+        tests=["test_jour_dit.py"],
+        k="mardi_calcule or autre_jour",
+        panne="« lundi » demandé, table notée le mardi : le client vient un jour où "
+              "personne ne l'attend (vrai appel d'essai du 11/10/2026)",
+    ),
     # --- Messages pris au téléphone (#32) -------------------------------------
     GardeFou(
         nom="Une promesse de rappel laisse toujours une trace",
