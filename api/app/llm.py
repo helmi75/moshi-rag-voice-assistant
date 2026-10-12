@@ -561,16 +561,20 @@ def _date_du_jour_dit(date_iso, jour_dit) -> Optional[str]:
 
     On rend la date de ce jour-là la plus proche de celle calculée : il se trompe d'un
     jour, pas d'une semaine (« lundi en quinze » reste donc en quinze)."""
-    rang = _JOURS_DITS.get(str(jour_dit or "").strip().casefold())
+    # Le premier nom de jour trouvé : le modèle recopie aussi « lundi prochain » ou
+    # « Lundi soir. », et un jour non reconnu désarmerait la vérification sans un mot.
+    mots = "".join(c if c.isalpha() else " " for c in str(jour_dit or "").casefold()).split()
+    rang = next((_JOURS_DITS[mot] for mot in mots if mot in _JOURS_DITS), None)
     try:
         calculee = datetime.strptime(str(date_iso or "").strip(), "%Y-%m-%d").date()
-    except ValueError:
+        if rang is None or calculee.weekday() == rang:
+            return None
+        bonne = calculee + timedelta(days=(rang - calculee.weekday() + 3) % 7 - 3)
+        if bonne < maintenant().date():
+            bonne += timedelta(days=7)
+    except (ValueError, OverflowError):
+        # Date illisible, ou aux bornes du calendrier : `_creneau_refuse` le dira.
         return None
-    if rang is None or calculee.weekday() == rang:
-        return None
-    bonne = calculee + timedelta(days=(rang - calculee.weekday() + 3) % 7 - 3)
-    if bonne < maintenant().date():
-        bonne += timedelta(days=7)
     return bonne.isoformat()
 
 
@@ -580,9 +584,14 @@ def _pas_le_jour_dit(date_iso, jour_dit) -> Optional[str]:
     bonne = _date_du_jour_dit(date_iso, jour_dit)
     if bonne is None:
         return None
-    return (f"Date refusée : le {_jour(date_iso)} est un {_jour_en_clair(date_iso).split()[0]}. "
-            f"Le {_jour_en_clair(bonne).split()[0]} demandé, c'est le {bonne}. Rappelle cet "
-            f"outil MAINTENANT avec {bonne}, sans écrire aucun texte.")
+    # Pas d'ordre de réécrire en silence : le jour recopié peut être périmé (« lundi…
+    # alors mardi »), et c'est alors la date qui a raison. Le modèle choisit selon ce que
+    # le client a dit en dernier, et rien ne s'écrit tant que les deux ne s'accordent pas.
+    faux, dit = _jour_en_clair(date_iso).split()[0], _jour_en_clair(bonne).split()[0]
+    return (f"Date refusée : le {_jour(date_iso)} est un {faux}, et `weekday` dit {dit}. "
+            f"Si le client veut bien le {dit}, c'est le {bonne} : rappelle cet outil avec "
+            f"cette date. S'il a changé d'avis pour le {faux}, rappelle-le avec `weekday` "
+            "corrigé. Si tu ne sais pas, demande-lui en une question courte.")
 
 
 def _creneau_refuse(tenant: Tenant, date_iso, heure, jour_dit=None) -> Optional[str]:
@@ -741,11 +750,12 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                  "consigne": "La réservation est déjà enregistrée ainsi. Dis-le au client, "
                              "sans parler de modification."},
                 ensure_ascii=False)
+        date_change = "date" in champs and _jour(champs["date"]) != _jour(existante["date"])
         # Le jour dit ne vaut que pour une date qui change : celle qui reste a déjà été
         # acceptée, et « ma table de lundi » ne doit pas bloquer un changement d'heure.
         refus = _creneau_refuse(tenant, champs.get("date", existante["date"]),
                                 champs.get("time", existante["time"]),
-                                tool_input.get("weekday") if "date" in champs else None)
+                                tool_input.get("weekday") if date_change else None)
         if refus:
             return _refus(refus)
         # « 9:00 » passe la vérification ci-dessus : c'est « 09:00 » qu'on range.
@@ -847,6 +857,7 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
         # 25/09/2026). Annoncer « c'est confirmé » serait une promesse qu'on ne tient pas.
         return json.dumps(
             {"status": "pending_restaurant_approval", "reservation_id": reservation["id"],
+             "jour": _jour_en_clair(jour),
              "consigne": CONSIGNE_A_VALIDER}, ensure_ascii=False)
     return json.dumps({"status": "confirmed", "reservation_id": reservation["id"],
                        "jour": _jour_en_clair(jour)}, ensure_ascii=False)

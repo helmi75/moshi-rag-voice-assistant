@@ -39,7 +39,8 @@ class TestRienNeSEcritUnAutreJour:
         reponse = _outil(resto, "create_reservation", {
             "customer_name": "Garnier", "date": MARDI, "weekday": "lundi",
             "time": "19:00", "party_size": 2})
-        assert f"Le lundi demandé, c'est le {LUNDI}." in reponse["error"]
+        assert "est un mardi, et `weekday` dit lundi" in reponse["error"]
+        assert f"c'est le {LUNDI} :" in reponse["error"]
         assert LUNDI_SUIVANT not in reponse["error"], "une seule date : deux font hésiter"
         assert _tables(resto) == []
 
@@ -49,8 +50,30 @@ class TestRienNeSEcritUnAutreJour:
             party_size=2, customer_phone=APPELANT)
         reponse = _outil(resto, "modify_reservation", {
             "reservation_id": table["id"], "date": "2026-10-16", "weekday": "jeudi"})
-        assert "est un vendredi. Le jeudi demandé, c'est le 2026-10-15." in reponse["error"]
+        assert "est un vendredi" in reponse["error"] and "2026-10-15" in reponse["error"]
         assert _tables(resto)[0]["date"] == LUNDI
+
+    @pytest.mark.parametrize("jour_dit", ["lundi prochain", "Lundi soir.", "ce lundi-là"])
+    def test_le_jour_est_reconnu_dans_ce_que_le_modele_recopie(self, resto, jour_dit):
+        reponse = _outil(resto, "create_reservation", {
+            "customer_name": "Garnier", "date": MARDI, "weekday": jour_dit,
+            "time": "19:00", "party_size": 2})
+        assert "Date refusée" in reponse["error"] and _tables(resto) == []
+
+    @pytest.mark.parametrize("jour", ["9999-12-31", "0001-01-01"])
+    def test_une_date_aux_bornes_ne_fait_pas_echouer_l_outil(self, resto, jour):
+        reponse = _outil(resto, "check_availability", {
+            "date": jour, "weekday": "lundi", "time": "19:00", "party_size": 2})
+        assert isinstance(reponse, dict)
+
+    def test_la_meme_date_renvoyee_avec_une_autre_heure_n_est_pas_un_changement_de_jour(self, resto):
+        table = reservations.create_reservation(
+            tenant_id=resto.id, customer_name="Garnier", date=MARDI, time="19:00",
+            party_size=2, customer_phone=APPELANT)
+        reponse = _outil(resto, "modify_reservation", {
+            "reservation_id": table["id"], "date": "2026-10-13", "time": "20:00",
+            "weekday": "lundi"})
+        assert reponse["status"] == "modified"
 
     def test_le_jour_dit_en_anglais(self, resto):
         reponse = _outil(resto, "create_reservation", {
