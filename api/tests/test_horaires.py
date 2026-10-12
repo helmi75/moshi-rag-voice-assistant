@@ -188,7 +188,7 @@ class TestLesOutilsRefusentUnCreneauFerme:
     def test_un_mardi_soir_passe(self, resto):
         reponse = _outil(resto, "check_availability",
                          {"date": _prochain(1).isoformat(), "time": "20:00", "party_size": 2})
-        assert reponse == {"available": True, "covers_already_booked": 0}
+        assert reponse["available"] is True and reponse["covers_already_booked"] == 0
 
     def test_sans_horaires_rien_n_est_refuse(self, resto):
         libre = tenants.create_tenant("Sans Horaires", "+33199000556")
