@@ -139,6 +139,45 @@ _echec: dict = {}          # le dernier échec commun : {"depuis": horloge monot
 # refus est rendu tout de suite : l'appelant qui le découvre n'attend pas.
 _echecs_propres: dict[int, dict] = {}
 
+# Le crédit OpenAI épuisé (ASSISTANTE-151). Le 10/10/2026 il s'est vidé sans prévenir : la
+# chaîne classique a servi les appels et personne ne l'a su. OpenAI ne donne pas le solde
+# par son API : on n'en estime aucun, on constate le PREMIER refus. Ce refus tient au
+# compte, pas à l'établissement : tout le parc est écarté. La mémoire reste posée jusqu'à
+# ce qu'une session s'ouvre (le crédit est revenu), et c'est elle qui garde l'e-mail de
+# n'être envoyé qu'une fois par épisode.
+CODE_CREDIT_EPUISE = "credit_balance_exhausted"
+_credit_epuise: dict = {}
+
+
+def credit_epuise() -> Optional[dict]:
+    """None, ou {"le": UTC du premier refus, "dernier": UTC du dernier, "refus": leur
+    nombre} pour l'épisode en cours."""
+    return dict(_credit_epuise) if _credit_epuise else None
+
+
+def _credit_en_cause(erreur: dict) -> bool:
+    # `code` ou `type` : le journal du 10/10/2026 affiche l'un OU l'autre, sans dire lequel
+    # portait le motif.
+    return CODE_CREDIT_EPUISE in (erreur.get("code"), erreur.get("type"))
+
+
+def _credit_refuse(motif: str) -> None:
+    premier = not _credit_epuise
+    if premier:
+        _credit_epuise["le"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _credit_epuise["refus"] = 0
+    _credit_epuise["refus"] += 1
+    _credit_epuise["dernier"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    mettre_a_l_ecart(motif)
+    if premier:
+        # Jamais sur le chemin de l'appel : l'appelant est déjà rendu à la chaîne classique.
+        from .. import notifications, taches
+        try:
+            taches.lancer(notifications.prevenir_credit_openai(_credit_epuise["le"]),
+                          nom="e-mail crédit OpenAI épuisé")
+        except Exception as exc:
+            logger.warning(f"[gpt-live] alerte de crédit non lancée ({type(exc).__name__})")
+
 
 def _frais(echec: Optional[dict]) -> bool:
     return bool(echec) and time.monotonic() - echec["depuis"] <= MISE_A_L_ECART_SECONDES
@@ -194,6 +233,7 @@ def reinitialiser() -> None:
     """Pour les tests."""
     _echec.clear()
     _echecs_propres.clear()
+    _credit_epuise.clear()
 
 
 def voix() -> str:
@@ -346,11 +386,15 @@ async def ouvrir(tenant: Tenant, prompt_systeme: str, numero_connu: bool = True)
         while time.monotonic() < fin:
             evt = json.loads(await asyncio.wait_for(ws.recv(), timeout=max(0.1, fin - time.monotonic())))
             if evt.get("type") == "session.started":
+                _credit_epuise.clear()
                 return ws
             if evt.get("type") == "error":
                 erreur = evt.get("error") or {}
-                mettre_a_l_ecart(f"session refusée ({erreur.get('code') or erreur.get('type')})",
-                                 tenant.id)
+                motif = f"session refusée ({erreur.get('code') or erreur.get('type')})"
+                if _credit_en_cause(erreur):
+                    _credit_refuse(motif)
+                else:
+                    mettre_a_l_ecart(motif, tenant.id)
                 break
         else:
             mettre_a_l_ecart("session trop longue à s'ouvrir")
@@ -474,6 +518,9 @@ class Appel:
                 erreur = evt.get("error") or {}
                 logger.warning(f"[gpt-live] erreur de session : {erreur.get('code') or erreur.get('type')} "
                                f"— {str(erreur.get('message'))[:160]}")
+                if _credit_en_cause(erreur):
+                    # Le crédit s'épuise aussi en pleine conversation : même épisode, même alerte.
+                    _credit_refuse("session interrompue (crédit épuisé)")
 
     async def _relancer_l_accueil_si_muette(self) -> None:
         """Personne n'a encore rien dit et le délai est passé : l'accueil est redonné, une

@@ -7,6 +7,30 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — être prévenu avant le client quand le crédit OpenAI s'épuise (ASSISTANTE-151, 12/10/2026)
+
+Le 10/10/2026 le crédit OpenAI s'est épuisé sans prévenir : les sessions GPT-Live ont été
+refusées (`credit_balance_exhausted`), la chaîne classique a servi les appels et personne ne
+l'a su. OpenAI ne donne pas le solde par son API : pas de seuil ni de solde estimé, une
+alerte au premier refus (décision de Helmi, 12/10).
+
+### Ajouté
+- **Un refus pour crédit épuisé met tout le parc à l'écart** (il tient au compte, pas à
+  l'établissement) et pose une mémoire du processus, `live.credit_epuise()`, effacée dès
+  qu'une session s'ouvre.
+- **Un contrôle de supervision « Crédit OpenAI »** (alerte tant que la mémoire est posée,
+  avec l'heure du premier refus, le nombre de refus et la marche à suivre). Au vert, il dit
+  qu'il n'a vu aucun refus, pas que le solde est bon. Réservé à la supervision du super-admin.
+- **Un e-mail aux super-admins au premier refus de l'épisode**, hors du chemin de l'appel ;
+  sans SMTP, rien. Un garde-fou dans `scripts/mutation_check.py`.
+
+### Après relecture
+- L'alerte descend à « attention » après deux heures sans nouveau refus : un crédit rechargé
+  la nuit, sans appel ensuite, laissait la sonde en panne sans fin et masquait les autres.
+- Le crédit qui s'épuise en pleine conversation pose la même alerte ; le motif est reconnu
+  qu'OpenAI le porte dans `code` ou dans `type` ; un test tient les restaurateurs hors des
+  destinataires.
+
 ## Non publiée — la recette des appels se joue sans téléphone (10/10/2026)
 
 Le 09/10/2026, trois déploiements dans la journée, et chaque essai d'appel attendait Helmi.

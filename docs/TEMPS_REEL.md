@@ -404,9 +404,12 @@ restaurant, « en général GPT-Live par défaut et l'ancienne version en secour
   on ne reprend pas un appel en route avec une autre voix. La fiche de l'appel le dit
   (« la voix s'est interrompue au milieu de l'appel », motif `session`). Les appels
   suivants passent par la chaîne classique, au lieu d'être tous renvoyés au restaurant. La mémoire de l'échec est celle du processus : « Santé & coûts » affiche le
-  dernier, un redéploiement l'efface. **Aucun contrôle de supervision ne le surveille** :
-  un crédit OpenAI épuisé se voit dans « Santé & coûts » et au journal du conteneur
-  (« [gpt-live] mis à l'écart »), pas par une alerte.
+  dernier, un redéploiement l'efface.
+- **Crédit OpenAI épuisé** (ASSISTANTE-151). Le code de refus `credit_balance_exhausted`
+  tient au compte : il écarte tout le parc, passe le contrôle de supervision « Crédit
+  OpenAI » en alerte et envoie un e-mail aux super-admins, une fois par épisode. Pas de
+  solde ni de seuil : OpenAI ne le donne pas par son API. Une session qui s'ouvre de
+  nouveau efface l'alerte.
 - **Sans clé OpenAI**, un établissement réglé sur GPT-Live suit la chaîne classique ; la
   fiche et la vue du parc le disent.
 

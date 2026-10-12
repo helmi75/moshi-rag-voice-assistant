@@ -33,7 +33,7 @@ from typing import Optional
 
 from loguru import logger
 
-from . import horloge, taches, users
+from . import db, horloge, taches, users
 
 EVENEMENTS = ("reservation_creee", "reservation_modifiee", "reservation_annulee", "message_pris",
               "message_vocal", "annonce_sans_trace")
@@ -278,3 +278,31 @@ def planifier(tenant, evenement: str, donnees: dict) -> Optional[asyncio.Task]:
         return None
     return taches.lancer(notifier(tenant, evenement, donnees),
                          nom=f"e-mail {evenement} → {tenant.name}")
+
+
+async def prevenir_credit_openai(le_utc: str) -> bool:
+    """ASSISTANTE-151 : prévient les comptes super-admin que les sessions GPT-Live sont
+    refusées faute de crédit. Aucun établissement n'est concerné (le restaurateur ne lit
+    jamais « OpenAI ») : on n'écrit qu'à l'exploitant. NE LÈVE JAMAIS ; sans SMTP, rien."""
+    if not actif():
+        return False
+    try:
+        comptes = await db.hors_boucle(users.list_users)
+        adresses = []
+        for compte in comptes:
+            if compte.is_superadmin and compte.email and compte.email not in adresses:
+                adresses.append(compte.email)
+        local = horloge.au_restaurant(le_utc)
+        quand = local.strftime("%d/%m/%Y à %H h %M") if local else le_utc
+        sujet = "Helmane — crédit OpenAI épuisé : GPT-Live est refusé"
+        corps = [f"Le {quand}, une session GPT-Live a été refusée : crédit OpenAI épuisé.", "",
+                 "Ce qui se passe : la chaîne classique sert les appels à la place, sans coupure ;",
+                 "les établissements réglés sur GPT-Live n'ont plus cette voix tant que le crédit",
+                 "n'est pas rechargé.", "",
+                 "À faire : recharger le crédit dans la console OpenAI. Le contrôle « Crédit OpenAI »",
+                 "de la supervision repasse au vert dès qu'une session s'ouvre de nouveau.", "",
+                 "Pas d'autre e-mail pour cet épisode."]
+        return await envoyer(adresses, sujet, "\n".join(corps))
+    except Exception as exc:
+        logger.warning(f"e-mail de crédit OpenAI non envoyé ({type(exc).__name__}: {exc})")
+        return False

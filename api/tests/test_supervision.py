@@ -84,6 +84,7 @@ class TestEnumeration:
 
     ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
                 "appels_echoues", "appels_inacheves", "latence", "twilio", "carnets", "voxtral", "secours",
+                "credit_openai",
                 "accueils",
                 "sauvegarde", "purge", "disque", "enregistrements"]
 
@@ -893,3 +894,48 @@ class TestMessageDIndisponibilite:
         controle = _controle("accueils")
         assert controle["niveau"] == supervision.OK
         assert controle["mesure"]["sans_message_d_indisponibilite"] == 0
+
+
+class TestCreditOpenAI:
+    """ASSISTANTE-151 : trois états, et jamais un solde inventé."""
+
+    def _controle(self):
+        return next(c for c in supervision.etat(force=True)["controles"] if c["cle"] == "credit_openai")
+
+    def test_sans_cle_le_controle_le_dit_sans_alerter(self, base, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        c = self._controle()
+        assert c["niveau"] == supervision.OK and "Aucune clé" in c["resume"]
+
+    def test_sans_refus_c_est_ok_et_ce_n_est_pas_un_solde(self, base, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        c = self._controle()
+        assert c["niveau"] == supervision.OK
+        assert "Aucun refus" in c["resume"] and "pas une mesure du solde" in c["detail"]
+
+    def test_apres_un_refus_pour_credit_c_est_une_alerte_avec_la_marche_a_suivre(self, base, monkeypatch):
+        from app.voice import live
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.setattr(supervision, "_age_minutes", lambda iso: 5)
+        live._credit_epuise.update({"le": "2026-10-12T08:30:00Z", "dernier": "2026-10-12T08:40:00Z", "refus": 3})
+        c = self._controle()
+        assert c["niveau"] == supervision.PANNE
+        assert "12/10/2026" in c["resume"] and "3 refus" in c["detail"]
+        assert "recharger le crédit" in c["detail"] and "chaîne classique" in c["detail"]
+        assert supervision.etat(force=True)["niveau"] == supervision.PANNE
+
+    def test_deux_heures_sans_nouveau_refus_l_alerte_descend_d_un_cran(self, base, monkeypatch):
+        """Crédit rechargé la nuit, aucun appel depuis : une panne sans fin masquerait les autres."""
+        from app.voice import live
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.setattr(supervision, "_age_minutes", lambda iso: 180)
+        live._credit_epuise.update({"le": "2026-10-12T08:30:00Z", "dernier": "2026-10-12T08:40:00Z", "refus": 3})
+        c = self._controle()
+        assert c["niveau"] == supervision.ATTENTION and "il y a 3 h" in c["resume"]
+        assert "recharger le crédit" in c["detail"]
+
+    def test_la_cle_retiree_fait_taire_l_alerte(self, base, monkeypatch):
+        from app.voice import live
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        live._credit_epuise.update({"le": "2026-10-12T08:30:00Z", "refus": 1})
+        assert self._controle()["niveau"] == supervision.OK
