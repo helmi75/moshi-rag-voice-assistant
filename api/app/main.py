@@ -511,11 +511,17 @@ async def flux_du_client_d_essai(websocket: WebSocket):
 
 
 @app.post("/recette/secours")
-async def secours_de_la_recette(action: str = Form(""), nonce: str = Form(""), jeton: str = Form("")):
+async def secours_de_la_recette(request: Request, action: str = Form(""),
+                                nonce: str = Form(""), jeton: str = Form("")):
     """Met l'établissement d'essai sur répondeur (ou l'en retire) pour la recette d'appels
-    (app/recette/secours.py). Fermée sans `RECETTE_JETON` ; le jeton est à usage unique."""
+    (app/recette/secours.py). Fermée sans `RECETTE_JETON` ; le jeton est à usage unique.
+
+    Appelée du conteneur lui-même, jamais d'Internet : ce qui arrive par Caddy vient d'une
+    autre adresse et trouve porte close, jeton valable ou non."""
     from .recette import secours
 
+    if (request.client.host if request.client else "") not in secours.LOCALES:
+        return Response(status_code=404)
     return Response(status_code=secours.appliquer(action, nonce, jeton))
 
 

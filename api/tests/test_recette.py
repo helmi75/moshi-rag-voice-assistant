@@ -492,10 +492,10 @@ class TestLesScenarios:
         assert len({s.cle for s in scenarios.SCENARIOS}) == len(scenarios.SCENARIOS)
 
 
-def _porte(action, nonce=None, jeton=None, **en_plus):
+def _porte(action, nonce=None, jeton=None, depuis="127.0.0.1", **en_plus):
     nonce = nonce or gardes.nouveau_nonce()
     jeton = gardes.jeton("secours-" + action, nonce) if jeton is None else jeton
-    return TestClient(app).post("/recette/secours", data={
+    return TestClient(app, client=(depuis, 50000)).post("/recette/secours", data={
         "action": action, "nonce": nonce, "jeton": jeton, **en_plus})
 
 
@@ -519,6 +519,11 @@ class TestLaPorteDuRepondeur:
             assert not renvoi.panne_recente(vrai.id)
         finally:
             tenants.delete_tenant(vrai.id)
+
+    def test_porte_du_repondeur_fermee_a_ce_qui_vient_d_internet(self, essai_actif):
+        """Par Caddy, la requête arrive d'une autre adresse : jeton valable ou non, rien."""
+        assert _porte("essayer", depuis="172.18.0.3").status_code == 404
+        assert not renvoi.essai_en_cours(essai_actif.id)
 
     def test_porte_du_repondeur_refuse_sans_jeton(self, essai_actif):
         assert _porte("essayer", jeton="").status_code == 403

@@ -1187,6 +1187,16 @@ GARDE_FOUS = [
               "(donc sa ligne) sur répondeur, sans secret",
     ),
     GardeFou(
+        nom="La porte du répondeur d'essai ne s'ouvre que de l'intérieur du conteneur",
+        fichier="api/app/main.py",
+        avant='    if (request.client.host if request.client else "") not in secours.LOCALES:',
+        apres="    if False:  # mutation",
+        tests=["test_recette.py"],
+        k="vient_d_internet",
+        panne="n'importe qui, sur Internet, pourrait tenter la porte qui met "
+              "l'établissement d'essai sur répondeur",
+    ),
+    GardeFou(
         nom="Le moteur de l'appel ne se choisit pas soi-même",
         fichier="api/app/admin/routes_tenants.py",
         avant="    if user.is_superadmin and moteur_voix in live.MOTEURS:",

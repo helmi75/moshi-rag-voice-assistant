@@ -5,7 +5,8 @@ la recette d'appels, qui tourne dans un autre processus (`docker compose exec`),
 l'écrire elle-même. D'où cette porte, appelée en local par `etage2.py` pour jouer le
 répondeur (S6 à S8) sans numéro de secours, donc sans achat.
 
-Trois verrous : la recette doit être activée, le jeton est à usage unique et propre à
+Quatre verrous : la porte ne s'ouvre que de l'intérieur du conteneur (`main.py`), la
+recette doit être activée, le jeton est à usage unique et propre à
 l'action demandée, et la porte n'agit QUE sur l'établissement d'essai — jamais sur un
 identifiant fourni par l'appelant, qui n'a d'ailleurs aucun champ où le glisser.
 """
@@ -14,6 +15,8 @@ from . import gardes
 
 ESSAYER, ARRETER = "essayer", "arreter"
 ACTIONS = (ESSAYER, ARRETER)
+# D'où la porte accepte d'être appelée : le conteneur lui-même (`etage2._PORTE`).
+LOCALES = ("127.0.0.1", "::1")
 
 
 def appliquer(action: str, nonce: str, jeton: str) -> int:
