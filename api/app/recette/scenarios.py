@@ -80,8 +80,10 @@ FICHE = ("## Le restaurant\nLe Banc d'essai est un restaurant fictif qui sert à
 S10 = Scenario(
     "s10", "S10", "Raccrocher à la première sonnerie puis rappeler : le second appel est servi", (
         "Je voudrais réserver une table pour deux personnes lundi à dix-neuf heures.",
-        "Au nom de Roux.", "Oui.", "Non merci, c'est tout. Au revoir."),
-    attendu={"party_size": 2, "time": "19:00", "nom": "roux", "jour": "lundi"})
+        "Au nom de Garnier.", "Oui.", "Non merci, c'est tout. Au revoir."),
+    # « Garnier » et non « Roux » : le 12/10/2026 la table a été notée « Rou », qui se
+    # prononce pareil, et la ligne sortait rouge pour une orthographe.
+    attendu={"party_size": 2, "time": "19:00", "nom": "garnier", "jour": "lundi"})
 
 
 def par_cle(cle: str) -> Optional[Scenario]:
