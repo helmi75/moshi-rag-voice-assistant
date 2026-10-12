@@ -988,6 +988,38 @@ def _controle_secours() -> Controle:
                     "Aucun appel passé en secours sur 24 h.", mesure=mesure)
 
 
+def _controle_credit_openai() -> Controle:
+    """ASSISTANTE-151 : le crédit OpenAI s'est vidé le 10/10/2026 sans que personne le
+    sache. OpenAI ne donne pas le solde : ce contrôle ne le mesure PAS, il constate un refus
+    pour crédit épuisé depuis le démarrage. Un « OK » veut dire « aucun refus vu »."""
+    from .voice import live
+
+    titre = "Crédit OpenAI"
+    epuise = live.credit_epuise()
+    if epuise:
+        return Controle(
+            "credit_openai", titre, PANNE,
+            f"Crédit OpenAI épuisé : sessions GPT-Live refusées depuis le {_heure_locale(epuise['le'])}.",
+            f"{epuise['refus']} refus pour crédit épuisé depuis. À faire : recharger le crédit "
+            "dans la console OpenAI ; la chaîne classique sert les appels en attendant. Le "
+            "contrôle revient au vert dès qu'une session s'ouvre.",
+            mesure={"cle": True, "refus": epuise["refus"], "premier_refus": epuise["le"]})
+    if not live.cle():
+        return Controle("credit_openai", titre, OK, "Aucune clé GPT-Live : rien à surveiller.",
+                        mesure={"cle": False, "refus": 0})
+    return Controle(
+        "credit_openai", titre, OK,
+        "Aucun refus pour crédit épuisé depuis le démarrage.",
+        "Ce n'est pas une mesure du solde : OpenAI ne le donne pas par son API. Le contrôle "
+        "ne passe à l'alerte qu'au premier refus.",
+        mesure={"cle": True, "refus": 0})
+
+
+def _heure_locale(iso: str) -> str:
+    local = horloge.au_restaurant(iso)
+    return local.strftime("%d/%m/%Y à %H h %M") if local else iso
+
+
 def _age_minutes(iso: Optional[str]) -> Optional[int]:
     instant = horloge.lire_utc(iso) if iso else None
     return int((_maintenant() - instant).total_seconds() // 60) if instant else None
@@ -1033,6 +1065,7 @@ def controles() -> list[Controle]:
         ("carnets", _controle_carnets),
         ("voxtral", _controle_voxtral),
         ("secours", _controle_secours),
+        ("credit_openai", _controle_credit_openai),
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
         ("purge", _controle_purge),

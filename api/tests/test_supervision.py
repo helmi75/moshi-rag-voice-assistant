@@ -84,6 +84,7 @@ class TestEnumeration:
 
     ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
                 "appels_echoues", "appels_inacheves", "latence", "twilio", "carnets", "voxtral", "secours",
+                "credit_openai",
                 "accueils",
                 "sauvegarde", "purge", "disque", "enregistrements"]
 
@@ -893,3 +894,31 @@ class TestMessageDIndisponibilite:
         controle = _controle("accueils")
         assert controle["niveau"] == supervision.OK
         assert controle["mesure"]["sans_message_d_indisponibilite"] == 0
+
+
+class TestCreditOpenAI:
+    """ASSISTANTE-151 : trois états, et jamais un solde inventé."""
+
+    def _controle(self):
+        return next(c for c in supervision.etat(force=True)["controles"] if c["cle"] == "credit_openai")
+
+    def test_sans_cle_le_controle_le_dit_sans_alerter(self, base, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        c = self._controle()
+        assert c["niveau"] == supervision.OK and "Aucune clé" in c["resume"]
+
+    def test_sans_refus_c_est_ok_et_ce_n_est_pas_un_solde(self, base, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        c = self._controle()
+        assert c["niveau"] == supervision.OK
+        assert "Aucun refus" in c["resume"] and "pas une mesure du solde" in c["detail"]
+
+    def test_apres_un_refus_pour_credit_c_est_une_alerte_avec_la_marche_a_suivre(self, base, monkeypatch):
+        from app.voice import live
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        live._credit_epuise.update({"le": "2026-10-12T08:30:00Z", "refus": 3})
+        c = self._controle()
+        assert c["niveau"] == supervision.PANNE
+        assert "12/10/2026" in c["resume"] and "3 refus" in c["detail"]
+        assert "recharger le crédit" in c["detail"] and "chaîne classique" in c["detail"]
+        assert supervision.etat(force=True)["niveau"] == supervision.PANNE

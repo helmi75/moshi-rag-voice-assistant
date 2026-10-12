@@ -303,11 +303,11 @@ class TestLaChaineClassiqueEstLeSecours:
 
         async def connecter():
             ouvertures.append(1)
-            return FausseSession(refuse="credit_balance_exhausted")
+            return FausseSession(refuse="forbidden")
 
         monkeypatch.setattr(live, "_connecter", connecter)
         assert self._decrocher(client, "CA-live-refus-1").await_count == 1
-        assert "credit_balance_exhausted" in live.a_l_ecart(tenants.get_by_phone(DEMO_NUMBER))
+        assert "forbidden" in live.a_l_ecart(tenants.get_by_phone(DEMO_NUMBER))
         # Le deuxième appelant est servi par la chaîne classique sans attendre OpenAI.
         assert self._decrocher(client, "CA-live-refus-2").await_count == 1
         assert len(ouvertures) == 1
@@ -1292,3 +1292,75 @@ class TestDansLAdmin:
         for adresse in (f"/admin/calls/{identifiant}", f"/admin/calls/{identifiant}/diagnostic",
                         "/admin/calls", "/admin/health"):
             assert admin.get(adresse).status_code == 200, adresse
+
+
+class TestLeCreditOpenAIEpuise:
+    """ASSISTANTE-151 : le 10/10/2026 le crédit s'est vidé sans prévenir, la chaîne
+    classique a servi les appels et personne ne l'a su. Un refus pour crédit tient au
+    compte, pas à l'établissement ; le premier refus de l'épisode prévient les super-admins."""
+
+    @pytest.fixture()
+    def courriers(self, monkeypatch):
+        from app import notifications
+        for nom, valeur in (("SMTP_HOST", "smtp.exemple.fr"), ("SMTP_FROM", "assistante@exemple.fr"),
+                            ("SMTP_SSL", "0")):
+            monkeypatch.setenv(nom, valeur)
+        envoyes = []
+        monkeypatch.setattr(notifications, "_envoyer_sync",
+                            lambda adresses, sujet, corps: envoyes.append((adresses, sujet, corps)) or 1)
+        return envoyes
+
+    def _ouvrir(self, monkeypatch, tenant, code):
+        async def connecter():
+            return FausseSession(refuse=code)
+
+        monkeypatch.setattr(live, "_connecter", connecter)
+
+        async def jouer():
+            ws = await live.ouvrir(tenant, "prompt")
+            await asyncio.sleep(0.05)       # laisse la tâche de fond partir
+            return ws
+
+        return asyncio.run(jouer())
+
+    def test_un_refus_pour_credit_epuise_ecarte_tout_le_parc_et_previent_une_fois(
+            self, monkeypatch, tenant, courriers):
+        autre = replace(tenant, id=tenant.id + 1000)
+        assert self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted") is None
+        assert live.a_l_ecart(autre) is not None and live.a_l_ecart() is not None
+        assert self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted") is None
+        epuise = live.credit_epuise()
+        assert epuise["refus"] == 2 and epuise["le"].endswith("Z")
+        assert len(courriers) == 1
+        adresses, sujet, corps = courriers[0]
+        assert "admin@test.local" in adresses and "crédit" in sujet and "chaîne classique" in corps
+
+    def test_un_autre_code_de_refus_ne_pose_rien_de_tout_cela(self, monkeypatch, tenant, courriers):
+        autre = replace(tenant, id=tenant.id + 1000)
+        assert self._ouvrir(monkeypatch, tenant, "forbidden") is None
+        assert live.credit_epuise() is None and courriers == []
+        assert live.a_l_ecart(autre) is None and live.a_l_ecart(tenant) is not None
+
+    def test_une_session_ouverte_efface_l_alerte_et_un_nouveau_refus_previent_encore(
+            self, monkeypatch, tenant, courriers):
+        self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted")
+        assert live.credit_epuise() is not None
+        assert self._ouvrir(monkeypatch, tenant, "") is not None
+        assert live.credit_epuise() is None
+        self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted")
+        assert live.credit_epuise()["refus"] == 1 and len(courriers) == 2
+
+    def test_sans_smtp_rien_ne_part_et_rien_ne_leve(self, monkeypatch, tenant):
+        monkeypatch.delenv("SMTP_HOST", raising=False)
+        assert self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted") is None
+        assert live.credit_epuise() is not None
+
+    def test_un_envoi_qui_leve_n_empeche_pas_le_repli(self, monkeypatch, tenant, courriers):
+        from app import notifications
+
+        def casse(*_):
+            raise OSError("SMTP en panne")
+
+        monkeypatch.setattr(notifications, "_envoyer_sync", casse)
+        assert self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted") is None
+        assert live.credit_epuise() is not None
