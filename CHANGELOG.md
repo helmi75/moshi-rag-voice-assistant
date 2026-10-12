@@ -48,6 +48,10 @@ Demande du 10/10 : que la recette des appels se fasse toute seule, même si elle
   son flux était refusé ; et la purge effaçait ce qui s'était dit dans l'appel raté. La commande
   affiche maintenant la conversation de chaque ligne qui n'est pas verte.
 
+- **La recette vérifie aussi le jour de la réservation.** Au passage de vrais appels du
+  11/10/2026, « lundi à dix-neuf heures » a donné une table le mardi 13 et la ligne sortait
+  verte : seuls l'heure, les couverts et le nom étaient comparés.
+
 ### Ce que ça ne fait pas
 - Le renvoi et le répondeur (S3 à S8) : il faut un numéro de secours à nous, second lot.
 - **Sur la chaîne classique, une réservation manquée n'est pas un verdict** : le client de

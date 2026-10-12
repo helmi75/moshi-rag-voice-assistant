@@ -142,13 +142,15 @@ class TestLeVerdictSeLitEnBase:
         assert etat == verdicts.ECHEC and "À vérifier" in preuve
 
     @pytest.mark.parametrize("champs,mot", [({"party_size": 4}, "couverts"), ({"time": "21:00"}, "21:00"),
-                                             ({"customer_name": "Durand"}, "Durand")])
+                                             ({"customer_name": "Durand"}, "Durand"),
+                                             # « lundi » réservé un mardi (vrai appel du 11/10/2026)
+                                             ({"date": "2026-10-13"}, "mardi"), ({"date": "bientôt"}, "illisible")])
     def test_une_table_qui_n_est_pas_la_bonne_echoue(self, champs, mot):
         etat, preuve = verdicts.juger(T17, _appel(), [_resa(**champs)])
         assert etat == verdicts.ECHEC and mot in preuve
 
     def test_le_nom_corrige_ne_laisse_qu_une_reservation(self):
-        lambert = _resa(party_size=3, time="20:30", customer_name="Lambert")
+        lambert = _resa(party_size=3, time="20:30", customer_name="Lambert", date="2026-10-14")
         assert verdicts.juger(C8, _appel(), [lambert])[0] == verdicts.OK
         dupont = _resa(id=4, party_size=3, time="20:30", customer_name="Dupont")
         etat, preuve = verdicts.juger(C8, _appel(), [dupont, lambert])
