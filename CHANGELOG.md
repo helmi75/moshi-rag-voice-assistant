@@ -52,6 +52,12 @@ Demande du 10/10 : que la recette des appels se fasse toute seule, même si elle
   11/10/2026, « lundi à dix-neuf heures » a donné une table le mardi 13 et la ligne sortait
   verte : seuls l'heure, les couverts et le nom étaient comparés.
 
+- **Le client d'essai attend six secondes, et chaque vrai appel repart d'un carnet vide.** Au
+  passage du 12/10/2026 (quatre verts sur sept), le client a dit deux fois son « Oui » dans le
+  blanc d'un outil, puis « Non merci » au récapitulatif ; il était aussi reconnu d'un scénario à
+  l'autre (« au nom de Bernard, comme la dernière fois ? »). Et « C'est enregistré, autre
+  chose ? » compte désormais comme une table annoncée.
+
 ### Ce que ça ne fait pas
 - Le renvoi et le répondeur (S3 à S8) : il faut un numéro de secours à nous, second lot.
 - **Sur la chaîne classique, une réservation manquée n'est pas un verdict** : le client de

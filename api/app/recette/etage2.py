@@ -199,6 +199,10 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                 ligne.update(etat=verdict, preuve=preuve, appel=appel)
                 if verdict != verdicts.OK:
                     ligne["dit"] = verdicts.conversation(appel)
+                # Chaque scénario repart d'un établissement vide : sinon le client suivant,
+                # qui appelle du même numéro, est reconnu (« au nom de Bernard, comme la
+                # dernière fois ? ») et son texte ne répond plus aux questions posées.
+                ligne["purge"] = await db.hors_boucle(essai.purger)
             except Exception as exc:
                 ligne.update(etat=verdicts.ECHEC,
                              preuve=f"le scénario n'a pas pu être joué : {type(exc).__name__} {exc}"[:200])

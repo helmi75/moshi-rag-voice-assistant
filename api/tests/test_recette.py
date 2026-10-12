@@ -158,6 +158,13 @@ class TestLeVerdictSeLitEnBase:
         # L'ancienne, annulée, ne compte pas.
         assert verdicts.juger(C8, _appel(), [{**dupont, "cancelled_at": "x"}, lambert])[0] == verdicts.OK
 
+    def test_une_annonce_suivie_d_une_question_reste_une_annonce(self):
+        # Vrai appel du 12/10/2026 : « C'est enregistré, autre chose ? »
+        dite = _appel(transcript=json.dumps([{"role": "assistant", "content": "Très bien. C'est enregistré, autre chose ?"}]))
+        assert verdicts.juger(T17, dite, [_resa()])[0] == verdicts.OK
+        demande = _appel(transcript=json.dumps([{"role": "assistant", "content": "Rien n'est enregistré, autre chose ?"}]))
+        assert verdicts.juger(T17, demande, [_resa()])[0] == verdicts.ECHEC
+
     def test_une_table_creee_sans_etre_annoncee_echoue(self):
         muette = _appel(transcript=json.dumps([{"role": "assistant", "content": "Au revoir."}]))
         etat, preuve = verdicts.juger(T17, muette, [_resa()])
@@ -177,11 +184,11 @@ class TestLeVerdictSeLitEnBase:
         assert verdicts.juger(T17, _appel(ended_at=None), [_resa()])[0] == verdicts.ECHEC
 
     def test_le_silence_par_defaut_couvre_le_blanc_d_un_outil(self):
-        """« Je vérifie tout de suite. » puis trois secondes de blanc : il ne répond pas dedans."""
+        """« Je vérifie tout de suite. » puis cinq secondes de blanc : il ne répond pas dedans."""
         h = Horloge()
         client = Client([REPLIQUE], horloge=h)
         client.recu(VOIX)
-        assert _trames(client, h, 3.5) == 0
+        assert _trames(client, h, 5.5) == 0
         assert _trames(client, h, 1.0) > 0
 
     def test_un_echec_garde_la_fin_de_la_conversation(self):

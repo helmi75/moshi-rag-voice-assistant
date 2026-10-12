@@ -70,6 +70,9 @@ async def _etage2(avant: dict, seulement, sans_appels: bool) -> dict:
             lignes2, refus = await etage2.jouer(depense, seulement)
         # Les appels d'essai ne restent pas : ni dans les comptes, ni au carnet de réservations.
         purge = essai.purger() if lignes2 else {}
+        for ligne in lignes2:              # ce que chaque scénario a déjà effacé derrière lui
+            for quoi, combien in (ligne.pop("purge", None) or {}).items():
+                purge[quoi] = purge.get(quoi, 0) + combien
     finally:
         # Quoi qu'il arrive ensuite, ce qui a été dépensé est noté : un passage oublié
         # ferait sauter le plafond du mois et rejouer de vrais appels pour ce déploiement.

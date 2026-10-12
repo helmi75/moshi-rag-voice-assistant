@@ -69,6 +69,13 @@ def conversation(appel: Optional[dict], tours: int = 16) -> list[str]:
     return lignes
 
 
+def _annoncee(texte: str) -> bool:
+    """La table a-t-elle été dite au client ? « C'est enregistré, autre chose ? » en est
+    une annonce (vrai appel du 12/10/2026), que `annonce.phrase_d_annonce` écarte comme
+    toute phrase qui finit par une question : juste pour une alerte, trop sévère ici."""
+    return bool(annonce.phrase_d_annonce(texte) or annonce.phrase_d_annonce(texte.replace("?", ".")))
+
+
 _JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
 
 
@@ -121,7 +128,7 @@ def juger(scenario: Scenario, appel: Optional[dict], reservations: list[dict]) -
         ecarts.append(f"au nom de « {resa.get('customer_name')} » au lieu de « {attendu['nom']} »")
     if ecarts:
         return ECHEC, f"{numero} : réservation {resa.get('id')} — " + ", ".join(ecarts)
-    if scenario.langue == "fr" and not any(annonce.phrase_d_annonce(str(t.get("content") or ""))
+    if scenario.langue == "fr" and not any(_annoncee(str(t.get("content") or ""))
                                            for t in _json(appel.get("transcript"), [])
                                            if isinstance(t, dict) and t.get("role") == "assistant"):
         # La table est là, mais elle ne l'a pas dit : le client repart sans savoir.
