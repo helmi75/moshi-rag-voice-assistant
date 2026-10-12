@@ -7,6 +7,39 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la recette d'appels joue le répondeur (ASSISTANTE-150, 12/10/2026)
+
+S6, S7 et S8 attendaient Helmi faute de numéro de secours à nous. Le répondeur n'en a pas
+besoin : l'établissement d'essai n'a pas de numéro de secours, donc « Essayer le renvoi »
+l'envoie droit au répondeur. Restent à Helmi S3 à S5, le renvoi qui fait sonner un téléphone.
+
+### Ajouté
+- **Une porte `POST /recette/secours`** (`recette/secours.py`) : « Essayer le renvoi » vit
+  dans la mémoire du processus de production, que la recette (un autre processus) ne peut
+  pas écrire. La porte ne s'ouvre que de l'intérieur du conteneur (rien n'est exposé à
+  Internet), est fermée sans `RECETTE_JETON`, n'agit que sur l'établissement d'essai (dont
+  le nom contient « essai »), refuse de le mettre en essai s'il a un numéro de secours
+  (ce numéro sonnerait), et exige un jeton à usage unique, propre à l'action (`essayer`
+  ou `arreter`). Deux garde-fous de mutation ajoutés.
+- **Un scénario « répondeur »** (étage 2 seulement) : le client entend l'annonce et le bip,
+  dicte un message dans les cinq secondes (réglage de client propre au scénario), et se tait.
+  Le verdict lit la base : appel conclu en message vocal, motif d'essai, « Message vocal à
+  rappeler » rattaché, audio rapatrié (attendu jusqu'à 90 s), aucune réservation.
+- **S8** : l'essai est arrêté dans un `finally` (un passage qui casse ne laisse jamais
+  l'établissement d'essai sur répondeur), puis l'appel joué juste après doit être servi
+  par l'assistante et non passé en secours.
+- **Le client d'essai patiente après une phrase courte** (ASSISTANTE-149) : douze secondes
+  au lieu de six après moins de 2,5 s de parole, pour ne plus dire « oui » dans le blanc
+  qui suit « Je vérifie tout de suite. » ; et « c'est bien noté » compte comme l'annonce
+  d'une table. Sur la chaîne classique, qui relance après huit secondes de silence, une
+  question courte recevra d'abord « Vous êtes toujours là ? » : effet non mesuré.
+
+### Non chiffré
+- Le coût de l'enregistrement du message, facturé par Twilio, n'est pas chiffré par
+  l'application : il n'est pas compté dans le coût du scénario.
+- Si l'audio du message arrive plus de 90 s après l'appel, la purge est déjà passée : le
+  message resterait chez Twilio. Non observé, non traité.
+
 ## Non publiée — une table ne se note plus un autre jour que celui demandé (ASSISTANTE-152, 12/10/2026)
 
 Vrai appel d'essai du 11/10/2026, un dimanche à 20 h 56 : « lundi à dix-neuf heures » a

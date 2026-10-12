@@ -4,6 +4,7 @@ Pur : on lui donne la ligne de l'appel et les réservations du numéro, il rend 
 preuve. Qui l'appelle lit la base.
 """
 import json
+import re
 from datetime import date
 import unicodedata
 from typing import Optional
@@ -69,11 +70,18 @@ def conversation(appel: Optional[dict], tours: int = 16) -> list[str]:
     return lignes
 
 
+# « C'est bien noté pour vendredi seize octobre » (vrai appel du 12/10/2026). Reconnu ici
+# seulement, où la table est déjà trouvée en base : pour l'alerte d'`annonce.py`, « c'est
+# noté » se dit aussi d'une allergie ou d'un message, et crierait au loup.
+_NOTE = re.compile(r"\bc'est (?:donc |bien )*noté\b", re.IGNORECASE)
+
+
 def _annoncee(texte: str) -> bool:
     """La table a-t-elle été dite au client ? « C'est enregistré, autre chose ? » en est
     une annonce (vrai appel du 12/10/2026), que `annonce.phrase_d_annonce` écarte comme
     toute phrase qui finit par une question : juste pour une alerte, trop sévère ici."""
-    return bool(annonce.phrase_d_annonce(texte) or annonce.phrase_d_annonce(texte.replace("?", ".")))
+    return bool(annonce.phrase_d_annonce(texte) or annonce.phrase_d_annonce(texte.replace("?", "."))
+                or _NOTE.search(texte.replace("’", "'")))
 
 
 _JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
@@ -135,6 +143,29 @@ def juger(scenario: Scenario, appel: Optional[dict], reservations: list[dict]) -
         return ECHEC, f"{numero} : réservation {resa.get('id')} créée, mais jamais annoncée au client"
     return OK, (f"{numero} : réservation {resa.get('id')}, {resa.get('party_size')} couverts, "
                 f"{resa.get('date')} à {str(resa.get('time'))[:5]}, « {resa.get('customer_name')} »")
+
+
+def juger_repondeur(appel: Optional[dict], messages: list[dict],
+                    reservations: list[dict]) -> tuple[str, str]:
+    """S6 et S7 : l'appel est passé par le répondeur de l'essai, le message est noté, son
+    audio est chez nous, et rien n'a été réservé. `messages` : ceux rattachés à l'appel."""
+    from .. import calls, renvoi
+
+    if appel is None:
+        return ECHEC, "aucun appel au journal : l'application ne l'a pas reçu"
+    numero = f"appel {appel.get('id')}"
+    if appel.get("secours_motif") != renvoi.ESSAI:
+        return ECHEC, f"{numero} : pas passé en secours d'essai (motif {appel.get('secours_motif')})"
+    if appel.get("status") != calls.SECOURS_MESSAGE:
+        return ECHEC, f"{numero} : conclu « {appel.get('status')} », pas en message vocal"
+    if not any(m.get("subject") == "Message vocal à rappeler" for m in messages):
+        return ECHEC, f"{numero} : aucun « Message vocal à rappeler » rattaché"
+    if not appel.get("recording_bytes"):
+        return ECHEC, f"{numero} : l'audio du message n'a pas été rapatrié de chez Twilio"
+    if reservations or appel.get("reservation_id") or appel.get("reservation_externe"):
+        return ECHEC, f"{numero} : une réservation existe alors qu'un message seul était attendu"
+    return OK, (f"{numero} : message vocal noté, audio rapatrié ({appel['recording_bytes']} octets), "
+                "aucune réservation")
 
 
 def cerveau(appels: list[dict]) -> dict:

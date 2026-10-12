@@ -510,6 +510,22 @@ async def flux_du_client_d_essai(websocket: WebSocket):
     await appelant.servir(websocket)
 
 
+@app.post("/recette/secours")
+async def secours_de_la_recette(request: Request, action: str = Form(""),
+                                nonce: str = Form(""), jeton: str = Form("")):
+    """Met l'établissement d'essai sur répondeur (ou l'en retire) pour la recette d'appels
+    (app/recette/secours.py). Fermée sans `RECETTE_JETON` ; le jeton est à usage unique.
+
+    Appelée du conteneur lui-même, jamais d'Internet : ce qui arrive par Caddy vient d'une
+    autre adresse et trouve porte close, jeton valable ou non."""
+    from .recette import secours
+
+    if (request.client.host if request.client else "") not in secours.LOCALES:
+        return Response(status_code=404)
+    # Hors boucle : la porte lit la fiche de l'établissement d'essai en base.
+    return Response(status_code=await db.hors_boucle(secours.appliquer, action, nonce, jeton))
+
+
 # Nombre max de messages lus avant le "start" Twilio (protocole: connected -> start)
 _WS_START_MAX_MESSAGES = 10
 

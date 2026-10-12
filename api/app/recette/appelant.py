@@ -73,7 +73,7 @@ async def servir(websocket: WebSocket) -> None:
         await websocket.close(code=1011)
         return
     logger.info(f"[recette] le client d'essai joue {scenario.cle} (appel {depart.get('callSid')})")
-    await _jouer(websocket, flux, Client(repliques))
+    await _jouer(websocket, flux, Client(repliques, **scenario.client))
     try:
         await websocket.close()
     except RuntimeError:
