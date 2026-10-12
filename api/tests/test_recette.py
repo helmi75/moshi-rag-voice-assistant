@@ -9,6 +9,7 @@ Ce qu'on tient :
 - `/ws/recette` est fermée tant que la recette n'est pas activée, et n'obéit qu'à un jeton
   à usage unique.
 """
+import asyncio
 import base64
 import json
 import time
@@ -20,7 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from app import calls, db, horloge, tenants, twilio_signature
+from app import calls, db, horloge, renvoi, tenants, twilio_signature
 from app.main import app
 from app.recette import appelant, budget, etage2, gardes, scenarios, tarifs, verdicts, voix
 from app.recette.client import SILENCE, Client, audible
@@ -489,3 +490,179 @@ class TestLesScenarios:
         vus = [s.repliques[0] for s in scenarios.SCENARIOS + (etage2.S10,) if s.attendu]
         assert len(vus) == len(set(vus))
         assert len({s.cle for s in scenarios.SCENARIOS}) == len(scenarios.SCENARIOS)
+
+
+def _porte(action, nonce=None, jeton=None, **en_plus):
+    nonce = nonce or gardes.nouveau_nonce()
+    jeton = gardes.jeton("secours-" + action, nonce) if jeton is None else jeton
+    return TestClient(app).post("/recette/secours", data={
+        "action": action, "nonce": nonce, "jeton": jeton, **en_plus})
+
+
+class TestLaPorteDuRepondeur:
+    """S6 à S8 sans numéro de secours : la recette met l'établissement d'essai sur répondeur
+    par une porte, parce que la mémoire des pannes est celle du processus de production."""
+
+    def test_porte_du_repondeur_fermee_tant_que_la_recette_n_est_pas_activee(self, essai_actif, monkeypatch):
+        monkeypatch.delenv("RECETTE_JETON")
+        assert _porte("essayer").status_code == 404
+
+    def test_porte_du_repondeur_fermee_sans_etablissement_d_essai(self, essai_actif, monkeypatch):
+        monkeypatch.delenv("RECETTE_ETABLISSEMENT")
+        assert _porte("essayer").status_code == 404
+
+    def test_porte_du_repondeur_refuse_un_etablissement_qui_ne_s_appelle_pas_essai(self, essai_actif, monkeypatch):
+        vrai = tenants.create_tenant("Chez Marcel", f"+3396{int(time.time() * 1000) % 10_000_000:07d}")
+        try:
+            monkeypatch.setenv("RECETTE_ETABLISSEMENT", str(vrai.id))
+            assert _porte("essayer").status_code == 404
+            assert not renvoi.panne_recente(vrai.id)
+        finally:
+            tenants.delete_tenant(vrai.id)
+
+    def test_porte_du_repondeur_refuse_sans_jeton(self, essai_actif):
+        assert _porte("essayer", jeton="").status_code == 403
+        assert _porte("essayer", jeton="0" * 64).status_code == 403
+        assert not renvoi.essai_en_cours(essai_actif.id)
+
+    def test_porte_du_repondeur_refuse_le_jeton_d_une_autre_action(self, essai_actif):
+        nonce = gardes.nouveau_nonce()
+        assert _porte("essayer", nonce, gardes.jeton("secours-arreter", nonce)).status_code == 403
+        assert _porte("essayer", nonce, gardes.jeton("t6", nonce)).status_code == 403
+        assert not renvoi.essai_en_cours(essai_actif.id)
+
+    def test_porte_du_repondeur_refuse_un_jeton_perime_ou_deja_servi(self, essai_actif):
+        vieux = f"{int(time.time()) - gardes.DUREE_DU_JETON - 5}-abcd"
+        assert _porte("essayer", vieux).status_code == 403
+        nonce = gardes.nouveau_nonce()
+        assert _porte("essayer", nonce).status_code == 204
+        assert _porte("essayer", nonce).status_code == 403
+
+    def test_porte_du_repondeur_refuse_une_action_inconnue(self, essai_actif):
+        assert _porte("detruire").status_code == 400
+
+    def test_porte_du_repondeur_demarre_puis_arrete_l_essai(self, essai_actif):
+        assert _porte("essayer").status_code == 204
+        assert renvoi.essai_en_cours(essai_actif.id)
+        assert _porte("arreter").status_code == 204
+        assert not renvoi.essai_en_cours(essai_actif.id)
+
+    def test_porte_du_repondeur_n_agit_que_sur_l_etablissement_d_essai(self, essai_actif):
+        autre = tenants.create_tenant("Chez Odette", f"+3395{int(time.time() * 1000) % 10_000_000:07d}")
+        try:
+            assert _porte("essayer", tenant_id=autre.id, id=autre.id).status_code == 204
+            assert renvoi.essai_en_cours(essai_actif.id)
+            assert not renvoi.panne_recente(autre.id)
+        finally:
+            tenants.delete_tenant(autre.id)
+
+
+def _message(**champs):
+    return {"subject": "Message vocal à rappeler", **champs}
+
+
+def _appel_repondeur(**champs):
+    return _appel(**{"secours_motif": "essai", "status": calls.SECOURS_MESSAGE,
+                     "reservation_id": None, "recording_bytes": 24000, **champs})
+
+
+class TestLeVerdictDuRepondeur:
+    def test_un_message_note_avec_son_audio_est_vert(self):
+        assert verdicts.juger_repondeur(_appel_repondeur(), [_message()], [])[0] == verdicts.OK
+
+    @pytest.mark.parametrize("appel, messages, resas, mot", [
+        (None, [], [], "aucun appel"),
+        (_appel_repondeur(), [], [], "Message vocal"),
+        (_appel_repondeur(recording_bytes=None), [_message()], [], "audio"),
+        (_appel_repondeur(secours_motif=None), [_message()], [], "secours d'essai"),
+        (_appel_repondeur(status="completed"), [_message()], [], "message vocal"),
+        (_appel_repondeur(), [_message()], [_resa()], "réservation"),
+    ])
+    def test_il_est_rouge_quand_un_element_manque(self, appel, messages, resas, mot):
+        etat, preuve = verdicts.juger_repondeur(appel, messages, resas)
+        assert etat == verdicts.ECHEC and mot in preuve
+
+
+class TestLeRepondeurEtLaRecetteDAppels:
+    def test_le_scenario_regle_le_client_pour_parler_dans_les_cinq_secondes_du_bip(self):
+        r = scenarios.REPONDEUR
+        assert r not in scenarios.SCENARIOS, "l'étage 1 n'a pas de Twilio pour enregistrer"
+        assert scenarios.par_cle("repondeur") is r
+        assert r.client["silence"] < 5 and r.client["silence_court"] < 5
+        assert scenarios.par_cle("t6").client == {}
+
+    def test_les_reglages_du_scenario_sont_transmis_au_client(self, essai_actif, monkeypatch, tmp_path):
+        monkeypatch.setenv("TWILIO_SIGNATURE", "off")
+        monkeypatch.setenv("RECETTE_REPLIQUES_DIR", str(tmp_path))
+        monkeypatch.setattr(voix, "voix_du_client", lambda langue: "voxtral/essai")
+        for texte in scenarios.REPONDEUR.repliques:
+            voix._chemin(texte, "voxtral/essai").write_bytes(REPLIQUE)
+        recus = []
+
+        def faux_client(repliques, **reglages):
+            recus.append(reglages)
+            return Client(repliques, silence=0.05, patience=0.2, conge=0.1)
+
+        monkeypatch.setattr(appelant, "Client", faux_client)
+        nonce = gardes.nouveau_nonce()
+        with TestClient(app).websocket_connect("/ws/recette") as ws:
+            ws.send_text(_debut("repondeur", nonce, gardes.jeton("repondeur", nonce)))
+            try:
+                while True:
+                    ws.receive_text()
+            except WebSocketDisconnect:
+                pass
+        assert recus == [scenarios.REPONDEUR.client]
+
+    def test_l_essai_est_arrete_meme_quand_le_passage_leve(self, monkeypatch):
+        actions = []
+
+        async def porte(action):
+            actions.append(action)
+            return True
+
+        monkeypatch.setattr(etage2, "_porte", porte)
+        etat = etage2.Essai()
+
+        async def passage():
+            async with etage2.repondeur_ouvert(etat):
+                raise RuntimeError("le passage casse")
+
+        with pytest.raises(RuntimeError):
+            asyncio.run(passage())
+        assert actions == ["essayer", "arreter"] and etat.arrete is True
+
+    def test_un_essai_qui_ne_demarre_pas_n_appelle_personne_et_s_arrete_quand_meme(self, monkeypatch):
+        actions = []
+
+        async def porte(action):
+            actions.append(action)
+            return action != "essayer"
+
+        monkeypatch.setattr(etage2, "_porte", porte)
+
+        async def passage():
+            async with etage2.repondeur_ouvert(etage2.Essai()):
+                actions.append("appel")
+
+        with pytest.raises(RuntimeError):
+            asyncio.run(passage())
+        assert actions == ["essayer", "arreter"]
+
+    def test_s8_est_vert_quand_l_appel_suivant_est_servi_par_l_assistante(self):
+        servi = {"etat": verdicts.OK, "appel": {"id": 9, "secours_motif": None}}
+        assert etage2.ligne_s8("gpt_live", True, servi)["etat"] == verdicts.OK
+        # Le verdict propre de T6 n'est pas celui de S8.
+        assert etage2.ligne_s8("gpt_live", True, {**servi, "etat": verdicts.ECHEC})["etat"] == verdicts.OK
+
+    @pytest.mark.parametrize("arret, t6", [
+        (False, {"etat": "ok", "appel": {"id": 9, "secours_motif": None}}),
+        (None, {"etat": "ok", "appel": {"id": 9, "secours_motif": None}}),
+        (True, {"etat": "echec", "appel": {"id": 9, "secours_motif": "essai"}}),
+        (True, {"etat": "echec", "appel": None}),
+    ])
+    def test_s8_est_rouge_si_l_arret_n_est_pas_confirme_ou_si_l_appel_part_en_secours(self, arret, t6):
+        assert etage2.ligne_s8("gpt_live", arret, t6)["etat"] == verdicts.ECHEC
+
+    def test_s8_n_est_pas_joue_sans_t6(self):
+        assert etage2.ligne_s8("gpt_live", True, None)["etat"] == verdicts.NON_JOUE

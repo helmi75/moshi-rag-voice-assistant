@@ -1177,6 +1177,16 @@ GARDE_FOUS = [
         panne="n'importe qui pourrait faire parler le client d'essai sur une connexion ouverte",
     ),
     GardeFou(
+        nom="Recette automatique : la porte du répondeur d'essai n'obéit qu'à un jeton valable",
+        fichier="api/app/recette/secours.py",
+        avant='    if not gardes.jeton_valide("secours-" + action, nonce, jeton):',
+        apres="    if False:  # mutation",
+        tests=["test_recette.py"],
+        k="porte_du_repondeur",
+        panne="n'importe qui, en visant /recette/secours, mettrait l'établissement d'essai "
+              "(donc sa ligne) sur répondeur, sans secret",
+    ),
+    GardeFou(
         nom="Le moteur de l'appel ne se choisit pas soi-même",
         fichier="api/app/admin/routes_tenants.py",
         avant="    if user.is_superadmin and moteur_voix in live.MOTEURS:",

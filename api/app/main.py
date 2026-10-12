@@ -510,6 +510,15 @@ async def flux_du_client_d_essai(websocket: WebSocket):
     await appelant.servir(websocket)
 
 
+@app.post("/recette/secours")
+async def secours_de_la_recette(action: str = Form(""), nonce: str = Form(""), jeton: str = Form("")):
+    """Met l'établissement d'essai sur répondeur (ou l'en retire) pour la recette d'appels
+    (app/recette/secours.py). Fermée sans `RECETTE_JETON` ; le jeton est à usage unique."""
+    from .recette import secours
+
+    return Response(status_code=secours.appliquer(action, nonce, jeton))
+
+
 # Nombre max de messages lus avant le "start" Twilio (protocole: connected -> start)
 _WS_START_MAX_MESSAGES = 10
 

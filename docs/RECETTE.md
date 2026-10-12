@@ -21,7 +21,7 @@ journal de l'appel. Toute ligne sans 🤖 reste à Helmi (un appel) ou à l'agen
 | Étage | Ce qu'il fait | Ce qu'il prouve | Ce qu'il ne prouve pas |
 |---|---|---|---|
 | 1 · bancs | Un faux Twilio joue chaque scénario sur une copie jetable de l'application, pour GPT-Live puis pour la chaîne classique | La compréhension, les outils, la réservation en base, l'absence d'appel « À vérifier », les durées du cerveau | La signature, `/twilio/voice`, `/twilio/suite`, le coût de Twilio |
-| 2 · vrais appels | Twilio compose le numéro de l'établissement d'essai ; le même client parle par `/ws/recette` | Tout l'étage 1, plus la signature, le TwiML, l'ouverture du flux, `/twilio/suite`, S10, et le coût réel | Le renvoi et le répondeur (S3 à S8) tant qu'aucun numéro de secours n'est à nous |
+| 2 · vrais appels | Twilio compose le numéro de l'établissement d'essai ; le même client parle par `/ws/recette` | Tout l'étage 1, plus la signature, le TwiML, l'ouverture du flux, `/twilio/suite`, S10, le répondeur (S6 à S8), et le coût réel | Le renvoi qui fait sonner un téléphone (S3 à S5), tant qu'aucun numéro de secours n'est à nous ; le coût de l'enregistrement du message, que Twilio facture et que l'application ne chiffre pas |
 
 **Sur la chaîne classique, la machine ne conclut pas sur une réservation.** Elle rend la
 parole au moindre blanc et pose ses questions une à une : le client de script, qui ne
@@ -272,9 +272,9 @@ l'établissement. Il faut deux téléphones : celui qui appelle, et celui du num
 | S3 | Super-admin → *Essayer le renvoi*, puis appeler la ligne **pendant les horaires d'ouverture** | « Un instant, je vous mets en relation avec le restaurant », puis le téléphone de secours sonne et affiche **le numéro de l'appelant** | |
 | S4 | Décrocher, parler, raccrocher. Ouvrir Appels | L'appel est « Renvoyé au restaurant », avec la durée de la communication ; son coût compte la téléphonie des deux lignes | |
 | S5 | Relancer l'essai, appeler, **ne pas décrocher** | Après 15 s de sonnerie : « Notre assistante ne peut pas vous répondre… », bip. Laisser un message | |
-| S6 | Attendre une minute, ouvrir Appels | « Message vocal », un rappel à traiter, et le message s'écoute dans la fiche de l'appel ; un e-mail « Message vocal à rappeler » est arrivé | |
-| S7 | Relancer l'essai **hors horaires** (ou retirer le numéro de secours), appeler | Le répondeur tout de suite, sans faire sonner personne | |
-| S8 | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
+| S6 🤖 (étage 2) | Attendre une minute, ouvrir Appels | « Message vocal », un rappel à traiter, et le message s'écoute dans la fiche de l'appel ; un e-mail « Message vocal à rappeler » est arrivé (la machine lit le message et son audio en base, pas la boîte e-mail : l'e-mail reste à voir) | |
+| S7 🤖 (étage 2) | Relancer l'essai **hors horaires** (ou retirer le numéro de secours), appeler | Le répondeur tout de suite, sans faire sonner personne | |
+| S8 🤖 (étage 2) | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
 | S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
 | S10 🤖 (étage 2) | Appeler la ligne et raccrocher dès la première sonnerie, puis rappeler aussitôt (ASSISTANTE-127) | Le second appel est servi par l'assistante, pas par le répondeur ; « Appels passés en secours » ne bouge pas | |
 

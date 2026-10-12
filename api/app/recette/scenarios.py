@@ -29,6 +29,8 @@ class Scenario:
     attendu: Optional[dict] = field(default=None, hash=False)
     # Des mots que l'assistante doit avoir dits (un seul suffit), en minuscules.
     doit_dire: tuple[str, ...] = ()
+    # Réglages du client d'essai propres à ce scénario (`client.Client`) ; vide : ceux par défaut.
+    client: dict = field(default_factory=dict, hash=False)
 
 
 _FIN = "Non merci, c'est tout. Au revoir."
@@ -85,8 +87,21 @@ S10 = Scenario(
     # prononce pareil, et la ligne sortait rouge pour une orthographe.
     attendu={"party_size": 2, "time": "19:00", "nom": "garnier", "jour": "lundi"})
 
+# S6/S7 : l'établissement d'essai est mis sur répondeur (`recette/secours.py`), le client
+# écoute l'annonce et le bip, dicte son message et se tait. Joué à l'étage 2 seulement :
+# c'est Twilio qui enregistre. `<Record timeout="5">` conclut « pas de message » si l'on
+# ne parle pas dans les cinq secondes du bip : le client attend donc 1,5 s de silence, pas
+# les six secondes (ni les douze après une phrase courte) qui laissent la parole à
+# l'assistante sur un appel normal.
+REPONDEUR = Scenario(
+    "repondeur", "S6 S7", "Le répondeur prend un message quand l'assistante est mise de côté", (
+        "Bonjour, c'est Garnier, rappelez-moi pour une table samedi.",),
+    client={"silence": 1.5, "silence_court": 0.0})
+
+VRAIS_APPELS = (REPONDEUR, S10)
+
 
 def par_cle(cle: str) -> Optional[Scenario]:
     """Le scénario que le client d'essai doit jouer. S10 compris : le 11/10/2026, au premier
     passage de vrais appels, `/ws/recette` ne le connaissait pas et refusait son flux."""
-    return next((s for s in SCENARIOS + (S10,) if s.cle == cle), None)
+    return next((s for s in SCENARIOS + VRAIS_APPELS if s.cle == cle), None)

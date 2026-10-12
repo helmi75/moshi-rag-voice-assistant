@@ -9,6 +9,7 @@ flux et `/twilio/suite`. Chaque appel a deux jambes facturées par Twilio : cell
 appelle (lue chez Twilio après l'appel) et celle qui reçoit (chiffrée par l'application).
 """
 import asyncio
+import contextlib
 import math
 import os
 import time
@@ -17,13 +18,17 @@ from xml.sax.saxutils import quoteattr
 
 import httpx
 
-from .. import calls, db, essai, reservations, tenants, twilio_region
-from . import appelant, budget, gardes, scenarios, verdicts, voix
+from .. import calls, db, essai, messages, reservations, tenants, twilio_region
+from . import appelant, budget, gardes, scenarios, secours, verdicts, voix
 from .tarifs import DUREE_MAX_SECONDES, borne
 
 _DELAI = httpx.Timeout(20.0, connect=5.0)
 _FINIS = ("completed", "busy", "failed", "no-answer", "canceled")
 S10 = scenarios.S10
+REPONDEUR = scenarios.REPONDEUR
+# La porte de `secours.py` est dans le processus de production, et ce script dans le même
+# conteneur : on la joint en local, sans passer par Caddy ni par Internet.
+_PORTE = "http://127.0.0.1:8000/recette/secours"
 
 
 def _api() -> tuple[str, tuple[str, str]]:
@@ -67,6 +72,39 @@ async def _composer(client: httpx.AsyncClient, vers: str, de: str, scenario: str
     return str(reponse.json().get("sid") or "")
 
 
+async def _porte(action: str) -> bool:
+    """Demande à la production d'`essayer` ou d'`arreter` le répondeur d'essai. Vrai si elle
+    a répondu 204. Ne lève jamais : elle sert aussi dans un `finally`. Client à part : celui
+    de Twilio porte les identifiants de Twilio, qui ne sortent pas vers une autre adresse."""
+    nonce = gardes.nouveau_nonce()
+    try:
+        async with httpx.AsyncClient(timeout=_DELAI) as client:
+            reponse = await client.post(_PORTE, data={
+                "action": action, "nonce": nonce, "jeton": gardes.jeton("secours-" + action, nonce)})
+        return reponse.status_code == 204
+    except Exception:
+        return False
+
+
+class Essai:
+    """Ce que la production a confirmé de l'arrêt du répondeur d'essai (lu par S8)."""
+    arrete: Optional[bool] = None
+
+
+@contextlib.asynccontextmanager
+async def repondeur_ouvert(etat: Essai):
+    """L'établissement d'essai est sur répondeur le temps du bloc. L'arrêt est demandé
+    quoi qu'il arrive : un passage qui casse ne laisse jamais l'établissement d'essai sur
+    répondeur (et, si le processus lui-même est tué, la mémoire des pannes l'oublie au
+    bout de trois minutes)."""
+    try:
+        if not await _porte(secours.ESSAYER):
+            raise RuntimeError("la production n'a pas mis l'établissement d'essai sur répondeur")
+        yield etat
+    finally:
+        etat.arrete = await _porte(secours.ARRETER)
+
+
 async def _etat(client: httpx.AsyncClient, sid: str) -> dict:
     base, _ = _api()
     reponse = await client.get(f"{base}/Calls/{sid}.json")
@@ -91,6 +129,23 @@ def _appel_recu(tenant_id: int, depuis: str) -> Optional[dict]:
             "SELECT * FROM calls WHERE tenant_id = ? AND started_at >= ? ORDER BY id DESC LIMIT 1",
             (tenant_id, depuis)).fetchone()
     return dict(ligne) if ligne else None
+
+
+def _message_rapatrie(tenant_id: int, depuis: str) -> tuple[Optional[dict], list[dict]]:
+    appel = _appel_recu(tenant_id, depuis)
+    return appel, (messages.messages_d_un_appel(appel["id"]) if appel else [])
+
+
+async def _repondeur_clos(tenant_id: int, depuis: str, attente: float = 90.0) -> tuple[Optional[dict], list[dict]]:
+    """L'appel du répondeur, avec son message. Twilio annonce le fichier prêt quelques
+    secondes APRÈS l'appel, et le rapatriement se fait en tâche de fond : on attend l'audio,
+    avec une borne, et le verdict dit s'il manque."""
+    fin = time.monotonic() + attente
+    while True:
+        appel, notes = await db.hors_boucle(_message_rapatrie, tenant_id, depuis)
+        if (appel and appel.get("recording_bytes")) or time.monotonic() >= fin:
+            return appel, notes
+        await asyncio.sleep(2)
 
 
 async def _clos(tenant_id: int, depuis: str, attente: float = 20.0) -> Optional[dict]:
@@ -145,7 +200,9 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
         from ..voice import live
 
         moteur = live.moteur(tenant)
-        a_jouer = [s for s in scenarios.SCENARIOS + (S10,) if not seulement or s.cle in seulement]
+        a_jouer = [s for s in (REPONDEUR,) + scenarios.SCENARIOS + (S10,)
+                   if not seulement or s.cle in seulement]
+        essai_arrete = Essai()
         for scenario in a_jouer:
             ligne = {"etage": 2, "moteur": moteur, "scenario": scenario.cle,
                      "recette": scenario.recette, "titre": scenario.titre, "cout": 0.0}
@@ -179,16 +236,27 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                     du_premier, _ = await _prix(client, premier, await _etat(client, premier), essais=1)
                     ligne["cout"] = du_premier
                 depuis = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 1))
-                sid = await _composer(client, tenant.phone_number, de, scenario.cle)
-                partis.append(sid)
-                etat = await _attendre_la_fin(client, sid, time.monotonic() + DUREE_MAX_SECONDES + 40)
-                appel = await _clos(tenant.id, depuis)
+                # Le répondeur : l'essai tient le temps de l'appel et de l'attente de l'audio.
+                ouvert = (repondeur_ouvert(essai_arrete) if scenario is REPONDEUR
+                          else contextlib.nullcontext())
+                notes: list[dict] = []
+                async with ouvert:
+                    sid = await _composer(client, tenant.phone_number, de, scenario.cle)
+                    partis.append(sid)
+                    etat = await _attendre_la_fin(client, sid, time.monotonic() + DUREE_MAX_SECONDES + 40)
+                    if scenario is REPONDEUR:
+                        appel, notes = await _repondeur_clos(tenant.id, depuis)
+                    else:
+                        appel = await _clos(tenant.id, depuis)
                 du_client = [r for r in await db.hors_boucle(reservations.list_reservations, tenant.id)
                              if r.get("customer_phone") == de and (r.get("created_at") or "") >= depuis]
-                verdict, preuve = verdicts.juger(scenario, appel, du_client)
-                autre = verdicts.pas_le_bon_moteur(moteur, appel, live.a_l_ecart(tenant))
-                if autre:
-                    verdict, preuve = verdicts.ECHEC, autre
+                if scenario is REPONDEUR:
+                    verdict, preuve = verdicts.juger_repondeur(appel, notes, du_client)
+                else:
+                    verdict, preuve = verdicts.juger(scenario, appel, du_client)
+                    autre = verdicts.pas_le_bon_moteur(moteur, appel, live.a_l_ecart(tenant))
+                    if autre:
+                        verdict, preuve = verdicts.ECHEC, autre
                 if etat.get("status") != "completed":
                     verdict, preuve = verdicts.ECHEC, f"Twilio : appel {etat.get('status') or 'sans état'} ; {preuve}"
                 prix, publie = await _prix(client, sid, etat)
@@ -212,4 +280,29 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                     ligne["cout"] = max(ligne["cout"], borne(moteur, etage=2))
                     ligne["preuve"] += " ; coût non lu : borne haute comptée"
             depense += ligne["cout"]
+        if REPONDEUR in a_jouer:
+            lignes.append(ligne_s8(moteur, essai_arrete.arrete,
+                                   next((l for l in lignes if l["scenario"] == "t6"), None)))
     return lignes, None
+
+
+def ligne_s8(moteur: str, arret: Optional[bool], t6: Optional[dict]) -> dict:
+    """S8 : l'essai arrêté, l'appel suivant (T6, déjà joué : rien de plus à payer) est servi
+    par l'assistante. Le verdict propre de T6 peut être rouge pour une autre raison : ici on
+    ne lit que ce qui dit s'il est passé en secours."""
+    ligne = {"etage": 2, "moteur": moteur, "scenario": "s8", "recette": "S8", "cout": 0.0,
+             "titre": "Une fois l'essai arrêté, l'assistante répond normalement"}
+    appel = (t6 or {}).get("appel")
+    if not arret:
+        etat, preuve = verdicts.ECHEC, "l'arrêt de l'essai n'a pas été confirmé par la production"
+    elif t6 is None or t6.get("etat") == verdicts.NON_JOUE:
+        etat, preuve = verdicts.NON_JOUE, "T6, l'appel qui prouve S8, n'a pas été joué"
+    elif appel is None:
+        etat, preuve = verdicts.ECHEC, "T6 : aucun appel au journal"
+    elif appel.get("secours_motif"):
+        etat, preuve = verdicts.ECHEC, (f"appel {appel.get('id')} passé en secours "
+                                        f"({appel['secours_motif']}) après l'arrêt")
+    else:
+        etat, preuve = verdicts.OK, f"essai arrêté ; appel {appel.get('id')} servi par l'assistante"
+    ligne.update(etat=etat, preuve=preuve)
+    return ligne
