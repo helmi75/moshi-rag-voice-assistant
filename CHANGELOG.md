@@ -24,6 +24,13 @@ alerte au premier refus (décision de Helmi, 12/10).
 - **Un e-mail aux super-admins au premier refus de l'épisode**, hors du chemin de l'appel ;
   sans SMTP, rien. Un garde-fou dans `scripts/mutation_check.py`.
 
+### Après relecture
+- L'alerte descend à « attention » après deux heures sans nouveau refus : un crédit rechargé
+  la nuit, sans appel ensuite, laissait la sonde en panne sans fin et masquait les autres.
+- Le crédit qui s'épuise en pleine conversation pose la même alerte ; le motif est reconnu
+  qu'OpenAI le porte dans `code` ou dans `type` ; un test tient les restaurateurs hors des
+  destinataires.
+
 ## Non publiée — la recette des appels se joue sans téléphone (10/10/2026)
 
 Le 09/10/2026, trois déploiements dans la journée, et chaque essai d'appel attendait Helmi.

@@ -1318,7 +1318,8 @@ class TestLeCreditOpenAIEpuise:
 
         async def jouer():
             ws = await live.ouvrir(tenant, "prompt")
-            await asyncio.sleep(0.05)       # laisse la tâche de fond partir
+            from app import taches
+            await asyncio.gather(*taches.retenues(), return_exceptions=True)   # l'e-mail est parti
             return ws
 
         return asyncio.run(jouer())
@@ -1334,6 +1335,18 @@ class TestLeCreditOpenAIEpuise:
         assert len(courriers) == 1
         adresses, sujet, corps = courriers[0]
         assert "admin@test.local" in adresses and "crédit" in sujet and "chaîne classique" in corps
+
+    def test_un_restaurateur_ne_recoit_jamais_cette_alerte(self, monkeypatch, tenant, courriers):
+        from app import users
+        users.create_user("gerant@resto.test", "motdepasse-long-1", users.ROLE_RESTAURATEUR, tenant.id)
+        self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted")
+        assert len(courriers) == 1 and "gerant@resto.test" not in courriers[0][0]
+        assert "admin@test.local" in courriers[0][0]
+
+    def test_le_motif_porte_par_le_type_de_l_erreur_compte_aussi(self):
+        assert live._credit_en_cause({"type": "credit_balance_exhausted"})
+        assert live._credit_en_cause({"code": "credit_balance_exhausted", "type": "invalid_request_error"})
+        assert not live._credit_en_cause({"code": "forbidden"}) and not live._credit_en_cause({})
 
     def test_un_autre_code_de_refus_ne_pose_rien_de_tout_cela(self, monkeypatch, tenant, courriers):
         autre = replace(tenant, id=tenant.id + 1000)

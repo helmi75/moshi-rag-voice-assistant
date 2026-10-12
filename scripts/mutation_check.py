@@ -1188,8 +1188,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="Un refus pour crédit épuisé pose l'alerte",
         fichier="api/app/voice/live.py",
-        avant='                if erreur.get("code") == CODE_CREDIT_EPUISE:',
-        apres='                if False:  # mutation',
+        avant='                    _credit_refuse(motif)',
+        apres='                    mettre_a_l_ecart(motif, tenant.id)  # mutation',
         tests=["test_live.py"],
         k="credit_epuise or credit_openai or credit",
         panne="le crédit OpenAI s'épuiserait de nouveau sans que personne le sache (10/10/2026)",

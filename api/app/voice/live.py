@@ -150,8 +150,15 @@ _credit_epuise: dict = {}
 
 
 def credit_epuise() -> Optional[dict]:
-    """None, ou {"le": UTC du premier refus, "refus": nombre de refus} de l'épisode en cours."""
+    """None, ou {"le": UTC du premier refus, "dernier": UTC du dernier, "refus": leur
+    nombre} pour l'épisode en cours."""
     return dict(_credit_epuise) if _credit_epuise else None
+
+
+def _credit_en_cause(erreur: dict) -> bool:
+    # `code` ou `type` : le journal du 10/10/2026 affiche l'un OU l'autre, sans dire lequel
+    # portait le motif.
+    return CODE_CREDIT_EPUISE in (erreur.get("code"), erreur.get("type"))
 
 
 def _credit_refuse(motif: str) -> None:
@@ -160,6 +167,7 @@ def _credit_refuse(motif: str) -> None:
         _credit_epuise["le"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         _credit_epuise["refus"] = 0
     _credit_epuise["refus"] += 1
+    _credit_epuise["dernier"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     mettre_a_l_ecart(motif)
     if premier:
         # Jamais sur le chemin de l'appel : l'appelant est déjà rendu à la chaîne classique.
@@ -383,7 +391,7 @@ async def ouvrir(tenant: Tenant, prompt_systeme: str, numero_connu: bool = True)
             if evt.get("type") == "error":
                 erreur = evt.get("error") or {}
                 motif = f"session refusée ({erreur.get('code') or erreur.get('type')})"
-                if erreur.get("code") == CODE_CREDIT_EPUISE:
+                if _credit_en_cause(erreur):
                     _credit_refuse(motif)
                 else:
                     mettre_a_l_ecart(motif, tenant.id)
@@ -510,6 +518,9 @@ class Appel:
                 erreur = evt.get("error") or {}
                 logger.warning(f"[gpt-live] erreur de session : {erreur.get('code') or erreur.get('type')} "
                                f"— {str(erreur.get('message'))[:160]}")
+                if _credit_en_cause(erreur):
+                    # Le crédit s'épuise aussi en pleine conversation : même épisode, même alerte.
+                    _credit_refuse("session interrompue (crédit épuisé)")
 
     async def _relancer_l_accueil_si_muette(self) -> None:
         """Personne n'a encore rien dit et le délai est passé : l'accueil est redonné, une
