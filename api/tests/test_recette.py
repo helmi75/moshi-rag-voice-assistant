@@ -525,6 +525,15 @@ class TestLaPorteDuRepondeur:
         assert _porte("essayer", depuis="172.18.0.3").status_code == 404
         assert not renvoi.essai_en_cours(essai_actif.id)
 
+    def test_porte_du_repondeur_refuse_un_etablissement_d_essai_qui_a_un_numero_de_secours(self, essai_actif):
+        """L'essai ferait sonner ce numéro : un appel sortant que la recette n'a pas compté."""
+        tenants.update_tenant(essai_actif.id, numero_secours="+33612345678")
+        try:
+            assert _porte("essayer").status_code == 409
+            assert not renvoi.essai_en_cours(essai_actif.id)
+        finally:
+            tenants.update_tenant(essai_actif.id, numero_secours="")
+
     def test_porte_du_repondeur_refuse_sans_jeton(self, essai_actif):
         assert _porte("essayer", jeton="").status_code == 403
         assert _porte("essayer", jeton="0" * 64).status_code == 403
@@ -654,20 +663,31 @@ class TestLeRepondeurEtLaRecetteDAppels:
             asyncio.run(passage())
         assert actions == ["essayer", "arreter"]
 
+    @staticmethod
+    def _essai(demarre=True, arrete=True):
+        etat = etage2.Essai()
+        etat.demarre, etat.arrete = demarre, arrete
+        return etat
+
     def test_s8_est_vert_quand_l_appel_suivant_est_servi_par_l_assistante(self):
         servi = {"etat": verdicts.OK, "appel": {"id": 9, "secours_motif": None}}
-        assert etage2.ligne_s8("gpt_live", True, servi)["etat"] == verdicts.OK
-        # Le verdict propre de T6 n'est pas celui de S8.
-        assert etage2.ligne_s8("gpt_live", True, {**servi, "etat": verdicts.ECHEC})["etat"] == verdicts.OK
+        assert etage2.ligne_s8("gpt_live", self._essai(), servi)["etat"] == verdicts.OK
+        # Le verdict propre de l'appel suivant n'est pas celui de S8.
+        assert etage2.ligne_s8("gpt_live", self._essai(), {**servi, "etat": verdicts.ECHEC})["etat"] == verdicts.OK
 
-    @pytest.mark.parametrize("arret, t6", [
+    @pytest.mark.parametrize("arret, suivant", [
         (False, {"etat": "ok", "appel": {"id": 9, "secours_motif": None}}),
         (None, {"etat": "ok", "appel": {"id": 9, "secours_motif": None}}),
         (True, {"etat": "echec", "appel": {"id": 9, "secours_motif": "essai"}}),
         (True, {"etat": "echec", "appel": None}),
     ])
-    def test_s8_est_rouge_si_l_arret_n_est_pas_confirme_ou_si_l_appel_part_en_secours(self, arret, t6):
-        assert etage2.ligne_s8("gpt_live", arret, t6)["etat"] == verdicts.ECHEC
+    def test_s8_est_rouge_si_l_arret_n_est_pas_confirme_ou_si_l_appel_part_en_secours(self, arret, suivant):
+        assert etage2.ligne_s8("gpt_live", self._essai(arrete=arret), suivant)["etat"] == verdicts.ECHEC
 
-    def test_s8_n_est_pas_joue_sans_t6(self):
-        assert etage2.ligne_s8("gpt_live", True, None)["etat"] == verdicts.NON_JOUE
+    def test_s8_n_est_pas_joue_sans_appel_apres_le_repondeur(self):
+        assert etage2.ligne_s8("gpt_live", self._essai(), None)["etat"] == verdicts.NON_JOUE
+
+    def test_s8_n_est_pas_joue_quand_le_repondeur_n_a_pas_ete_mis_en_route(self):
+        """Plafond atteint ou porte fermée : rien n'a été essayé, rien n'est rouge."""
+        servi = {"etat": verdicts.OK, "appel": {"id": 9, "secours_motif": None}}
+        assert etage2.ligne_s8("gpt_live", self._essai(demarre=False, arrete=True), servi)["etat"] == verdicts.NON_JOUE

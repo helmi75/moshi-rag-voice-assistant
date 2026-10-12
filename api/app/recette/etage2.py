@@ -88,6 +88,7 @@ async def _porte(action: str) -> bool:
 
 class Essai:
     """Ce que la production a confirmé de l'arrêt du répondeur d'essai (lu par S8)."""
+    demarre: bool = False
     arrete: Optional[bool] = None
 
 
@@ -100,6 +101,7 @@ async def repondeur_ouvert(etat: Essai):
     try:
         if not await _porte(secours.ESSAYER):
             raise RuntimeError("la production n'a pas mis l'établissement d'essai sur répondeur")
+        etat.demarre = True
         yield etat
     finally:
         etat.arrete = await _porte(secours.ARRETER)
@@ -281,24 +283,29 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                     ligne["preuve"] += " ; coût non lu : borne haute comptée"
             depense += ligne["cout"]
         if REPONDEUR in a_jouer:
-            lignes.append(ligne_s8(moteur, essai_arrete.arrete,
-                                   next((l for l in lignes if l["scenario"] == "t6"), None)))
+            # L'appel qui SUIT le répondeur : plus tard, l'essai aurait expiré de lui-même
+            # (trois minutes) et un appel servi ne prouverait plus l'arrêt.
+            rang = next((n for n, l in enumerate(lignes) if l["scenario"] == REPONDEUR.cle), None)
+            suivant = lignes[rang + 1] if rang is not None and rang + 1 < len(lignes) else None
+            lignes.append(ligne_s8(moteur, essai_arrete, suivant))
     return lignes, None
 
 
-def ligne_s8(moteur: str, arret: Optional[bool], t6: Optional[dict]) -> dict:
-    """S8 : l'essai arrêté, l'appel suivant (T6, déjà joué : rien de plus à payer) est servi
-    par l'assistante. Le verdict propre de T6 peut être rouge pour une autre raison : ici on
-    ne lit que ce qui dit s'il est passé en secours."""
+def ligne_s8(moteur: str, essai_joue: Essai, suivant: Optional[dict]) -> dict:
+    """S8 : l'essai arrêté, l'appel suivant (déjà joué : rien de plus à payer) est servi par
+    l'assistante. Son propre verdict peut être rouge pour une autre raison : ici on ne lit
+    que ce qui dit s'il est passé en secours."""
     ligne = {"etage": 2, "moteur": moteur, "scenario": "s8", "recette": "S8", "cout": 0.0,
              "titre": "Une fois l'essai arrêté, l'assistante répond normalement"}
-    appel = (t6 or {}).get("appel")
-    if not arret:
+    appel = (suivant or {}).get("appel")
+    if not essai_joue.demarre:
+        etat, preuve = verdicts.NON_JOUE, "le répondeur d'essai n'a pas été mis en route"
+    elif not essai_joue.arrete:
         etat, preuve = verdicts.ECHEC, "l'arrêt de l'essai n'a pas été confirmé par la production"
-    elif t6 is None or t6.get("etat") == verdicts.NON_JOUE:
-        etat, preuve = verdicts.NON_JOUE, "T6, l'appel qui prouve S8, n'a pas été joué"
+    elif suivant is None or suivant.get("etat") == verdicts.NON_JOUE:
+        etat, preuve = verdicts.NON_JOUE, "aucun appel joué après le répondeur pour prouver S8"
     elif appel is None:
-        etat, preuve = verdicts.ECHEC, "T6 : aucun appel au journal"
+        etat, preuve = verdicts.ECHEC, f"{suivant.get('recette')} : aucun appel au journal"
     elif appel.get("secours_motif"):
         etat, preuve = verdicts.ECHEC, (f"appel {appel.get('id')} passé en secours "
                                         f"({appel['secours_motif']}) après l'arrêt")

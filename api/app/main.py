@@ -522,7 +522,8 @@ async def secours_de_la_recette(request: Request, action: str = Form(""),
 
     if (request.client.host if request.client else "") not in secours.LOCALES:
         return Response(status_code=404)
-    return Response(status_code=secours.appliquer(action, nonce, jeton))
+    # Hors boucle : la porte lit la fiche de l'établissement d'essai en base.
+    return Response(status_code=await db.hors_boucle(secours.appliquer, action, nonce, jeton))
 
 
 # Nombre max de messages lus avant le "start" Twilio (protocole: connected -> start)

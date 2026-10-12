@@ -10,7 +10,7 @@ recette doit être activée, le jeton est à usage unique et propre à
 l'action demandée, et la porte n'agit QUE sur l'établissement d'essai — jamais sur un
 identifiant fourni par l'appelant, qui n'a d'ailleurs aucun champ où le glisser.
 """
-from .. import essai, renvoi
+from .. import essai, renvoi, tenants
 from . import gardes
 
 ESSAYER, ARRETER = "essayer", "arreter"
@@ -20,7 +20,8 @@ LOCALES = ("127.0.0.1", "::1")
 
 
 def appliquer(action: str, nonce: str, jeton: str) -> int:
-    """Le code HTTP à rendre : 204 fait, 404 porte fermée, 403 jeton refusé, 400 action inconnue."""
+    """Le code HTTP à rendre : 204 fait, 404 porte fermée, 403 jeton refusé, 400 action inconnue,
+    409 quand l'établissement d'essai a un numéro de secours."""
     tenant_id = essai.etablissement_id()
     # Le nom doit contenir « essai » : une faute de frappe dans RECETTE_ETABLISSEMENT ne
     # doit pas mettre un vrai restaurant sur répondeur.
@@ -29,6 +30,11 @@ def appliquer(action: str, nonce: str, jeton: str) -> int:
     if not gardes.jeton_valide("secours-" + action, nonce, jeton):
         return 403
     if action == ESSAYER:
+        # Avec un numéro de secours sur la fiche, l'essai ferait SONNER ce numéro
+        # (`renvoi.decision`) : un appel sortant que la recette n'a ni vérifié ni compté.
+        tenant = tenants.get_by_id(tenant_id)
+        if tenant is None or (tenant.numero_secours or "").strip():
+            return 409
         renvoi.signaler_panne(renvoi.ESSAI, tenant_id)
     elif action == ARRETER:
         renvoi.arreter_essai(tenant_id)
