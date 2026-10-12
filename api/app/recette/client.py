@@ -37,7 +37,11 @@ class Client:
     # suite. » est suivi de deux à quatre secondes de blanc pendant que l'outil travaille
     # (bancs du 09/10/2026). À 1,5 s, le client répondait dans ce blanc, parlait par-dessus
     # le récapitulatif et disait au revoir avant la confirmation (essai du 10/10/2026).
-    def __init__(self, repliques: list[bytes], silence: float = 4.0, patience: float = 30.0,
+    # Six secondes depuis le 12/10/2026 : sur de vrais appels, à quatre, le client a dit
+    # son « Oui » deux fois sur sept dans le blanc qui suit « Je vérifie tout de suite. »,
+    # puis « Non merci, au revoir » au récapitulatif — aucune table, sans que l'assistante
+    # y soit pour rien.
+    def __init__(self, repliques: list[bytes], silence: float = 6.0, patience: float = 30.0,
                  conge: float = 6.0, duree_max: float = 170.0,
                  horloge: Callable[[], float] = time.monotonic):
         self._repliques = list(repliques)
