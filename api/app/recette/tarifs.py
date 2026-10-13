@@ -22,6 +22,8 @@ def borne(moteur: str, etage: int) -> float:
     else:
         total = minutes * calls._COST_DEEPGRAM_PER_MIN + _MODELE_AU_PLUS + _VOIX_CLASSIQUE_AU_PLUS
     if etage == 2:
-        # Deux jambes : celle qui appelle (sortant vers un fixe) et celle qui reçoit.
-        total += minutes * (calls._COST_RENVOI_FIXE + calls._COST_TWILIO_PER_MIN)
+        # Deux jambes : celle qui appelle (sortant vers un fixe) et celle qui reçoit, et
+        # chacune a son flux audio (`/ws/recette` et `/ws/voice`).
+        total += minutes * (calls._COST_RENVOI_FIXE + calls._COST_TWILIO_PER_MIN
+                            + 2 * calls._COST_TWILIO_FLUX_PER_MIN)
     return round(total, 4)

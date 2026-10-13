@@ -7,6 +7,28 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la téléphonie d'un appel compte son flux audio (13/10/2026)
+
+La facture Twilio de septembre 2026 (7,83 $ hors taxe) a été comparée à la base. Les
+minutes collent : 387 facturées, 390 comptées chez nous. Mais elle porte une ligne que le
+chiffrage ignorait : le flux audio vers notre serveur (Media Streams), 387 minutes pour
+1,70 $.
+
+### Corrigé
+- **Le flux audio est compté** : 0,0044 $ par minute entamée (`COST_TWILIO_FLUX_PER_MIN`),
+  en plus de la minute d'appel, pour tout appel que l'assistante sert — reçu, ou rappel
+  demandé sur le site. Un appel parti au répondeur ou au restaurant n'en a pas. La
+  téléphonie d'un appel reçu était sous-estimée de 44 %.
+- **La recette d'appels compte aussi le flux de sa jambe appelante**, que le prix publié
+  par Twilio pour l'appel ne contient pas, et sa borne haute en tient compte.
+
+### Inchangé, et dit dans `docs/TARIFS.md`
+- Les appels déjà clos gardent leur ancien chiffre : « Santé & coûts » reste sous-estimée
+  pour le passé.
+- La location des numéros et la TVA de Twilio ne sont pas des coûts d'appel : elles ne
+  sont pas affichées dans l'admin.
+- Les prix de vente ne changent pas.
+
 ## Non publiée — la recette d'appels joue le répondeur (ASSISTANTE-150, 12/10/2026)
 
 S6, S7 et S8 attendaient Helmi faute de numéro de secours à nous. Le répondeur n'en a pas

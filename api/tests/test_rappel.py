@@ -559,18 +559,31 @@ class TestLeCoutDUnAppelSortant:
 
     def test_vers_un_portable_il_est_chiffre_au_tarif_sortant(self):
         """125 s = trois minutes entamées. Reçu : 0,010 $/min ; passé vers un portable :
-        0,0404 $/min (grille Twilio relevée le 01/10/2026)."""
+        0,0404 $/min (grille Twilio relevée le 01/10/2026). Dans les deux cas le flux audio
+        s'ajoute : 0,0044 $/min (facture de septembre 2026)."""
         recu = self._appel("CA-cout-recu", "+33612345678", sortant=False)
         passe = self._appel("CA-cout-passe", "+33612345678", sortant=True)
-        assert recu["cout_telephonie"] == pytest.approx(3 * 0.01)
-        assert passe["cout_telephonie"] == pytest.approx(3 * 0.0404)
+        assert recu["cout_telephonie"] == pytest.approx(3 * (0.01 + 0.0044))
+        assert passe["cout_telephonie"] == pytest.approx(3 * (0.0404 + 0.0044))
         assert passe["estimated_cost"] == pytest.approx(
             passe["cout_telephonie"] + passe["cout_transcription"]
             + passe["cout_comprehension"] + passe["cout_voix"])
 
     def test_vers_un_fixe(self):
         passe = self._appel("CA-cout-fixe", "+33142685300", sortant=True)
-        assert passe["cout_telephonie"] == pytest.approx(3 * 0.0187)
+        assert passe["cout_telephonie"] == pytest.approx(3 * (0.0187 + 0.0044))
+
+
+class TestLeFluxAudio:
+    def test_un_appel_parti_au_repondeur_n_a_pas_de_flux(self):
+        """Media Streams ne se paie que si l'assistante a servi l'appel."""
+        assert calls.cout_flux(0) == 0.0
+        assert calls.cout_flux(61) == pytest.approx(2 * calls._COST_TWILIO_FLUX_PER_MIN)
+
+    def test_la_facture_de_septembre_retombe_sur_ses_pieds(self):
+        """387 minutes facturées 1,70 $ de flux, 223 minutes françaises facturées 2,23 $."""
+        assert 387 * calls._COST_TWILIO_FLUX_PER_MIN == pytest.approx(1.70, abs=0.005)
+        assert 223 * calls._COST_TWILIO_PER_MIN == pytest.approx(2.23, abs=0.005)
 
 
 class TestLaConservation:

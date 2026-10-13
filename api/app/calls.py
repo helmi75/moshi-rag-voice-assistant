@@ -30,6 +30,11 @@ from . import db, essai, horloge
 # - Voix Mistral (Voxtral) : 0,016 $ pour 1 000 caractères (mistral.ai, mars 2026).
 # - Voix Moshi (GPU Modal, secours seulement) : ~2 c/min.
 _COST_TWILIO_PER_MIN = float(os.getenv("COST_TWILIO_PER_MIN", "0.01"))
+# Le flux audio vers notre serveur (Media Streams) est une ligne À PART de la facture, que
+# nous ne comptions pas : en septembre 2026, 387 minutes pour 1,70 $, soit 0,0044 $ la
+# minute, autant de minutes que d'appels reçus (223 françaises + 164 américaines). La
+# téléphonie d'un appel servi par l'assistante était donc sous-estimée de 44 %.
+_COST_TWILIO_FLUX_PER_MIN = float(os.getenv("COST_TWILIO_FLUX_PER_MIN", "0.0044"))
 _COST_DEEPGRAM_PER_MIN = float(os.getenv("COST_DEEPGRAM_PER_MIN", "0.0092"))
 _COST_LLM_ENTREE = float(os.getenv("COST_LLM_ENTREE_PAR_MILLION", "0.30")) / 1e6
 _COST_LLM_CACHE = float(os.getenv("COST_LLM_CACHE_PAR_MILLION", "0.03")) / 1e6
@@ -54,6 +59,19 @@ _COST_RENVOI_FIXE = float(os.getenv("COST_TWILIO_RENVOI_FIXE_PER_MIN", "0.0187")
 _COST_RENVOI_MOBILE = float(os.getenv("COST_TWILIO_RENVOI_MOBILE_PER_MIN", "0.0404"))
 
 POSTES = ("telephonie", "transcription", "comprehension", "voix")
+
+
+def cout_flux(secondes: float) -> float:
+    """Le flux audio d'un appel que l'assistante sert, à la minute entamée. Un appel parti
+    au répondeur ou au restaurant sans passer par elle n'en a pas."""
+    if not secondes or secondes <= 0:
+        return 0.0
+    return round(math.ceil(secondes / 60.0) * _COST_TWILIO_FLUX_PER_MIN, 6)
+
+
+def _telephonie_recue(secondes: float) -> float:
+    """Un appel reçu et servi par l'assistante : la minute entamée, plus son flux audio."""
+    return round(math.ceil(secondes / 60.0) * _COST_TWILIO_PER_MIN + cout_flux(secondes), 6)
 
 
 # Ce que Twilio met dans `From` quand l'appelant masque son numéro : l'orthographe au
@@ -121,7 +139,7 @@ def couts_appel(duration_seconds: float, journal: Optional[dict] = None,
         else:
             tarifs = (_COST_GPT_LIVE_ENTREE, _COST_GPT_LIVE_CACHE, _COST_GPT_LIVE_SORTIE)
         return {
-            "telephonie": 0.0 if banc else round(math.ceil(secondes / 60.0) * _COST_TWILIO_PER_MIN, 6),
+            "telephonie": 0.0 if banc else _telephonie_recue(secondes),
             "transcription": 0.0,
             "comprehension": round((entree - cache) * tarifs[0] + cache * tarifs[1]
                                    + int(conso.get("jetons_sortie") or 0) * tarifs[2], 6),
@@ -142,7 +160,7 @@ def couts_appel(duration_seconds: float, journal: Optional[dict] = None,
     # Chaque poste arrondi au millionième, et le total = leur somme : la répartition de
     # l'admin retombe exactement sur le coût de l'appel.
     return {
-        "telephonie": 0.0 if banc else round(math.ceil(secondes / 60.0) * _COST_TWILIO_PER_MIN, 6),
+        "telephonie": 0.0 if banc else _telephonie_recue(secondes),
         "transcription": round(minutes * _COST_DEEPGRAM_PER_MIN, 6),
         "comprehension": round(comprehension, 6),
         "voix": round(voix, 6),
@@ -250,7 +268,9 @@ def finish_call(
         if row["sortant"]:
             # Un appel que NOUS avons passé (rappel du site) : Twilio le facture au tarif
             # sortant, selon que le numéro appelé est un fixe ou un portable.
-            couts["telephonie"] = cout_renvoi(duration, row["caller_number"])
+            # Le rappel est servi par l'assistante : son flux audio se paie aussi.
+            couts["telephonie"] = round(cout_renvoi(duration, row["caller_number"])
+                                        + cout_flux(duration), 6)
         conn.execute(
             """UPDATE calls SET ended_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
                    duration_seconds = ?,
@@ -768,7 +788,7 @@ def tarifs_gpt_live(cerveau_openai: bool = False) -> dict:
                              if cerveau_openai else
                              (_COST_LLM_ENTREE, _COST_LLM_CACHE, _COST_LLM_SORTIE))
     return {"voix_par_minute": _COST_GPT_LIVE_PER_MIN,
-            "telephonie_par_minute": _COST_TWILIO_PER_MIN,
+            "telephonie_par_minute": round(_COST_TWILIO_PER_MIN + _COST_TWILIO_FLUX_PER_MIN, 4),
             "entree_par_million": round(entree * 1e6, 4),
             "cache_par_million": round(cache * 1e6, 4),
             "sortie_par_million": round(sortie * 1e6, 4)}

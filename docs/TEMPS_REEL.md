@@ -61,7 +61,9 @@ retient 0,0092 $ : à vérifier sur la facture.
 ## Ce que coûte une minute d'appel
 
 Pour comparer, tout est ramené à une minute d'appel reçu sur un numéro français, Twilio
-compris (0,010 $/min).
+compris (0,010 $/min). Ces relevés ne comptent pas le flux audio de Twilio, 0,0044 $ la
+minute en plus pour tous les moteurs, lu sur la facture de septembre 2026
+(`docs/TARIFS.md`) : il ne change pas la comparaison, il relève chaque total d'autant.
 
 **Hypothèses**, pour les modèles facturés au jeton — à remplacer par une mesure dès qu'un
 essai existe :

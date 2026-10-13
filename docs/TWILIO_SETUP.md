@@ -134,7 +134,8 @@ répond « L'appel n'a pas pu partir ».
 | `RAPPEL_NOTIFIER` | `ADMIN_EMAIL` | qui reçoit « Demande de rappel depuis le site » |
 
 **Ce que ça coûte** (grille Twilio relevée le 01/10/2026) : 0,0404 $ par minute entamée
-vers un portable, 0,0187 $ vers un fixe, au lieu de 0,010 $ pour un appel reçu. Seuls les
+vers un portable, 0,0187 $ vers un fixe, au lieu de 0,010 $ pour un appel reçu (le flux
+audio, 0,0044 $ la minute, s'ajoute dans tous les cas). Seuls les
 numéros de métropole sont composés : ni surtaxés, ni outre-mer, ni étrangers.
 
 ⚠️ Ces tarifs valent quand la ligne présentée est un numéro européen. Relevé sur le
