@@ -559,18 +559,40 @@ class TestLeCoutDUnAppelSortant:
 
     def test_vers_un_portable_il_est_chiffre_au_tarif_sortant(self):
         """125 s = trois minutes entamées. Reçu : 0,010 $/min ; passé vers un portable :
-        0,0404 $/min (grille Twilio relevée le 01/10/2026)."""
+        0,0404 $/min (grille Twilio relevée le 01/10/2026). Dans les deux cas le flux audio
+        s'ajoute : 0,0044 $/min (facture de septembre 2026)."""
         recu = self._appel("CA-cout-recu", "+33612345678", sortant=False)
         passe = self._appel("CA-cout-passe", "+33612345678", sortant=True)
-        assert recu["cout_telephonie"] == pytest.approx(3 * 0.01)
-        assert passe["cout_telephonie"] == pytest.approx(3 * 0.0404)
+        assert recu["cout_telephonie"] == pytest.approx(3 * (0.01 + 0.0044))
+        assert passe["cout_telephonie"] == pytest.approx(3 * (0.0404 + 0.0044))
         assert passe["estimated_cost"] == pytest.approx(
             passe["cout_telephonie"] + passe["cout_transcription"]
             + passe["cout_comprehension"] + passe["cout_voix"])
 
     def test_vers_un_fixe(self):
         passe = self._appel("CA-cout-fixe", "+33142685300", sortant=True)
-        assert passe["cout_telephonie"] == pytest.approx(3 * 0.0187)
+        assert passe["cout_telephonie"] == pytest.approx(3 * (0.0187 + 0.0044))
+
+
+class TestLeFluxAudio:
+    def test_un_appel_renvoye_des_le_decroche_n_a_pas_de_flux(self):
+        """Media Streams ne se paie que si l'assistante a servi l'appel : un appel parti
+        droit au répondeur ne coûte que sa minute."""
+        tenant = tenants.get_by_phone(DEMO_NUMBER)
+        calls.ouvrir_secours("CA-sans-flux", tenant.id, "+33612345678", "essai")
+        with db.get_conn() as conn:
+            conn.execute("UPDATE calls SET started_at = ? WHERE call_sid = ?",
+                         (horloge.il_y_a(65 / 86400), "CA-sans-flux"))
+        calls.conclure_secours("CA-sans-flux", calls.SECOURS_MESSAGE)
+        assert _appel("CA-sans-flux")["cout_telephonie"] == pytest.approx(2 * calls._COST_TWILIO_PER_MIN)
+
+    def test_le_flux_se_paie_a_la_minute_entamee(self):
+        assert calls.cout_flux(0) == 0.0
+        assert calls.cout_flux(61) == pytest.approx(2 * calls._COST_TWILIO_FLUX_PER_MIN)
+
+    def test_le_tarif_retombe_sur_la_facture_de_septembre(self):
+        """387 minutes de flux facturées 1,70 $ : le tarif retenu ne s'en écarte pas."""
+        assert 387 * calls._COST_TWILIO_FLUX_PER_MIN == pytest.approx(1.70, abs=0.005)
 
 
 class TestLaConservation:

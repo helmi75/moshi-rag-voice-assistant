@@ -1263,7 +1263,8 @@ class TestLeCout:
                                         "consommation": conso})
         assert notre["comprehension"] == pytest.approx(4_000 * 0.30e-6 + 8_000 * 0.03e-6 + 200 * 2.50e-6)
         assert notre["voix"] == couts["voix"] and notre["transcription"] == 0.0
-        assert couts["telephonie"] == pytest.approx(3 * 0.01)
+        # Trois minutes entamées, chacune avec son flux audio (facture de septembre 2026).
+        assert couts["telephonie"] == pytest.approx(3 * (0.01 + 0.0044))
         assert couts["fournisseur"] == "gpt-live"
 
     def test_sans_decompte_de_session_on_prend_la_duree_de_l_appel(self):

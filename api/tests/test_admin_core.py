@@ -166,12 +166,14 @@ class TestCalls:
         protégé (vécu le 30/08/2026 avec le tarif Deepgram)."""
         forfait = calls._COST_LLM_PER_CALL
         assert calls.estimate_call_cost(0) == pytest.approx(forfait)
-        # Une minute : une minute Twilio, une minute de transcription, le forfait modèle.
-        une = calls._COST_TWILIO_PER_MIN + calls._COST_DEEPGRAM_PER_MIN + forfait
+        # Une minute : une minute Twilio et son flux audio (une ligne à part de la facture,
+        # oubliée jusqu'à celle de septembre 2026), une minute de transcription, le forfait.
+        minute_twilio = calls._COST_TWILIO_PER_MIN + calls._COST_TWILIO_FLUX_PER_MIN
+        une = minute_twilio + calls._COST_DEEPGRAM_PER_MIN + forfait
         assert calls.estimate_call_cost(60) == pytest.approx(une)
         # Twilio facture la minute ENTAMÉE : 61 s = deux minutes de téléphone.
         assert calls.estimate_call_cost(61) - calls.estimate_call_cost(60) == pytest.approx(
-            calls._COST_TWILIO_PER_MIN + calls._COST_DEEPGRAM_PER_MIN / 60, abs=1e-6)
+            minute_twilio + calls._COST_DEEPGRAM_PER_MIN / 60, abs=1e-6)
         # Une durée négative (horloge qui recule pendant l'appel) ne crée pas d'avoir.
         assert calls.estimate_call_cost(-30) == pytest.approx(forfait)
 
@@ -187,7 +189,8 @@ class TestCalls:
         assert c["comprehension"] == pytest.approx(
             10000 * calls._COST_LLM_ENTREE + 30000 * calls._COST_LLM_CACHE
             + 500 * calls._COST_LLM_SORTIE, abs=1e-6)
-        assert c["telephonie"] == pytest.approx(4 * calls._COST_TWILIO_PER_MIN)
+        assert c["telephonie"] == pytest.approx(
+            4 * (calls._COST_TWILIO_PER_MIN + calls._COST_TWILIO_FLUX_PER_MIN))
         assert c["fournisseur"] == "voxtral"
 
     def test_un_appel_du_banc_se_chiffre_sur_sa_duree_active_sans_telephone(self):

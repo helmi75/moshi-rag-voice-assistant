@@ -262,7 +262,10 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                 if etat.get("status") != "completed":
                     verdict, preuve = verdicts.ECHEC, f"Twilio : appel {etat.get('status') or 'sans état'} ; {preuve}"
                 prix, publie = await _prix(client, sid, etat)
+                # Le prix que Twilio publie pour la jambe appelante ne compte pas son flux
+                # audio (`/ws/recette`), facturé sur une autre ligne : on l'ajoute.
                 ligne["cout"] = round(ligne["cout"] + float((appel or {}).get("estimated_cost") or 0) + prix
+                                      + calls.cout_flux(float(etat.get("duration") or 0))
                                       + sum(n for _, n in rendues) * calls._COST_VOIX_PAR_CARACTERE, 6)
                 if not publie:
                     preuve += " ; prix Twilio pas encore publié : jambe appelante comptée au tarif"

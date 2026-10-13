@@ -54,7 +54,7 @@ Mistral ne reçoit que le **texte** que dit l'assistante, jamais la voix de l'ap
 
 Chaque appel est chiffré à sa clôture, poste par poste, sur ce qu'il a consommé
 (`api/app/calls.py`) : Twilio à la minute ENTAMÉE (0,01 $, facture du numéro
-français), Deepgram à la minute (0,0092 $), Gemini aux jetons (0,30 $ le million en
+français, plus 0,0044 $ de flux audio depuis le 13/10/2026), Deepgram à la minute (0,0092 $), Gemini aux jetons (0,30 $ le million en
 entrée, 0,03 $ en cache, 2,50 $ en sortie), la voix aux caractères (0,016 $ pour
 1 000). La page « Santé & coûts » additionne ces postes : la répartition tombe
 exactement sur le total. Les appels du banc d'essai ne paient pas de téléphone et sont

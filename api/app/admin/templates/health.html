@@ -147,8 +147,9 @@
         ({{ t.entree_par_million | nombre }} $ le million en entrée,
         {{ t.cache_par_million | nombre }} $ lus en cache,
         {{ t.sortie_par_million | nombre }} $ en sortie). La téléphonie :
-        {{ t.telephonie_par_minute | nombre }} $ la minute entamée, comme pour la chaîne
-        classique. Tarifs relevés le 04/10/2026 ; la facture d'OpenAI fait foi.
+        {{ t.telephonie_par_minute | nombre }} $ la minute entamée, flux audio compris,
+        comme pour la chaîne classique. Tarifs d'OpenAI relevés le 04/10/2026, flux audio lu sur la
+        facture Twilio de septembre 2026 ; les factures font foi.
         {% if echec_gpt_live %}
         <br><b>Dernier échec de GPT-Live</b> depuis le démarrage du serveur :
         {{ echec_gpt_live.le | jour_paris }} à {{ echec_gpt_live.le | heure_paris }},

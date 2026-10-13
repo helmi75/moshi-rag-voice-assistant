@@ -58,11 +58,24 @@ Jusqu'au 02/10/2026 la grille vendait des appels (150, 400, 750). Deux raisons d
 
 | Poste | Tarif | Source |
 |---|---|---|
-| Twilio, numéro français, appel reçu | 0,01 $ par minute **entamée** | factures des appels 183 à 204 |
+| Twilio, numéro français, appel reçu | 0,01 $ par minute **entamée** | factures des appels 183 à 204 ; facture de septembre 2026 (223 min, 2,23 $) |
+| Twilio, flux audio vers notre serveur (Media Streams) | 0,0044 $ par minute, **en plus** | facture de septembre 2026 : 387 min, 1,70 $ |
 | Deepgram nova-3 en flux, `multi` | 0,0092 $/min | [deepgram.com/pricing](https://deepgram.com/pricing), vérifié le 30/08/2026 |
 | Voix Mistral (Voxtral) | 0,016 $ pour 1 000 caractères, ~320 caractères par minute d'appel | mistral.ai ; mesuré sur les appels 202 à 204 |
 | Modèle de langage (via OpenRouter) | compté par appel, en jetons | **à mesurer** sur un mois d'appels réels ; 0,35 c$ par appel retenu faute de mieux |
-| Numéro français | 1,35 $/mois | console Twilio |
+| Numéro français | 1,35 $/mois | console Twilio ; facture de septembre 2026 |
+
+**Ce que la facture de septembre 2026 a appris (13/10/2026).** Le flux audio est une ligne
+à part, que le chiffrage ne comptait pas : la téléphonie d'un appel servi par l'assistante
+était sous-estimée de 44 %. Il est compté depuis, pour les appels à venir ; ceux d'avant
+gardent leur ancien chiffre. Le relevé du 28/09 ci-dessous ne le comptait pas non plus :
+pour ses quatre minutes entamées, il manque 1,8 c$ (9,4 c$ deviennent 11,2 c$).
+
+Deux postes restent hors du coût d'un appel, parce qu'ils ne dépendent pas des appels :
+la location des numéros (1,35 $ le français, 1,15 $ l'américain), et la TVA de 20 % que
+Twilio facture sur le tout tant que le compte n'a pas de numéro de TVA (1,57 $ sur les
+7,83 $ hors taxe de septembre). Le numéro américain est facturé 0,0085 $ la minute et
+non 0,01 $ : il n'est plus celui d'un restaurant, on ne le distingue pas.
 
 Relevé du **28/09/2026**, pour un appel de 3,5 minutes : **≈ 9,4 c$, soit ≈ 8,7 c€**
 (1 € = 1,08 $ — le taux dérive, le recalculer avant toute décision qui en dépend).
