@@ -62,8 +62,13 @@ POSTES = ("telephonie", "transcription", "comprehension", "voix")
 
 
 def cout_flux(secondes: float) -> float:
-    """Le flux audio d'un appel que l'assistante sert, à la minute entamée. Un appel parti
-    au répondeur ou au restaurant sans passer par elle n'en a pas."""
+    """Le flux audio d'un appel que l'assistante sert, à la minute entamée. Un appel
+    renvoyé dès le décroché (répondeur, restaurant) n'en a pas.
+
+    Non traité : un appel qui tombe en panne EN COURS de route a eu un flux, mais
+    `conclure_secours` rechiffre sa téléphonie sans lui (et `finish_call`, s'il passe en
+    dernier, le compte sur toute la durée). L'écart est de 0,0044 $ par minute sur des
+    appels rares ; le corriger demanderait de noter la durée du flux en base."""
     if not secondes or secondes <= 0:
         return 0.0
     return round(math.ceil(secondes / 60.0) * _COST_TWILIO_FLUX_PER_MIN, 6)

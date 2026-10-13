@@ -292,7 +292,7 @@ répéter. Il faut un portable français de métropole.
 | W5 | Entre 8 h et minuit, saisir son portable | « Votre téléphone va sonner » ; il sonne en moins de dix secondes et affiche la ligne de démonstration | |
 | W6 | Décrocher | Sans blanc : « Bonjour, c'est Marie, l'assistante vocale d'Helmane. Vous avez demandé à être rappelé… », puis la mention d'enregistrement | |
 | W7 | Réserver une table, puis demander « c'est quoi Helmane ? » | La table est enregistrée dans le carnet de l'établissement de démonstration ; elle répond qu'elle est là pour la démonstration et renvoie au site, sans rien inventer | |
-| W8 | Admin → Appels | L'appel porte « Rappel du site » ; sa téléphonie est au tarif sortant (0,0404 $ par minute entamée vers un portable) | |
+| W8 | Admin → Appels | L'appel porte « Rappel du site » ; sa téléphonie est au tarif sortant, flux audio compris (0,0448 $ par minute entamée vers un portable : 0,0404 + 0,0044) | |
 | W9 | Redemander un rappel deux fois avec le même numéro | Le deuxième sonne ; le troisième est refusé : « Ce numéro a déjà demandé plusieurs rappels en 24 heures » | |
 | W10 | Ne pas décrocher (à faire au deuxième rappel de W9) | Le téléphone sonne 25 s puis s'arrête ; aucun appel au journal | |
 | W11 | Entre minuit et 8 h, saisir son portable (ASSISTANTE-125) | « C'est noté. Marie ne rappelle pas à cette heure-ci : nous vous rappelons à partir de 8 h » ; le téléphone **ne sonne pas** ; un e-mail « À rappeler — demande reçue sur le site hors plage » arrive dans la boîte de `ADMIN_EMAIL`, avec le numéro | |

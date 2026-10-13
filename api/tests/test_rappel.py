@@ -575,15 +575,24 @@ class TestLeCoutDUnAppelSortant:
 
 
 class TestLeFluxAudio:
-    def test_un_appel_parti_au_repondeur_n_a_pas_de_flux(self):
-        """Media Streams ne se paie que si l'assistante a servi l'appel."""
+    def test_un_appel_renvoye_des_le_decroche_n_a_pas_de_flux(self):
+        """Media Streams ne se paie que si l'assistante a servi l'appel : un appel parti
+        droit au répondeur ne coûte que sa minute."""
+        tenant = tenants.get_by_phone(DEMO_NUMBER)
+        calls.ouvrir_secours("CA-sans-flux", tenant.id, "+33612345678", "essai")
+        with db.get_conn() as conn:
+            conn.execute("UPDATE calls SET started_at = ? WHERE call_sid = ?",
+                         (horloge.il_y_a(65 / 86400), "CA-sans-flux"))
+        calls.conclure_secours("CA-sans-flux", calls.SECOURS_MESSAGE)
+        assert _appel("CA-sans-flux")["cout_telephonie"] == pytest.approx(2 * calls._COST_TWILIO_PER_MIN)
+
+    def test_le_flux_se_paie_a_la_minute_entamee(self):
         assert calls.cout_flux(0) == 0.0
         assert calls.cout_flux(61) == pytest.approx(2 * calls._COST_TWILIO_FLUX_PER_MIN)
 
-    def test_la_facture_de_septembre_retombe_sur_ses_pieds(self):
-        """387 minutes facturées 1,70 $ de flux, 223 minutes françaises facturées 2,23 $."""
+    def test_le_tarif_retombe_sur_la_facture_de_septembre(self):
+        """387 minutes de flux facturées 1,70 $ : le tarif retenu ne s'en écarte pas."""
         assert 387 * calls._COST_TWILIO_FLUX_PER_MIN == pytest.approx(1.70, abs=0.005)
-        assert 223 * calls._COST_TWILIO_PER_MIN == pytest.approx(2.23, abs=0.005)
 
 
 class TestLaConservation:

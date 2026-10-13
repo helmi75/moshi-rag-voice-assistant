@@ -27,6 +27,8 @@ chiffrage ignorait : le flux audio vers notre serveur (Media Streams), 387 minut
   pour le passé.
 - La location des numéros et la TVA de Twilio ne sont pas des coûts d'appel : elles ne
   sont pas affichées dans l'admin.
+- Un appel qui tombe en panne en cours de route a eu un flux, que son chiffrage de
+  secours ne compte pas (0,0044 $ par minute, sur des appels rares) : non traité.
 - Les prix de vente ne changent pas.
 
 ## Non publiée — la recette d'appels joue le répondeur (ASSISTANTE-150, 12/10/2026)
