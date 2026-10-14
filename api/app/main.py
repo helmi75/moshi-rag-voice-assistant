@@ -159,6 +159,9 @@ async def _demarrer_taches_de_fond():
 
     taches.lancer(supervision.boucle_twilio(), nom="relève des alertes Twilio")
     taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
+    # Les séries de chaque établissement existent à zéro dès la première relève : une
+    # série qui naît à 1 au premier secours échapperait à l'alerte (app/metriques.py).
+    await db.hors_boucle(metriques.amorcer_le_parc)
     # Horaires des carnets resOS lus dès le démarrage : le premier appel après un
     # déploiement les a déjà dans son prompt (SCRUM-86).
     from . import connecteurs
@@ -622,7 +625,7 @@ async def voice_stream(websocket: WebSocket):
     # Compté ici, pour les deux moteurs, jusqu'à la fermeture du flux quelle qu'en soit
     # la cause : c'est la jauge « appels en cours » des tableaux de bord.
     etablissement_mesure = tenant.id
-    metriques.appel_ouvert(etablissement_mesure)
+    metriques.appel_ouvert(etablissement_mesure, call_sid)
     try:
         # GPT-Live (app/voice/live.py) : seulement pour les établissements dont c'est le
         # moteur, seulement s'il n'est pas à l'écart après un échec, et seulement si la
@@ -658,4 +661,4 @@ async def voice_stream(websocket: WebSocket):
         except RuntimeError:
             pass  # déjà fermée
     finally:
-        metriques.appel_ferme(etablissement_mesure)
+        metriques.appel_ferme(etablissement_mesure, call_sid)

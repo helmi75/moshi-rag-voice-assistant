@@ -305,7 +305,7 @@ def finish_call(
         )
     # Après l'écriture : une mesure (app/metriques.py) ne passe jamais avant la base.
     metriques.appel_clos(
-        row["tenant_id"], status=status, duree=duration,
+        row["tenant_id"], call_sid=call_sid, status=status, duree=duration,
         transcript=transcript_json, secours_motif=row["secours_motif"], fournisseur=couts["fournisseur"],
         blancs_ms=turn_latencies)
     return row["id"]
@@ -345,15 +345,18 @@ def ouvrir_secours(call_sid: Optional[str], tenant_id: int, caller_number: Optio
                ON CONFLICT(call_sid) DO NOTHING""",
             (call_sid, tenant_id, caller_number),
         )
-        row = conn.execute("SELECT id, started_at, ended_at, secours_motif FROM calls "
-                           "WHERE call_sid = ?", (call_sid,)).fetchone()
+        row = conn.execute("SELECT id, started_at, ended_at FROM calls WHERE call_sid = ?",
+                           (call_sid,)).fetchone()
         if row is None:
             return None
-        # Compté une fois par appel : un second passage garde le premier motif.
-        if row["secours_motif"] is None:
-            metriques.secours(tenant_id, motif)
-        conn.execute("UPDATE calls SET secours_motif = COALESCE(secours_motif, ?), status = ? "
-                     "WHERE id = ?", (motif, SECOURS_NON_SERVI, row["id"]))
+        # Le premier motif gagne, en une écriture : deux `/twilio/suite` simultanés ne
+        # peuvent pas l'écrire tous les deux, donc le secours n'est compté qu'une fois.
+        premier = conn.execute("UPDATE calls SET secours_motif = ? "
+                               "WHERE id = ? AND secours_motif IS NULL",
+                               (motif, row["id"])).rowcount == 1
+        conn.execute("UPDATE calls SET status = ? WHERE id = ?", (SECOURS_NON_SERVI, row["id"]))
+    if premier:
+        metriques.secours(tenant_id, motif, call_sid)
     conclure_secours(call_sid, SECOURS_NON_SERVI)
     return row["id"]
 

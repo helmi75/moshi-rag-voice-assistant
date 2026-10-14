@@ -84,37 +84,45 @@ DUREES = Histogram(
 )
 
 
-def etablissement(tenant_id) -> str:
-    """L'étiquette d'un établissement. L'établissement d'essai de la recette porte
-    « essai » : ses appels automatiques ne doivent pas se confondre avec un client."""
-    from . import essai
+def etablissement(tenant_id, call_sid: Optional[str] = None) -> str:
+    """L'étiquette d'un établissement. Ni l'établissement d'essai de la recette
+    (« essai ») ni le banc d'appels (« banc », `calls.PREFIXE_BANC`, qui passe par un vrai
+    établissement) ne doivent se confondre avec le trafic d'un client."""
+    from . import calls, essai
 
+    if call_sid and call_sid.startswith(calls.PREFIXE_BANC):
+        return "banc"
     if essai.est_d_essai(tenant_id):
         return "essai"
     return str(tenant_id)
 
 
-def appel_ouvert(tenant_id) -> None:
+def appel_ouvert(tenant_id, call_sid: Optional[str] = None) -> None:
     try:
-        APPELS_EN_COURS.labels(etablissement(tenant_id)).inc()
+        APPELS_EN_COURS.labels(etablissement(tenant_id, call_sid)).inc()
     except Exception as exc:
         logger.debug(f"[métriques] appel_ouvert : {exc}")
 
 
-def appel_ferme(tenant_id) -> None:
+def appel_ferme(tenant_id, call_sid: Optional[str] = None) -> None:
     try:
-        APPELS_EN_COURS.labels(etablissement(tenant_id)).dec()
+        APPELS_EN_COURS.labels(etablissement(tenant_id, call_sid)).dec()
     except Exception as exc:
         logger.debug(f"[métriques] appel_ferme : {exc}")
 
 
 def issue(status: str, duree: float, transcript: Optional[str],
-          secours_motif: Optional[str]) -> str:
+          secours_motif: Optional[str], call_sid: Optional[str] = None) -> str:
     """Ce qu'est devenu l'appel, avec la règle du contrôle « Appels muets » : un appel
-    `completed` de plus de `SUPERVISION_MUET_SECONDES` où le modèle n'a rien dit."""
-    from . import supervision
+    `completed` de plus de `SUPERVISION_MUET_SECONDES` où le modèle n'a rien dit.
 
-    if secours_motif:
+    Un appel que la vigie rend au restaurant est clos ICI avant que `/twilio/suite`
+    n'écrive son motif en base (elle arrive après la fermeture du flux) : c'est la
+    demande en mémoire (`renvoi.est_demande`) qui dit qu'il part en secours. Sans elle,
+    il serait compté « servi » si le modèle avait parlé avant la panne."""
+    from . import renvoi, supervision
+
+    if secours_motif or renvoi.est_demande(call_sid):
         return SECOURS
     if status != "completed":
         return ECHEC
@@ -123,15 +131,15 @@ def issue(status: str, duree: float, transcript: Optional[str],
     return SERVI
 
 
-def appel_clos(tenant_id, *, status: str, duree: float, transcript: Optional[str],
-               secours_motif: Optional[str], fournisseur: Optional[str],
-               blancs_ms: Optional[list[int]]) -> None:
+def appel_clos(tenant_id, *, call_sid: Optional[str], status: str, duree: float,
+               transcript: Optional[str], secours_motif: Optional[str],
+               fournisseur: Optional[str], blancs_ms: Optional[list[int]]) -> None:
     """Appelée par `calls.finish_call`, une fois l'appel écrit en base."""
     try:
-        cle = etablissement(tenant_id)
+        cle = etablissement(tenant_id, call_sid)
         moteur = GPT_LIVE if fournisseur == GPT_LIVE else PIPECAT
         APPELS_TERMINES.labels(cle, moteur, issue(status, duree, transcript,
-                                                  secours_motif)).inc()
+                                                  secours_motif, call_sid)).inc()
         DUREES.labels(cle).observe(max(0.0, float(duree or 0)))
         for blanc in blancs_ms or ():
             BLANCS.labels(cle).observe(blanc / 1000.0)
@@ -139,9 +147,9 @@ def appel_clos(tenant_id, *, status: str, duree: float, transcript: Optional[str
         logger.debug(f"[métriques] appel_clos : {exc}")
 
 
-def secours(tenant_id, motif: str) -> None:
+def secours(tenant_id, motif: str, call_sid: Optional[str] = None) -> None:
     try:
-        SECOURS_OUVERTS.labels(etablissement(tenant_id), motif or "inconnu").inc()
+        SECOURS_OUVERTS.labels(etablissement(tenant_id, call_sid), motif or "inconnu").inc()
     except Exception as exc:
         logger.debug(f"[métriques] secours : {exc}")
 
@@ -151,6 +159,23 @@ def erreur(tenant_id, maillon: str) -> None:
         ERREURS.labels(etablissement(tenant_id), maillon).inc()
     except Exception as exc:
         logger.debug(f"[métriques] erreur : {exc}")
+
+
+def _amorcer(cle: str) -> None:
+    """Crée à zéro toutes les séries d'un établissement. Une série qui naît à 1, au
+    premier secours, est invisible pour `increase()` : sans amorce, l'alerte « un appel
+    en secours » ne partirait pas pour le premier secours depuis le déploiement — au
+    trafic actuel, presque tous."""
+    from . import renvoi
+
+    APPELS_EN_COURS.labels(cle)
+    for moteur in (PIPECAT, GPT_LIVE):
+        for fin in (SERVI, MUET, ECHEC, SECOURS):
+            APPELS_TERMINES.labels(cle, moteur, fin)
+    for motif in renvoi.LIBELLES:
+        SECOURS_OUVERTS.labels(cle, motif)
+    for maillon in (renvoi.VOIX, renvoi.MODELE, renvoi.TRANSCRIPTION):
+        ERREURS.labels(cle, maillon)
 
 
 class _EtatDuParc:
@@ -182,7 +207,9 @@ class _EtatDuParc:
             labels=["etablissement", "nom"])
         try:
             for tenant in tenants.list_all():
-                noms.add_metric([etablissement(tenant.id), tenant.name], 1)
+                cle = etablissement(tenant.id)
+                noms.add_metric([cle, tenant.name], 1)
+                _amorcer(cle)
         except Exception as exc:
             logger.warning(f"[métriques] établissements illisibles : {exc}")
         yield noms
@@ -195,3 +222,15 @@ def exposition() -> bytes:
     """Le texte servi par `/metrics`. Lit la base (supervision, établissements) : à
     appeler hors de la boucle d'événements."""
     return generate_latest(REGISTRE)
+
+
+def amorcer_le_parc() -> None:
+    """Au démarrage : les séries de chaque établissement existent à zéro dès la
+    première relève (voir `_amorcer`). Lit la base : hors de la boucle d'événements."""
+    from . import tenants
+
+    try:
+        for tenant in tenants.list_all():
+            _amorcer(etablissement(tenant.id))
+    except Exception as exc:
+        logger.warning(f"[métriques] amorce impossible : {exc}")

@@ -20,7 +20,8 @@ alertes par client.
   `secours`) et par moteur, secours par motif, erreurs par maillon, blancs ressentis et
   durées en histogramme, niveau de chacun des 18 contrôles de supervision, mémoire et
   processeur du worker. Tout est découpé par établissement ; l'établissement d'essai
-  porte `essai`.
+  porte `essai`, le banc d'appels `banc`. Les séries de chaque établissement existent à
+  zéro dès le démarrage, pour que l'alerte voie le premier secours.
 - Les mesures sont prises là où l'appel passe déjà (ouverture du flux, clôture en base,
   secours, vigie) : rien sur le chemin de l'audio, et une mesure qui échoue ne fait
   jamais échouer un appel. Aucune donnée personnelle ne sort.

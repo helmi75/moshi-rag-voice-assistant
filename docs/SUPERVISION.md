@@ -119,7 +119,10 @@ l'audio**, et une mesure qui échoue ne fait jamais échouer un appel.
 | `process_*` | Mémoire et processeur du worker : ce qui dira qu'une machine ne suffit plus | — |
 
 `etablissement` est l'identifiant de l'établissement ; l'établissement d'essai de la
-recette porte `essai`, pour que ses appels automatiques ne passent pas pour un client.
+recette porte `essai`, et le banc d'appels (`scripts/banc_appels.py`) `banc`, pour que
+leurs appels automatiques ne passent pas pour un client. Chaque série d'un établissement
+existe **à zéro** dès le démarrage : une série qui naîtrait à 1, au premier secours,
+échapperait à `increase()`, donc à l'alerte.
 **Aucune donnée personnelle** : ni numéro, ni propos, ni identifiant d'appel (un test
 l'exige).
 
@@ -166,8 +169,11 @@ réel. Écarter l'établissement d'essai partout (`etablissement!="essai"`).
   immédiate.
 - **Un appel renvoyé dès le décroché** (panne connue, `renvoi.py`) n'atteint jamais le
   pipeline : il est dans `helmane_secours_total`, pas dans `helmane_appels_termines_total`.
-- **Les erreurs de GPT-Live** ne passent pas par la vigie : elles se lisent dans l'issue
-  des appels (`moteur="gpt-live"`) et dans le contrôle « Crédit OpenAI ».
+- **Les erreurs de GPT-Live** ne passent pas par la vigie : elles se lisent dans le
+  contrôle « Crédit OpenAI » et dans `helmane_secours_total{motif="session"}`. Un appel
+  GPT-Live interrompu en route est clos **avant** que le renvoi soit demandé : son issue
+  dit `servi` ou `muet`, c'est le compteur de secours qui fait foi. Même chose pour un
+  pipeline Pipecat qui lève une exception : issue `echec`, et un secours compté.
 
 ## Angles morts, assumés
 

@@ -146,21 +146,41 @@ class TestIssues:
         assert _valeur("helmane_appels_termines_total", etablissement=str(resto.id),
                        moteur="gpt-live", issue="servi") == avant + 1
 
-    def test_un_appel_passe_en_secours_est_compte_une_fois(self, resto):
-        """La vigie et la fin du flux peuvent ouvrir le secours toutes deux : le premier
-        motif est gardé en base, le compteur ne double pas."""
+    def test_un_appel_rendu_par_la_vigie_est_compte_en_secours(self, resto):
+        """L'ordre de la production : la vigie demande le renvoi, le pipeline s'arrête et
+        clôt l'appel, PUIS Twilio lit `/twilio/suite`, qui écrit le motif. À la clôture,
+        le motif n'est pas encore en base : c'est la demande en mémoire qui compte. Sans
+        elle, cet appel — le modèle avait parlé avant la panne — serait « servi »."""
+        from app import renvoi
+
         cle = str(resto.id)
         secours = _valeur("helmane_secours_total", etablissement=cle, motif="voix")
         clos = _valeur("helmane_appels_termines_total", etablissement=cle,
                        moteur="pipecat", issue="secours")
+        servis = _valeur("helmane_appels_termines_total", etablissement=cle,
+                         moteur="pipecat", issue="servi")
         calls.start_call("CAsecours", resto.id, APPELANT)
-        calls.ouvrir_secours("CAsecours", resto.id, APPELANT, "voix")
-        calls.ouvrir_secours("CAsecours", resto.id, APPELANT, "pipeline")
+        _vieillir("CAsecours", 60)
+        renvoi.demander("CAsecours", renvoi.VOIX)
         calls.finish_call("CAsecours", "completed", REPONDU)
-        assert _valeur("helmane_secours_total", etablissement=cle, motif="voix") == secours + 1
-        assert _valeur("helmane_secours_total", etablissement=cle, motif="pipeline") == 0
+        calls.ouvrir_secours("CAsecours", resto.id, APPELANT, "voix")
         assert _valeur("helmane_appels_termines_total", etablissement=cle,
                        moteur="pipecat", issue="secours") == clos + 1
+        assert _valeur("helmane_appels_termines_total", etablissement=cle,
+                       moteur="pipecat", issue="servi") == servis
+        assert _valeur("helmane_secours_total", etablissement=cle, motif="voix") == secours + 1
+
+    def test_un_secours_n_est_compte_qu_une_fois(self, resto):
+        """`/twilio/suite` peut passer deux fois sur un même appel : le premier motif est
+        gardé en base, le compteur ne double pas."""
+        cle = str(resto.id)
+        voix = _valeur("helmane_secours_total", etablissement=cle, motif="voix")
+        pipeline = _valeur("helmane_secours_total", etablissement=cle, motif="pipeline")
+        calls.start_call("CAdouble", resto.id, APPELANT)
+        calls.ouvrir_secours("CAdouble", resto.id, APPELANT, "voix")
+        calls.ouvrir_secours("CAdouble", resto.id, APPELANT, "pipeline")
+        assert _valeur("helmane_secours_total", etablissement=cle, motif="voix") == voix + 1
+        assert _valeur("helmane_secours_total", etablissement=cle, motif="pipeline") == pipeline
 
 
 class TestBlancs:
@@ -195,6 +215,35 @@ class TestEtablissementDEssai:
                        moteur="pipecat", issue="servi") == avant + 1
         assert _valeur("helmane_appels_termines_total", etablissement=str(resto.id),
                        moteur="pipecat", issue="servi") == 0
+
+
+class TestBanc:
+    def test_les_appels_du_banc_ne_passent_pas_pour_un_client(self, resto):
+        """Le banc (`scripts/banc_appels.py`) appelle par un vrai établissement."""
+        avant = _valeur("helmane_appels_termines_total", etablissement="banc",
+                        moteur="pipecat", issue="servi")
+        client = _valeur("helmane_appels_termines_total", etablissement=str(resto.id),
+                         moteur="pipecat", issue="servi")
+        _appel_clos(resto.id, f"{calls.PREFIXE_BANC}mesure", transcript=REPONDU)
+        assert _valeur("helmane_appels_termines_total", etablissement="banc",
+                       moteur="pipecat", issue="servi") == avant + 1
+        assert _valeur("helmane_appels_termines_total", etablissement=str(resto.id),
+                       moteur="pipecat", issue="servi") == client
+
+
+class TestAmorce:
+    def test_les_series_d_un_etablissement_existent_a_zero_avant_tout_evenement(self):
+        """`increase()` ne voit pas une série qui naît à 1 : sans amorce, l'alerte « un
+        appel en secours » ne partirait pas pour le premier secours depuis le déploiement."""
+        neuf = tenants.create_tenant("Chez Neuf", f"+3362{uuid.uuid4().int % 10**7:07d}")
+        metriques.amorcer_le_parc()
+        texte = metriques.exposition().decode()
+        cle = str(neuf.id)
+        for serie in (f'helmane_secours_total{{etablissement="{cle}",motif="voix"}} 0.0',
+                      f'helmane_appels_termines_total{{etablissement="{cle}",issue="muet",moteur="pipecat"}} 0.0',
+                      f'helmane_erreurs_maillon_total{{etablissement="{cle}",maillon="modele"}} 0.0',
+                      f'helmane_appels_en_cours{{etablissement="{cle}"}} 0.0'):
+            assert serie in texte, serie
 
 
 class TestJamaisAuxDepensDeLAppel:
