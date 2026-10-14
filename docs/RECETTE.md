@@ -145,6 +145,14 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 curl -s -H "X-Supervision-Token: $SUPERVISION_TOKEN" https://app.helmane.fr/supervision | jq
 ```
 
+| # | Test (ASSISTANTE-156, métriques et Grafana) | Attendu | ✅/❌ |
+|---|---|---|---|
+| F7 | `curl -s -o /dev/null -w '%{http_code}' https://app.helmane.fr/metrics` | `401` sans jeton (`404` si `METRIQUES_TOKEN` n'est pas posé) | |
+| F8 | Même requête avec `-H "Authorization: Bearer $METRIQUES_TOKEN"` | Les séries `helmane_…`, dont `helmane_supervision_niveau{controle="global"}` ; **aucun** numéro de téléphone dans le texte | |
+| F9 | Pendant un appel, regarder le tableau de bord Grafana | « Appels en cours » passe à 1 dans la minute, puis revient à 0 | |
+| F10 | Après l'appel | Un appel `servi` de plus sur l'établissement, et ses blancs dans l'histogramme | |
+| F11 | Passer un appel en se taisant après l'accueil (plus de 15 s) | Sur le tableau de bord, un appel `muet` de plus pour l'établissement (`essai` si l'appel vise l'établissement d'essai, que les alertes écartent) | |
+
 ## F bis. Diagnostiquer un appel raté (#88) — le cœur du sujet
 
 Après les appels du bloc D, ouvrir **Journal des appels → un appel → Diagnostic**.

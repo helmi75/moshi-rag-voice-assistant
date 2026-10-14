@@ -126,6 +126,9 @@ services:
       # `.env` du VPS, la sonde répondait 404, et rien n'était surveillé.
       # Sans SUPERVISION_TOKEN, /supervision répond 404 — délibérément.
       SUPERVISION_TOKEN: "${SUPERVISION_TOKEN:-}"
+      # Mesures Prometheus pour Grafana Cloud (ASSISTANTE-156). Sans jeton, /metrics
+      # répond 404 — même règle que la sonde.
+      METRIQUES_TOKEN: "${METRIQUES_TOKEN:-}"
       SUPERVISION_FENETRE_JOURS: "${SUPERVISION_FENETRE_JOURS:-7}"
       SUPERVISION_MUET_SECONDES: "${SUPERVISION_MUET_SECONDES:-15}"
       SUPERVISION_INACHEVE_MINUTES: "${SUPERVISION_INACHEVE_MINUTES:-30}"

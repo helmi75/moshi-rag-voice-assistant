@@ -17,8 +17,8 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, W
 from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
-from . import (calls, db, llm, messages, notifications, rappel, renvoi, supervision, taches,
-               tenants, twilio_signature, users)
+from . import (calls, db, llm, messages, metriques, notifications, rappel, renvoi,
+               supervision, taches, tenants, twilio_signature, users)
 from .voice import live
 
 
@@ -159,6 +159,9 @@ async def _demarrer_taches_de_fond():
 
     taches.lancer(supervision.boucle_twilio(), nom="relève des alertes Twilio")
     taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
+    # Les séries de chaque établissement existent à zéro dès la première relève : une
+    # série qui naît à 1 au premier secours échapperait à l'alerte (app/metriques.py).
+    await db.hors_boucle(metriques.amorcer_le_parc)
     # Horaires des carnets resOS lus dès le démarrage : le premier appel après un
     # déploiement les a déjà dans son prompt (SCRUM-86).
     from . import connecteurs
@@ -295,6 +298,32 @@ async def supervision_probe(request: Request):
         media_type="application/json",
         status_code=code,
     )
+
+
+@app.get("/metrics")
+async def metrics(request: Request):
+    """Les mesures du parc au format Prometheus (app/metriques.py), relevées chaque
+    minute par Grafana Cloud.
+
+    Joignable de l'extérieur, comme `/supervision` : c'est Grafana Cloud qui vient les
+    chercher, sans agent à faire tourner sur la machine des appels. Donc authentifiée :
+    les séries décrivent le trafic de chaque client. Jeton porteur en en-tête
+    (`Authorization: Bearer …`), le format que Grafana sait envoyer, comparé à temps
+    constant ; sans `METRIQUES_TOKEN`, la route n'existe pas.
+    """
+    import asyncio
+    import hmac
+
+    attendu = os.getenv("METRIQUES_TOKEN", "").strip()
+    if not attendu:
+        raise HTTPException(status_code=404, detail="Not Found")
+    fourni = request.headers.get("authorization") or ""
+    if not hmac.compare_digest(f"Bearer {attendu}".encode(), fourni.encode()):
+        raise HTTPException(status_code=401, detail="Jeton de métriques invalide")
+    # La relève lit la base (supervision, établissements) : hors de la boucle, qui
+    # porte l'audio des appels en cours.
+    corps = await asyncio.to_thread(metriques.exposition)
+    return Response(content=corps, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 # Les trois webhooks exigent la signature de Twilio (twilio_signature.exiger) : le numéro
@@ -593,6 +622,10 @@ async def voice_stream(websocket: WebSocket):
 
     run_bot = _get_bot_runner()
     session_live = None
+    # Compté ici, pour les deux moteurs, jusqu'à la fermeture du flux quelle qu'en soit
+    # la cause : c'est la jauge « appels en cours » des tableaux de bord.
+    etablissement_mesure = tenant.id
+    metriques.appel_ouvert(etablissement_mesure, call_sid)
     try:
         # GPT-Live (app/voice/live.py) : seulement pour les établissements dont c'est le
         # moteur, seulement s'il n'est pas à l'écart après un échec, et seulement si la
@@ -627,3 +660,5 @@ async def voice_stream(websocket: WebSocket):
             await websocket.close(code=1011)
         except RuntimeError:
             pass  # déjà fermée
+    finally:
+        metriques.appel_ferme(etablissement_mesure, call_sid)
