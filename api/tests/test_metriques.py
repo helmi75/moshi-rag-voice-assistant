@@ -242,7 +242,9 @@ class TestAmorce:
         for serie in (f'helmane_secours_total{{etablissement="{cle}",motif="voix"}} 0.0',
                       f'helmane_appels_termines_total{{etablissement="{cle}",issue="muet",moteur="pipecat"}} 0.0',
                       f'helmane_erreurs_maillon_total{{etablissement="{cle}",maillon="modele"}} 0.0',
-                      f'helmane_appels_en_cours{{etablissement="{cle}"}} 0.0'):
+                      f'helmane_appels_en_cours{{etablissement="{cle}"}} 0.0',
+                      f'helmane_blanc_secondes_count{{etablissement="{cle}"}} 0.0',
+                      f'helmane_appel_duree_secondes_count{{etablissement="{cle}"}} 0.0'):
             assert serie in texte, serie
 
 

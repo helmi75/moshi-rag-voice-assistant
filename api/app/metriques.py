@@ -169,6 +169,8 @@ def _amorcer(cle: str) -> None:
     from . import renvoi
 
     APPELS_EN_COURS.labels(cle)
+    BLANCS.labels(cle)
+    DUREES.labels(cle)
     for moteur in (PIPECAT, GPT_LIVE):
         for fin in (SERVI, MUET, ECHEC, SECOURS):
             APPELS_TERMINES.labels(cle, moteur, fin)
