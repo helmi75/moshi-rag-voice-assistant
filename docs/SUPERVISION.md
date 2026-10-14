@@ -88,6 +88,87 @@ jeton. C'est **informatif, jamais bloquant** : une sauvegarde en retard n'a pas 
 de livrer un correctif, et une porte qui se ferme pour des motifs sans rapport finit par
 être contournée.
 
+## Métriques et Grafana (ASSISTANTE-156)
+
+`/supervision` dit **si** ça va, à l'instant, toutes les quinze minutes. `/metrics` dit
+**où** et **depuis quand** : des compteurs par établissement, relevés chaque minute par
+Grafana Cloud, qui les garde et les trace. C'est là que se posent les alertes par client.
+
+```
+Grafana Cloud ──1 min──► GET /metrics  (Authorization: Bearer METRIQUES_TOKEN)
+  relève, garde,           api/app/metriques.py
+  trace, alerte            • compteurs en mémoire, ZÉRO appel réseau
+                           • niveaux des 18 contrôles de supervision
+```
+
+Les mesures sont prises là où l'appel passe déjà — ouverture du flux (`main.py`), clôture
+en base (`calls.finish_call`, commune à Pipecat et à GPT-Live), passage en secours
+(`calls.ouvrir_secours`), vigie (un observateur). **Rien n'est ajouté sur le chemin de
+l'audio**, et une mesure qui échoue ne fait jamais échouer un appel.
+
+| Série | Ce qu'elle compte | Étiquettes |
+|---|---|---|
+| `helmane_appels_en_cours` | Appels dont le flux audio est ouvert | `etablissement` |
+| `helmane_appels_termines_total` | Appels clos par issue : `servi`, `muet` (même règle que le contrôle « Appels muets »), `echec`, `secours` | `etablissement`, `moteur` (`pipecat`, `gpt-live`), `issue` |
+| `helmane_secours_total` | Appels rendus au restaurant ou au répondeur, une fois par appel | `etablissement`, `motif` (`voix`, `modele`, `transcription`, `pipeline`…) |
+| `helmane_erreurs_maillon_total` | Chaque erreur de la voix, du modèle ou de la transcription vue par la vigie — y compris celles qui ne renvoient pas l'appel | `etablissement`, `maillon` |
+| `helmane_blanc_secondes` | Blancs ressentis, en histogramme ; 2,5 s et 4 s (les seuils de la supervision) sont des bornes de seau | `etablissement` |
+| `helmane_appel_duree_secondes` | Durée des appels clos | `etablissement` |
+| `helmane_supervision_niveau` | Niveau de chaque contrôle de `/supervision` (0 ok, 1 attention, 2 panne), et `controle="global"` | `controle` |
+| `helmane_etablissement_info` | Le nom de chaque établissement, pour afficher des noms plutôt que des numéros | `etablissement`, `nom` |
+| `process_*` | Mémoire et processeur du worker : ce qui dira qu'une machine ne suffit plus | — |
+
+`etablissement` est l'identifiant de l'établissement ; l'établissement d'essai de la
+recette porte `essai`, pour que ses appels automatiques ne passent pas pour un client.
+**Aucune donnée personnelle** : ni numéro, ni propos, ni identifiant d'appel (un test
+l'exige).
+
+### Mise en place
+
+Chaque étape écrit en production ou ouvre un service : **accord d'Helmi requis**.
+
+1. Générer un jeton **distinct** de celui de la sonde : `openssl rand -hex 32`. Il sera
+   confié à un tiers ; il doit pouvoir se révoquer seul.
+2. Sur le VPS : `METRIQUES_TOKEN=…` dans le `.env`, puis `docker compose up -d api`.
+   **Sans ce jeton, `/metrics` répond 404.**
+3. Créer une pile Grafana Cloud, **en région européenne**, et y déclarer la relève de
+   `https://<domaine>/metrics` toutes les minutes avec le jeton en *Bearer token*
+   (intégration de relève d'un point de terminaison HTTP de Grafana Cloud — son nom et
+   ses options sont à vérifier à la création du compte). À défaut, un agent Grafana
+   Alloy ajouté à `docker-compose.yml` relèverait `api:8000/metrics` sur le réseau
+   interne : un conteneur de plus sur la machine des appels, d'où ce second choix.
+4. Importer le tableau de bord `docs/grafana/helmane.json` (*Dashboards → New →
+   Import*), en choisissant la source Prometheus de la pile.
+5. Poser les alertes ci-dessous, avec Telegram comme point de contact (ASSISTANTE-161),
+   puis **éprouver** chacune : passer un appel muet sur l'établissement d'essai, vérifier
+   que le message arrive.
+
+### Alertes proposées
+
+Les seuils sont des **propositions de départ**, pas des mesures : à régler sur le trafic
+réel. Écarter l'établissement d'essai partout (`etablissement!="essai"`).
+
+| Alerte | Requête | Pourquoi |
+|---|---|---|
+| L'application ne répond plus | `absent(helmane_supervision_niveau{controle="global"})` pendant 3 min | La relève échoue : machine, réseau ou Caddy. La panne qui compte le plus |
+| Supervision en panne | `helmane_supervision_niveau{controle="global"} == 2` pendant 2 min | Le même verdict que `/supervision`, en 1 min au lieu de 15 |
+| Appels muets | `sum by (etablissement) (increase(helmane_appels_termines_total{issue="muet"}[30m])) >= 2` | La panne du 30/07/2026, par client |
+| Appels en secours | `sum by (etablissement) (increase(helmane_secours_total[10m])) > 0` | Un client n'a pas été servi par l'assistante |
+| Blanc qui dérive | `histogram_quantile(0.9, sum by (etablissement, le) (rate(helmane_blanc_secondes_bucket[30m]))) > 2.5` | Le seuil « attention » de la supervision, par client |
+| Un maillon qui perd des phrases | `sum by (etablissement, maillon) (increase(helmane_erreurs_maillon_total[15m])) >= 5` | Une voix qui perd une phrase sur dix ne renvoie aucun appel : seule cette série la voit |
+
+### Ce que les métriques ne voient pas
+
+- **Les compteurs repartent de zéro à chaque redéploiement** : ils vivent dans le
+  processus. Prometheus le sait (`rate`, `increase`) ; une valeur brute, elle, retombe.
+- **Le blanc est compté à la clôture de l'appel**, pas tour par tour : un appel de dix
+  minutes apparaît dix minutes plus tard. La jauge des appels en cours, elle, est
+  immédiate.
+- **Un appel renvoyé dès le décroché** (panne connue, `renvoi.py`) n'atteint jamais le
+  pipeline : il est dans `helmane_secours_total`, pas dans `helmane_appels_termines_total`.
+- **Les erreurs de GPT-Live** ne passent pas par la vigie : elles se lisent dans l'issue
+  des appels (`moteur="gpt-live"`) et dans le contrôle « Crédit OpenAI ».
+
 ## Angles morts, assumés
 
 - **Le TTS Modal n'est pas sondé activement.** Si le serveur de voix tombe et que
@@ -108,6 +189,7 @@ de livrer un correctif, et une porte qui se ferme pour des motifs sans rapport f
 Trois mutations de `scripts/mutation_check.py` coupent le fil de l'alarme à trois
 endroits — la sonde qui renvoie toujours 200, le verdict global forcé au vert, la
 détection des appels muets désarmée. Chacune doit faire **rougir** les tests.
+Une quatrième ouvre `/metrics` sans jeton : `tests/test_metriques.py` doit rougir.
 
 ### L'angle mort du 23/09/2026
 

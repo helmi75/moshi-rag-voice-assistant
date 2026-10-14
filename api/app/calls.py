@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from . import db, essai, horloge
+from . import db, essai, horloge, metriques
 
 # Coût d'un appel, poste par poste (SCRUM-99, 28/09/2026). Chaque tarif se surcharge
 # par variable d'environnement. Le coût EXACT reste l'affaire des factures
@@ -257,9 +257,11 @@ def finish_call(
     externe = None
     if isinstance(reservation_id, str):
         externe, reservation_id = reservation_id, None
+    transcript_json = json.dumps(transcript, ensure_ascii=False) if transcript else None
     with db.get_conn() as conn:
         row = conn.execute(
-            "SELECT id, started_at, sortant, caller_number FROM calls WHERE call_sid = ?",
+            "SELECT id, tenant_id, started_at, sortant, caller_number, secours_motif "
+            "FROM calls WHERE call_sid = ?",
             (call_sid,)
         ).fetchone()
         if row is None:
@@ -289,7 +291,7 @@ def finish_call(
             (
                 duration,
                 status,
-                json.dumps(transcript, ensure_ascii=False) if transcript else None,
+                transcript_json,
                 reservation_id,
                 externe,
                 sum(couts[p] for p in POSTES),
@@ -301,6 +303,11 @@ def finish_call(
                 row["id"],
             ),
         )
+    # Après l'écriture : une mesure (app/metriques.py) ne passe jamais avant la base.
+    metriques.appel_clos(
+        row["tenant_id"], status=status, duree=duration,
+        transcript=transcript_json, secours_motif=row["secours_motif"], fournisseur=couts["fournisseur"],
+        blancs_ms=turn_latencies)
     return row["id"]
 
 
@@ -338,10 +345,13 @@ def ouvrir_secours(call_sid: Optional[str], tenant_id: int, caller_number: Optio
                ON CONFLICT(call_sid) DO NOTHING""",
             (call_sid, tenant_id, caller_number),
         )
-        row = conn.execute("SELECT id, started_at, ended_at FROM calls WHERE call_sid = ?",
-                           (call_sid,)).fetchone()
+        row = conn.execute("SELECT id, started_at, ended_at, secours_motif FROM calls "
+                           "WHERE call_sid = ?", (call_sid,)).fetchone()
         if row is None:
             return None
+        # Compté une fois par appel : un second passage garde le premier motif.
+        if row["secours_motif"] is None:
+            metriques.secours(tenant_id, motif)
         conn.execute("UPDATE calls SET secours_motif = COALESCE(secours_motif, ?), status = ? "
                      "WHERE id = ?", (motif, SECOURS_NON_SERVI, row["id"]))
     conclure_secours(call_sid, SECOURS_NON_SERVI)

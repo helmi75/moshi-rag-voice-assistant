@@ -21,3 +21,5 @@ loguru
 jinja2
 itsdangerous
 bcrypt
+# Mesures au format Prometheus, relevées par Grafana Cloud (app/metriques.py).
+prometheus-client

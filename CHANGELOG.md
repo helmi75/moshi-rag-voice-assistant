@@ -7,6 +7,32 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — métriques Prometheus pour Grafana (14/10/2026, ASSISTANTE-156)
+
+`/supervision` rendait un verdict global relevé toutes les quinze minutes, sans
+historique ni vue par établissement : la panne d'**un** restaurant, ou une dérive lente,
+ne se voyait pas. Avec beaucoup de clients, il faut des mesures dans le temps et des
+alertes par client.
+
+### Ajouté
+- **`/metrics`**, au format Prometheus, protégée par un jeton porteur (`METRIQUES_TOKEN`,
+  404 sans lui) : appels en cours, appels clos par issue (`servi`, `muet`, `echec`,
+  `secours`) et par moteur, secours par motif, erreurs par maillon, blancs ressentis et
+  durées en histogramme, niveau de chacun des 18 contrôles de supervision, mémoire et
+  processeur du worker. Tout est découpé par établissement ; l'établissement d'essai
+  porte `essai`.
+- Les mesures sont prises là où l'appel passe déjà (ouverture du flux, clôture en base,
+  secours, vigie) : rien sur le chemin de l'audio, et une mesure qui échoue ne fait
+  jamais échouer un appel. Aucune donnée personnelle ne sort.
+- **Un tableau de bord à importer** (`docs/grafana/helmane.json`) et des alertes
+  proposées, dans `docs/SUPERVISION.md`.
+- Dépendance `prometheus-client`.
+
+### À faire au déploiement
+- Poser `METRIQUES_TOKEN`, créer la pile Grafana Cloud (région européenne), déclarer la
+  relève, importer le tableau de bord, poser les alertes : `docs/SUPERVISION.md`,
+  « Mise en place ».
+
 ## Non publiée — la téléphonie d'un appel compte son flux audio (13/10/2026)
 
 La facture Twilio de septembre 2026 (7,83 $ hors taxe) a été comparée à la base. Les

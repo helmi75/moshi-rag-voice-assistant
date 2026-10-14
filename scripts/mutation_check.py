@@ -135,6 +135,15 @@ GARDE_FOUS = [
         panne="la sonde répondrait 200 en pleine panne : surveillance parfaitement muette",
     ),
     GardeFou(
+        nom="/metrics exige son jeton (ASSISTANTE-156)",
+        fichier="api/app/main.py",
+        avant='    if not hmac.compare_digest(f"Bearer {attendu}".encode(), fourni.encode()):',
+        apres="    if False:  # mutation",
+        tests=["test_metriques.py"],
+        k="jeton or session",
+        panne="n'importe qui lirait le trafic de chaque client et le nom de tous les établissements",
+    ),
+    GardeFou(
         nom="Le verdict global est le PIRE des contrôles",
         fichier="api/app/supervision.py",
         avant='    return max(niveaux, key=lambda n: _RANG.get(n, 0)) if niveaux else OK',

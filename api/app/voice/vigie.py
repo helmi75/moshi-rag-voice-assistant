@@ -27,7 +27,7 @@ from pipecat.services.llm_service import LLMService
 from pipecat.services.stt_service import STTService
 from pipecat.services.tts_service import TTSService
 
-from .. import renvoi
+from .. import metriques, renvoi
 
 ERREURS_DE_SUITE = 2
 
@@ -48,9 +48,11 @@ class Vigie(BaseObserver):
     """Prévient (`alerter(cause)`) quand un maillon échoue deux fois de suite. Une seule
     alerte par appel : après, l'appel n'est plus le sien."""
 
-    def __init__(self, alerter: Callable[[str], Awaitable[None]]):
+    def __init__(self, alerter: Callable[[str], Awaitable[None]],
+                 tenant_id: Optional[int] = None):
         super().__init__()
         self._alerter = alerter
+        self._tenant_id = tenant_id
         self._de_suite = {renvoi.VOIX: 0, renvoi.MODELE: 0, renvoi.TRANSCRIPTION: 0}
         self._vues: set[int] = set()
         self.alertee: Optional[str] = None
@@ -70,10 +72,16 @@ class Vigie(BaseObserver):
 
     async def _erreur(self, frame: ErrorFrame, source) -> None:
         # Une erreur remonte le pipeline de maillon en maillon : comptée une seule fois.
-        if frame.id in self._vues or self.alertee:
+        if frame.id in self._vues:
             return
         self._vues.add(frame.id)
         maillon = cause(getattr(frame, "processor", None)) or cause(source)
+        if maillon is not None and self._tenant_id is not None:
+            # Chaque erreur, pas seulement celles qui déclenchent l'alerte : une voix qui
+            # perd une phrase sur dix ne renvoie aucun appel, mais elle se voit ici.
+            metriques.erreur(self._tenant_id, maillon)
+        if self.alertee:
+            return
         if getattr(frame, "fatal", False):
             # Pipecat va arrêter le pipeline sur cette erreur : inutile d'attendre la
             # seconde, et il faut rendre la ligne AVANT qu'il ne raccroche.

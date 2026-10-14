@@ -888,7 +888,7 @@ async def run_bot(
 
     from .vigie import Vigie
 
-    vigie = Vigie(_passer_la_main)
+    vigie = Vigie(_passer_la_main, tenant.id)
     task = PipelineTask(
         pipeline,
         observers=[latence, bord, vigie],
