@@ -7,6 +7,21 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la tournée quotidienne (24/10/2026, ASSISTANTE-172)
+
+### Ajouté
+- **Chaque jour à 8 h, une tournée d'exploitation** (`app/tournee.py`), en lecture seule :
+  tous les contrôles de la supervision, le crédit OpenRouter, et les exécutions de GitHub
+  Actions en échec sur `main` depuis vingt-quatre heures. Elle n'écrit aux super-admins que
+  si un point est à l'orange ou au rouge, une fois par jour. Les alertes par épisode
+  existaient ; rien ne repassait sur l'ensemble, et un échec de la CI ou de la sonde ne
+  prévenait que la personne qui avait modifié le workflow.
+- **Contrôle « Crédit OpenRouter »** : le cerveau de la chaîne classique, et le secours de
+  GPT-Live, s'arrête à crédit vide. Le crédit se lit par l'API (vérifié le 24/10 : 6,99 $
+  restants). Seuil de 3 $ (`SUPERVISION_CREDIT_OPENROUTER_MIN`), décision du 24/10.
+- Pas lisibles par API, vérifié le 24/10 : le solde Mistral et le solde Deepgram (la clé de
+  production n'a pas le droit de le lire).
+
 ## Non publiée — un second regard sur le code (24/10/2026, ASSISTANTE-171)
 
 ### Ajouté

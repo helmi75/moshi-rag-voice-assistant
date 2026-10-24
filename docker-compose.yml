@@ -146,6 +146,8 @@ services:
       # Sous ce solde (en dollars), le contrôle « Solde Twilio » alerte, un e-mail part aux
       # super-admins et la recette automatique ne compose plus (décision du 23/10/2026).
       SUPERVISION_SOLDE_TWILIO_MIN: "${SUPERVISION_SOLDE_TWILIO_MIN:-5}"
+      SUPERVISION_CREDIT_OPENROUTER_MIN: "${SUPERVISION_CREDIT_OPENROUTER_MIN:-3}"
+      SUPERVISION_TOURNEE_HEURE: "${SUPERVISION_TOURNEE_HEURE:-08:00}"
       SUPERVISION_BACKUP_STAMP: "${SUPERVISION_BACKUP_STAMP:-/app/data/derniere-sauvegarde}"
       # Données personnelles (#22). Mêmes règles que ci-dessus : une variable posée dans
       # `.env` n'atteint pas le conteneur si elle ne figure pas ICI.

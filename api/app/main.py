@@ -18,7 +18,7 @@ from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
 from . import (calls, db, llm, messages, metriques, notifications, rappel, renvoi,
-               supervision, taches, tenants, twilio_signature, users)
+               supervision, taches, tenants, tournee, twilio_signature, users)
 from .voice import live
 
 
@@ -158,6 +158,7 @@ async def _demarrer_taches_de_fond():
     from . import rgpd
 
     taches.lancer(supervision.boucle_twilio(), nom="relève des alertes Twilio")
+    taches.lancer(tournee.boucle(), nom="tournée quotidienne")
     taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
     # Les séries de chaque établissement existent à zéro dès la première relève : une
     # série qui naît à 1 au premier secours échapperait à l'alerte (app/metriques.py).
