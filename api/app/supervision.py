@@ -1319,16 +1319,21 @@ async def _relever_le_solde(client, *, inactif: bool) -> None:
                           "devise": str(corps.get("currency") or "USD")}
         except Exception as exc:
             releve = {"erreur": type(exc).__name__}
-    # Un e-mail par épisode : sous le seuil, ou compte suspendu. Il repart quand le solde
-    # est revenu au-dessus du seuil puis retombe.
-    a_prevenir = (releve.get("erreur") == COMPTE_INACTIF
-                  or ("solde" in releve and releve["solde"] < solde_twilio_seuil()))
-    if a_prevenir:
-        releve["prevenu"] = True
-    elif "erreur" in releve:
-        releve["prevenu"] = bool(deja)   # une relève ratée ne clôt pas l'épisode
+    # Un e-mail par épisode : sous le seuil, puis un second si le compte est suspendu (la
+    # vidange normale passe par « bas » avant « inactif », et c'est le jour où la ligne
+    # meurt qu'il faut prévenir). Il repart quand le solde est revenu au-dessus du seuil.
+    if releve.get("erreur") == COMPTE_INACTIF:
+        nature = "inactif"
+    elif "solde" in releve and releve["solde"] < solde_twilio_seuil():
+        nature = "inactif" if deja == "inactif" else "bas"
+    else:
+        nature = None
+    if nature:
+        releve["prevenu"] = nature
+    elif "erreur" in releve and deja:
+        releve["prevenu"] = deja   # une relève ratée ne clôt pas l'épisode
     await db.hors_boucle(noter, "solde_twilio", releve)
-    if a_prevenir and not deja:
+    if nature and nature != deja:
         from . import notifications, taches
         taches.lancer(notifications.prevenir_solde_twilio(
             releve.get("solde"), releve.get("devise"), solde_twilio_seuil()),

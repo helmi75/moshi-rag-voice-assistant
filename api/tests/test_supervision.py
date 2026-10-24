@@ -808,6 +808,48 @@ class TestSoldeTwilio:
         self._relever(monkeypatch, "3", envois)
         assert envois == [(4.2, "USD", 5.0), (3.0, "USD", 5.0)]
 
+    def test_le_compte_suspendu_previent_meme_apres_le_solde_bas(self, base, monkeypatch):
+        """Relecture : la vidange normale passe par « bas » avant « inactif ». Le premier
+        e-mail ne doit pas faire taire celui du jour où la ligne meurt."""
+        envois: list = []
+        self._relever(monkeypatch, "4.20", envois)
+        supervision.noter("solde_twilio", {"erreur": "ConnectTimeout", "prevenu": "bas"})
+        with patch.object(supervision, "_motif_du_refus", lambda r: "compte inactif"):
+            self._relever_suspendu(monkeypatch, envois)
+            self._relever_suspendu(monkeypatch, envois)
+        assert envois == [(4.2, "USD", 5.0), (None, None, 5.0)]
+
+    def _relever_suspendu(self, monkeypatch, envois):
+        import asyncio
+
+        import httpx
+
+        class _Reponse:
+            status_code = 401
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError("refusé", request=None, response=self)
+
+            def json(self):
+                return {}
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, *a, **k):
+                return _Reponse()
+
+        async def _prevenir(*args):
+            envois.append(args)
+
+        monkeypatch.setattr("app.notifications.prevenir_solde_twilio", _prevenir)
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_twilio())
+
     def test_a_zero_c_est_une_panne(self, base, monkeypatch):
         self._relever(monkeypatch, "-0.12", [])
         assert _controle("solde_twilio")["niveau"] == supervision.PANNE

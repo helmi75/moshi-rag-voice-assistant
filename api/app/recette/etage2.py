@@ -212,7 +212,9 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
             lignes.append(ligne)
             partis: list[str] = []
             refus_budget = budget.refus(borne(moteur, etage=2), depense)
-            en_cours = gardes.appel_reel_en_cours()
+            # Revus avant chaque scénario : un vrai appel arrivé, ou le solde Twilio relevé
+            # sous le seuil pendant la recette, l'arrêtent là.
+            en_cours = gardes.appel_reel_en_cours() or supervision.solde_insuffisant()
             if refus_budget or en_cours:
                 ligne.update(etat=verdicts.NON_JOUE, preuve=refus_budget or en_cours)
                 continue
