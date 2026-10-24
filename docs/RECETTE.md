@@ -243,6 +243,7 @@ Prérequis : `MISTRAL_API_KEY` posée sur le serveur (docs/VOXTRAL.md).
 | P5 | Une fiche → **Modifier**, changer une ligne, **Enregistrer** | « Fiche … enregistrée. » ; au prochain appel, l'assistante cite la nouvelle information (SCRUM-111) | |
 | P6 | **Ajouter une fiche** « Accès », puis la **Supprimer** | Elle apparaît, puis disparaît ; la jauge de caractères suit | |
 | P7 | Deux onglets sur « Ce que l'IA sait » : modifier dans l'un, puis dans l'autre | Le second est **refusé** (« modifiée entre-temps ») : rien n'est écrasé | |
+| P7b | « Ce que l'IA sait » **sur téléphone**, en clair puis en sombre → Modifier les horaires | Chaque jour en bloc : le jour et « Fermé », puis Service 1 et Service 2 sur leur ligne, rien hors de l'écran ; les lignes ont le fond de la carte. Saisir un service, Enregistrer : il est appliqué (ASSISTANTE-166) | |
 | P8 | « Fiche établissement » | Seulement l'identité, la ligne et l'e-mail ; plus de grand champ de texte | |
 | P9 | Réservations (ordinateur) | Le **mois** : réservations et couverts par jour, lundi grisé si fermé ; un clic sur un jour ouvre le jour (SCRUM-112) | |
 | P10 | Réservations → Semaine | Chaque réservation à son heure : heure, couverts, nom ; annulées barrées | |

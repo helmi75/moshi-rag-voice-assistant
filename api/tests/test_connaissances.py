@@ -235,3 +235,31 @@ def test_le_conflit_s_affiche_dans_la_page():
 
     script = (Path(admin.__file__).parent / "static" / "admin.js").read_text()
     assert "status === 409" in script and "status === 422" in script
+
+
+class TestLaGrilleDesHorairesSurTelephone:
+    """Relevé par la recette du 12/10/2026, à 390 px : la colonne « Service 2 » sortait de
+    l'écran, et en sombre les lignes étaient plus claires que la carte. Le rendu se juge à
+    l'œil ; ce test garde ce qui le permet."""
+
+    def test_la_grille_se_replie_et_chaque_case_a_coche_a_son_libelle(self, resto):
+        tenant, _ = resto
+        page = _client().get(f"/admin/tenants/{tenant.id}/knowledge").text
+        assert 'class="horaires-grille"' in page
+        assert page.count('class="horaires-service"') == 14            # 7 jours × 2 services
+        # Sans en-tête de colonne sur téléphone, « Fermé » est écrit à côté de la case.
+        assert page.count('<label class="horaires-ferme">') == 7
+
+    def test_les_champs_envoyes_sont_ceux_que_la_route_lit(self, resto):
+        """Le formulaire a changé de forme, pas de contenu : routes_horaires.py lit
+        `<jour>_ferme` et `<jour>_<n>_debut|fin`."""
+        import re
+
+        from app.disponibilite import JOURS as jours
+        tenant, _ = resto
+        page = _client().get(f"/admin/tenants/{tenant.id}/knowledge").text
+        grille = page[page.index('class="horaires-grille"'):page.index("</table>")]
+        noms = set(re.findall(r'name="([^"]+)"', grille))
+        attendus = {f"{j}_ferme" for j in jours}
+        attendus |= {f"{j}_{n}_{b}" for j in jours for n in (1, 2) for b in ("debut", "fin")}
+        assert noms == attendus

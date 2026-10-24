@@ -726,6 +726,31 @@ tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
 h2.form-section { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--app-muted); margin: 1.1rem 0 .6rem; }
 h2.form-section:first-of-type { margin-top: 0; }
 .kb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: .9rem; }
+/* Grille des horaires (« Ce que l'IA sait »). Ses cellules prennent le fond de la carte : celui
+   de Pico, plus clair que la carte en sombre, en faisait un bandeau. Sous 640 px, chaque jour
+   devient un bloc : la colonne « Service 2 » sortait de l'écran d'un téléphone. */
+.horaires-grille tbody td { background-color: transparent; }
+/* Une grille de saisie, pas une liste : pas de bandeau au survol. */
+.horaires-grille tbody tr:hover { background: none; }
+.horaires-service { white-space: nowrap; }
+.horaires-service input[type="time"] { width: 7.5rem; display: inline-block; }
+.horaires-ferme { display: inline-flex; align-items: center; gap: .45rem; margin: 0; }
+.horaires-ferme input { margin: 0; }
+.horaires-telephone { display: none; }
+@media (max-width: 640px) {
+  .horaires-grille thead { display: none; }
+  .horaires-grille, .horaires-grille tbody { display: block; }
+  .horaires-grille tbody tr { display: grid; grid-template-columns: 1fr auto; gap: .55rem .8rem;
+                              align-items: center; padding: .8rem 0;
+                              border-bottom: 1px solid var(--app-hairline); }
+  .horaires-grille tbody tr:last-child { border-bottom: none; }
+  .horaires-grille tbody td { display: block; padding: 0; border: none; }
+  .horaires-grille tbody td:first-child { font-weight: 600; }
+  .horaires-grille .horaires-service { grid-column: 1 / -1; display: flex; align-items: center; gap: .5rem; }
+  .horaires-grille .horaires-service input[type="time"] { flex: 1; width: auto; min-width: 0; margin: 0; }
+  .horaires-telephone { display: inline; font-size: .8rem; }
+  .horaires-service .horaires-telephone { min-width: 4.4rem; }
+}
 .kb-body { font-size: .84rem; color: var(--app-muted); line-height: 1.55; white-space: pre-line; margin: .6rem 0 0; }
 
 /* ---- Divers -------------------------------------------------------------- */

@@ -24,8 +24,8 @@
   {% if lettres %}
   <p class="kb-body">{{ lettres }}</p>
   {% else %}
-  <p class="kb-body">Rien de renseigné : l'assistante ne refuse aucun créneau, même un jour
-     de fermeture.</p>
+  {# Sur une seule ligne : `.kb-body` garde les retours à la ligne (pre-line). #}
+  <p class="kb-body">Rien de renseigné : l'assistante ne refuse aucun créneau, même un jour de fermeture.</p>
   {% endif %}
   <p class="card-sub">Hors de ces plages, l'assistante refuse la réservation et propose le
      créneau ouvert le plus proche.</p>
@@ -41,7 +41,9 @@
     <form method="post" action="/admin/tenants/{{ tenant.id }}/horaires" style="margin-top: .8rem">
       <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
       <div style="overflow-x: auto">
-      <table>
+      {# Sous 640 px, chaque jour devient un bloc (admin.css, .horaires-grille) : la colonne
+         « Service 2 » sortait de l'écran d'un téléphone, sans rien qui dise qu'elle défile. #}
+      <table class="horaires-grille">
         <thead>
           <tr><th>Jour</th><th>Fermé</th><th>Service 1</th><th>Service 2</th></tr>
         </thead>
@@ -49,15 +51,17 @@
         {% for j in grille %}
           <tr>
             <td>{{ j.label }}</td>
-            <td><input type="checkbox" name="{{ j.nom }}_ferme" {% if j.ferme %}checked{% endif %}
-                       aria-label="{{ j.label }} : fermé"></td>
+            <td><label class="horaires-ferme"><input type="checkbox" name="{{ j.nom }}_ferme"
+                       {% if j.ferme %}checked{% endif %} aria-label="{{ j.label }} : fermé"><span
+                       class="horaires-telephone" aria-hidden="true">Fermé</span></label></td>
             {% for n in [1, 2] %}
-            <td style="white-space: nowrap">
+            <td class="horaires-service">
+              <span class="horaires-telephone muted" aria-hidden="true">Service {{ n }}</span>
               <input type="time" name="{{ j.nom }}_{{ n }}_debut" value="{{ j.plages[n - 1][0] }}"
-                     aria-label="{{ j.label }}, service {{ n }}, début" style="width: 7.5rem; display: inline-block">
+                     aria-label="{{ j.label }}, service {{ n }}, début">
               <span class="muted">–</span>
               <input type="time" name="{{ j.nom }}_{{ n }}_fin" value="{{ j.plages[n - 1][1] }}"
-                     aria-label="{{ j.label }}, service {{ n }}, fin" style="width: 7.5rem; display: inline-block">
+                     aria-label="{{ j.label }}, service {{ n }}, fin">
             </td>
             {% endfor %}
           </tr>
