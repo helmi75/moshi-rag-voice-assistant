@@ -92,24 +92,39 @@ if fichier.exists():
 if not jeton:
     print("SANS_JETON"); sys.exit(0)
 
-req = urllib.request.Request(
-    f"https://api.github.com/repos/{depot}/commits/{sha}/check-runs",
-    headers={"Authorization": f"Bearer {jeton}", "Accept": "application/vnd.github+json",
-             "User-Agent": "helmane-deploy"})
+# Seulement les tâches de la CI, demandées par leur nom. La sonde de supervision
+# (workflow planifié) rattache ses exécutions au dernier commit de main : le 24/10/2026,
+# une production en panne (Twilio suspendu) a mis une sonde rouge sur 7576c40 et fait
+# refuser son redéploiement pour « CI en échec ». Et l'API ne rend que les 30 premières
+# vérifications d'un commit : les passages de la sonde finiraient par cacher la CI.
+# `image` est exigée : c'est elle qui publie ce que le serveur va lancer.
+def lire(nom):
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{depot}/commits/{sha}/check-runs?check_name={nom}&per_page=100",
+        headers={"Authorization": f"Bearer {jeton}", "Accept": "application/vnd.github+json",
+                 "User-Agent": "helmane-deploy"})
+    return json.loads(urllib.request.urlopen(req, timeout=30).read())["check_runs"]
+
 try:
-    runs = json.loads(urllib.request.urlopen(req, timeout=30).read())["check_runs"]
+    par_tache = {nom: lire(nom) for nom in ("tests", "image")}
 except urllib.error.HTTPError as e:
     print(f"ERREUR_HTTP_{e.code}"); sys.exit(0)
 
-if not runs:
-    print("AUCUN_RUN")
+# Un même commit peut avoir plusieurs exécutions (poussée, PR) : sur une PR, `image` est
+# sautée. Il en faut une réussie par tâche, et aucune en échec ni en cours.
+runs = [r for liste in par_tache.values() for r in liste if r["conclusion"] != "skipped"]
+if not all(par_tache.values()):
+    manquent = [nom for nom, liste in par_tache.items() if not liste]
+    print("AUCUN_RUN" if len(manquent) == 2 else "ROUGE:" + ",".join(f"{n} absente" for n in manquent))
 elif any(r["status"] != "completed" for r in runs):
     print("EN_COURS")
-elif all(r["conclusion"] == "success" for r in runs):
-    print("VERTE")
-else:
-    echecs = [r["name"] for r in runs if r["conclusion"] != "success"]
+elif any(r["conclusion"] != "success" for r in runs) or \
+        any(not any(r["conclusion"] == "success" for r in liste) for liste in par_tache.values()):
+    echecs = sorted({r["name"] for r in runs if r["conclusion"] != "success"}
+                    | {n for n, liste in par_tache.items() if not any(r["conclusion"] == "success" for r in liste)})
     print("ROUGE:" + ",".join(echecs))
+else:
+    print("VERTE")
 PY
 )"
 case "$conclusion" in
