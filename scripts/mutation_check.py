@@ -206,7 +206,7 @@ GARDE_FOUS = [
     GardeFou(
         nom="Une réservation n'est rendue qu'à son propriétaire",
         fichier="api/app/reservations.py",
-        avant="                WHERE id = ? AND tenant_id = ? AND customer_phone = ? AND {ACTIVES}\"\"\",\n            (reservation_id, tenant_id, phone),",
+        avant="                WHERE id = ? AND tenant_id = ? AND customer_phone = ? AND {ACTIVES}\"\"\",  # noqa: S608 — fragments du code, valeurs liées par ?\n            (reservation_id, tenant_id, phone),",
         apres="                WHERE id = ?\"\"\",  # mutation\n            (reservation_id,),",
         tests=["test_reservation_modification.py"],
         k="autre or masque or impossible",

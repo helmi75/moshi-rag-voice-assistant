@@ -100,7 +100,7 @@ def sonde(base: str, jeton: str) -> int:
     requete = urllib.request.Request(url, data=urllib.parse.urlencode(donnees).encode(), method="POST")
     requete.add_header("X-Twilio-Signature", signature(jeton, url, donnees))
     try:
-        with urllib.request.urlopen(requete, timeout=20) as reponse:  # nosemgrep: dynamic-urllib-use-detected — adresses de l'API écrites dans le script
+        with urllib.request.urlopen(requete, timeout=20) as reponse:  # nosemgrep: dynamic-urllib-use-detected — notre application, dont l'adresse est lue dans la fiche Twilio du numéro
             return reponse.status
     except urllib.error.HTTPError as exc:
         return exc.code
