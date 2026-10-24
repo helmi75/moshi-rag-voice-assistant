@@ -103,12 +103,17 @@ def lire(nom):
         f"https://api.github.com/repos/{depot}/commits/{sha}/check-runs?check_name={nom}&per_page=100",
         headers={"Authorization": f"Bearer {jeton}", "Accept": "application/vnd.github+json",
                  "User-Agent": "helmane-deploy"})
-    return json.loads(urllib.request.urlopen(req, timeout=30).read())["check_runs"]
+    # Seulement ce que publie GitHub Actions : une autre application qui nommerait une
+    # vérification `tests` ne doit pas compter comme notre CI.
+    return [r for r in json.loads(urllib.request.urlopen(req, timeout=30).read())["check_runs"]
+            if (r.get("app") or {}).get("slug") == "github-actions"]
 
 try:
     par_tache = {nom: lire(nom) for nom in ("tests", "image")}
 except urllib.error.HTTPError as e:
     print(f"ERREUR_HTTP_{e.code}"); sys.exit(0)
+except (urllib.error.URLError, OSError, KeyError, ValueError) as e:
+    print(f"ERREUR_RESEAU_{type(e).__name__}"); sys.exit(0)
 
 # Un même commit peut avoir plusieurs exécutions (poussée, PR) : sur une PR, `image` est
 # sautée. Il en faut une réussie par tâche, et aucune en échec ni en cours.
