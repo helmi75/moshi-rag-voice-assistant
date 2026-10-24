@@ -136,10 +136,12 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 |---|---|---|---|
 | F1 | Après les appels, interroger la sonde | `niveau: ok` | |
 | F2 | Contrôle « Appels muets » | Passe de « pas de mesure » à un vrai comptage | |
-| F3 | Contrôle « Alertes Twilio » | Passe au vert une fois le jeton renouvelé | |
+| F3 | Contrôle « Alertes Twilio » | Passe au vert une fois le jeton renouvelé, ou le compte rechargé | |
 | F4 | Contrôle « Purge » | « Passée il y a N h » | |
 | F5 | Contrôle « Espace disque » | Vert, avec le volume des enregistrements | |
 | F6 | Contrôle « Enregistrement des appels » | `N / N` — « 0 sur 12 » signifie cassé en silence | |
+| F6b 🤖 | Contrôle « Solde Twilio », compte actif | Le solde lu chez Twilio, au cent près de la console (Billing) ; vert au-dessus de 5 $ | |
+| F6c 🤖 | Compte Twilio suspendu (avant rechargement) | « Alertes Twilio » et « Solde Twilio » en panne, « compte inactif » ; un seul e-mail « compte Twilio suspendu » ; `scripts/recette_appels.py --etage 2` refuse de partir | |
 
 ```bash
 curl -s -H "X-Supervision-Token: $SUPERVISION_TOKEN" https://app.helmane.fr/supervision | jq

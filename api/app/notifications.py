@@ -280,6 +280,38 @@ def planifier(tenant, evenement: str, donnees: dict) -> Optional[asyncio.Task]:
                          nom=f"e-mail {evenement} → {tenant.name}")
 
 
+async def prevenir_solde_twilio(solde: Optional[float], devise: Optional[str],
+                                seuil: float) -> bool:
+    """Le solde Twilio passe sous le seuil, ou le compte est suspendu (`solde` None) : on
+    écrit aux super-admins, une fois par épisode (app/supervision.py). Le 12/10/2026 le
+    compte s'est vidé et la ligne est restée morte onze jours sans que rien ne prévienne.
+    NE LÈVE JAMAIS ; sans SMTP, rien."""
+    if not actif():
+        return False
+    try:
+        comptes = await db.hors_boucle(users.list_users)
+        adresses = []
+        for compte in comptes:
+            if compte.is_superadmin and compte.email and compte.email not in adresses:
+                adresses.append(compte.email)
+        if solde is None:
+            sujet = "Helmane — compte Twilio suspendu : la ligne ne prend plus d'appel"
+            corps = ["Twilio refuse nos identifiants : le compte n'est plus actif, le plus souvent",
+                     "faute de solde. Aucun appel n'est reçu ni émis, sur aucun numéro.", ""]
+        else:
+            sujet = f"Helmane — solde Twilio bas : {solde:.2f} {devise or 'USD'}"
+            corps = [f"Le solde du compte Twilio est de {solde:.2f} {devise or 'USD'}, sous le seuil",
+                     f"de {seuil:.2f}. À zéro, Twilio suspend le compte et la ligne ne prend plus",
+                     "d'appel. La recette automatique ne part plus sous ce seuil.", ""]
+        corps += ["À faire : recharger le compte dans la console Twilio (Billing). Le contrôle",
+                  "« Solde Twilio » de la supervision repasse au vert à la relève suivante.", "",
+                  "Pas d'autre e-mail pour cet épisode."]
+        return await envoyer(adresses, sujet, "\n".join(corps))
+    except Exception as exc:
+        logger.warning(f"e-mail de solde Twilio non envoyé ({type(exc).__name__}: {exc})")
+        return False
+
+
 async def prevenir_credit_openai(le_utc: str) -> bool:
     """ASSISTANTE-151 : prévient les comptes super-admin que les sessions GPT-Live sont
     refusées faute de crédit. Aucun établissement n'est concerné (le restaurateur ne lit

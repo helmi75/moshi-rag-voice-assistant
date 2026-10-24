@@ -801,6 +801,19 @@ def _controle_twilio() -> Controle:
         )
     valeur, maj = memo
     age_min = round((_maintenant() - maj).total_seconds() / 60, 1) if maj else None
+    if valeur.get("erreur") == COMPTE_INACTIF:
+        # Vécu le 12/10/2026 : solde épuisé, compte suspendu, plus un appel reçu ni émis
+        # pendant onze jours. Le message d'avant (« jeton renouvelé ») envoyait chercher
+        # dans le `.env` une panne qui se répare dans la facturation de Twilio.
+        return Controle(
+            "twilio", "Alertes Twilio", PANNE,
+            "Compte Twilio inactif : la ligne ne prend aucun appel.",
+            "Twilio refuse nos identifiants parce que le compte est suspendu, le plus souvent "
+            "faute de solde : aucun appel n'est reçu ni émis, sur aucun numéro. Le jeton n'est "
+            "pas en cause. À faire : recharger le compte dans la console Twilio (Billing) ; ce "
+            "contrôle repasse au vert à la relève suivante.",
+            mesure={"releve": False, "cause": COMPTE_INACTIF, "age_minutes": age_min},
+        )
     if valeur.get("erreur"):
         cause = str(valeur["erreur"])
         explication = {
@@ -848,6 +861,52 @@ def _controle_twilio() -> Controle:
         "Monitor → Alerts." if n else "",
         mesure={"releve": True, "erreurs": n, "age_minutes": age_min},
     )
+
+
+def _controle_solde_twilio() -> Controle:
+    """Le solde du compte Twilio, relevé avec les alertes (`_relever_le_solde`). Sous le
+    seuil, attention ; à zéro ou compte suspendu, panne : plus un appel ne passe."""
+    titre = "Solde Twilio"
+    seuil = solde_twilio_seuil()
+    memo = relire("solde_twilio")
+    if memo is None:
+        return Controle("solde_twilio", titre, OK,
+                        "Pas encore relevé — ce contrôle ne dit rien pour l'instant.",
+                        "La relève a lieu avec celle des alertes Twilio.",
+                        mesure={"releve": False, "seuil": seuil})
+    valeur, maj = memo
+    age_min = round((_maintenant() - maj).total_seconds() / 60, 1) if maj else None
+    if valeur.get("erreur") == COMPTE_INACTIF:
+        return Controle("solde_twilio", titre, PANNE,
+                        "Compte Twilio suspendu : solde non lisible, la ligne ne prend aucun appel.",
+                        "À faire : recharger le compte dans la console Twilio (Billing).",
+                        mesure={"releve": False, "cause": COMPTE_INACTIF, "seuil": seuil})
+    if "solde" not in valeur:
+        return Controle("solde_twilio", titre, ATTENTION,
+                        f"Solde illisible ({valeur.get('erreur') or 'inconnu'}).",
+                        "On ne sait pas combien il reste : la recette automatique ne part pas "
+                        "tant que le solde n'est pas lu.",
+                        mesure={"releve": False, "cause": valeur.get("erreur"), "seuil": seuil})
+    if age_min is not None and age_min > 6 * 60:
+        return Controle("solde_twilio", titre, ATTENTION,
+                        f"Relève figée depuis {age_min / 60:.0f} h.",
+                        "La tâche de fond ne tourne plus : le solde n'est plus surveillé.",
+                        mesure={"releve": False, "age_minutes": age_min, "seuil": seuil})
+    solde, devise = valeur["solde"], valeur.get("devise", "USD")
+    mesure = {"releve": True, "solde": solde, "devise": devise, "seuil": seuil,
+              "age_minutes": age_min}
+    if solde <= 0:
+        return Controle("solde_twilio", titre, PANNE, f"Solde Twilio épuisé : {solde:.2f} {devise}.",
+                        "Twilio suspend le compte : plus un appel reçu ni émis. À faire : "
+                        "recharger le compte dans la console Twilio (Billing).", mesure=mesure)
+    if solde < seuil:
+        return Controle("solde_twilio", titre, ATTENTION,
+                        f"Solde Twilio de {solde:.2f} {devise}, sous le seuil de {seuil:.2f}.",
+                        "À recharger avant qu'il ne tombe à zéro : Twilio suspend alors le "
+                        "compte, et la ligne ne prend plus d'appel. La recette automatique ne "
+                        "part plus sous ce seuil.", mesure=mesure)
+    return Controle("solde_twilio", titre, OK, f"Solde Twilio : {solde:.2f} {devise}.",
+                    mesure=mesure)
 
 
 # --- Verdict d'ensemble ------------------------------------------------------
@@ -1077,6 +1136,7 @@ def controles() -> list[Controle]:
         ("appels_inacheves", _sur_appels(_controle_appels_inacheves)),
         ("latence", _controle_latence),
         ("twilio", _controle_twilio),
+        ("solde_twilio", _controle_solde_twilio),
         ("carnets", _controle_carnets),
         ("voxtral", _controle_voxtral),
         ("secours", _controle_secours),
@@ -1183,9 +1243,10 @@ async def rafraichir_twilio() -> None:
                 # renouveler, 429 = trop de relèves, 5xx = panne chez eux. « L'API n'a
                 # pas répondu » aurait envoyé chercher un problème de réseau là où il
                 # n'y en a pas.
-                muettes[region] = f"HTTP {exc.response.status_code}"
+                muettes[region] = _motif_du_refus(exc.response)
             except Exception as exc:
                 muettes[region] = type(exc).__name__
+        await _relever_le_solde(client, inactif=COMPTE_INACTIF in muettes.values())
     if len(muettes) == len(acces):
         await db.hors_boucle(noter, "twilio", {"erreur": next(iter(muettes.values()))})
         return
@@ -1201,6 +1262,99 @@ async def rafraichir_twilio() -> None:
     if muettes:
         releve["muettes"] = muettes
     await db.hors_boucle(noter, "twilio", releve)
+
+
+# Ce que Twilio répond, en 401 (code 20003), quand le compte est suspendu : relevé le
+# 23/10/2026 sur notre compte, dans les deux régions.
+COMPTE_INACTIF = "compte inactif"
+_MOTIF_INACTIF = "is not active"
+
+
+def _motif_du_refus(reponse) -> str:
+    """« HTTP 401 » ne distingue pas un jeton refusé d'un compte suspendu : c'est le
+    message de Twilio qui le dit, et la réparation n'est pas la même."""
+    code = reponse.status_code
+    if code == 401:
+        try:
+            message = str((reponse.json() or {}).get("message") or "")
+        except Exception:
+            message = ""
+        if _MOTIF_INACTIF in message:
+            return COMPTE_INACTIF
+    return f"HTTP {code}"
+
+
+def solde_twilio_seuil() -> float:
+    """En dollars, la devise du compte. 5 $ : décision de Helmi du 23/10/2026, environ deux
+    semaines de trafic au rythme de septembre (9,40 $ facturés), et plus qu'un passage de
+    recette automatique."""
+    try:
+        return float(os.getenv("SUPERVISION_SOLDE_TWILIO_MIN", "5"))
+    except ValueError:
+        return 5.0
+
+
+async def _relever_le_solde(client, *, inactif: bool) -> None:
+    """Le solde du compte Twilio, noté sur l'ardoise (`solde_twilio`). Le 12/10/2026 il
+    s'est vidé sans prévenir, et la ligne est morte avec lui : la relève des alertes ne
+    le voit pas, elle ne voit que les webhooks. Un seul compte pour toutes les régions :
+    lu à l'API américaine, avec son jeton. N'échoue jamais bruyamment."""
+    precedent = await db.hors_boucle(relire, "solde_twilio")
+    deja = (precedent[0] if precedent else {}).get("prevenu")
+    identifiants = twilio_region.identifiants("us1")
+    if inactif:
+        releve: dict = {"erreur": COMPTE_INACTIF}
+    elif not identifiants:
+        releve = {"erreur": "identifiants Twilio absents"}
+    else:
+        try:
+            reponse = await client.get(
+                f"{twilio_region.hote('us1')}/2010-04-01/Accounts/{identifiants[0]}/Balance.json",
+                auth=identifiants)
+            if reponse.status_code >= 400:
+                releve = {"erreur": _motif_du_refus(reponse)}
+            else:
+                corps = reponse.json() or {}
+                releve = {"solde": round(float(corps["balance"]), 2),
+                          "devise": str(corps.get("currency") or "USD")}
+        except Exception as exc:
+            releve = {"erreur": type(exc).__name__}
+    # Un e-mail par épisode : sous le seuil, puis un second si le compte est suspendu (la
+    # vidange normale passe par « bas » avant « inactif », et c'est le jour où la ligne
+    # meurt qu'il faut prévenir). Il repart quand le solde est revenu au-dessus du seuil.
+    if releve.get("erreur") == COMPTE_INACTIF:
+        nature = "inactif"
+    elif "solde" in releve and releve["solde"] < solde_twilio_seuil():
+        nature = "inactif" if deja == "inactif" else "bas"
+    else:
+        nature = None
+    if nature:
+        releve["prevenu"] = nature
+    elif "erreur" in releve and deja:
+        releve["prevenu"] = deja   # une relève ratée ne clôt pas l'épisode
+    await db.hors_boucle(noter, "solde_twilio", releve)
+    if nature and nature != deja:
+        from . import notifications, taches
+        taches.lancer(notifications.prevenir_solde_twilio(
+            releve.get("solde"), releve.get("devise"), solde_twilio_seuil()),
+            nom="e-mail solde Twilio")
+
+
+def solde_insuffisant() -> Optional[str]:
+    """Pourquoi la recette automatique ne doit pas dépenser chez Twilio, ou None. Un solde
+    inconnu vaut un refus : c'est une dépense qu'on garde."""
+    memo = relire("solde_twilio")
+    if memo is None:
+        return "solde Twilio pas encore relevé"
+    valeur, maj = memo
+    if "solde" not in valeur:
+        return f"solde Twilio illisible ({valeur.get('erreur') or 'inconnu'})"
+    if maj is None or (_maintenant() - maj).total_seconds() > 3600:
+        return "solde Twilio relevé il y a plus d'une heure"
+    if valeur["solde"] < solde_twilio_seuil():
+        return (f"solde Twilio de {valeur['solde']:.2f} {valeur.get('devise', 'USD')}, "
+                f"sous le seuil de {solde_twilio_seuil():.2f}")
+    return None
 
 
 async def boucle_twilio() -> None:

@@ -233,6 +233,26 @@ GARDE_FOUS = [
         panne="l'appelant déciderait de qui il est, donc à quelles réservations il accède",
     ),
     GardeFou(
+        nom="La recette automatique ne compose pas sous le seuil du solde Twilio",
+        fichier="api/app/supervision.py",
+        avant='    if valeur["solde"] < solde_twilio_seuil():',
+        apres="    if False:  # mutation",
+        tests=["test_recette.py"],
+        k="sous_le_seuil",
+        panne="les appels d'essai finissent de vider le compte : Twilio le suspend, et la "
+              "ligne des restaurants ne prend plus un appel (12/10/2026)",
+    ),
+    GardeFou(
+        nom="Un compte Twilio suspendu est une panne, pas un jeton à renouveler",
+        fichier="api/app/supervision.py",
+        avant="        if _MOTIF_INACTIF in message:",
+        apres="        if False:  # mutation",
+        tests=["test_supervision.py"],
+        k="compte_suspendu",
+        panne="ligne morte onze jours, et la supervision envoie chercher la panne dans le "
+              "`.env` (12 au 23/10/2026)",
+    ),
+    GardeFou(
         nom="Une date qui ne tombe pas le jour dit par le client est refusée",
         fichier="api/app/llm.py",
         avant="    mauvais_jour = _pas_le_jour_dit(date_iso, jour_dit)",

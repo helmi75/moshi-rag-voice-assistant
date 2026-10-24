@@ -18,7 +18,7 @@ from xml.sax.saxutils import quoteattr
 
 import httpx
 
-from .. import calls, db, essai, messages, reservations, tenants, twilio_region
+from .. import calls, db, essai, messages, reservations, supervision, tenants, twilio_region
 from . import appelant, budget, gardes, scenarios, secours, verdicts, voix
 from .tarifs import DUREE_MAX_SECONDES, borne
 
@@ -169,7 +169,8 @@ def prealables(passages: list[dict], tenant, numeros: set[str], de: str) -> Opti
     pas_d_essai = essai.refus(tenant.id)
     if pas_d_essai:
         return pas_d_essai
-    return (gardes.la_nuit() or gardes.appel_reel_en_cours() or gardes.deja_joue(passages)
+    return (gardes.la_nuit() or gardes.appel_reel_en_cours() or supervision.solde_insuffisant()
+            or gardes.deja_joue(passages)
             or gardes.destinataire_refuse(tenant.phone_number, numeros, tenant.phone_number)
             or (None if de in numeros and de != tenant.phone_number
                 else "la ligne présentée n'est pas un autre de nos numéros"))
@@ -211,7 +212,9 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
             lignes.append(ligne)
             partis: list[str] = []
             refus_budget = budget.refus(borne(moteur, etage=2), depense)
-            en_cours = gardes.appel_reel_en_cours()
+            # Revus avant chaque scénario : un vrai appel arrivé, ou le solde Twilio relevé
+            # sous le seuil pendant la recette, l'arrêtent là.
+            en_cours = gardes.appel_reel_en_cours() or supervision.solde_insuffisant()
             if refus_budget or en_cours:
                 ligne.update(etat=verdicts.NON_JOUE, preuve=refus_budget or en_cours)
                 continue

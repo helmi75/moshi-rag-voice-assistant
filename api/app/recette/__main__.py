@@ -36,6 +36,7 @@ def tableau(lignes: list[dict]) -> str:
 def _etat() -> dict:
     from .. import essai
     from . import budget, gardes
+    from ..supervision import solde_insuffisant
 
     try:
         passages = budget.lire()
@@ -46,7 +47,7 @@ def _etat() -> dict:
     return {"active": gardes.active(), "etablissement": essai.etablissement_id(),
             "du_mois": budget.du_mois(passages), "plafond_recette": budget.plafond_par_recette(),
             "plafond_mois": budget.plafond_par_mois(),
-            "interdit": gardes.la_nuit() or gardes.appel_reel_en_cours(),
+            "interdit": gardes.la_nuit() or gardes.appel_reel_en_cours() or solde_insuffisant(),
             "deja_joue": gardes.deja_joue(passages), "demarrage": gardes.demarrage()}
 
 
