@@ -56,14 +56,20 @@ async def echecs_github(client, depuis: datetime) -> dict:
             headers={"Accept": "application/vnd.github+json"})
         if reponse.status_code >= 400:
             return {"erreur": f"HTTP {reponse.status_code}"}
+        corps = reponse.json() or {}
+        runs = corps.get("workflow_runs", [])
         groupes: dict[str, dict] = {}
-        for run in (reponse.json() or {}).get("workflow_runs", []):
+        for run in runs:
             g = groupes.setdefault(run.get("name") or "?", {
                 "workflow": run.get("name") or "?", "nombre": 0, "dernier": "", "url": ""})
             g["nombre"] += 1
             if (run.get("created_at") or "") > g["dernier"]:
                 g["dernier"], g["url"] = run.get("created_at") or "", run.get("html_url") or ""
-        return {"echecs": sorted(groupes.values(), key=lambda g: g["workflow"])}
+        # Une page de cent : une sonde en échec toute la journée en fait 96. Au-delà, le
+        # total de GitHub fait foi, et le détail le dit partiel.
+        total = max(int(corps.get("total_count") or 0), len(runs))
+        return {"echecs": sorted(groupes.values(), key=lambda g: g["workflow"]),
+                "total": total, "partiel": total > len(runs)}
     except Exception as exc:
         return {"erreur": type(exc).__name__}
 
@@ -83,9 +89,11 @@ def points(etat: dict, github: dict) -> list[dict]:
             dernier = horloge.au_restaurant(g["dernier"])
             quand = dernier.strftime("%d/%m à %H h %M") if dernier else "?"
             lignes.append(f"{g['workflow']} : {g['nombre']} échec(s), le dernier le {quand} — {g['url']}")
+        if github.get("partiel"):
+            lignes.append(f"(détail des {sum(g['nombre'] for g in github['echecs'])} plus récentes seulement)")
+        total = github.get("total") or sum(g["nombre"] for g in github["echecs"])
         liste.append({"titre": "GitHub Actions", "niveau": supervision.ATTENTION,
-                      "resume": f"{sum(g['nombre'] for g in github['echecs'])} exécution(s) "
-                                "en échec sur main en 24 h.",
+                      "resume": f"{total} exécution(s) en échec sur main en 24 h.",
                       "detail": "\n".join(lignes)})
     return sorted(liste, key=lambda p: -supervision._RANG.get(p["niveau"], 0))
 
@@ -123,9 +131,17 @@ async def faire(client) -> dict:
     if liste:
         sujet, corps = message(liste, horloge.aujourd_hui())
         envoye = await notifications.envoyer(await db.hors_boucle(_superadmins), sujet, corps)
-    bilan = {"jour": horloge.aujourd_hui().isoformat(), "points": len(liste), "envoye": envoye}
+    # Un e-mail qui n'est pas parti (messagerie en panne à 8 h) ne compte pas la tournée
+    # comme faite : elle se retente dans l'heure, sinon l'alerte du jour serait perdue. Sans
+    # messagerie configurée, rien ne partira jamais : la tournée est faite.
+    a_refaire = bool(liste) and not envoye and notifications.actif()
+    bilan = {"jour": None if a_refaire else horloge.aujourd_hui().isoformat(),
+             "points": len(liste), "envoye": envoye}
+    # Si cette écriture échoue après l'envoi, l'essai suivant renverra l'e-mail : un doublon
+    # plutôt qu'un silence.
     await db.hors_boucle(supervision.noter, "tournee", bilan)
-    logger.info(f"tournée : {len(liste)} point(s), e-mail {'envoyé' if envoye else 'non envoyé'}.")
+    logger.info(f"tournée : {len(liste)} point(s), e-mail {'envoyé' if envoye else 'non envoyé'}"
+                + (" ; nouvel essai dans une heure." if a_refaire else "."))
     return bilan
 
 
@@ -161,7 +177,9 @@ async def boucle() -> None:
             passee = (maintenant.hour, maintenant.minute) >= (h, m)
             if passee and not await db.hors_boucle(_faite_aujourd_hui):
                 async with httpx.AsyncClient(timeout=20) as client:
-                    await faire(client)
+                    bilan = await faire(client)
+                if bilan["jour"] is None:
+                    attente = _NOUVEL_ESSAI_SECONDES
         except Exception as exc:  # la boucle ne doit jamais mourir
             logger.warning(f"tournée échouée ({type(exc).__name__}: {exc}) ; nouvel essai dans une heure.")
             attente = _NOUVEL_ESSAI_SECONDES

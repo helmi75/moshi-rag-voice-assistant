@@ -194,3 +194,80 @@ class TestLHeure:
         il s'écoule 24 h, pas 23."""
         neuf = datetime(2026, 10, 24, 9, 0, tzinfo=horloge.FUSEAU)
         assert tournee.attente_secondes(neuf, 8, 0) == 24 * 3600
+
+
+class _Fin(Exception):
+    """Arrête la boucle au premier sommeil, pour lire ce qu'elle a décidé."""
+
+
+class TestLaBoucle:
+    def _tourner(self, monkeypatch, *, heure, faire, faite=False):
+        monkeypatch.setenv("SUPERVISION_TOURNEE_HEURE", "08:00")
+        pauses = []
+
+        async def dormir(s):
+            pauses.append(s)
+            raise _Fin
+
+        instant = datetime(2026, 10, 24, *heure, tzinfo=horloge.FUSEAU)
+        with patch.object(tournee.horloge, "maintenant", return_value=instant), \
+             patch.object(tournee, "faire", faire), \
+             patch.object(tournee, "_faite_aujourd_hui", return_value=faite), \
+             patch.object(tournee.asyncio, "sleep", dormir):
+            with pytest.raises(_Fin):
+                asyncio.run(tournee.boucle())
+        return pauses[0]
+
+    def test_redemarree_apres_huit_heures_elle_fait_la_tournee_du_jour(self, monkeypatch):
+        faire = AsyncMock(return_value={"jour": "2026-10-24", "points": 0, "envoye": False})
+        attente = self._tourner(monkeypatch, heure=(9, 0), faire=faire)
+        faire.assert_awaited_once()
+        assert attente == 23 * 3600 + 3600  # jusqu'à demain 8 h (changement d'heure compris)
+
+    def test_jamais_deux_fois_le_meme_jour(self, monkeypatch):
+        faire = AsyncMock()
+        self._tourner(monkeypatch, heure=(9, 0), faire=faire, faite=True)
+        faire.assert_not_awaited()
+
+    def test_avant_huit_heures_elle_attend(self, monkeypatch):
+        faire = AsyncMock()
+        assert self._tourner(monkeypatch, heure=(7, 0), faire=faire) == 3600
+        faire.assert_not_awaited()
+
+    def test_un_e_mail_qui_n_est_pas_parti_se_retente_dans_l_heure(self, monkeypatch):
+        faire = AsyncMock(return_value={"jour": None, "points": 2, "envoye": False})
+        assert self._tourner(monkeypatch, heure=(9, 0), faire=faire) == 3600
+
+    def test_une_tournee_qui_echoue_se_retente_dans_l_heure(self, monkeypatch):
+        faire = AsyncMock(side_effect=RuntimeError("base verrouillée"))
+        assert self._tourner(monkeypatch, heure=(9, 0), faire=faire) == 3600
+
+
+class TestLEnvoiRate:
+    def _faire(self, *, smtp_actif):
+        with patch.object(tournee.notifications, "envoyer", AsyncMock(return_value=False)), \
+             patch.object(tournee.notifications, "actif", return_value=smtp_actif):
+            return asyncio.run(tournee.faire(FauxClient(
+                openrouter=(200, {"data": {"total_credits": 15, "total_usage": 14}}))))
+
+    def test_messagerie_en_panne_la_tournee_n_est_pas_faite(self, base):
+        assert self._faire(smtp_actif=True)["jour"] is None
+        assert not tournee._faite_aujourd_hui()
+
+    def test_sans_messagerie_configuree_rien_ne_partira_elle_est_faite(self, base):
+        self._faire(smtp_actif=False)
+        assert tournee._faite_aujourd_hui()
+
+
+class TestSansTournee:
+    def test_un_credit_jamais_releve_sans_tournee_n_est_pas_vert(self, base):
+        """conftest coupe la tournée : sans elle, aucune relève ne viendra."""
+        assert _controle("credit_openrouter")["niveau"] == supervision.ATTENTION
+
+    def test_une_page_pleine_d_echecs_dit_le_vrai_total(self):
+        runs = [{"name": "Supervision de la production", "created_at": f"2026-10-24T{h:02d}:00:00Z",
+                 "html_url": "u"} for h in range(10)]
+        client = FauxClient(github=(200, {"total_count": 140, "workflow_runs": runs}))
+        r = asyncio.run(tournee.echecs_github(client, horloge.maintenant()))
+        point = tournee.points({"controles": []}, r)[0]
+        assert point["resume"].startswith("140 ") and "plus récentes seulement" in point["detail"]

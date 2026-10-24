@@ -1109,6 +1109,13 @@ def _controle_credit_openrouter() -> Controle:
                         mesure={"releve": False, "seuil": seuil})
     memo = relire("credit_openrouter")
     if memo is None:
+        from . import tournee
+        if tournee.heure() is None:
+            # Pas de mesure n'est jamais un feu vert : sans tournée, aucune relève ne viendra.
+            return Controle("credit_openrouter", titre, ATTENTION,
+                            "Jamais relevé : la tournée quotidienne est coupée.",
+                            "SUPERVISION_TOURNEE_HEURE vaut « non » : le crédit n'est pas surveillé.",
+                            mesure={"releve": False, "seuil": seuil})
         return Controle("credit_openrouter", titre, OK,
                         "Pas encore relevé — ce contrôle ne dit rien pour l'instant.",
                         "La relève a lieu à la tournée quotidienne.",
