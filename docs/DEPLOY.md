@@ -76,6 +76,9 @@ VAD_STOP_SECS=0.4
 
 ## 4 — Démarrer
 
+Première installation seulement (ensuite, `scripts/deploy.sh` lance l'image publiée par la CI,
+voir « Exploitation », **Image**) :
+
 ```bash
 docker compose up -d --build
 curl -s https://assistant.mondomaine.fr/health   # attendu: {"status":"ok",...} en HTTPS
@@ -131,6 +134,26 @@ modal deploy deploy/modal_moshi_server.py
   exact** (et non « la dernière CI de la branche »). Il déploie ensuite par
   `reset --hard` sur le SHA, puis vérifie `/health` et le commit réellement en place.
   `scripts/deploy.sh --check` contrôle les conditions sans rien changer.
+- **Image** (ASSISTANTE-167) : le serveur ne construit plus l'application. Sur `main`, la CI
+  construit l'image après les tests, vérifie qu'elle démarre et répond sur `/health`, puis
+  la publie sur GHCR, privée : `ghcr.io/helmi75/moshi-rag-voice-assistant:sha-<commit>`.
+  `scripts/deploy.sh` la télécharge **avant** de toucher à quoi que ce soit (refus net si
+  elle manque), vérifie que sa révision est le commit déployé, la nomme
+  `moshi-rag-voice-assistant-api:latest` et lance `docker compose up -d --no-build`. Il
+  contrôle ensuite que le conteneur qui tourne porte cette révision, et ne garde que les cinq
+  dernières images (environ 1,2 Go chacune). **Ne jamais lancer `--build` sur le serveur** :
+  l'image ne serait plus celle que la CI a éprouvée.
+
+  Une fois pour toutes, le serveur doit pouvoir lire le registre privé. Créer un jeton
+  (classic) avec la **seule** permission `read:packages` (GitHub → Settings → Developer
+  settings → Personal access tokens → Tokens (classic)), puis sur le serveur :
+
+  ```bash
+  docker login ghcr.io -u helmi75      # coller le jeton quand il est demandé
+  ```
+
+  Le jeton reste dans `/root/.docker/config.json` (encodé, pas chiffré) : il ne permet que de
+  lire les images. À son expiration, `scripts/deploy.sh` refuse de déployer et le dit.
 
   La règle « la production, c'est `main` après CI verte » ne tenait que par la discipline :
   c'est ainsi qu'on s'est retrouvé avec une production tournant sur une branche jamais
