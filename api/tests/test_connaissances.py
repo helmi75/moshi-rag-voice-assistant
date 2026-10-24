@@ -235,3 +235,25 @@ def test_le_conflit_s_affiche_dans_la_page():
 
     script = (Path(admin.__file__).parent / "static" / "admin.js").read_text()
     assert "status === 409" in script and "status === 422" in script
+
+
+class TestLaGrilleDesHorairesSurTelephone:
+    """Relevé par la recette du 12/10/2026, à 390 px : la colonne « Service 2 » sortait de
+    l'écran, et en sombre les lignes étaient plus claires que la carte. Le rendu se juge à
+    l'œil ; ce test garde ce qui le permet."""
+
+    def test_la_grille_se_replie_et_chaque_case_a_coche_a_son_libelle(self, resto):
+        tenant, _ = resto
+        page = _client().get(f"/admin/tenants/{tenant.id}/knowledge").text
+        assert 'class="horaires-grille"' in page
+        assert page.count('class="horaires-service"') == 14            # 7 jours × 2 services
+        # Sans en-tête de colonne sur téléphone, « Fermé » est écrit à côté de la case.
+        assert page.count('<label class="horaires-ferme">') == 7
+        assert "_ferme" in page and "lundi_1_debut" in page            # les noms envoyés ne changent pas
+
+    def test_le_style_de_la_grille_est_servi(self):
+        from pathlib import Path
+        css = (Path(__file__).resolve().parent.parent / "app" / "admin" / "static"
+               / "admin.css").read_text(encoding="utf-8")
+        assert ".horaires-grille tbody td { background-color: transparent; }" in css
+        assert "@media (max-width: 640px) {\n  .horaires-grille thead { display: none; }" in css

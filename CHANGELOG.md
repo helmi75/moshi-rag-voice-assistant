@@ -7,6 +7,15 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — « Ce que l'IA sait » sur téléphone (24/10/2026, ASSISTANTE-166)
+
+### Corrigé
+- **La grille des horaires tient dans l'écran d'un téléphone.** À 390 px, la colonne
+  « Service 2 » en sortait sans rien qui dise qu'elle défilait. Sous 640 px, chaque jour
+  devient un bloc : le jour et sa case « Fermé » (libellée), puis un service par ligne.
+- En sombre, les lignes de la grille ne sont plus plus claires que la carte.
+- Le texte « même un jour de fermeture » ne se coupe plus en deux lignes.
+
 ## Non publiée — le solde Twilio surveillé (24/10/2026, ASSISTANTE-165)
 
 Le 12/10/2026, le solde du compte Twilio s'est épuisé : le compte a été suspendu, et la
