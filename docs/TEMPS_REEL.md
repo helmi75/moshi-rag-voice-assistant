@@ -274,6 +274,27 @@ déclaré ; les douze suivantes en ont un, étranger au français. Sur le forum 
 (15 au 19/09/2026), `marin` est citée comme la meilleure en français. À écouter d'abord :
 `marin`, `coral`, `sage`, `shimmer`, puis `cedar` et `alloy`.
 
+**Banc du 24/10/2026.** OpenAI a ouvert le 16/10 deux voix françaises, `brise` et
+`sillage`, et la création d'une voix à partir d'une description (`prompt:<style>` dans
+`scripts/essai_voix_gpt_live.py`, styles dans `STYLES`). Six voix ont dit la même phrase,
+chacune en deux extraits : µ-law 8 kHz demandé à GPT-Live (ce que la ligne reçoit) et
+24 kHz. Extraits et page d'écoute à l'aveugle dans `local/essai-gpt-live/banc-2026-10-24/`.
+
+| Voix | Hauteur médiane | Débit |
+|---|---|---|
+| `marin` (voix actuelle) | 186 Hz | 177 mots/min |
+| `brise` | 200 Hz | 192 mots/min |
+| `sillage` | 113 Hz : voix grave, masculine | 180 mots/min |
+| créée « posée » | 173 Hz | 190 mots/min |
+| créée « souriante » | 214 Hz | 219 mots/min |
+| créée « élégante » | 231 Hz | 166 mots/min |
+
+Toutes ont dit la phrase entière. La création d'une voix a échoué par moments (HTTP 500
+« Voice generation failed », et « Script hint is too short » pour la phrase seule) : le
+script réessaie et donne un exemple de parole plus long. Une voix créée se désigne dans
+la session par un objet (`{"id": "voice_…"}`), pas par une chaîne : `GPT_LIVE_VOIX` ne
+sait pas encore la porter. L'accent reste à juger à l'oreille, puis sur un vrai appel.
+
 Les voix sur mesure (clonage, avec enregistrement de consentement) existent mais sont
 réservées aux « clients éligibles », et la page d'OpenAI ne les annonce pour GPT-Live
 qu'avec des accents anglais.
