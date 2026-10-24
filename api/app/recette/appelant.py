@@ -87,7 +87,7 @@ async def _jouer(websocket: WebSocket, flux: str, client: Client) -> None:
                 message = json.loads(await websocket.receive_text())
             except (WebSocketDisconnect, RuntimeError):
                 return
-            except Exception:
+            except Exception:  # noqa: S112 — un message illisible de la jambe d'essai ; on lit le suivant
                 continue
             if not isinstance(message, dict):
                 continue

@@ -161,7 +161,7 @@ async def extrait_de_voix(slug: str, user: User = Depends(deps.current_user)):
             chemin.parent.mkdir(parents=True, exist_ok=True)
             greeting_mod._write_wav(chemin, ulaw.decoder(ulaw.encoder(huit)))
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"Mistral n'a pas rendu l'extrait ({exc}).")
+            raise HTTPException(status_code=503, detail=f"Mistral n'a pas rendu l'extrait ({exc}).") from exc
     return FileResponse(chemin, media_type="audio/wav")
 
 
@@ -202,7 +202,7 @@ async def hold_music_upload(
         raise HTTPException(
             status_code=422,
             detail="Format non reconnu : fournir un WAV PCM 16 bits (mono ou stéréo).",
-        )
+        ) from None
     # Écriture atomique (un WAV partiel jouerait du bruit pendant un appel).
     dest = greeting_mod.hold_music_dir() / f"tenant{tenant.id}.wav"
     dest.parent.mkdir(parents=True, exist_ok=True)

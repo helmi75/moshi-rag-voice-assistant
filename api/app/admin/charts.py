@@ -65,7 +65,7 @@ def bar_chart(points: list[tuple], *, title: str, series: int = 1,
     """
     suffix = "-on-dark" if tone == "dark" else ""
     if not points:
-        return Markup(
+        return Markup(  # noqa: S704 — chaque texte passe par escape()
             f'<figure class="viz-root viz-{escape(tone)}">'
             f'<figcaption>{escape(title)}</figcaption>'
             f'<p class="muted">{escape(empty_label)}</p></figure>'
@@ -130,7 +130,7 @@ def bar_chart(points: list[tuple], *, title: str, series: int = 1,
             )
     parts.append("</svg>")
     dense = " viz-dense" if n > _DENSE else ""
-    return Markup(
+    return Markup(  # noqa: S704 — chaque texte passe par escape(), le reste est numérique
         f'<figure class="viz-root viz-{escape(tone)}{dense}">'
         f'<figcaption>{escape(title)}</figcaption>'
         f'<div class="chart-block">{"".join(parts)}</div></figure>'

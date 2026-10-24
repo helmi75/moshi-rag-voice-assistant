@@ -428,7 +428,7 @@ def secours_recents(heures: int = 24) -> list[dict]:
             f"""SELECT id, tenant_id, started_at, status, secours_motif FROM calls
                WHERE secours_motif IS NOT NULL AND secours_motif != 'essai'
                  AND started_at >= ?{hors}
-               ORDER BY started_at DESC""", (depuis, *hors_params)).fetchall()
+               ORDER BY started_at DESC""", (depuis, *hors_params)).fetchall()  # noqa: S608 — fragments du code, valeurs liées par ?
     return [dict(r) for r in rows]
 
 
@@ -480,7 +480,7 @@ def count_calls(tenant_id: Optional[int] = None) -> int:
     with db.get_conn() as conn:
         if tenant_id is None:
             hors, params = _hors_essai(None)
-            return conn.execute(f"SELECT COUNT(*) FROM calls WHERE 1 = 1{hors}",
+            return conn.execute(f"SELECT COUNT(*) FROM calls WHERE 1 = 1{hors}",  # noqa: S608 — fragments du code, valeurs liées par ?
                                 params).fetchone()[0]
         return conn.execute(
             "SELECT COUNT(*) FROM calls WHERE tenant_id = ?", (tenant_id,)
@@ -515,11 +515,11 @@ def stats_daily(tenant_id: Optional[int] = None, days: int = 30) -> list[dict]:
     params_resas += hors_params
     with db.get_conn() as conn:
         calls_rows = conn.execute(
-            f"SELECT started_at, {A_RESERVE} AS a_reserve, estimated_cost FROM calls {where_calls}",
+            f"SELECT started_at, {A_RESERVE} AS a_reserve, estimated_cost FROM calls {where_calls}",  # noqa: S608 — fragments du code, valeurs liées par ?
             params_calls,
         ).fetchall()
         resa_rows = conn.execute(
-            f"SELECT created_at FROM reservations {where_resas}", params_resas,
+            f"SELECT created_at FROM reservations {where_resas}", params_resas,  # noqa: S608 — fragments du code, valeurs liées par ?
         ).fetchall()
     merged: dict[str, dict] = {}
 
@@ -594,13 +594,13 @@ def totals(tenant_id: Optional[int] = None, days: int = 30,
                        COALESCE(SUM(CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END), 0) AS n_unfinished,
                        COALESCE(SUM(duration_seconds), 0) AS total_duration,
                        COALESCE(SUM(estimated_cost), 0) AS total_cost
-                FROM calls WHERE {calls_where}""",
+                FROM calls WHERE {calls_where}""",  # noqa: S608 — fragments du code, valeurs liées par ?
             calls_params,
         ).fetchone()
         r = conn.execute(
             f"""SELECT COUNT(*) AS n_reservations,
                        COALESCE(SUM(party_size), 0) AS n_covers
-                FROM reservations WHERE {resas_where}""",
+                FROM reservations WHERE {resas_where}""",  # noqa: S608 — fragments du code, valeurs liées par ?
             resas_params,
         ).fetchone()
     n_calls = c["n_calls"]
@@ -632,12 +632,12 @@ def stats_by_tenant(days: int = 30) -> dict[int, dict]:
                        COALESCE(SUM(CASE WHEN {A_RESERVE} THEN 1 ELSE 0 END), 0)
                            AS n_with_reservation,
                        COALESCE(SUM(estimated_cost), 0) AS total_cost
-                FROM calls WHERE {clause.format(col='started_at')}{hors} GROUP BY tenant_id""",
+                FROM calls WHERE {clause.format(col='started_at')}{hors} GROUP BY tenant_id""",  # noqa: S608 — fragments du code, valeurs liées par ?
             [*params, *hors_params],
         ).fetchall()
         resa_rows = conn.execute(
             f"""SELECT tenant_id, COUNT(*) AS n_reservations
-                FROM reservations WHERE {clause.format(col='created_at')}{hors} GROUP BY tenant_id""",
+                FROM reservations WHERE {clause.format(col='created_at')}{hors} GROUP BY tenant_id""",  # noqa: S608 — fragments du code, valeurs liées par ?
             [*params, *hors_params],
         ).fetchall()
     stats: dict[int, dict] = {}
@@ -676,7 +676,7 @@ def latency_stats(tenant_id: Optional[int] = None, days: int = 30) -> Optional[d
     where += hors
     params = [*params, *hors_params]
     with db.get_conn() as conn:
-        rows = conn.execute(f"SELECT turn_latencies FROM calls WHERE {where}", params).fetchall()
+        rows = conn.execute(f"SELECT turn_latencies FROM calls WHERE {where}", params).fetchall()  # noqa: S608 — fragments du code, valeurs liées par ?
     mesures: list[int] = []
     for row in rows:
         try:
@@ -727,7 +727,7 @@ def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict
                        COALESCE(SUM(CASE WHEN voix_fournisseur IS NOT 'moshi'
                                           AND voix_fournisseur IS NOT 'gpt-live'
                                          THEN cout_voix END), 0) AS voix_mistral
-                FROM calls WHERE {where}""",
+                FROM calls WHERE {where}""",  # noqa: S608 — fragments du code, valeurs liées par ?
             params,
         ).fetchone()
     rows = [
@@ -783,7 +783,7 @@ def par_moteur(tenant_id: Optional[int] = None, days: int = 30) -> dict[str, dic
                 WHERE {where} AND ended_at IS NOT NULL AND duration_seconds > 0
                   AND voix_fournisseur IN ('gpt-live', 'voxtral')
                   AND COALESCE(call_sid, '') NOT LIKE '{PREFIXE_BANC}%'
-                GROUP BY voix_fournisseur""",
+                GROUP BY voix_fournisseur""",  # noqa: S608 — fragments du code, valeurs liées par ?
             params,
         ).fetchall()
     resultat = {}
@@ -833,7 +833,7 @@ def enregistrements_stats(tenant_id: Optional[int] = None, days: int = 7) -> dic
                        COALESCE(SUM(CASE WHEN recording_bytes IS NOT NULL THEN 1 ELSE 0 END), 0)
                            AS enregistres,
                        COALESCE(SUM(recording_bytes), 0) AS octets
-                FROM calls WHERE {where}""",
+                FROM calls WHERE {where}""",  # noqa: S608 — fragments du code, valeurs liées par ?
             params,
         ).fetchone()
     return {"clos": row["clos"], "enregistres": row["enregistres"], "octets": row["octets"]}
@@ -862,7 +862,7 @@ def appel_d_une_reservation(tenant_id: int, reservation_id, *, externe: bool) ->
     colonne = "reservation_externe" if externe else "reservation_id"
     with db.get_conn() as conn:
         row = conn.execute(
-            f"SELECT * FROM calls WHERE tenant_id = ? AND {colonne} = ? "
+            f"SELECT * FROM calls WHERE tenant_id = ? AND {colonne} = ? "  # noqa: S608 — fragments du code, valeurs liées par ?
             "ORDER BY started_at DESC LIMIT 1",
             (tenant_id, str(reservation_id) if externe else reservation_id),
         ).fetchone()
@@ -902,7 +902,7 @@ def oublier_enregistrements(call_ids: list[int]) -> None:
         return
     with db.get_conn() as conn:
         conn.execute(
-            f"UPDATE calls SET recording_bytes = NULL WHERE id IN "
+            f"UPDATE calls SET recording_bytes = NULL WHERE id IN "  # noqa: S608 — fragments du code, valeurs liées par ?
             f"({','.join('?' * len(call_ids))})",
             [int(i) for i in call_ids],
         )

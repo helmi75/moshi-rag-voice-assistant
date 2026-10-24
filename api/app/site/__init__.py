@@ -36,7 +36,7 @@ _CORPS_MAX = 2000
 
 @lru_cache(maxsize=None)
 def _empreinte(nom: str) -> str:
-    return hashlib.sha1((STATIC_DIR / nom).read_bytes()).hexdigest()[:10]
+    return hashlib.sha1((STATIC_DIR / nom).read_bytes(), usedforsecurity=False).hexdigest()[:10]  # nosemgrep: insecure-hash-algorithm-sha1 — empreinte de cache, pas de sécurité
 
 
 def statique(nom: str) -> str:

@@ -23,7 +23,7 @@ import asyncio
 import time as _temps
 from datetime import datetime, time, timedelta
 from typing import Optional
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape  # nosemgrep: use-defused-xml — échappe le TwiML qu'on écrit, ne lit aucun XML
 
 from . import calls, connecteurs, disponibilite, horloge
 

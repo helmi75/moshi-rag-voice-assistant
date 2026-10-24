@@ -28,7 +28,7 @@ _TITRE_MAX = 80
 
 
 def _version(texte: Optional[str]) -> str:
-    return hashlib.sha1((texte or "").encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1((texte or "").encode("utf-8"), usedforsecurity=False).hexdigest()[:12]  # nosemgrep: insecure-hash-algorithm-sha1 — empreinte de cache, pas de sécurité
 
 
 def _fiches(tenant) -> list[dict]:

@@ -185,7 +185,7 @@ def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     assignments = ", ".join(f"{k} = ?" for k in updates)
     with db.get_conn() as conn:
         conn.execute(
-            f"UPDATE tenants SET {assignments} WHERE id = ?",
+            f"UPDATE tenants SET {assignments} WHERE id = ?",  # noqa: S608 — fragments du code, valeurs liées par ?
             (*updates.values(), tenant_id),
         )
         row = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,)).fetchone()

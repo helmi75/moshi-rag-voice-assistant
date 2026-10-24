@@ -214,7 +214,7 @@ async def call_audio(call_id: int, piste: str = "stereo",
     try:
         pcm, canaux = await asyncio.to_thread(_assembler)
     except OSError:
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404) from None
     if not pcm:
         raise HTTPException(status_code=404)
     return Response(content=ulaw.entete_wav(len(pcm), canaux=canaux) + pcm,

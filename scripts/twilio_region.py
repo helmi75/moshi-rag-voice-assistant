@@ -56,7 +56,7 @@ def _requete(methode: str, url: str, sid: str, jeton: str,
     requete.add_header("Authorization",
                        "Basic " + base64.b64encode(f"{sid}:{jeton}".encode()).decode())
     try:
-        with urllib.request.urlopen(requete, timeout=30) as reponse:
+        with urllib.request.urlopen(requete, timeout=30) as reponse:  # nosemgrep: dynamic-urllib-use-detected — adresses de l'API écrites dans le script
             return reponse.status, json.loads(reponse.read() or b"{}")
     except urllib.error.HTTPError as exc:
         try:
@@ -100,7 +100,7 @@ def sonde(base: str, jeton: str) -> int:
     requete = urllib.request.Request(url, data=urllib.parse.urlencode(donnees).encode(), method="POST")
     requete.add_header("X-Twilio-Signature", signature(jeton, url, donnees))
     try:
-        with urllib.request.urlopen(requete, timeout=20) as reponse:
+        with urllib.request.urlopen(requete, timeout=20) as reponse:  # nosemgrep: dynamic-urllib-use-detected — notre application, dont l'adresse est lue dans la fiche Twilio du numéro
             return reponse.status
     except urllib.error.HTTPError as exc:
         return exc.code

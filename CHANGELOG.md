@@ -7,6 +7,30 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — un second regard sur le code (24/10/2026, ASSISTANTE-171)
+
+### Ajouté
+- **ruff lit aussi les règles de Bandit (S) et de bugbear (B)**, et **Semgrep** (1.180.0,
+  règles `p/python` et `p/security-audit`) passe sur l'application, les scripts et les
+  gabarits Jinja. Les deux bloquent la CI. Le relecteur est de la même famille de modèle
+  que le concepteur : ces outils sont l'autre regard.
+- `CLAUDE.md` : `/security-review` en plus du relecteur sur les lots sensibles.
+
+### Corrigé ou justifié (le stock du 24/10/2026 : 94 alertes de ruff, 31 de Semgrep)
+- 50 alertes B008 : `Depends(...)` en valeur par défaut, l'idiome de FastAPI, déclaré
+  dans `ruff.toml`.
+- 23 requêtes SQL construites par morceaux : relues une à une, toutes faites de fragments
+  du code ou de colonnes d'une liste fermée, valeurs liées par `?`. Justifiées ligne à
+  ligne ; une nouvelle requête sera relevée.
+- 9 attributs `selected` des gabarits écrits en `{% if %}` plutôt qu'en `{{ }}` hors
+  guillemets : même rendu.
+- Les empreintes sha1 (cache de l'accueil, version des fichiers statiques et des
+  connaissances) se déclarent non cryptographiques : même valeur, donc aucun accueil à
+  refaire.
+- `raise … from`, `itertools.pairwise`, et une justification pour chaque `except: pass`
+  (fermetures au mieux ; l'enregistrement ne doit jamais faire échouer un appel).
+- Aucune vraie faille trouvée.
+
 ## Non publiée — les outils GitHub dans le dépôt (24/10/2026, ASSISTANTE-170)
 
 ### Ajouté

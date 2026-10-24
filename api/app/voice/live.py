@@ -30,6 +30,7 @@ Le protocole suit le service `OpenAILiveLLMService` de Pipecat 1.12, lu le 04/10
 """
 import asyncio
 import base64
+import itertools
 import json
 import os
 import time
@@ -407,7 +408,7 @@ async def ouvrir(tenant: Tenant, prompt_systeme: str, numero_connu: bool = True)
     if ws is not None:
         try:
             await ws.close()
-        except Exception:
+        except Exception:  # noqa: S110 — fermeture au mieux d'une session qui n'a pas pu s'ouvrir
             pass
     return None
 
@@ -841,7 +842,7 @@ class Appel:
             if len(tampon) >= _TRANCHE_ENREGISTREMENT:
                 self.enregistreur.ecrire(piste, ulaw.decoder(bytes(tampon)))
                 tampon.clear()
-        except Exception:  # l'enregistrement ne doit jamais faire échouer un appel
+        except Exception:  # noqa: S110 — l'enregistrement ne doit jamais faire échouer un appel
             pass
 
     def vider_les_tampons(self) -> None:
@@ -877,7 +878,7 @@ class Appel:
         par tour : la mesure qui se compare au pipeline habituel (`turn_latencies`)."""
         blancs = []
         tours = self.tours()
-        for avant, apres in zip(tours, tours[1:]):
+        for avant, apres in itertools.pairwise(tours):
             if (avant["role"] == "user" and apres["role"] == "assistant"
                     and avant["fin"] is not None and apres["debut"] is not None
                     and apres["debut"] > avant["fin"]):
@@ -1010,9 +1011,9 @@ async def _fermer(session, appel: Appel) -> None:
             if evt.get("type") == "session.closed":
                 appel._noter_usage(evt.get("usage"))
                 break
-    except Exception:
+    except Exception:  # noqa: S110 — fermeture au mieux, l'appel est déjà fini
         pass
     try:
         await session.close()
-    except Exception:
+    except Exception:  # noqa: S110 — fermeture au mieux, l'appel est déjà fini
         pass

@@ -109,7 +109,7 @@ def _conteneurs_actifs() -> Optional[int]:
         # activé, la commande n'est pas dans le PATH, et le suivi d'extinction échouerait
         # en silence — on relèverait alors la facture GPU avant qu'elle soit complète.
         sortie = subprocess.run(
-            [sys.executable, "-m", "modal", "container", "list", "--json", "--app-id", app_id],
+            [sys.executable, "-m", "modal", "container", "list", "--json", "--app-id", app_id],  # nosemgrep: dangerous-subprocess-use-tainted-env-args — liste d'arguments, sans shell
             capture_output=True, text=True, timeout=90)
         return len(json.loads(sortie.stdout or "[]"))
     except Exception:

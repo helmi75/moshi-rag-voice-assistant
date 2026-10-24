@@ -21,6 +21,10 @@ docker run --rm --tmpfs /tmp:exec -v "$PWD:/repo" -w /repo/api moshi-rag-voice-a
   sh -c "pip install -q pytest ruff >/dev/null 2>&1; ruff check --config ../ruff.toml app; \
          python -m pytest tests -q -p no:cacheprovider -W ignore"
 
+# Analyse de sécurité (environ 2 minutes, lit le registre de Semgrep) : code, scripts, gabarits
+docker run --rm -v "$PWD:/repo:ro" -w /repo python:3.12-slim sh -c "pip install -q semgrep==1.180.0 \
+  >/dev/null 2>&1; semgrep scan --metrics=off --error --config p/python --config p/security-audit api/app scripts"
+
 # Un fichier, un test : même commande, en finissant par
 #   python -m pytest tests/test_renvoi.py -q -k tourne_pas_en_rond
 
@@ -44,8 +48,10 @@ python3 scripts/depot_github.py fusionner <n> --attendre  # refuse tant que la C
 ```
 
 La CI (`.github/workflows/ci.yml`, sur `main`, `claude/**` et chaque PR) installe
-`api/app/requirements.lock`, puis joue `ruff check api/app` (règles E9 et F seulement),
-`pip-audit`, la suite et `scripts/mutation_check.py`. `requirements.txt` est l'intention,
+`api/app/requirements.lock`, puis joue `ruff check api/app` (règles E9, F, S et B),
+Semgrep, `pip-audit`, la suite et `scripts/mutation_check.py`. Une alerte de ruff ou de
+Semgrep bloque : elle se corrige, ou se justifie sur sa ligne (`# noqa: S608 — pourquoi`,
+`nosemgrep: règle — pourquoi`), jamais par une exclusion globale. `requirements.txt` est l'intention,
 le `.lock` ce qui est installé (régénération : `docs/DEPLOY.md`).
 
 ## Cycle de travail
@@ -142,6 +148,11 @@ diff en lecture seule, `.claude/agents/qa-recette.md` fait la recette sans tél�
   jouées et leur résultat, ce qui n'est pas vérifié. Aucun fichier recopié.
 - **Chemin d'appel, signature Twilio, cloisonnement, migrations, `llm.run_tool`** :
   l'orchestrateur conçoit (ou code), et le relecteur passe toujours.
+- **Lot sensible** (ceux de la ligne précédente, plus l'authentification, les sessions, une
+  route publique, un secret, un script qui touche la production) : `/security-review` en
+  plus du relecteur, sur le diff final. Le relecteur est de la même famille de modèle que
+  le concepteur ; ruff et Semgrep en CI sont l'autre regard. CodeQL n'est gratuit que tant
+  que le dépôt est public.
 - **Le compte rendu d'un agent n'est pas une preuve.** Avant d'annoncer qu'un lot est
   prêt, l'orchestrateur relit le diff et vérifie la CI lui-même.
 

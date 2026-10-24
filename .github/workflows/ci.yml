@@ -33,7 +33,8 @@ jobs:
           pip install -r api/app/requirements.lock -r api/tests/requirements-test.txt
 
       # Défauts que les tests ne voient que si la branche est empruntée : nom non défini,
-      # import inutile. Règles dans ruff.toml ; version figée, comme le reste.
+      # import inutile ; et, depuis ASSISTANTE-171, les règles de Bandit (S) et de bugbear
+      # (B). Règles dans ruff.toml ; version figée, comme le reste.
       - name: Analyse statique (ruff)
         run: |
           pip install ruff==0.13.0
@@ -62,6 +63,29 @@ jobs:
         env:
           CI: "true"
         run: python3 scripts/mutation_check.py --runner native
+
+      # Un second regard, d'un autre moteur : Semgrep lit aussi les gabarits Jinja (une
+      # variable dans un href, un attribut sans guillemets), que ruff ne voit pas. Bandit
+      # n'est pas ajouté : les règles S de ruff en sont le portage, et sur ce code il ne
+      # trouvait rien de plus (mesuré le 24/10/2026). Version figée, dans son propre
+      # environnement (ses dépendances ne doivent pas toucher celles qu'on teste). Les
+      # règles viennent du registre de Semgrep et peuvent s'enrichir : une nouvelle alerte
+      # se corrige, ou se justifie sur sa ligne (`nosemgrep: règle — pourquoi`).
+      # Seule une alerte bloque (code 1, mesuré). Registre injoignable (2) ou règle
+      # introuvable (7) : un avertissement, pas un rouge — une panne chez Semgrep ne doit
+      # pas retenir un correctif urgent, puisque le déploiement exige une CI verte.
+      # En dernier : un rouge ici laisse voir le résultat des tests.
+      - name: Analyse de sécurité (Semgrep)
+        run: |
+          python -m venv /tmp/semgrep
+          /tmp/semgrep/bin/pip install -q semgrep==1.180.0
+          code=0
+          /tmp/semgrep/bin/semgrep scan --metrics=off --error --quiet \
+            --config p/python --config p/security-audit api/app scripts || code=$?
+          if [ "$code" -eq 1 ]; then exit 1; fi
+          if [ "$code" -ne 0 ]; then
+            echo "::warning::Semgrep n'a pas pu analyser (code $code : registre injoignable ?). À relancer."
+          fi
 
   # L'image de production est construite ICI, depuis le commit que les tests viennent de
   # valider, et nulle part ailleurs (ASSISTANTE-167). Le serveur la télécharge et la lance :

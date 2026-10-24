@@ -30,7 +30,7 @@ def _request(method: str, url: str, sid: str, token: str, data: Optional[dict] =
     auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
     req.add_header("Authorization", f"Basic {auth}")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # nosemgrep: dynamic-urllib-use-detected — adresses de l'API écrites dans le script
             return json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace")

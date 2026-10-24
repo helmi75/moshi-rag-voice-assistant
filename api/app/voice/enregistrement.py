@@ -227,7 +227,7 @@ class Enregistreur:
             for fichier in self._fichiers.values():
                 try:
                     fichier.close()
-                except Exception:
+                except Exception:  # noqa: S110 — l'enregistrement ne doit jamais faire échouer un appel
                     pass
             self._fichiers.clear()
 

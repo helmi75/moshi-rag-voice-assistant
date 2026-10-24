@@ -104,7 +104,7 @@ def _du_mois(tenant_id: int) -> tuple[int, float]:
         return 0, 0.0
     with db.get_conn() as conn:
         row = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0) FROM calls "
+            "SELECT COUNT(*), COALESCE(SUM(duration_seconds), 0) FROM calls "  # noqa: S608 — fragments du code, valeurs liées par ?
             f"WHERE tenant_id = ? AND {_DECOMPTES}",
             (tenant_id, horloge.debut_du_mois()),
         ).fetchone()
@@ -152,7 +152,7 @@ def etat_par_tenant(tenants_liste) -> dict[int, Consommation]:
     hors, hors_params = calls._hors_essai(None)
     with db.get_conn() as conn:
         rows = conn.execute(
-            "SELECT tenant_id, COUNT(*) AS n, COALESCE(SUM(duration_seconds), 0) AS secondes "
+            "SELECT tenant_id, COUNT(*) AS n, COALESCE(SUM(duration_seconds), 0) AS secondes "  # noqa: S608 — fragments du code, valeurs liées par ?
             f"FROM calls WHERE {_DECOMPTES}{hors} GROUP BY tenant_id",
             (horloge.debut_du_mois(), *hors_params),
         ).fetchall()
