@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — retour arrière automatique (24/10/2026, ASSISTANTE-168)
+
+### Ajouté
+- **Un déploiement qui échoue se défait seul.** Si, après le lancement, la santé ne répond
+  pas, le conteneur ne tourne pas sur l'image demandée, le port 8000 est ouvert, la sonde
+  de supervision est muette, ou un contrôle **passe** en panne, `scripts/deploy.sh` remet
+  en service le commit et l'image d'avant, les revérifie, et le dit. Une panne déjà
+  présente avant le déploiement ne l'annule pas.
+- **`scripts/deploy.sh --version <commit>`** remet en service un commit déjà passé par
+  `main`, avec les mêmes vérifications.
+- **`--simuler-echec`** éprouve le retour arrière sur la vraie production.
+
 ## Non publiée — l'image de production est construite par la CI (24/10/2026, ASSISTANTE-167)
 
 Premier lot du chantier « livraison » : jusqu'ici, chaque déploiement reconstruisait
