@@ -35,6 +35,9 @@ API = "https://api.github.com"
 # ne tourne que sur un push.
 CONCLUSIONS_VERTES = {"success", "skipped", "neutral"}
 
+# La CI du code ; les autres événements (la sonde planifiée) disent autre chose.
+EVENEMENTS_CI = ("push", "pull_request")
+
 VERT, ROUGE, EN_COURS, AUCUNE = "vert", "rouge", "en cours", "aucune exécution"
 
 
@@ -93,24 +96,37 @@ class Depot:
     def commit_complet(self, ref: str) -> str:
         """Un commit abrégé, une branche ou HEAD → l'empreinte complète (la seule que
         `actions/runs?head_sha=` comprenne)."""
-        if ref == "HEAD" or not re.fullmatch(r"[0-9a-f]{40}", ref):
+        if not re.fullmatch(r"[0-9a-f]{40}", ref):
             try:
-                ref = subprocess.run(["git", "rev-parse", ref], check=True, capture_output=True,
+                # `--end-of-options` : « --show-toplevel » est un nom de commit, pas une option.
+                ref = subprocess.run(["git", "rev-parse", "--verify", "--end-of-options",
+                                      f"{ref}^{{commit}}"], check=True, capture_output=True,
                                      text=True).stdout.strip()
             except (OSError, subprocess.CalledProcessError):
-                ref = self.lire(f"/commits/{urllib.parse.quote(ref)}")["sha"]
+                ref = self.lire(f"/commits/{urllib.parse.quote(ref, safe='')}").get("sha", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", ref):
+            raise RefusGitHub("ce n'est pas un commit")
         return ref
 
-    def etat_ci(self, sha: str) -> dict:
-        """Les exécutions de workflow et les jobs de GitHub Actions sur ce commit, et le verdict."""
-        flux = self.lire(f"/actions/runs?head_sha={sha}&per_page=100").get("workflow_runs", [])
+    def etat_ci(self, sha: str, *, exiger_pull_request: bool = False) -> dict:
+        """Les exécutions de la CI sur ce commit (workflows et jobs), et le verdict.
+
+        La sonde de supervision est un workflow planifié : chacune de ses exécutions se
+        rattache au dernier commit de `main`, et dit l'état de la production, pas celui du
+        code (ASSISTANTE-168). Seuls comptent les workflows lancés par un push ou une PR, et
+        les jobs de ceux-là. Le filtre par événement garde aussi la lecture courte : la
+        sonde ajoute jusqu'à 96 exécutions par jour à la tête de `main`."""
+        flux = []
+        for evenement in EVENEMENTS_CI:
+            flux += self.lire(f"/actions/runs?head_sha={sha}&event={evenement}&per_page=100"
+                              ).get("workflow_runs", [])
+        suites = {f.get("check_suite_id") for f in flux}
         jobs, page = [], 1
         while True:
             corps = self.lire(f"/commits/{sha}/check-runs?per_page=100&page={page}")
             lot = corps.get("check_runs", [])
-            # La sonde de supervision rattache sa marque au dernier commit de `main` : elle dit
-            # l'état de la production, pas celui du code (ASSISTANTE-168).
-            jobs += [r for r in lot if (r.get("app") or {}).get("slug") == "github-actions"]
+            jobs += [r for r in lot if (r.get("app") or {}).get("slug") == "github-actions"
+                     and (r.get("check_suite") or {}).get("id") in suites]
             if len(lot) < 100:
                 break
             page += 1
@@ -118,15 +134,21 @@ class Depot:
                       "statut": f["status"], "conclusion": f.get("conclusion")} for f in flux]
                     + [{"genre": "job", "nom": j["name"], "evenement": "",
                         "statut": j["status"], "conclusion": j.get("conclusion")} for j in jobs])
-        return {"sha": sha, "verdict": verdict(elements), "elements": elements}
+        etat = verdict(elements)
+        # Juste après l'ouverture d'une PR, GitHub n'a pas encore créé l'exécution qui teste
+        # le résultat de la fusion : la CI du push, verte, ne suffit pas pour fusionner.
+        if exiger_pull_request and etat == VERT and not any(
+                f.get("event") == "pull_request" for f in flux):
+            etat = EN_COURS
+        return {"sha": sha, "verdict": etat, "elements": elements}
 
     def attendre_ci(self, sha: str, delai: float = 1200, pause: float = 20,
-                    dormir=time.sleep, horloge=time.monotonic) -> dict:
+                    dormir=time.sleep, horloge=time.monotonic, **options) -> dict:
         """Jusqu'à ce que tout soit terminé. Un rouge précoce n'arrête pas l'attente : on rend
         compte de toutes les exécutions, pas de la première qui échoue."""
         fin = horloge() + delai
         while True:
-            etat = self.etat_ci(sha)
+            etat = self.etat_ci(sha, **options)
             if etat["verdict"] in (VERT, ROUGE) or horloge() >= fin:
                 return etat
             dormir(pause)
@@ -150,7 +172,8 @@ class Depot:
         if pr.get("state") != "open" or pr.get("merged"):
             raise RefusGitHub(f"PR {numero} : pas ouverte ({pr.get('state')})")
         sha = pr["head"]["sha"]
-        etat = self.attendre_ci(sha, **attente) if attendre else self.etat_ci(sha)
+        etat = (self.attendre_ci(sha, exiger_pull_request=True, **attente) if attendre
+                else self.etat_ci(sha, exiger_pull_request=True))
         if etat["verdict"] != VERT:
             raise RefusGitHub(f"PR {numero} : CI {etat['verdict']} sur {sha[:8]}, pas de fusion\n"
                               + resume(etat))

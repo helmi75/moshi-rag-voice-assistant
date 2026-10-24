@@ -44,19 +44,25 @@ class FauxGitHub:
         return [(c, json.loads(r.data)) for m, c, r in self.requetes if m == methode]
 
 
-def _job(nom, statut="completed", conclusion="success", slug="github-actions"):
-    return {"name": nom, "status": statut, "conclusion": conclusion, "app": {"slug": slug}}
+def _job(nom, statut="completed", conclusion="success", slug="github-actions", suite=1):
+    return {"name": nom, "status": statut, "conclusion": conclusion, "app": {"slug": slug},
+            "check_suite": {"id": suite}}
 
 
-def _flux(nom="CI", statut="completed", conclusion="success", evenement="push"):
-    return {"name": nom, "status": statut, "conclusion": conclusion, "event": evenement}
+def _flux(nom="CI", statut="completed", conclusion="success", evenement="push", suite=1):
+    return {"name": nom, "status": statut, "conclusion": conclusion, "event": evenement,
+            "check_suite_id": suite}
 
 
 def _routes_ci(sha=SHA, flux=None, jobs=None):
-    return {("GET", f"/actions/runs?head_sha={sha}&per_page=100"):
-                (200, {"workflow_runs": [_flux()] if flux is None else flux}),
-            ("GET", f"/commits/{sha}/check-runs?per_page=100&page=1"):
-                (200, {"check_runs": [_job("tests"), _job("image")] if jobs is None else jobs})}
+    """GitHub filtre les exécutions par événement : on range chacune sous le sien."""
+    flux = [_flux()] if flux is None else flux
+    routes = {("GET", f"/actions/runs?head_sha={sha}&event={ev}&per_page=100"):
+                  (200, {"workflow_runs": [f for f in flux if f["event"] == ev]})
+              for ev in dg.EVENEMENTS_CI}
+    routes[("GET", f"/commits/{sha}/check-runs?per_page=100&page=1")] = (
+        200, {"check_runs": [_job("tests"), _job("image")] if jobs is None else jobs})
+    return routes
 
 
 def _depot(routes):
@@ -88,10 +94,21 @@ class TestLeVerdictDeLaCi:
         depot, _ = _depot(_routes_ci(flux=[], jobs=[]))
         assert depot.etat_ci(SHA)["verdict"] == dg.AUCUNE
 
-    def test_la_marque_de_la_sonde_de_supervision_ne_compte_pas(self):
+    def test_la_marque_d_une_autre_application_ne_compte_pas(self):
         jobs = [_job("tests"), _job("supervision", conclusion="failure", slug="autre-appli")]
         depot, _ = _depot(_routes_ci(jobs=jobs))
         assert depot.etat_ci(SHA)["verdict"] == dg.VERT
+
+    @pytest.mark.parametrize("statut, conclusion", [("completed", "failure"),
+                                                    ("in_progress", None)])
+    def test_la_sonde_planifiee_sur_la_tete_de_main_ne_compte_pas(self, statut, conclusion):
+        """La sonde est un workflow GitHub Actions planifié, rattaché au dernier commit de
+        `main` : production en panne, ou sonde en cours, ce n'est pas la CI du code."""
+        jobs = [_job("tests"), _job("image"),
+                _job("sonde", statut=statut, conclusion=conclusion, suite=2)]
+        depot, faux = _depot(_routes_ci(jobs=jobs))
+        assert depot.etat_ci(SHA)["verdict"] == dg.VERT
+        assert not any("event=schedule" in c for _, c, _ in faux.requetes)
 
     def test_toutes_les_pages_de_jobs_sont_lues(self):
         routes = _routes_ci(jobs=[_job(f"j{i}") for i in range(100)])
@@ -126,7 +143,8 @@ class TestLAttente:
 
 class TestLaFusion:
     def _routes_pr(self, ci=None, etat="open"):
-        routes = ci or _routes_ci()
+        routes = ci or _routes_ci(flux=[_flux(), _flux(evenement="pull_request", suite=3)],
+                                  jobs=[_job("tests"), _job("image"), _job("tests", suite=3)])
         routes[("GET", "/pulls/7")] = (200, {"state": etat, "merged": False,
                                              "head": {"sha": SHA}})
         routes[("PUT", "/pulls/7/merge")] = (200, {"merged": True, "sha": "b" * 40})
@@ -148,6 +166,14 @@ class TestLaFusion:
         assert dg.main(["fusionner", "7"], depot=depot) == 1
         assert faux.envoyes("PUT") == []
         assert "pas de fusion" in capsys.readouterr().err
+
+    def test_attend_l_execution_qui_teste_la_fusion(self, capsys):
+        """PR ouverte juste après la CI du push : l'exécution `pull_request` n'existe pas
+        encore, et le vert du push ne teste pas le résultat de la fusion."""
+        depot, faux = _depot(self._routes_pr(ci=_routes_ci()))
+        assert dg.main(["fusionner", "7"], depot=depot) == 1
+        assert faux.envoyes("PUT") == []
+        assert "en cours" in capsys.readouterr().err
 
     def test_refuse_une_pr_fermee(self):
         depot, faux = _depot(self._routes_pr(etat="closed"))
@@ -189,6 +215,17 @@ class TestLaPr:
         assert dg.main(["pr", "--titre", "T", "--corps-fichier", str(corps),
                         "--branche", "main"], depot=depot) == 1
         assert faux.requetes == []
+
+
+class TestLeCommit:
+    def test_un_nom_qui_ressemble_a_une_option_n_en_est_pas_une(self, capsys):
+        depot, faux = _depot({("GET", "/commits/--show-toplevel"): (404, {"message": "Not Found"})})
+        assert dg.main(["ci", "--", "--show-toplevel"], depot=depot) == 1
+        assert "Not Found" in capsys.readouterr().err
+
+    def test_une_plage_n_est_pas_un_commit(self, capsys):
+        depot, _ = _depot({("GET", "/commits/HEAD~1..HEAD"): (422, {"message": "No commit"})})
+        assert dg.main(["ci", "HEAD~1..HEAD"], depot=depot) == 1
 
 
 class TestLeJeton:
