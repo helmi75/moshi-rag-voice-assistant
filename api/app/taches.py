@@ -27,7 +27,7 @@ def lancer(coro: Coroutine, *, nom: str) -> asyncio.Task:
         boucle = asyncio.get_running_loop()
     except RuntimeError:
         coro.close()
-        raise RuntimeError(f"taches.lancer({nom!r}) appelée hors d'une boucle d'événements")
+        raise RuntimeError(f"taches.lancer({nom!r}) appelée hors d'une boucle d'événements") from None
     tache = boucle.create_task(coro, name=nom)
     _taches.add(tache)
     tache.add_done_callback(_terminee)
@@ -66,6 +66,6 @@ async def arreter_tout() -> None:
     for tache in taches:
         try:
             await tache
-        except (asyncio.CancelledError, Exception):
+        except (asyncio.CancelledError, Exception):  # noqa: S110 — arrêt du service ; l'erreur d'une tâche est déjà journalisée à sa fin
             pass
     _taches.clear()

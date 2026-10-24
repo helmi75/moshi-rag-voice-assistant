@@ -27,6 +27,7 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | 24/10/2026 | **Autonomie des agents** : bornée. Helmi garde les priorités, la production, l'argent, le client et le juridique. Une porte se retire quand les chiffres montrent qu'elle ne sert plus. | — | Conversation parallèle |
 | 24/10/2026 | **Sauvegarde de la base hors du serveur** : Helmi la fera au début des essais avec un vrai client. | Hors chantier tant qu'aucun client réel n'a de données. | Conversation parallèle |
 | 24/10/2026 | **Second regard sur le code** : outils d'analyse dans la CI tout de suite ; revue de sécurité en plus du relecteur sur les lots sensibles. | Le relecteur est de la même famille de modèle que le concepteur : mêmes angles morts possibles. | Conversation parallèle (lot 3 du chantier « fiabilité ») |
+| 24/10/2026 | **Pas de second modèle** (via OpenRouter) en seconde lecture : ruff, Semgrep, le relecteur et `/security-review` suffisent. | Rien à dépenser ; la clé locale était de toute façon refusée. | Pop-up, session principale (ASSISTANTE-171) |
 | 24/10/2026 | Tickets 168 et 169 clos : retour arrière éprouvé sur la production (`--version`, échec simulé, redéploiement). | Accord de Helmi. | Session principale |
 | 24/10/2026 | Tickets 127, 128, 129, 130, 133, 136, 137, 148 et 151 clos. | qa-recette n'y avait trouvé aucun défaut. | Session principale |
 | 23/10/2026 | **Seuil du solde Twilio : 5 $** (`SUPERVISION_SOLDE_TWILIO_MIN`). Sous ce seuil : alerte, e-mail aux super-admins, la recette automatique ne compose plus. | Environ deux semaines de trafic au rythme de septembre (9,40 $ facturés) ; plus qu'un passage de recette. | Pop-up, session principale (ASSISTANTE-165) |
@@ -45,7 +46,6 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | avant le 13/10/2026 | **Horaires du premier client** à saisir. | Sans eux, l'assistante ne refuse aucun créneau. |
 | 24/10/2026 | Twilio : un seul bundle « Business » au nom d'Helmane suffit-il pour tous les numéros (le bundle actuel est « Individual ») ? Un numéro géographique doit-il correspondre à l'adresse du dossier ? | L'achat des numéros des clients. À vérifier chez Twilio. |
 | 24/10/2026 | Chantier « fiabilité », lot 1 : heure de la tournée quotidienne, plafond mensuel si un modèle intervient. | Sera posé en pop-up avec le lot 1. |
-| 24/10/2026 | Chantier « fiabilité », lot 3 : un autre modèle (via OpenRouter) en seconde lecture des lots sensibles ? | Sera posé en pop-up avec le lot 3, coût mesuré sur un vrai lot. |
 
 ## Remarques sans ticket
 
@@ -57,6 +57,8 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | 24/10/2026 | Les e-mails d'épisode (solde Twilio, crédit OpenAI) sont marqués envoyés avant l'envoi : une panne de la messagerie à ce moment-là perd l'e-mail. | Choix assumé ; la supervision reste en alerte. |
 | 12/10/2026 | T19 : 5 requêtes au cerveau sur 24 ont été redemandées (1 sur 21 avant). | À surveiller quand les appels reprendront. |
 | 12/10/2026 | Le Banc d'essai n'a plus de numéro de secours (retiré le 12/10) : S3 à S5 ne se jouent plus sur lui, et la supervision signale « 1 établissement sans numéro de secours ». | Voulu ; à revoir si S3-S5 doivent redevenir automatiques. |
+| 24/10/2026 | La clé OpenRouter du `.env` local est refusée par OpenRouter (401 « User not found ») : révoquée ou d'un compte supprimé. Rien ne s'en sert en local hormis les bancs. | À remplacer ou retirer par Helmi. |
+| 24/10/2026 | Les règles de Semgrep viennent de son registre et peuvent changer sans commit chez nous : une nouvelle règle peut rougir la CI d'un lot sans rapport. Les recopier dans le dépôt public serait les redistribuer, ce que leur licence (Semgrep Rules License v1.0) encadre : non fait. | Voulu (ASSISTANTE-171) ; une alerte nouvelle se traite comme les autres. |
 | 24/10/2026 | La CI accorde `packages: write` au job `image` aussi sur les branches, où rien n'est publié. | Chantier « livraison », étape 7 (actions épinglées). |
 | 24/10/2026 | Le retour arrière ne voit pas une aggravation sur un contrôle déjà en panne, ni un passage « ok » → « attention », ni ce qui demande des appels. | Écrit dans `docs/DEPLOY.md` ; voulu. |
 | avant le 13/10/2026 | Deux dossiers de travail d'agents restent sur le disque (`.claude/worktrees/agent-a08c7fa725acb0bd0`, `agent-a63db2a8b6ef0416d`) : suppression refusée, des caches écrits par Docker appartiennent à root. Vérifié le 24/10 : chacun de leurs fichiers est déjà dans git, rien ne se perd. | Commande `sudo` donnée à Helmi (ASSISTANTE-170) ; à retirer d'ici quand c'est fait. |

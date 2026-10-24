@@ -125,7 +125,7 @@ def _chemin_indisponible(tenant: Tenant) -> Path:
 
 def _chemin_en_cache(tenant: Tenant, texte: str, etiquette: str = "") -> Path:
     key = f"{_voice(tenant)}|{texte}".encode("utf-8")
-    digest = hashlib.sha1(key).hexdigest()[:12]
+    digest = hashlib.sha1(key, usedforsecurity=False).hexdigest()[:12]  # nosemgrep: insecure-hash-algorithm-sha1 — empreinte de cache, pas de sécurité
     return _cache_dir() / f"tenant{tenant.id}{etiquette}_{digest}.wav"
 
 
@@ -411,7 +411,7 @@ async def run_switchboard_intro(
             try:
                 pret = bool(await asyncio.wait_for(
                     warm, timeout=max(0.0, deadline - time.monotonic())))
-            except Exception:
+            except Exception:  # noqa: S110 — voir la ligne suivante
                 pass  # warmup expiré : le GPU n'est pas venu
             message = None if pret else cached_indisponible_path(tenant)
             if message is not None:

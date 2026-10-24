@@ -11,7 +11,7 @@ import mimetypes
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape  # nosemgrep: use-defused-xml — échappe le TwiML qu'on écrit, ne lit aucun XML
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, Response

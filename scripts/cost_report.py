@@ -40,7 +40,7 @@ def _get(url, headers=None, auth=None):
     if auth:
         req.add_header("Authorization", "Basic " + base64.b64encode(
             f"{auth[0]}:{auth[1]}".encode()).decode())
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with urllib.request.urlopen(req, timeout=20) as r:  # nosemgrep: dynamic-urllib-use-detected — adresses de l'API écrites dans le script
         return json.load(r)
 
 

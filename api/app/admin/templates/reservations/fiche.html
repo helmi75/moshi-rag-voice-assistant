@@ -16,7 +16,7 @@
 {% else %}
 <div class="page-head">
   <div>
-    <p class="eyebrow"><a href="{{ retour }}">← {{ quand }}</a></p>
+    <p class="eyebrow"><a href="{{ retour }}">← {{ quand }}</a></p> {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
     <h1>{{ resa.customer_name or "Sans nom" }}</h1>
     <p class="lede">{{ quand }}{% if resa.time %} à {{ resa.time }}{% endif %}
       · {{ resa.party_size or "?" }} couvert{{ "s" if (resa.party_size or 0) > 1 }}
@@ -52,7 +52,7 @@
         {% endif %}
       </div>
       {% if resa.modifiable %}
-      <p class="card-sub fiche-pied"><a href="{{ retour }}">Modifier ou annuler dans le calendrier →</a></p>
+      <p class="card-sub fiche-pied"><a href="{{ retour }}">Modifier ou annuler dans le calendrier →</a></p> {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
       {% elif resa.source == "resos" %}
       <p class="card-sub fiche-pied">resOS fait foi : elle se modifie dans resOS.</p>
       {% endif %}

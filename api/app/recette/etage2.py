@@ -14,7 +14,7 @@ import math
 import os
 import time
 from typing import Optional
-from xml.sax.saxutils import quoteattr
+from xml.sax.saxutils import quoteattr  # nosemgrep: use-defused-xml — échappe le TwiML qu'on écrit, ne lit aucun XML
 
 import httpx
 

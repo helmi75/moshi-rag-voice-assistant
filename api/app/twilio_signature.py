@@ -120,7 +120,7 @@ def _base_publique(request: Request) -> str:
     proto = request.headers.get("x-forwarded-proto")
     hote = request.headers.get("x-forwarded-host")
     if proto and hote:
-        return f"{proto}://{hote}"
+        return f"{proto}://{hote}"  # nosemgrep: directly-returned-format-string — pas une réponse HTTP : l'URL à signer
     return f"{request.url.scheme}://{request.url.netloc}"
 
 

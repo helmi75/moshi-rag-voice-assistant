@@ -12,9 +12,9 @@
 {% include "reservations/_barre.html" %}
 
 <div class="cal-nav" id="calendrier" {% if vue_implicite %}data-vue-implicite{% endif %}>
-  <a role="button" class="secondary" href="{{ lien(jour=precedent) }}" aria-label="Période précédente">‹</a>
-  <a role="button" class="secondary" href="{{ lien(jour=aujourd_hui) }}">Aujourd'hui</a>
-  <a role="button" class="secondary" href="{{ lien(jour=suivant) }}" aria-label="Période suivante">›</a>
+  <a role="button" class="secondary" href="{{ lien(jour=precedent) }}" aria-label="Période précédente">‹</a> {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
+  <a role="button" class="secondary" href="{{ lien(jour=aujourd_hui) }}">Aujourd'hui</a> {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
+  <a role="button" class="secondary" href="{{ lien(jour=suivant) }}" aria-label="Période suivante">›</a> {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
   <h2>{{ titre }}</h2>
   <p class="cal-total">
     <b>{{ resume.reservations }}</b> réservation{{ "s" if resume.reservations > 1 }} ·
@@ -38,7 +38,7 @@
   {% for semaine in semaines %}
   <div class="cal-ligne" role="row">
     {% for j in semaine %}
-    <a role="cell" href="{{ lien(vue='jour', jour=j.iso) }}"
+    <a role="cell" href="{{ lien(vue='jour', jour=j.iso) }}" {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
        class="cal-jour{{ ' hors-mois' if j.hors_mois }}{{ ' ferme' if j.ferme }}{{ ' aujourdhui' if j.aujourdhui }}"
        aria-label="{{ j.lettres }}{{ ', fermé' if j.ferme }} : {{ j.resume.reservations }} réservation(s), {{ j.resume.couverts }} couvert(s)">
       <span class="cal-num">{{ j.num }}</span>
@@ -61,7 +61,7 @@
       <tr><th scope="col"><span class="sr-only">Heure</span></th>
         {% for c in colonnes %}
         <th scope="col" class="{{ 'ferme' if c.ferme }}{{ ' aujourdhui' if c.aujourdhui }}">
-          <a href="{{ lien(vue='jour', jour=c.iso) }}">{{ c.court }}</a>
+          <a href="{{ lien(vue='jour', jour=c.iso) }}">{{ c.court }}</a> {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
           <small>{% if c.ferme %}Fermé{% elif c.resume.reservations %}{{ c.resume.reservations }} résa · {{ c.resume.couverts }} couv.{% else %}—{% endif %}</small>
         </th>
         {% endfor %}
@@ -74,7 +74,7 @@
         {% for c in colonnes %}
         <td class="{{ 'ferme' if c.ferme }}">
           {% for r in par_heure[c.iso].get(h, []) %}
-          <a class="cal-resa etat-{{ r.etat }}" href="{{ lien(vue='jour', jour=c.iso) }}#resa-{{ r.id }}"
+          <a class="cal-resa etat-{{ r.etat }}" href="{{ lien(vue='jour', jour=c.iso) }}#resa-{{ r.id }}" {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
              title="{{ r.libelle }}{% if tenant_names %} · {{ tenant_names.get(r.tenant_id, '') }}{% endif %}">
             <span class="cal-qui"><b>{{ r.time }}</b> · {{ r.party_size }} couv.</span>
             <span class="cal-qui">{{ r.customer_name or "Sans nom" }}</span>

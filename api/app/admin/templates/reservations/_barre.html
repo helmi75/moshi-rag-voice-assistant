@@ -3,7 +3,7 @@
 <div class="cal-barre">
   <nav class="cal-vues" aria-label="Affichage">
     {% for v, nom in [("mois", "Mois"), ("semaine", "Semaine"), ("jour", "Jour"), ("liste", "Liste")] %}
-    <a href="{{ lien(vue=v) }}" {% if v == vue %}aria-current="page"{% endif %}>{{ nom }}</a>
+    <a href="{{ lien(vue=v) }}" {% if v == vue %}aria-current="page"{% endif %}>{{ nom }}</a> {#- nosemgrep: var-in-href — adresse construite par le serveur, sous /admin/ #}
     {% endfor %}
   </nav>
   {% if tenants %}
@@ -13,7 +13,7 @@
     <select name="tenant_id" data-autosubmit aria-label="Établissement">
       <option value="">Tous les établissements</option>
       {% for t in tenants %}
-      <option value="{{ t.id }}" {{ "selected" if tenant_id == t.id }}>{{ t.name }}</option>
+      <option value="{{ t.id }}" {% if tenant_id == t.id %}selected{% endif %}>{{ t.name }}</option>
       {% endfor %}
     </select>
   </form>

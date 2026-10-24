@@ -1,8 +1,17 @@
-# Analyse statique en CI (`ruff check api/app`). Volontairement minimale : erreurs de
-# syntaxe (E9) et pyflakes (F) — nom non défini, import inutile, variable jamais lue.
-# Ce sont des défauts, pas des goûts : un nom non défini dans une branche rarement
-# empruntée (le repli d'un appel raté) ne se voit qu'en production. Rien de stylistique.
+# Analyse statique en CI (`ruff check api/app`). Des défauts, pas des goûts : rien de
+# stylistique.
+# - E9, F : erreurs de syntaxe et pyflakes (nom non défini, import inutile, variable jamais
+#   lue). Un nom non défini dans une branche rarement empruntée (le repli d'un appel raté)
+#   ne se voit qu'en production.
+# - S (règles de Bandit) et B (bugbear), depuis ASSISTANTE-171 : un second regard, d'une
+#   autre famille que le relecteur. Le stock du 24/10/2026 a été corrigé ou justifié ligne
+#   à ligne (`# noqa: S…` suivi du pourquoi) ; une nouvelle alerte bloque la CI.
 target-version = "py312"
 
 [lint]
-select = ["E9", "F"]
+select = ["E9", "F", "S", "B"]
+
+[lint.flake8-bugbear]
+# `Depends(...)` et `File(...)` en valeur par défaut sont la façon de FastAPI de déclarer une
+# dépendance : l'appel ne s'exécute qu'une fois, à l'import, et c'est voulu.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File"]

@@ -87,7 +87,7 @@ def update_reservation(reservation_id: int, **fields) -> Optional[dict]:
     assignments = ", ".join(f"{k} = ?" for k in updates)
     with db.get_conn() as conn:
         conn.execute(
-            f"UPDATE reservations SET {assignments} WHERE id = ?",
+            f"UPDATE reservations SET {assignments} WHERE id = ?",  # noqa: S608 — fragments du code, valeurs liées par ?
             (*updates.values(), reservation_id),
         )
         row = conn.execute(
@@ -168,7 +168,7 @@ def covers_by_slot(tenant_id: int, date: str) -> list[dict]:
         rows = conn.execute(
             """SELECT time, COALESCE(SUM(party_size), 0) AS covers, COUNT(*) AS n
                FROM reservations WHERE tenant_id = ? AND date = ? AND {actives}
-               GROUP BY time ORDER BY time""".format(actives=ACTIVES),
+               GROUP BY time ORDER BY time""".format(actives=ACTIVES),  # noqa: S608 — fragments du code, valeurs liées par ?
             (tenant_id, date),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -177,7 +177,7 @@ def covers_by_slot(tenant_id: int, date: str) -> list[dict]:
 def count_for_slot(tenant_id: int, date: str, time: str) -> int:
     with db.get_conn() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(party_size), 0) FROM reservations"
+            "SELECT COALESCE(SUM(party_size), 0) FROM reservations"  # noqa: S608 — fragments du code, valeurs liées par ?
             f" WHERE tenant_id = ? AND date = ? AND time = ? AND {ACTIVES}",
             (tenant_id, date, time),
         ).fetchone()
@@ -208,7 +208,7 @@ def find_by_phone(tenant_id: int, phone: str, *, a_partir_de: Optional[str] = No
             f"""SELECT * FROM reservations
                 WHERE tenant_id = ? AND customer_phone = ? AND {ACTIVES}
                   AND date >= ?
-                ORDER BY date, time""",
+                ORDER BY date, time""",  # noqa: S608 — fragments du code, valeurs liées par ?
             (tenant_id, phone, a_partir_de or horloge.aujourd_hui().isoformat()),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -276,7 +276,7 @@ def get_for_caller(reservation_id: int, tenant_id: int, phone: str) -> Optional[
     with db.get_conn() as conn:
         row = conn.execute(
             f"""SELECT * FROM reservations
-                WHERE id = ? AND tenant_id = ? AND customer_phone = ? AND {ACTIVES}""",
+                WHERE id = ? AND tenant_id = ? AND customer_phone = ? AND {ACTIVES}""",  # noqa: S608 — fragments du code, valeurs liées par ?
             (reservation_id, tenant_id, phone),
         ).fetchone()
     return dict(row) if row else None

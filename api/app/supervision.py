@@ -353,7 +353,7 @@ def _appels_fenetre() -> list[dict]:
         rows = conn.execute(
             f"""SELECT started_at, ended_at, duration_seconds, status, transcript
                FROM calls WHERE started_at >= ?{hors}
-               ORDER BY started_at DESC LIMIT ?""",
+               ORDER BY started_at DESC LIMIT ?""",  # noqa: S608 — fragments du code, valeurs liées par ?
             (depuis, *hors_params, _MAX_APPELS),
         ).fetchall()
     return [dict(r) for r in rows]

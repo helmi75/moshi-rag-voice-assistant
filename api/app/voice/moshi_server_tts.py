@@ -154,7 +154,7 @@ class MoshiServerTTSService(TTSService):
             try:
                 conn, _ws = await task
                 await conn.__aexit__(None, None, None)
-            except Exception:
+            except Exception:  # noqa: S110 — fermeture au mieux (voix de secours, à retirer)
                 pass
 
         asyncio.create_task(_close())
@@ -167,7 +167,7 @@ class MoshiServerTTSService(TTSService):
             try:
                 conn, ws = await task
                 return conn, ws, True
-            except Exception:
+            except Exception:  # noqa: S110 — voir la ligne suivante
                 pass  # pré-connexion ratée : repli sur une ouverture directe
         conn, ws = await self._open_ws()
         return conn, ws, False
@@ -270,7 +270,7 @@ class MoshiServerTTSService(TTSService):
                 if conn is not None:
                     try:
                         await conn.__aexit__(None, None, None)
-                    except Exception:
+                    except Exception:  # noqa: S110 — fermeture au mieux (voix de secours, à retirer)
                         pass
                 await queue.put(_DONE)
 
