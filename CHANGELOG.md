@@ -19,6 +19,12 @@
   `main`, avec les mêmes vérifications.
 - **`--simuler-echec`** éprouve le retour arrière sur la vraie production.
 
+### Corrigé
+- `scripts/deploy.sh` ne lit plus que les tâches `tests` et `image` de la CI. La sonde de
+  supervision rattache ses exécutions au dernier commit de `main` : avec la production en
+  panne (Twilio suspendu), elle y laissait une marque rouge qui faisait refuser le
+  déploiement pour « CI en échec ».
+
 ## Non publiée — l'image de production est construite par la CI (24/10/2026, ASSISTANTE-167)
 
 Premier lot du chantier « livraison » : jusqu'ici, chaque déploiement reconstruisait
