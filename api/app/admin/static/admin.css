@@ -730,6 +730,8 @@ h2.form-section:first-of-type { margin-top: 0; }
    de Pico, plus clair que la carte en sombre, en faisait un bandeau. Sous 640 px, chaque jour
    devient un bloc : la colonne « Service 2 » sortait de l'écran d'un téléphone. */
 .horaires-grille tbody td { background-color: transparent; }
+/* Une grille de saisie, pas une liste : pas de bandeau au survol. */
+.horaires-grille tbody tr:hover { background: none; }
 .horaires-service { white-space: nowrap; }
 .horaires-service input[type="time"] { width: 7.5rem; display: inline-block; }
 .horaires-ferme { display: inline-flex; align-items: center; gap: .45rem; margin: 0; }
