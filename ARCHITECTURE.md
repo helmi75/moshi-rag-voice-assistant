@@ -154,9 +154,10 @@ retrait est prévu (`docs/VOXTRAL.md`).
 
 ## Exploitation
 
-- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 19
+- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 20
   contrôles, une seule source pour l'écran « Santé & coûts » et la sonde `/supervision`.
-  « Pas de mesure » n'est jamais un feu vert.
+  « Pas de mesure » n'est jamais un feu vert. La tournée de 8 h (`tournee.py`) les relit
+  avec les échecs de GitHub Actions et n'écrit aux super-admins que si un point est à voir.
 - **Garde-fous** : chaque protection critique a un test qui rougit quand on la retire
   (`scripts/mutation_check.py`, joué en CI).
 - **Dépendances** : `requirements.lock` installé tel quel par l'image et la CI ;

@@ -1084,6 +1084,85 @@ def _controle_credit_openai() -> Controle:
         mesure={"cle": True, "refus": 0})
 
 
+def credit_openrouter_seuil() -> float:
+    """En dollars. 3 $ : décision de Helmi du 24/10/2026, de quoi tenir le temps de
+    recharger (6,99 $ restaient ce jour-là, pour 8,01 $ consommés depuis l'ouverture)."""
+    try:
+        return float(os.getenv("SUPERVISION_CREDIT_OPENROUTER_MIN", "3"))
+    except ValueError:
+        return 3.0
+
+
+# La relève a lieu à la tournée quotidienne (tournee.py) : passé un jour et deux heures,
+# c'est la tournée qui ne tourne plus.
+_CREDIT_OPENROUTER_FIGE_H = 26
+
+
+def _controle_credit_openrouter() -> Controle:
+    """ASSISTANTE-172 : le crédit OpenRouter paie le cerveau de la chaîne classique, qui est
+    aussi le secours de GPT-Live. Vide, les appels n'obtiennent plus de réponse. Il se lit
+    par l'API (`/api/v1/credits`, vérifié le 24/10/2026 avec la clé de production)."""
+    titre = "Crédit OpenRouter"
+    seuil = credit_openrouter_seuil()
+    if not os.getenv("OPENROUTER_API_KEY", "").strip():
+        return Controle("credit_openrouter", titre, OK, "Aucune clé OpenRouter : rien à surveiller.",
+                        mesure={"releve": False, "seuil": seuil})
+    memo = relire("credit_openrouter")
+    if memo is None:
+        return Controle("credit_openrouter", titre, OK,
+                        "Pas encore relevé — ce contrôle ne dit rien pour l'instant.",
+                        "La relève a lieu à la tournée quotidienne.",
+                        mesure={"releve": False, "seuil": seuil})
+    valeur, maj = memo
+    age_h = round((_maintenant() - maj).total_seconds() / 3600, 1) if maj else None
+    if "solde" not in valeur:
+        return Controle("credit_openrouter", titre, ATTENTION,
+                        f"Crédit illisible ({valeur.get('erreur') or 'inconnu'}).",
+                        "On ne sait pas combien il reste.",
+                        mesure={"releve": False, "cause": valeur.get("erreur"), "seuil": seuil})
+    if age_h is not None and age_h > _CREDIT_OPENROUTER_FIGE_H:
+        return Controle("credit_openrouter", titre, ATTENTION,
+                        f"Relève figée depuis {age_h:.0f} h.",
+                        "La tournée quotidienne ne tourne plus : le crédit n'est plus surveillé.",
+                        mesure={"releve": False, "age_heures": age_h, "seuil": seuil})
+    solde = valeur["solde"]
+    mesure = {"releve": True, "solde": solde, "achete": valeur.get("achete"),
+              "consomme": valeur.get("consomme"), "seuil": seuil, "age_heures": age_h}
+    a_faire = "À faire : recharger le crédit sur openrouter.ai (Credits)."
+    if solde <= 0:
+        return Controle("credit_openrouter", titre, PANNE,
+                        f"Crédit OpenRouter épuisé : {solde:.2f} $.",
+                        "La chaîne classique ne comprend plus rien, y compris quand elle sert de "
+                        "secours à GPT-Live. " + a_faire, mesure=mesure)
+    if solde < seuil:
+        return Controle("credit_openrouter", titre, ATTENTION,
+                        f"Crédit OpenRouter de {solde:.2f} $, sous le seuil de {seuil:.2f} $.",
+                        a_faire, mesure=mesure)
+    return Controle("credit_openrouter", titre, OK, f"Crédit OpenRouter : {solde:.2f} $.",
+                    mesure=mesure)
+
+
+async def relever_credit_openrouter(client) -> None:
+    """Le crédit restant (acheté moins consommé), noté sur l'ardoise. N'échoue jamais
+    bruyamment : une relève ratée est notée comme telle, et le contrôle passe en attention."""
+    cle = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not cle:
+        return
+    try:
+        reponse = await client.get("https://openrouter.ai/api/v1/credits",
+                                   headers={"Authorization": f"Bearer {cle}"})
+        if reponse.status_code >= 400:
+            releve: dict = {"erreur": f"HTTP {reponse.status_code}"}
+        else:
+            donnees = (reponse.json() or {}).get("data") or {}
+            achete, consomme = float(donnees["total_credits"]), float(donnees["total_usage"])
+            releve = {"solde": round(achete - consomme, 2), "achete": round(achete, 2),
+                      "consomme": round(consomme, 2)}
+    except Exception as exc:
+        releve = {"erreur": type(exc).__name__}
+    await db.hors_boucle(noter, "credit_openrouter", releve)
+
+
 # Passé ce délai sans nouveau refus, l'alerte de crédit descend d'un cran (elle ne s'efface
 # qu'à la première session ouverte).
 _CREDIT_PANNE_MINUTES = 120
@@ -1141,6 +1220,7 @@ def controles() -> list[Controle]:
         ("voxtral", _controle_voxtral),
         ("secours", _controle_secours),
         ("credit_openai", _controle_credit_openai),
+        ("credit_openrouter", _controle_credit_openrouter),
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
         ("purge", _controle_purge),

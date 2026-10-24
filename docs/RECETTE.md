@@ -144,6 +144,8 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 | F6a2 🤖 | `bash scripts/deploy.sh --simuler-echec`, hors service et avec l'accord de Helmi (ASSISTANTE-168) | « Déploiement refusé : échec simulé », puis « Retour arrière : remise en service de … » et « … est de nouveau en service et vérifié » ; le conteneur tourne sur l'image d'avant | |
 | F6b 🤖 | Contrôle « Solde Twilio », compte actif | Le solde lu chez Twilio, au cent près de la console (Billing) ; vert au-dessus de 5 $ | |
 | F6c 🤖 | Compte Twilio suspendu (avant rechargement) | « Alertes Twilio » et « Solde Twilio » en panne, « compte inactif » ; un seul e-mail « compte Twilio suspendu » ; `scripts/recette_appels.py --etage 2` refuse de partir | |
+| F6d 🤖 | Contrôle « Crédit OpenRouter », après la première tournée | Le crédit restant = acheté moins consommé de openrouter.ai (Credits), au cent près ; vert au-dessus de 3 $ (ASSISTANTE-172) | |
+| F6e | Tournée de 8 h, un jour où un point est à l'orange ou au rouge | Un seul e-mail aux super-admins, aucun au restaurateur : chaque point, sa marche à suivre, les échecs de GitHub Actions sur `main` regroupés par workflow. Un jour tout vert : aucun e-mail (ASSISTANTE-172) | |
 
 ```bash
 curl -s -H "X-Supervision-Token: $SUPERVISION_TOKEN" https://app.helmane.fr/supervision | jq

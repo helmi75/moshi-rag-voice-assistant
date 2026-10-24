@@ -85,7 +85,7 @@ class TestEnumeration:
     ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
                 "appels_echoues", "appels_inacheves", "latence", "twilio", "solde_twilio", "carnets",
                 "voxtral", "secours",
-                "credit_openai",
+                "credit_openai", "credit_openrouter",
                 "accueils",
                 "sauvegarde", "purge", "disque", "enregistrements"]
 

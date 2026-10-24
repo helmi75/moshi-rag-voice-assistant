@@ -27,6 +27,7 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | 24/10/2026 | **Autonomie des agents** : bornée. Helmi garde les priorités, la production, l'argent, le client et le juridique. Une porte se retire quand les chiffres montrent qu'elle ne sert plus. | — | Conversation parallèle |
 | 24/10/2026 | **Sauvegarde de la base hors du serveur** : Helmi la fera au début des essais avec un vrai client. | Hors chantier tant qu'aucun client réel n'a de données. | Conversation parallèle |
 | 24/10/2026 | **Second regard sur le code** : outils d'analyse dans la CI tout de suite ; revue de sécurité en plus du relecteur sur les lots sensibles. | Le relecteur est de la même famille de modèle que le concepteur : mêmes angles morts possibles. | Conversation parallèle (lot 3 du chantier « fiabilité ») |
+| 24/10/2026 | **Tournée quotidienne à 8 h** (heure de Paris), en lecture seule ; un e-mail aux super-admins seulement si un point est à l'orange ou au rouge. **Crédit OpenRouter : alerte sous 3 $.** | Avant le service du midi ; 3 $ laisse le temps de recharger (6,99 $ restaient le 24/10). | Pop-up, session principale (ASSISTANTE-172) |
 | 24/10/2026 | **Pas de second modèle** (via OpenRouter) en seconde lecture : ruff, Semgrep, le relecteur et `/security-review` suffisent. | Rien à dépenser ; la clé locale était de toute façon refusée. | Pop-up, session principale (ASSISTANTE-171) |
 | 24/10/2026 | Tickets 168 et 169 clos : retour arrière éprouvé sur la production (`--version`, échec simulé, redéploiement). | Accord de Helmi. | Session principale |
 | 24/10/2026 | Tickets 127, 128, 129, 130, 133, 136, 137, 148 et 151 clos. | qa-recette n'y avait trouvé aucun défaut. | Session principale |
@@ -45,7 +46,8 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | avant le 13/10/2026 | **Accès partenaire Uniiti** pour le premier client. | Faire essayer le premier client. |
 | avant le 13/10/2026 | **Horaires du premier client** à saisir. | Sans eux, l'assistante ne refuse aucun créneau. |
 | 24/10/2026 | Twilio : un seul bundle « Business » au nom d'Helmane suffit-il pour tous les numéros (le bundle actuel est « Individual ») ? Un numéro géographique doit-il correspondre à l'adresse du dossier ? | L'achat des numéros des clients. À vérifier chez Twilio. |
-| 24/10/2026 | Chantier « fiabilité », lot 1 : heure de la tournée quotidienne, plafond mensuel si un modèle intervient. | Sera posé en pop-up avec le lot 1. |
+| 24/10/2026 | Chantier « fiabilité », lot 1 : plafond mensuel de la lecture des e-mails des fournisseurs (un modèle intervient). | Posée avec la suite du lot 1, coût mesuré sur un passage. |
+| 24/10/2026 | Solde **Deepgram** : créer une clé en lecture seule qui a le droit de lire le solde (`/v1/projects/{id}/balances` répond 403 à la clé de production) ? | Sans elle, la tournée ne voit pas le solde Deepgram. |
 
 ## Remarques sans ticket
 

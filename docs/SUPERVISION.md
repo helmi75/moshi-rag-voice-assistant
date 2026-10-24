@@ -36,7 +36,7 @@ appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles mor
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les dix-neuf contrôles
+## Les vingt contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
@@ -54,6 +54,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Voix Mistral | La voix de tous les établissements (Voxtral) : clé `MISTRAL_API_KEY` absente (voix de secours Moshi, réveil de GPU), ou synthèses échouées dans l'heure — chacune est une phrase que l'appelant n'a pas entendue. On ne sonde pas Mistral : chaque sonde serait facturée | oui si la clé manque |
 | Appels passés en secours | Des appels que l'assistante n'a pas pu servir (ASSISTANTE-118) : renvoyés au restaurant, passés au répondeur, ou repartis sans personne — une panne de fournisseur de dix minutes ne laisse rien d'autre dans la base. Attention aussi si un établissement n'a pas de numéro de secours. Les essais lancés depuis l'admin ne comptent pas | oui si un appel est passé en secours dans les 20 dernières minutes |
 | Crédit OpenAI | Un refus de session GPT-Live pour crédit épuisé (ASSISTANTE-151), vu depuis le démarrage : l'heure du premier refus, le nombre de refus, et la marche à suivre (recharger le crédit dans la console OpenAI ; la chaîne classique sert les appels en attendant). **Ce n'est pas une mesure du solde** — OpenAI ne le donne pas par son API : « OK » veut dire « aucun refus vu ». Revient au vert dès qu'une session s'ouvre. Un e-mail part aux super-admins au premier refus de l'épisode. Sans clé GPT-Live : OK, rien à surveiller. Mémoire du processus : un redéploiement l'efface | oui dès le premier refus Deux heures sans nouveau refus : l'alerte descend à « attention » (rien ne dit si le crédit est revenu), pour ne pas masquer les autres pannes ; elle ne s'efface qu'à la première session ouverte. |
+| Crédit OpenRouter | Le crédit qui paie le cerveau de la chaîne classique, aussi secours de GPT-Live (ASSISTANTE-172) : acheté moins consommé, lu à `/api/v1/credits` par la tournée quotidienne. Sous `SUPERVISION_CREDIT_OPENROUTER_MIN` (3 $, décision du 24/10/2026) : attention ; épuisé : panne. Relève ratée ou vieille de plus de 26 h : attention. Sans clé : OK, rien à surveiller | oui à 0 |
 | Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) ; message « rappelez dans quelques minutes » absent — si le GPU ne vient pas, l'appelant n'entendra que le silence | non |
 | Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité ; copie hors du serveur absente ou arrêtée (attention) | oui à 72 h |
 | Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |
@@ -62,6 +63,21 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 
 Un contrôle qui échoue lui-même est signalé « état INCONNU », jamais vert : une panne de
 supervision ne doit pas se déguiser en bonne nouvelle.
+
+## La tournée quotidienne (ASSISTANTE-172)
+
+Chaque jour à 8 h, heure de Paris (`SUPERVISION_TOURNEE_HEURE`, décision du 24/10/2026 ;
+« non » la coupe), `app/tournee.py` relève le crédit OpenRouter, lit tous les contrôles
+ci-dessus et les exécutions de GitHub Actions **en échec sur `main`** depuis vingt-quatre
+heures (CI et sonde ; le dépôt est public, l'API se lit sans jeton). S'il y a au moins un
+point à l'orange ou au rouge, **un** e-mail part aux super-admins, avec chaque point et la
+marche à suivre ; tout vert, rien. Le jour de la dernière tournée est noté sur l'ardoise
+(`tournee`) : un redémarrage après 8 h la fait aussitôt si elle n'a pas eu lieu, jamais
+deux fois. Une tournée qui échoue se retente une heure plus tard.
+
+Ce qu'elle ne voit pas, faute d'API (vérifié le 24/10/2026) : le solde **Mistral** (la
+console seulement, aucune route de facturation dans l'API) et le solde **Deepgram**
+(`/v1/projects/{id}/balances` répond 403 à la clé de production : il lui manque le droit).
 
 ## Ce qui déclenche une alerte
 
@@ -99,7 +115,7 @@ Grafana Cloud, qui les garde et les trace. C'est là que se posent les alertes p
 Grafana Cloud ──1 min──► GET /metrics  (Authorization: Bearer METRIQUES_TOKEN)
   relève, garde,           api/app/metriques.py
   trace, alerte            • compteurs en mémoire, ZÉRO appel réseau
-                           • niveaux des 19 contrôles de supervision
+                           • niveaux des 20 contrôles de supervision
 ```
 
 Les mesures sont prises là où l'appel passe déjà — ouverture du flux (`main.py`), clôture
