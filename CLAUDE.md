@@ -83,6 +83,14 @@ variable d'environnement dans `docker-compose.yml` et `env.example`.
 
 ## Qui décide quoi
 
+**Mémoire des décisions** : `docs/DECISIONS.md` (décisions datées, questions en attente de
+Helmi, remarques sans ticket). La session principale le **lit au démarrage** et le **met à
+jour à la fin de chaque lot** ; une question posée sans réponse y entre, une remarque vue en
+passant aussi, jusqu'à son ticket. Une décision durable va aussi dans la mémoire de la
+session. Les conversations parallèles de Helmi sont en lecture seule : quand une décision y
+est prise, elles finissent par un bloc « À reporter dans DECISIONS.md » (date, décision,
+pourquoi), que Helmi colle dans la session principale.
+
 **Sans demander à Helmi** : prendre un ticket « À faire » qu'il a priorisé, créer la
 branche, coder, tester, pousser, attendre la CI, faire relire, corriger les constats
 confirmés, lancer `qa-recette`, ouvrir la PR, tenir Jira à jour jusqu'à « En cours de
@@ -284,6 +292,7 @@ disque : une fixture qui l'utilise efface son fichier en sortie.
 |---|---|
 | `README.md`, `ARCHITECTURE.md` | le produit ; les choix techniques et leurs raisons |
 | `CHANGELOG.md` | ce qui a été livré, et pourquoi |
+| `docs/DECISIONS.md` | ce que Helmi a décidé, ce qui attend sa réponse, ce qui attend un ticket |
 | `docs/RECETTE.md` | ce qui se vérifie à la main, par fonction |
 | `docs/DEPLOY.md`, `docs/TWILIO_SETUP.md`, `docs/SUPERVISION.md`, `docs/RGPD.md` | exploitation |
 | `docs/RESOS.md`, `docs/VOXTRAL.md`, `docs/TARIFS.md` | carnet resOS, voix Mistral, grille tarifaire |

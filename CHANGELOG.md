@@ -7,6 +7,16 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la mémoire des décisions (24/10/2026, ASSISTANTE-169)
+
+### Ajouté
+- `docs/DECISIONS.md` : les décisions de Helmi (datées, avec leur source), les questions qui
+  attendent sa réponse, les remarques qui attendent un ticket. Des questions étaient restées
+  sans suite et des remarques dix jours sans ticket ; les décisions prises dans ses
+  conversations parallèles n'arrivaient pas jusqu'à la session principale.
+- `CLAUDE.md` : la session principale le lit au démarrage et le tient à jour à la fin de
+  chaque lot ; une conversation parallèle finit par un bloc « À reporter dans DECISIONS.md ».
+
 ## Non publiée — retour arrière automatique (24/10/2026, ASSISTANTE-168)
 
 ### Ajouté
