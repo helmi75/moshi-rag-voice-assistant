@@ -1,5 +1,11 @@
 services:
   api:
+    # En production, l'image vient du registre, construite et éprouvée par la CI depuis le
+    # commit déployé (ASSISTANTE-167) : scripts/deploy.sh la télécharge par son empreinte
+    # et lui donne ce nom sur le serveur, où `up` la lance sans rien construire. `build`
+    # ne sert plus qu'en local (`docker compose up --build`). Ne jamais lancer
+    # `--build` sur le serveur : l'image ne serait plus celle que la CI a éprouvée.
+    image: moshi-rag-voice-assistant-api:latest
     build:
       context: ./api
     # Remonte seule après un reboot du serveur (indispensable pour un service 24/7).

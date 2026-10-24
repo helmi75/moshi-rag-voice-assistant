@@ -64,9 +64,11 @@ le `.lock` ce qui est installé (régénération : `docs/DEPLOY.md`).
    côté et pourquoi.
 8. **PR vers `main`** : sections *Pourquoi*, *Ce qui change*, *Vérifié*, *Après le
    déploiement*. Fusion par commit de fusion, sur le commit que la CI a testé.
-9. **Déploiement** : attendre la CI de `main`, sauvegarder les journaux du conteneur
-   (ils s'effacent), lancer `scripts/deploy.sh`, vérifier dans le conteneur, recaler la
-   branche de travail sur `main`. Le conteneur redémarre : déployer hors service.
+9. **Déploiement** : attendre la CI de `main` (tests, puis l'image publiée sur GHCR par le
+   job `image`), sauvegarder les journaux du conteneur (ils s'effacent), lancer
+   `scripts/deploy.sh`, qui télécharge l'image du commit (le serveur ne construit rien),
+   vérifier dans le conteneur, recaler la branche de travail sur `main`. Le conteneur
+   redémarre : déployer hors service.
 10. **Recette** sur un vrai appel (`docs/RECETTE.md`), puis ticket Jira à « Terminé ».
     Tant que la recette n'est pas faite, le ticket reste « En cours de revue ». Tout ce
     qui se vérifie sans téléphone passe d'abord par l'agent `qa-recette`
@@ -259,9 +261,10 @@ disque : une fixture qui l'utilise efface son fichier en sortie.
 
 ## Règles permanentes
 
-- **`main` est la production.** `scripts/deploy.sh` vérifie la CI du commit exact, la
-  santé, que l'API n'est pas joignable hors Caddy, et que la supervision répond ; on ne
-  déploie jamais par un `ssh` + `git checkout`.
+- **`main` est la production.** `scripts/deploy.sh` vérifie la CI du commit exact, lance
+  l'image que la CI a construite depuis ce commit, contrôle la santé, que l'API n'est pas
+  joignable hors Caddy, et que la supervision répond ; on ne déploie jamais par un `ssh` +
+  `git checkout`, ni par un `docker compose up --build` sur le serveur.
 - **Secrets** : dans `.env` seulement. `env.example` ne porte que des noms et des valeurs
   par défaut. Ne jamais afficher la valeur d'un secret (journal, commit, PR, réponse) :
   vérifier une présence, comparer des empreintes.

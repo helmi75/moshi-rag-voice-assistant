@@ -19,6 +19,14 @@ CLE="${DEPLOY_KEY:-$HOME/.ssh/moshi-vps-deploy}"
 CHEMIN="${DEPLOY_PATH:-/opt/moshi-rag-voice-assistant}"
 SANTE="${DEPLOY_HEALTH_URL:-https://app.helmane.fr/health}"
 DEPOT="helmi75/moshi-rag-voice-assistant"
+# L'image est construite par la CI depuis le commit testé et publiée sur GHCR
+# (ASSISTANTE-167). Le serveur la télécharge par l'empreinte du commit et lui donne le nom
+# que docker-compose.yml lance : il ne construit plus rien.
+REGISTRE="ghcr.io/helmi75/moshi-rag-voice-assistant"
+IMAGE_LOCALE="moshi-rag-voice-assistant-api:latest"
+# Images gardées sur le serveur, la courante comprise : de quoi revenir en arrière sans
+# dépendre du registre. ~1,2 Go chacune ; 91 Go libres relevés le 24/10/2026.
+GARDER=5
 
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
@@ -94,6 +102,16 @@ if [ "$CHECK_ONLY" = 1 ]; then
 fi
 
 # ── 4. Déploiement ──────────────────────────────────────────────────────────────
+# L'image d'abord, avant de toucher à quoi que ce soit : si le registre la refuse (serveur
+# non connecté à GHCR, image pas encore publiée), rien n'a bougé.
+image="$REGISTRE:sha-$local_sha"
+etape "Téléchargement de l'image ${local_sha:0:8} sur $HOTE…"
+ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "docker pull -q '$image' >/dev/null" \
+  || refus "le serveur n'a pas pu télécharger $image. Image pas encore publiée (job « image » de la CI), ou serveur non connecté à GHCR (docs/DEPLOY.md, « Image »)."
+revision="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" \
+  "docker inspect -f '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' '$image'" 2>/dev/null || echo "illisible")"
+[ "$revision" = "$local_sha" ] || refus "l'image $image porte la révision « ${revision:-aucune} », pas $local_sha."
+
 # reset --hard sur le SHA EXACT, jamais `git pull` : pull suivrait une branche, et c'est
 # précisément ce qui laisse une machine dériver de ce qu'on croit avoir déployé.
 etape "Déploiement de ${local_sha:0:8} sur $HOTE…"
@@ -102,14 +120,21 @@ etape "Déploiement de ${local_sha:0:8} sur $HOTE…"
 # changement de configuration du proxy serait déployé sur le disque sans jamais être
 # appliqué — et le script annoncerait « déployé et vérifié ».
 ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
-  set -e
+  set -eo pipefail
   cd '$CHEMIN'
   avant=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
   git fetch -q origin '$BRANCHE_PROD'
   git checkout -q '$BRANCHE_PROD'
   git reset -q --hard '$local_sha'
   apres=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
-  docker compose up -d --build 2>&1 | tail -3
+  # L'image d'avant le passage au registre (construite sur le serveur, sans révision) garde
+  # un nom : sans lui, elle deviendrait orpheline et le ménage l'emporterait, alors qu'elle
+  # est le seul retour possible vers un commit antérieur à ASSISTANTE-167.
+  if docker image inspect '$IMAGE_LOCALE' >/dev/null 2>&1 && [ -z \"\$(docker image inspect -f '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' '$IMAGE_LOCALE')\" ]; then
+    docker tag '$IMAGE_LOCALE' moshi-rag-voice-assistant-api:avant-ghcr
+  fi
+  docker tag '$image' '$IMAGE_LOCALE'
+  docker compose up -d --no-build 2>&1 | tail -3
   if [ \"\$avant\" != \"\$apres\" ]; then
     echo '   Caddyfile modifié : validation puis rechargement'
     docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
@@ -128,6 +153,19 @@ done
 
 deploye="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "git -C '$CHEMIN' rev-parse HEAD")"
 [ "$deploye" = "$local_sha" ] || refus "le VPS est sur ${deploye:0:8}, pas ${local_sha:0:8}."
+# Le conteneur qui tourne, pas seulement le dépôt : sa révision doit être celle du commit.
+tourne="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "cd '$CHEMIN' && docker inspect -f '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' \$(docker compose ps -q api)" 2>/dev/null || echo "illisible")"
+[ "$tourne" = "$local_sha" ] || refus "le conteneur tourne sur l'image ${tourne:0:8}, pas ${local_sha:0:8}."
+etape "Le conteneur tourne sur l'image du commit ${local_sha:0:8}."
+
+# Les images plus anciennes que les $GARDER dernières partent : sans ce ménage, chaque
+# déploiement laisserait 1,2 Go de plus sur le disque. Ordre : date de construction par la
+# CI. Une image dont la construction est entièrement en cache est la même image (même
+# empreinte), donc l'ordre ne la trompe pas.
+ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
+  docker images '$REGISTRE' --format '{{.Tag}}' | grep '^sha-' | tail -n +$((GARDER + 1)) \
+    | while read -r t; do docker rmi -f '$REGISTRE':\$t >/dev/null 2>&1 || true; done
+"
 
 # L'API ne doit JAMAIS être joignable hors Caddy. Vérifié depuis ici, pas depuis le
 # serveur : ce qui compte est ce qu'un tiers voit. Un `git pull` a déjà rouvert ce port

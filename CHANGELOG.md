@@ -7,6 +7,22 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — l'image de production est construite par la CI (24/10/2026, ASSISTANTE-167)
+
+Premier lot du chantier « livraison » : jusqu'ici, chaque déploiement reconstruisait
+l'image sur le serveur (`docker compose up --build`), dans un environnement que la CI
+n'avait jamais vu. Ce qui tournait en production n'était pas ce qui avait été testé.
+
+### Changé
+- Sur `main`, la CI construit l'image après les tests, vérifie qu'elle démarre et répond
+  sur `/health`, et la publie sur GHCR (privé), marquée par l'empreinte du commit.
+- `scripts/deploy.sh` télécharge cette image **avant** de toucher au serveur, vérifie sa
+  révision, la lance sans rien construire, contrôle que le conteneur qui tourne porte le
+  bon commit, et ne garde que les cinq dernières images.
+
+### À faire au déploiement
+- Connecter le serveur à GHCR une fois (jeton `read:packages`) : `docs/DEPLOY.md`, « Image ».
+
 ## Non publiée — « Ce que l'IA sait » sur téléphone (24/10/2026, ASSISTANTE-166)
 
 ### Corrigé
