@@ -7,6 +7,26 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — le solde Twilio surveillé (24/10/2026, ASSISTANTE-165)
+
+Le 12/10/2026, le solde du compte Twilio s'est épuisé : le compte a été suspendu, et la
+ligne n'a plus pris un appel. Rien ne l'a dit, et la supervision envoyait sur une fausse
+piste : « jeton renouvelé, à reporter dans le `.env` ». Twilio répondait pourtant en
+toutes lettres que le compte n'était plus actif (401, code 20003, relevé le 23/10).
+
+### Ajouté
+- **Contrôle « Solde Twilio »** (le 19ᵉ) : le solde, relevé avec les alertes. Attention
+  sous 5 $ (`SUPERVISION_SOLDE_TWILIO_MIN`, décision de Helmi du 23/10), panne à zéro ou
+  compte suspendu.
+- **Un e-mail aux super-admins**, une fois par épisode, quand le solde passe sous le seuil
+  ou que le compte est suspendu.
+- **La recette automatique ne compose plus** sous le seuil, ni quand le solde est inconnu
+  ou relevé il y a plus d'une heure.
+
+### Corrigé
+- « Alertes Twilio » nomme un compte suspendu pour ce qu'il est (panne), au lieu d'un
+  jeton à renouveler.
+
 ## Non publiée — métriques Prometheus pour Grafana (14/10/2026, ASSISTANTE-156)
 
 `/supervision` rendait un verdict global relevé toutes les quinze minutes, sans

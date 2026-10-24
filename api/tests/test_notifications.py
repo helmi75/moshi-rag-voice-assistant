@@ -324,3 +324,36 @@ class TestAdminAdresseDeNotification:
             assert tenants.get_by_id(tenant.id).notify_email is None
         finally:
             tenants.delete_tenant(tenant.id)
+
+
+class TestSoldeTwilio:
+    """L'e-mail du solde Twilio n'est écrit qu'aux super-admins : aucun restaurateur ne
+    lit l'état de notre compte chez un fournisseur."""
+
+    def test_seuls_les_super_admins_le_recoivent(self, smtp, resto):
+        users.create_user("exploitant@helmane.fr", "mot-de-passe-long", users.ROLE_SUPERADMIN)
+        envoye = {}
+
+        async def _envoyer(adresses, sujet, corps):
+            envoye.update(adresses=adresses, sujet=sujet, corps=corps)
+            return True
+
+        with patch.object(notifications, "envoyer", _envoyer):
+            assert asyncio.run(notifications.prevenir_solde_twilio(4.2, "USD", 5.0))
+        assert "exploitant@helmane.fr" in envoye["adresses"]
+        assert not any("cheznotif" in a.lower() for a in envoye["adresses"])
+        assert "4.20 USD" in envoye["sujet"] and "Billing" in envoye["corps"]
+
+    def test_compte_suspendu_et_sans_smtp(self, smtp, resto, monkeypatch):
+        users.create_user("exploitant@helmane.fr", "mot-de-passe-long", users.ROLE_SUPERADMIN)
+        envoye = {}
+
+        async def _envoyer(adresses, sujet, corps):
+            envoye.update(sujet=sujet)
+            return True
+
+        with patch.object(notifications, "envoyer", _envoyer):
+            asyncio.run(notifications.prevenir_solde_twilio(None, None, 5.0))
+        assert "suspendu" in envoye["sujet"]
+        monkeypatch.delenv("SMTP_HOST")
+        assert asyncio.run(notifications.prevenir_solde_twilio(4.2, "USD", 5.0)) is False

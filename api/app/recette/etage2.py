@@ -18,7 +18,7 @@ from xml.sax.saxutils import quoteattr
 
 import httpx
 
-from .. import calls, db, essai, messages, reservations, tenants, twilio_region
+from .. import calls, db, essai, messages, reservations, supervision, tenants, twilio_region
 from . import appelant, budget, gardes, scenarios, secours, verdicts, voix
 from .tarifs import DUREE_MAX_SECONDES, borne
 
@@ -169,7 +169,8 @@ def prealables(passages: list[dict], tenant, numeros: set[str], de: str) -> Opti
     pas_d_essai = essai.refus(tenant.id)
     if pas_d_essai:
         return pas_d_essai
-    return (gardes.la_nuit() or gardes.appel_reel_en_cours() or gardes.deja_joue(passages)
+    return (gardes.la_nuit() or gardes.appel_reel_en_cours() or supervision.solde_insuffisant()
+            or gardes.deja_joue(passages)
             or gardes.destinataire_refuse(tenant.phone_number, numeros, tenant.phone_number)
             or (None if de in numeros and de != tenant.phone_number
                 else "la ligne présentée n'est pas un autre de nos numéros"))

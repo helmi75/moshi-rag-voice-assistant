@@ -83,7 +83,8 @@ class TestEnumeration:
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
     ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
-                "appels_echoues", "appels_inacheves", "latence", "twilio", "carnets", "voxtral", "secours",
+                "appels_echoues", "appels_inacheves", "latence", "twilio", "solde_twilio", "carnets",
+                "voxtral", "secours",
                 "credit_openai",
                 "accueils",
                 "sauvegarde", "purge", "disque", "enregistrements"]
@@ -542,7 +543,10 @@ class TestTwilio:
             asyncio.run(supervision.rafraichir_twilio())
         assert demandes == [
             ("https://monitor.twilio.com/v1/Alerts", ("AC-test", "jeton-americain")),
-            ("https://monitor.dublin.ie1.twilio.com/v1/Alerts", ("AC-test", "jeton-irlandais"))]
+            ("https://monitor.dublin.ie1.twilio.com/v1/Alerts", ("AC-test", "jeton-irlandais")),
+            # Le solde : un seul compte pour les deux régions, lu à l'API américaine.
+            ("https://api.twilio.com/2010-04-01/Accounts/AC-test/Balance.json",
+             ("AC-test", "jeton-americain"))]
         valeur, _ = supervision.relire("twilio")
         assert valeur == {"erreurs": 3, "codes": {"11200": 3}}
 
@@ -588,6 +592,54 @@ class TestTwilio:
         assert "ie1 (HTTP 401)" in controle["resume"] and "1 erreur" in controle["resume"]
         assert "clé d'API" in controle["detail"]
         assert controle["mesure"]["erreurs"] == 1
+
+    def test_un_compte_suspendu_n_est_pas_un_jeton_a_renouveler(self, base, monkeypatch):
+        """Vécu du 12 au 23/10/2026 : solde épuisé, compte suspendu, et la supervision
+        disait « jeton renouvelé, à reporter dans le `.env` ». Twilio répond 401 (code
+        20003) avec « is not active » : c'est une panne, la ligne ne prend aucun appel."""
+        import asyncio
+
+        import httpx
+
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-test")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "jeton-americain")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN_IE1", "jeton-irlandais")
+
+        class _Reponse:
+            status_code = 401
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError("refusé", request=None, response=self)
+
+            def json(self):
+                return {"code": 20003, "message": "authentication failed, account AC-test "
+                                                  "with status 4 is not active"}
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, *a, **k):
+                return _Reponse()
+
+        envois: list = []
+
+        async def _prevenir(*args):
+            envois.append(args)
+
+        monkeypatch.setattr("app.notifications.prevenir_solde_twilio", _prevenir)
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_twilio())
+        assert supervision.relire("twilio")[0] == {"erreur": "compte inactif"}
+        controle = _controle("twilio")
+        assert controle["niveau"] == supervision.PANNE
+        assert "inactif" in controle["resume"] and "renouvel" not in controle["detail"]
+        assert _controle("solde_twilio")["niveau"] == supervision.PANNE
+        assert envois == [(None, None, 5.0)]
+
 
     def test_une_releve_figee_est_signalee(self, base):
         """Une tâche de fond morte laisserait un « 0 erreur » éternellement vert."""
@@ -688,6 +740,88 @@ class TestTwilio:
 
 
 ENTETE = {"X-Supervision-Token": "le-bon-jeton"}
+
+
+class TestSoldeTwilio:
+    """Le 12/10/2026, le solde s'est vidé sans que rien ne prévienne : la ligne est restée
+    morte onze jours."""
+
+    def _relever(self, monkeypatch, solde, envois):
+        import asyncio
+
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-test")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "jeton-americain")
+        monkeypatch.delenv("TWILIO_AUTH_TOKEN_IE1", raising=False)
+
+        class _Reponse:
+            status_code = 200
+
+            def __init__(self, corps):
+                self.corps = corps
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.corps
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, adresse, params=None, auth=None):
+                if adresse.endswith("/Balance.json"):
+                    return _Reponse({"balance": solde, "currency": "USD"})
+                return _Reponse({"alerts": []})
+
+        async def _prevenir(*args):
+            envois.append(args)
+
+        monkeypatch.setattr("app.notifications.prevenir_solde_twilio", _prevenir)
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_twilio())
+        supervision.vider_cache()
+
+    def test_sans_releve_le_controle_le_dit(self, base):
+        assert "Pas encore relevé" in _controle("solde_twilio")["resume"]
+
+    def test_au_dessus_du_seuil_tout_va_bien(self, base, monkeypatch):
+        envois: list = []
+        self._relever(monkeypatch, "12.3456", envois)
+        controle = _controle("solde_twilio")
+        assert controle["niveau"] == supervision.OK
+        assert controle["mesure"]["solde"] == 12.35 and "12.35 USD" in controle["resume"]
+        assert envois == []
+
+    def test_sous_le_seuil_une_alerte_et_un_seul_e_mail_par_episode(self, base, monkeypatch):
+        envois: list = []
+        self._relever(monkeypatch, "4.20", envois)
+        controle = _controle("solde_twilio")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "sous le seuil de 5.00" in controle["resume"]
+        self._relever(monkeypatch, "4.10", envois)
+        assert envois == [(4.2, "USD", 5.0)]               # pas un e-mail par relève
+        self._relever(monkeypatch, "25", envois)            # rechargé : l'épisode se clôt
+        self._relever(monkeypatch, "3", envois)
+        assert envois == [(4.2, "USD", 5.0), (3.0, "USD", 5.0)]
+
+    def test_a_zero_c_est_une_panne(self, base, monkeypatch):
+        self._relever(monkeypatch, "-0.12", [])
+        assert _controle("solde_twilio")["niveau"] == supervision.PANNE
+
+    def test_un_solde_illisible_n_est_pas_un_feu_vert(self, base):
+        supervision.noter("solde_twilio", {"erreur": "ConnectTimeout"})
+        assert _controle("solde_twilio")["niveau"] == supervision.ATTENTION
+
+    def test_une_releve_figee_est_signalee(self, base):
+        supervision.noter("solde_twilio", {"solde": 30.0, "devise": "USD"})
+        with db.get_conn() as conn:
+            conn.execute("UPDATE supervision SET maj_le = ? WHERE cle = 'solde_twilio'",
+                         (_il_y_a(60 * 12),))
+        assert "figée" in _controle("solde_twilio")["resume"]
 
 
 class TestSonde:

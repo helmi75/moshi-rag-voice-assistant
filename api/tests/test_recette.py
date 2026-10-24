@@ -21,7 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from app import calls, db, horloge, renvoi, tenants, twilio_signature
+from app import calls, db, horloge, renvoi, supervision, tenants, twilio_signature
 from app.main import app
 from app.recette import appelant, budget, etage2, gardes, scenarios, tarifs, verdicts, voix
 from app.recette.client import SILENCE, Client, audible
@@ -310,6 +310,46 @@ def essai_actif(monkeypatch):
     tenants.delete_tenant(resto.id)
 
 
+@pytest.fixture()
+def solde():
+    """Le solde Twilio relevé par la supervision : 20 $, frais. La base est commune à la
+    suite : la ligne est effacée en sortie."""
+    supervision.noter("solde_twilio", {"solde": 20.0, "devise": "USD"})
+    yield
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM supervision WHERE cle = 'solde_twilio'")
+
+
+class TestLeSoldeTwilio:
+    """Le 12/10/2026, les passages de recette ont fini de vider le compte Twilio, et la
+    ligne est morte avec lui : la recette ne regardait pas le solde."""
+
+    def _refus(self, essai_actif):
+        nous = {essai_actif.phone_number, "+17600000002"}
+        return etage2.prealables([], essai_actif, nous, "+17600000002")
+
+    def test_sous_le_seuil_aucun_vrai_appel_ne_part(self, essai_actif, monkeypatch, carnet, solde):
+        monkeypatch.setattr(gardes, "la_nuit", lambda *a: None)
+        assert self._refus(essai_actif) is None
+        supervision.noter("solde_twilio", {"solde": 4.99, "devise": "USD"})
+        assert "sous le seuil de 5.00" in self._refus(essai_actif)
+        monkeypatch.setenv("SUPERVISION_SOLDE_TWILIO_MIN", "3")
+        assert self._refus(essai_actif) is None
+
+    def test_un_solde_inconnu_ou_perime_vaut_un_refus(self, essai_actif, monkeypatch, carnet, solde):
+        monkeypatch.setattr(gardes, "la_nuit", lambda *a: None)
+        supervision.noter("solde_twilio", {"erreur": "compte inactif"})
+        assert "illisible (compte inactif)" in self._refus(essai_actif)
+        supervision.noter("solde_twilio", {"solde": 50.0, "devise": "USD"})
+        with db.get_conn() as conn:
+            conn.execute("UPDATE supervision SET maj_le = '2026-10-01T00:00:00Z' "
+                         "WHERE cle = 'solde_twilio'")
+        assert "plus d'une heure" in self._refus(essai_actif)
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM supervision WHERE cle = 'solde_twilio'")
+        assert "pas encore relevé" in self._refus(essai_actif)
+
+
 class TestLesGardeFous:
     def test_sans_secret_ou_avec_un_secret_court_rien_n_est_actif(self, monkeypatch, essai_actif):
         assert gardes.active()
@@ -359,7 +399,7 @@ class TestLesGardeFous:
         vieux = f"{int(time.time()) - gardes.DUREE_DU_JETON - 5}-abcd"
         assert not gardes.jeton_valide("t17a", vieux, gardes.jeton("t17a", vieux))
 
-    def test_les_prealables_d_un_vrai_appel(self, essai_actif, monkeypatch, carnet):
+    def test_les_prealables_d_un_vrai_appel(self, essai_actif, monkeypatch, carnet, solde):
         monkeypatch.setattr(gardes, "la_nuit", lambda *a: None)
         nous = {essai_actif.phone_number, "+17600000002"}
         assert etage2.prealables([], essai_actif, nous, "+17600000002") is None
