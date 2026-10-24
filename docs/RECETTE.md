@@ -141,6 +141,7 @@ réservations, et **note ses mots** : c'est ce qui permettra d'affiner le prompt
 | F5 | Contrôle « Espace disque » | Vert, avec le volume des enregistrements | |
 | F6 | Contrôle « Enregistrement des appels » | `N / N` — « 0 sur 12 » signifie cassé en silence | |
 | F6a 🤖 | Après un déploiement (ASSISTANTE-167) | `scripts/deploy.sh` annonce « Le conteneur tourne sur l'image du commit … » ; sur le serveur, `docker compose ps` montre `moshi-rag-voice-assistant-api:latest` et aucune construction n'a eu lieu | |
+| F6a2 🤖 | `bash scripts/deploy.sh --simuler-echec`, hors service et avec l'accord de Helmi (ASSISTANTE-168) | « Déploiement refusé : échec simulé », puis « Retour arrière : remise en service de … » et « … est de nouveau en service et vérifié » ; le conteneur tourne sur l'image d'avant | |
 | F6b 🤖 | Contrôle « Solde Twilio », compte actif | Le solde lu chez Twilio, au cent près de la console (Billing) ; vert au-dessus de 5 $ | |
 | F6c 🤖 | Compte Twilio suspendu (avant rechargement) | « Alertes Twilio » et « Solde Twilio » en panne, « compte inactif » ; un seul e-mail « compte Twilio suspendu » ; `scripts/recette_appels.py --etage 2` refuse de partir | |
 

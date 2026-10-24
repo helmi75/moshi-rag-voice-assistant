@@ -31,8 +31,11 @@ docker run --rm --tmpfs /tmp:exec -v "$PWD:/repo" -w /repo moshi-rag-voice-assis
    pip install -q pytest >/dev/null 2>&1; git config --global --add safe.directory /repo; \
    python -u scripts/mutation_check.py --runner native"
 
-# Déploiement : seulement depuis `main`, CI verte, arbre propre — le script refuse sinon
+# Déploiement : seulement depuis `main`, CI verte, arbre propre — le script refuse sinon.
+# Une vérification qui échoue après le lancement remet la version précédente en service.
 bash scripts/deploy.sh --check && bash scripts/deploy.sh
+# Revenir à un commit déjà passé par `main` (docs/DEPLOY.md, « Retour arrière »)
+bash scripts/deploy.sh --version <commit>
 ```
 
 La CI (`.github/workflows/ci.yml`, sur `main`, `claude/**` et chaque PR) installe

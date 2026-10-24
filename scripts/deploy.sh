@@ -6,8 +6,15 @@
 # a produit un dépôt où la production tournait sur une branche jamais fusionnée.
 # Ce script rend la règle mécanique.
 #
-#   scripts/deploy.sh              déploie main sur le VPS
-#   scripts/deploy.sh --check      vérifie les conditions et s'arrête (aucun changement)
+#   scripts/deploy.sh                    déploie main sur le VPS
+#   scripts/deploy.sh --check            vérifie les conditions et s'arrête (aucun changement)
+#   scripts/deploy.sh --version <commit> remet en service un commit déjà passé par main
+#   scripts/deploy.sh --simuler-echec    déploie main, puis fait comme si la vérification
+#                                        échouait : éprouve le retour arrière
+#
+# Si la vérification échoue après le lancement (santé, révision du conteneur, port 8000,
+# sonde de supervision muette, ou un contrôle qui PASSE en panne), le script remet en
+# service ce qui tournait avant — le code et l'image — et le dit (ASSISTANTE-168).
 #
 # Le jeton GitHub vient de ~/.git-credentials (celui dont git se sert déjà pour pousser).
 # Il n'est jamais affiché ni copié ailleurs.
@@ -27,26 +34,44 @@ IMAGE_LOCALE="moshi-rag-voice-assistant-api:latest"
 # Images gardées sur le serveur, la courante comprise : de quoi revenir en arrière sans
 # dépendre du registre. ~1,2 Go chacune ; 91 Go libres relevés le 24/10/2026.
 GARDER=5
+# Le gabarit de `docker inspect` qui lit la révision d'une image. Des guillemets doubles
+# simples, sans barre oblique : il est inséré entre apostrophes dans les commandes distantes.
+LABEL_REVISION='{{ index .Config.Labels "org.opencontainers.image.revision" }}'
 
 CHECK_ONLY=0
-[ "${1:-}" = "--check" ] && CHECK_ONLY=1
+SIMULER_ECHEC=0
+VERSION=""
+case "${1:-}" in
+  "")              ;;
+  --check)         CHECK_ONLY=1 ;;
+  --simuler-echec) SIMULER_ECHEC=1 ;;
+  --version)       VERSION="${2:-}"; [ -n "$VERSION" ] || { echo "✗ --version attend un commit" >&2; exit 1; } ;;
+  *)               echo "✗ option inconnue : $1" >&2; exit 1 ;;
+esac
 
 refus() { echo "✗ $1" >&2; exit 1; }
 etape() { echo "→ $1"; }
+distant() { ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "$@"; }
 
-# ── 1. Branche et arbre ─────────────────────────────────────────────────────────
-branche="$(git rev-parse --abbrev-ref HEAD)"
-[ "$branche" = "$BRANCHE_PROD" ] || refus "tu es sur « $branche ». La production se déploie depuis « $BRANCHE_PROD » (git checkout $BRANCHE_PROD)."
-git diff --quiet && git diff --cached --quiet || refus "des fichiers suivis sont modifiés — commite ou remise avant de déployer."
-
-# ── 2. Synchronisation avec l'origine ───────────────────────────────────────────
+# ── 1. Branche, arbre, origine ──────────────────────────────────────────────────
 etape "Récupération de l'état distant…"
 git fetch -q origin "$BRANCHE_PROD"
-local_sha="$(git rev-parse HEAD)"
-distant_sha="$(git rev-parse "origin/$BRANCHE_PROD")"
-[ "$local_sha" = "$distant_sha" ] || refus "HEAD ($(git rev-parse --short HEAD)) diffère de origin/$BRANCHE_PROD ($(git rev-parse --short origin/$BRANCHE_PROD)) — pousse ou remets-toi à jour d'abord."
+if [ -z "$VERSION" ]; then
+  branche="$(git rev-parse --abbrev-ref HEAD)"
+  [ "$branche" = "$BRANCHE_PROD" ] || refus "tu es sur « $branche ». La production se déploie depuis « $BRANCHE_PROD » (git checkout $BRANCHE_PROD)."
+  git diff --quiet && git diff --cached --quiet || refus "des fichiers suivis sont modifiés — commite ou remise avant de déployer."
+  local_sha="$(git rev-parse HEAD)"
+  distant_sha="$(git rev-parse "origin/$BRANCHE_PROD")"
+  [ "$local_sha" = "$distant_sha" ] || refus "HEAD ($(git rev-parse --short HEAD)) diffère de origin/$BRANCHE_PROD ($(git rev-parse --short origin/$BRANCHE_PROD)) — pousse ou remets-toi à jour d'abord."
+else
+  # Revenir à une version donnée : seulement un commit qui est passé par main, jamais
+  # une branche de travail.
+  local_sha="$(git rev-parse --verify -q "$VERSION^{commit}")" || refus "commit inconnu : $VERSION (git fetch ?)."
+  git merge-base --is-ancestor "$local_sha" "origin/$BRANCHE_PROD" \
+    || refus "${local_sha:0:8} n'est pas un commit de $BRANCHE_PROD : on ne remet en service que ce qui y est passé."
+fi
 
-# ── 3. CI verte pour CE commit ──────────────────────────────────────────────────
+# ── 2. CI verte pour CE commit ──────────────────────────────────────────────────
 # On interroge le commit exact, pas « la dernière CI de la branche » : c'est la nuance
 # qui empêche de déployer un commit poussé pendant qu'une CI plus ancienne était verte.
 etape "Vérification de la CI pour ${local_sha:0:8}…"
@@ -101,88 +126,172 @@ if [ "$CHECK_ONLY" = 1 ]; then
   exit 0
 fi
 
-# ── 4. Déploiement ──────────────────────────────────────────────────────────────
-# L'image d'abord, avant de toucher à quoi que ce soit : si le registre la refuse (serveur
-# non connecté à GHCR, image pas encore publiée), rien n'a bougé.
+# ── 3. Ce qui tourne avant : le point de retour ─────────────────────────────────
+# Le commit du dépôt du serveur et l'IMAGE du conteneur (son identifiant, pas une
+# étiquette : `latest` va bouger). Le ménage n'a lieu qu'après une vérification réussie,
+# donc cette image est toujours là si le retour arrière en a besoin.
+precedent_sha="$(distant "git -C '$CHEMIN' rev-parse HEAD")"
+precedent_image="$(distant "cd '$CHEMIN' && docker inspect -f '{{.Image}}' \$(docker compose ps -q api)" 2>/dev/null || true)"
+[ -n "$precedent_image" ] || refus "impossible de lire l'image du conteneur en service : sans point de retour, je ne déploie pas."
+
+# La sonde AVANT : un contrôle déjà en panne (Twilio suspendu, par exemple) ne doit pas
+# faire annuler un déploiement qui n'y est pour rien. Le jeton est lu sur le serveur et
+# n'est jamais affiché.
+jeton="$(distant "grep -m1 '^SUPERVISION_TOKEN=' '$CHEMIN/.env' 2>/dev/null | cut -d= -f2-" || true)"
+[ -n "${jeton:-}" ] || refus "SUPERVISION_TOKEN absent du .env du serveur : la production tournerait sans surveillance (cf. docs/SUPERVISION.md)."
+SONDE="${SANTE%/health}/supervision"
+REPONSE="$(mktemp)"
+trap 'rm -f "$REPONSE"' EXIT
+
+# Interroge la sonde ; rend le code HTTP, et laisse le corps dans $REPONSE.
+sonder() {
+  curl -s --max-time 25 -o "$REPONSE" -w '%{http_code}' -H "X-Supervision-Token: $jeton" "$SONDE" || echo 000
+}
+# Les clés des contrôles en panne, triées, une par ligne.
+pannes() {
+  python3 -c 'import json,sys; print("\n".join(sorted(c["cle"] for c in json.load(open(sys.argv[1]))["controles"] if c["niveau"]=="panne")))' "$REPONSE" 2>/dev/null || echo "illisible"
+}
+code_avant="$(sonder)"
+case "$code_avant" in
+  200|503) pannes_avant="$(pannes)" ;;
+  *)       pannes_avant="inconnues" ;;   # la sonde muette AVANT : on exigera seulement qu'elle réponde après
+esac
+
+# ── 4. L'image du commit ────────────────────────────────────────────────────────
+# Téléchargée avant de toucher à quoi que ce soit : si le registre la refuse (serveur non
+# connecté à GHCR, image pas encore publiée), rien n'a bougé.
 image="$REGISTRE:sha-$local_sha"
 etape "Téléchargement de l'image ${local_sha:0:8} sur $HOTE…"
-ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "docker pull -q '$image' >/dev/null" \
+distant "docker pull -q '$image' >/dev/null" \
   || refus "le serveur n'a pas pu télécharger $image. Image pas encore publiée (job « image » de la CI), ou serveur non connecté à GHCR (docs/DEPLOY.md, « Image »)."
-revision="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" \
-  "docker inspect -f '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' '$image'" 2>/dev/null || echo "illisible")"
+revision="$(distant "docker inspect -f '$LABEL_REVISION' '$image'" 2>/dev/null || echo "illisible")"
 [ "$revision" = "$local_sha" ] || refus "l'image $image porte la révision « ${revision:-aucune} », pas $local_sha."
 
-# reset --hard sur le SHA EXACT, jamais `git pull` : pull suivrait une branche, et c'est
-# précisément ce qui laisse une machine dériver de ce qu'on croit avoir déployé.
-etape "Déploiement de ${local_sha:0:8} sur $HOTE…"
-# Le rechargement de Caddy est conditionnel et VALIDÉ d'abord : `docker compose up -d`
-# ne recrée pas le conteneur quand seul le contenu du Caddyfile change, donc un
-# changement de configuration du proxy serait déployé sur le disque sans jamais être
-# appliqué — et le script annoncerait « déployé et vérifié ».
-ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
-  set -eo pipefail
-  cd '$CHEMIN'
-  avant=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
-  git fetch -q origin '$BRANCHE_PROD'
-  git checkout -q '$BRANCHE_PROD'
-  git reset -q --hard '$local_sha'
-  apres=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
-  # L'image d'avant le passage au registre (construite sur le serveur, sans révision) garde
-  # un nom : sans lui, elle deviendrait orpheline et le ménage l'emporterait, alors qu'elle
-  # est le seul retour possible vers un commit antérieur à ASSISTANTE-167.
-  if docker image inspect '$IMAGE_LOCALE' >/dev/null 2>&1 && [ -z \"\$(docker image inspect -f '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' '$IMAGE_LOCALE')\" ]; then
-    docker tag '$IMAGE_LOCALE' moshi-rag-voice-assistant-api:avant-ghcr
-  fi
-  docker tag '$image' '$IMAGE_LOCALE'
-  docker compose up -d --no-build 2>&1 | tail -3
-  if [ \"\$avant\" != \"\$apres\" ]; then
-    echo '   Caddyfile modifié : validation puis rechargement'
-    docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
-    docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
-  fi
-"
+# ── 5. Lancer une version : le code ET l'image ──────────────────────────────────
+# Sert au déploiement comme au retour arrière. reset --hard sur le SHA EXACT, jamais
+# `git pull` : pull suivrait une branche, et c'est précisément ce qui laisse une machine
+# dériver de ce qu'on croit avoir déployé. Le rechargement de Caddy est conditionnel et
+# VALIDÉ d'abord : `docker compose up -d` ne recrée pas le conteneur quand seul le
+# Caddyfile change, donc un changement du proxy serait sur le disque sans être appliqué.
+lancer() {
+  local sha="$1" image_ref="$2"
+  distant "
+    set -eo pipefail
+    cd '$CHEMIN'
+    avant=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
+    git fetch -q origin '$BRANCHE_PROD'
+    git checkout -q '$BRANCHE_PROD'
+    git reset -q --hard '$sha'
+    apres=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
+    # L'image d'avant le passage au registre (construite sur le serveur, sans révision)
+    # garde un nom : sans lui, elle deviendrait orpheline, alors qu'elle est le seul
+    # retour possible vers un commit antérieur à ASSISTANTE-167.
+    if docker image inspect '$IMAGE_LOCALE' >/dev/null 2>&1 && [ -z \"\$(docker image inspect -f '$LABEL_REVISION' '$IMAGE_LOCALE')\" ]; then
+      docker tag '$IMAGE_LOCALE' moshi-rag-voice-assistant-api:avant-ghcr
+    fi
+    docker tag '$image_ref' '$IMAGE_LOCALE'
+    docker compose up -d --no-build 2>&1 | tail -3
+    if [ \"\$avant\" != \"\$apres\" ]; then
+      echo '   Caddyfile modifié : validation puis rechargement'
+      docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+      docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -1
+    fi
+  "
+}
 
-# ── 5. Vérification ─────────────────────────────────────────────────────────────
-etape "Attente de la remise en route…"
-for i in $(seq 1 24); do
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SANTE" || true)"
-  [ "$code" = "200" ] && break
-  sleep 5
-done
-[ "${code:-}" = "200" ] || refus "$SANTE ne répond pas 200 après le déploiement (dernier code : ${code:-aucun})."
+# ── 6. Vérifier : rend 0, ou écrit la raison de l'échec dans $ECHEC ─────────────
+ECHEC=""
+verifier() {
+  local sha="$1" image_id="$2" code="" i
+  ECHEC=""
+  etape "Attente de la remise en route…"
+  for i in $(seq 1 24); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SANTE" || true)"
+    [ "$code" = "200" ] && break
+    sleep 5
+  done
+  [ "$code" = "200" ] || { ECHEC="$SANTE ne répond pas 200 (dernier code : ${code:-aucun})"; return 1; }
 
-deploye="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "git -C '$CHEMIN' rev-parse HEAD")"
-[ "$deploye" = "$local_sha" ] || refus "le VPS est sur ${deploye:0:8}, pas ${local_sha:0:8}."
-# Le conteneur qui tourne, pas seulement le dépôt : sa révision doit être celle du commit.
-tourne="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "cd '$CHEMIN' && docker inspect -f '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' \$(docker compose ps -q api)" 2>/dev/null || echo "illisible")"
-[ "$tourne" = "$local_sha" ] || refus "le conteneur tourne sur l'image ${tourne:0:8}, pas ${local_sha:0:8}."
-etape "Le conteneur tourne sur l'image du commit ${local_sha:0:8}."
+  local depot conteneur
+  depot="$(distant "git -C '$CHEMIN' rev-parse HEAD" 2>/dev/null || echo illisible)"
+  [ "$depot" = "$sha" ] || { ECHEC="le dépôt du serveur est sur ${depot:0:8}, pas ${sha:0:8}"; return 1; }
+  # Le conteneur qui tourne, pas seulement le dépôt : son image doit être celle demandée.
+  conteneur="$(distant "cd '$CHEMIN' && docker inspect -f '{{.Image}}' \$(docker compose ps -q api)" 2>/dev/null || echo illisible)"
+  [ "$conteneur" = "$image_id" ] || { ECHEC="le conteneur tourne sur l'image ${conteneur:7:12}, pas ${image_id:7:12}"; return 1; }
+  etape "Le conteneur tourne sur l'image attendue (${sha:0:8})."
+
+  # L'API ne doit JAMAIS être joignable hors Caddy. Vérifié depuis ici, pas depuis le
+  # serveur : ce qui compte est ce qu'un tiers voit. Un `git pull` a déjà rouvert ce port
+  # deux fois, découvert chaque fois par hasard.
+  etape "Contrôle du port 8000 depuis l'extérieur…"
+  local hote_nu="${HOTE#*@}"
+  if curl -sI --max-time 8 "http://${hote_nu}:8000/" >/dev/null 2>&1; then
+    ECHEC="l'API répond en HTTP nu sur ${hote_nu}:8000 — hors TLS et hors Caddy"; return 1
+  fi
+  etape "Port 8000 fermé."
+
+  # La supervision FONCTIONNE-t-elle ? Une sonde muette, 401 ou 404, c'est une production
+  # sans surveillance : un défaut du déploiement lui-même. Vécu le 24/08 : le jeton était
+  # dans le `.env` mais absent de docker-compose.yml, la sonde renvoyait 404, et le
+  # déploiement s'était déclaré « vérifié ». Puis : un contrôle qui PASSE en panne avec ce
+  # déploiement l'annule ; une panne qui était déjà là ne compte pas — sinon une
+  # sauvegarde en retard bloquerait un correctif sans rapport, et la porte finirait
+  # contournée. Trois lectures espacées : un contrôle peut sortir de panne juste après le
+  # démarrage.
+  etape "Supervision…"
+  local code_sonde nouvelles=""
+  for i in 1 2 3; do
+    code_sonde="$(sonder)"
+    case "$code_sonde" in
+      200|503) ;;
+      404) ECHEC="la sonde répond 404 : SUPERVISION_TOKEN n'atteint pas le conteneur (docker-compose.yml ?)"; return 1 ;;
+      401) ECHEC="la sonde refuse le jeton du .env du serveur (401)"; return 1 ;;
+      *)   ECHEC="la sonde ne répond pas (HTTP $code_sonde) : la production tournerait sans surveillance"; return 1 ;;
+    esac
+    [ "$pannes_avant" = "inconnues" ] && break
+    nouvelles="$(comm -13 <(printf '%s\n' "$pannes_avant") <(pannes) | sed '/^$/d' | paste -sd, -)"
+    [ -z "$nouvelles" ] && break
+    sleep 16   # la sonde garde son verdict 15 s en cache
+  done
+  [ -z "$nouvelles" ] || { ECHEC="contrôle(s) passé(s) en panne avec ce déploiement : $nouvelles"; return 1; }
+  python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); print("  ", e["niveau"], "|", ", ".join(c["titre"]+" : "+c["resume"] for c in e["controles"] if c["niveau"]!="ok") or "tous les contrôles au vert")' "$REPONSE" 2>/dev/null || echo "   réponse illisible"
+
+  if [ "$SIMULER_ECHEC" = 1 ]; then
+    ECHEC="échec simulé (--simuler-echec), pour éprouver le retour arrière"; return 1
+  fi
+  return 0
+}
+
+# ── 7. Déployer, vérifier, et revenir en arrière si besoin ──────────────────────
+image_id="$(distant "docker image inspect -f '{{.Id}}' '$image'")"
+etape "Déploiement de ${local_sha:0:8} sur $HOTE (en service : ${precedent_sha:0:8})…"
+lancer "$local_sha" "$image" || ECHEC="le lancement a échoué sur le serveur"
+if [ -n "$ECHEC" ] || ! verifier "$local_sha" "$image_id"; then
+  echo "✗ Déploiement de ${local_sha:0:8} refusé : $ECHEC." >&2
+  etape "Retour arrière : remise en service de ${precedent_sha:0:8}…"
+  SIMULER_ECHEC=0
+  lancer "$precedent_sha" "$precedent_image" || refus "RETOUR ARRIÈRE IMPOSSIBLE : le lancement de ${precedent_sha:0:8} a échoué. La production est peut-être arrêtée : intervenir à la main."
+  verifier "$precedent_sha" "$precedent_image" \
+    || refus "RETOUR ARRIÈRE INCOMPLET : ${precedent_sha:0:8} relancé, mais $ECHEC. Intervenir à la main."
+  refus "${local_sha:0:8} n'est PAS déployé ; ${precedent_sha:0:8} est de nouveau en service et vérifié."
+fi
 
 # Les images plus anciennes que les $GARDER dernières partent : sans ce ménage, chaque
 # déploiement laisserait 1,2 Go de plus sur le disque. Ordre : date de construction par la
 # CI. Une image dont la construction est entièrement en cache est la même image (même
-# empreinte), donc l'ordre ne la trompe pas.
-ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
+# empreinte), donc l'ordre ne la trompe pas. Jamais celle qui tourne, ni la précédente :
+# elles portent `latest` ou servent à un conteneur, `rmi` ne leur retire qu'une étiquette.
+distant "
   docker images '$REGISTRE' --format '{{.Tag}}' | grep '^sha-' | tail -n +$((GARDER + 1)) \
     | while read -r t; do docker rmi -f '$REGISTRE':\$t >/dev/null 2>&1 || true; done
 "
-
-# L'API ne doit JAMAIS être joignable hors Caddy. Vérifié depuis ici, pas depuis le
-# serveur : ce qui compte est ce qu'un tiers voit. Un `git pull` a déjà rouvert ce port
-# deux fois, découvert chaque fois par hasard.
-etape "Contrôle du port 8000 depuis l'extérieur…"
-hote_nu="${HOTE#*@}"
-if curl -sI --max-time 8 "http://${hote_nu}:8000/" >/dev/null 2>&1; then
-  refus "l'API répond en HTTP nu sur ${hote_nu}:8000 — hors TLS et hors Caddy."
-fi
-etape "Port 8000 fermé."
 
 # Le script de sauvegarde vit HORS du dépôt sur le serveur : cron l'appelle depuis
 # /opt/backups, et `install` en avait fait une copie figée. Rien ne la met donc à jour —
 # même piège que le Caddyfile le 23/08 : un fichier déposé n'est pas un fichier appliqué.
 # Constaté : la copie installée avait déjà divergé de celle du dépôt.
 etape "Synchronisation du script de sauvegarde…"
-ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
+distant "
   set -e
   depot='$CHEMIN/scripts/backup-db.sh'
   installe=/opt/backups/backup-db.sh
@@ -195,38 +304,5 @@ ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "
     echo '  mis à jour depuis le dépôt (le cron utilisera la nouvelle version).'
   fi
 "
-
-# Deux questions distinctes, et il faut les traiter différemment.
-#
-# 1) La supervision FONCTIONNE-t-elle ? Si la sonde ne répond pas, ou répond 401/404,
-#    la production tourne sans surveillance — c'est un défaut du déploiement lui-même,
-#    donc un REFUS. Vécu le 24/08 : le jeton était dans le `.env` du VPS mais absent de
-#    `docker-compose.yml`, la sonde renvoyait 404, et le déploiement s'était déclaré
-#    « vérifié ». Exactement le piège des en-têtes Caddy du 23/08.
-#
-# 2) La pile est-elle EN BONNE SANTÉ ? Là, simple rapport : une sauvegarde en retard
-#    n'a pas à empêcher de livrer un correctif, et une porte qui se ferme pour des
-#    motifs sans rapport finit par être contournée.
-#
-# Le jeton est lu sur le VPS et n'est jamais affiché.
-etape "Verdict de la supervision…"
-jeton="$(ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" \
-  "grep -m1 '^SUPERVISION_TOKEN=' '$CHEMIN/.env' 2>/dev/null | cut -d= -f2-" || true)"
-if [ -z "${jeton:-}" ]; then
-  refus "SUPERVISION_TOKEN absent du .env du serveur : la production tournerait sans surveillance (cf. docs/SUPERVISION.md)."
-fi
-sonde="${SANTE%/health}/supervision"
-reponse="$(mktemp)"
-code_sonde="$(curl -s --max-time 25 -o "$reponse" -w '%{http_code}' \
-  -H "X-Supervision-Token: $jeton" "$sonde" || echo 000)"
-case "$code_sonde" in
-  200|503) : ;;
-  404) rm -f "$reponse"; refus "la sonde répond 404 : SUPERVISION_TOKEN n'atteint pas le conteneur (est-il bien listé dans docker-compose.yml ?)." ;;
-  401) rm -f "$reponse"; refus "la sonde refuse le jeton du .env du serveur (401) — jeton désynchronisé." ;;
-  *)   rm -f "$reponse"; refus "la sonde ne répond pas (HTTP $code_sonde) : la production tournerait sans surveillance." ;;
-esac
-verdict="$(python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); print(e["niveau"], "|", ", ".join(c["titre"]+" : "+c["resume"] for c in e["controles"] if c["niveau"]!="ok") or "tous les contrôles au vert")' "$reponse" 2>/dev/null || echo "réponse illisible")"
-rm -f "$reponse"
-echo "  $verdict"
 
 echo "✓ ${local_sha:0:8} déployé et vérifié — $SANTE répond 200."
