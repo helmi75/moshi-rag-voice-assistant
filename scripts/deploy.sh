@@ -131,8 +131,11 @@ fi
 # étiquette : `latest` va bouger). Le ménage n'a lieu qu'après une vérification réussie,
 # donc cette image est toujours là si le retour arrière en a besoin.
 precedent_sha="$(distant "git -C '$CHEMIN' rev-parse HEAD")"
-precedent_image="$(distant "cd '$CHEMIN' && docker inspect -f '{{.Image}}' \$(docker compose ps -q api)" 2>/dev/null || true)"
-[ -n "$precedent_image" ] || refus "impossible de lire l'image du conteneur en service : sans point de retour, je ne déploie pas."
+# `ps -a` : un conteneur arrêté a toujours son image. Production tombée = le moment où il
+# faut pouvoir livrer un correctif ; sans aucun conteneur, on déploie sans point de retour,
+# et on le dit, plutôt que de bloquer la réparation.
+precedent_image="$(distant "cd '$CHEMIN' && docker inspect -f '{{.Image}}' \$(docker compose ps -a -q api)" 2>/dev/null || true)"
+[ -n "$precedent_image" ] || echo "⚠ aucun conteneur api sur le serveur : pas de point de retour, un échec ne pourra pas être défait."
 
 # La sonde AVANT : un contrôle déjà en panne (Twilio suspendu, par exemple) ne doit pas
 # faire annuler un déploiement qui n'y est pour rien. Le jeton est lu sur le serveur et
@@ -179,7 +182,9 @@ lancer() {
     set -eo pipefail
     cd '$CHEMIN'
     avant=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
-    git fetch -q origin '$BRANCHE_PROD'
+    # Le réseau seulement si le commit manque : un retour arrière vise un commit déjà là,
+    # et ne doit pas échouer parce que GitHub ne répond pas.
+    git cat-file -e '$sha^{commit}' 2>/dev/null || git fetch -q origin '$BRANCHE_PROD'
     git checkout -q '$BRANCHE_PROD'
     git reset -q --hard '$sha'
     apres=\$(sha256sum caddy/Caddyfile | cut -d' ' -f1)
@@ -268,19 +273,24 @@ etape "Déploiement de ${local_sha:0:8} sur $HOTE (en service : ${precedent_sha:
 lancer "$local_sha" "$image" || ECHEC="le lancement a échoué sur le serveur"
 if [ -n "$ECHEC" ] || ! verifier "$local_sha" "$image_id"; then
   echo "✗ Déploiement de ${local_sha:0:8} refusé : $ECHEC." >&2
+  [ -n "$precedent_image" ] || refus "aucun point de retour (pas de conteneur avant le déploiement) : ${local_sha:0:8} reste en place, à réparer à la main."
   etape "Retour arrière : remise en service de ${precedent_sha:0:8}…"
   SIMULER_ECHEC=0
-  lancer "$precedent_sha" "$precedent_image" || refus "RETOUR ARRIÈRE IMPOSSIBLE : le lancement de ${precedent_sha:0:8} a échoué. La production est peut-être arrêtée : intervenir à la main."
+  lancer "$precedent_sha" "$precedent_image" || refus "RETOUR ARRIÈRE IMPOSSIBLE : le lancement de ${precedent_sha:0:8} a échoué sur le serveur. La production est peut-être arrêtée : intervenir à la main."
+  # La version d'avant peut rater une vérification qu'elle ratait déjà (port, sonde) :
+  # on le dit sans crier à l'incident.
   verifier "$precedent_sha" "$precedent_image" \
-    || refus "RETOUR ARRIÈRE INCOMPLET : ${precedent_sha:0:8} relancé, mais $ECHEC. Intervenir à la main."
+    || refus "${local_sha:0:8} n'est PAS déployé ; ${precedent_sha:0:8} est relancé, mais : $ECHEC. Regarder si c'était déjà le cas avant ce déploiement."
   refus "${local_sha:0:8} n'est PAS déployé ; ${precedent_sha:0:8} est de nouveau en service et vérifié."
 fi
 
 # Les images plus anciennes que les $GARDER dernières partent : sans ce ménage, chaque
 # déploiement laisserait 1,2 Go de plus sur le disque. Ordre : date de construction par la
 # CI. Une image dont la construction est entièrement en cache est la même image (même
-# empreinte), donc l'ordre ne la trompe pas. Jamais celle qui tourne, ni la précédente :
-# elles portent `latest` ou servent à un conteneur, `rmi` ne leur retire qu'une étiquette.
+# empreinte), donc l'ordre ne la trompe pas. Jamais celle qui tourne : elle porte `latest`
+# et sert au conteneur, `rmi` ne lui retire qu'une étiquette. La précédente peut partir si
+# elle est plus vieille que les $GARDER dernières (après un `--version` lointain) : elle
+# reste au registre, `--version` la retélécharge.
 distant "
   docker images '$REGISTRE' --format '{{.Tag}}' | grep '^sha-' | tail -n +$((GARDER + 1)) \
     | while read -r t; do docker rmi -f '$REGISTRE':\$t >/dev/null 2>&1 || true; done

@@ -298,7 +298,14 @@ déploiement** (une panne déjà présente avant, comme Twilio suspendu, ne comp
 l'une de ces vérifications échoue, il remet en service ce qui tournait avant — le commit du
 dépôt **et** l'image du conteneur, relevés avant de toucher à quoi que ce soit —, le
 revérifie, et sort en erreur en disant ce qui tourne. Le ménage des images n'a lieu
-qu'après une vérification réussie : l'image précédente est donc toujours là.
+qu'après une vérification réussie : l'image précédente est donc toujours là. Un conteneur
+arrêté reste un point de retour ; sans aucun conteneur, le script déploie quand même (pour
+pouvoir réparer) et prévient qu'un échec ne sera pas défait.
+
+Ce que la comparaison **ne voit pas**, par construction : une aggravation sur un contrôle
+qui était déjà en panne, un contrôle qui passe de « ok » à « attention », et ce qui ne se
+voit qu'avec des appels (« Appels muets »). Si la sonde ne répondait pas avant le
+déploiement, le script exige seulement qu'elle réponde après, sans comparer les pannes.
 
 **À la main**, vers un commit déjà passé par `main` (refus pour tout autre commit) :
 
@@ -307,15 +314,17 @@ bash scripts/deploy.sh --version <commit>
 ```
 
 Mêmes vérifications, même retour arrière s'il échoue. Seuls les commits publiés sur GHCR
-(depuis ASSISTANTE-167, 24/10/2026) ont une image ; pour revenir avant, l'image construite
-sur le serveur est gardée sous `moshi-rag-voice-assistant-api:avant-ghcr`.
+(depuis ASSISTANTE-167, 24/10/2026) ont une image : `--version` refuse les autres avant de
+toucher à quoi que ce soit. L'image construite sur le serveur avant ce changement est gardée
+sous `moshi-rag-voice-assistant-api:avant-ghcr` ; y revenir se fait à la main.
 
 **L'éprouver** : `bash scripts/deploy.sh --simuler-echec` déploie `main`, fait comme si la
 vérification échouait, et doit remettre en service la version précédente. Deux
 redémarrages du conteneur : hors service, avec l'accord de Helmi.
 
 **La base ne recule pas**, et n'a pas besoin de reculer : les migrations sont en ajout
-seulement (vérifié le 24/10/2026 : aucun `DROP` ni `RENAME` dans `db.py`). Un code plus
+seulement (vérifié le 24/10/2026 : aucun `DROP TABLE`, `DROP COLUMN` ni `RENAME` dans
+`db.py` ; un seul `DROP INDEX`, remplacé par un autre index, sans effet sur le code). Un code plus
 ancien sur une base plus récente ne rejoue aucune migration (`_MIGRATIONS[version:]` est
 vide) et lit chaque ligne colonne par colonne : une colonne ajoutée ne le gêne pas. Garder
 cette règle : une migration qui supprime ou renomme rendrait le retour arrière dangereux.
