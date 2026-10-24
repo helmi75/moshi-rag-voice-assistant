@@ -36,6 +36,11 @@ docker run --rm --tmpfs /tmp:exec -v "$PWD:/repo" -w /repo moshi-rag-voice-assis
 bash scripts/deploy.sh --check && bash scripts/deploy.sh
 # Revenir à un commit déjà passé par `main` (docs/DEPLOY.md, « Retour arrière »)
 bash scripts/deploy.sh --version <commit>
+
+# GitHub sans quitter le terminal (jeton de ~/.git-credentials, jamais affiché)
+python3 scripts/depot_github.py ci HEAD --attendre        # toutes les exécutions, workflows compris
+python3 scripts/depot_github.py pr --titre "CLÉ · …" --corps-fichier corps.md
+python3 scripts/depot_github.py fusionner <n> --attendre  # refuse tant que la CI du commit testé n'est pas verte
 ```
 
 La CI (`.github/workflows/ci.yml`, sur `main`, `claude/**` et chaque PR) installe
@@ -60,13 +65,14 @@ le `.lock` ce qui est installé (régénération : `docs/DEPLOY.md`).
    contrôle par mutation relancé après le commit.
 5. **Commit** : un sujet par commit. Message en français, `CLÉ-JIRA · ce qui change`,
    corps = pourquoi et ce qui a été vérifié. Jamais de nom de modèle.
-6. **Pousser, puis attendre la CI** de la branche. Rouge : corriger avant toute suite.
+6. **Pousser, puis attendre la CI** de la branche (`depot_github.py ci`). Rouge : corriger avant toute suite.
 7. **Revue** avant de fusionner un lot : l'agent relecteur sur le diff final (« Travail en
    agents »), ou `/code-review` et `/security-review`. Vérifier chaque constat dans le code avant d'y toucher ; ne corriger que ceux
    qui sont confirmés, par groupes, tests après chaque groupe ; dire ce qui est laissé de
    côté et pourquoi.
 8. **PR vers `main`** : sections *Pourquoi*, *Ce qui change*, *Vérifié*, *Après le
-   déploiement*. Fusion par commit de fusion, sur le commit que la CI a testé.
+   déploiement*. Fusion par commit de fusion, sur le commit que la CI a testé
+   (`depot_github.py fusionner`, jamais à la main).
 9. **Déploiement** : attendre la CI de `main` (tests, puis l'image publiée sur GHCR par le
    job `image`), sauvegarder les journaux du conteneur (ils s'effacent), lancer
    `scripts/deploy.sh`, qui télécharge l'image du commit (le serveur ne construit rien),

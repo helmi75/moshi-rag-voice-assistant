@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — les outils GitHub dans le dépôt (24/10/2026, ASSISTANTE-170)
+
+### Ajouté
+- **`scripts/depot_github.py`** : l'état de la CI d'un commit (`ci`, avec `--attendre`),
+  l'ouverture d'une PR (`pr`) et sa fusion (`fusionner`). Ces outils vivaient dans un
+  dossier temporaire, effacé plusieurs fois.
+- La fusion refuse tant que **toutes** les exécutions du commit de tête ne sont pas
+  terminées et vertes, et se fait sur ce commit-là (GitHub refuse si la branche a bougé).
+  Le 24/10, la PR 150 avait été fusionnée pendant qu'une exécution tournait encore : un job
+  qui en attend un autre n'apparaît qu'une fois lancé, donc l'outil lit aussi les
+  exécutions des workflows. Aucune exécution n'est pas un feu vert.
+
 ## Non publiée — la mémoire des décisions (24/10/2026, ASSISTANTE-169)
 
 ### Ajouté
