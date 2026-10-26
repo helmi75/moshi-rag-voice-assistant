@@ -34,6 +34,8 @@ IMAGE_LOCALE="moshi-rag-voice-assistant-api:latest"
 # Images gardées sur le serveur, la courante comprise : de quoi revenir en arrière sans
 # dépendre du registre. ~1,2 Go chacune ; 91 Go libres relevés le 24/10/2026.
 GARDER=5
+# Les journaux du conteneur, sauvegardés avant chaque lancement (ASSISTANTE-176).
+JOURNAUX="${DEPLOY_JOURNAUX:-/opt/journaux}"
 # Le gabarit de `docker inspect` qui lit la révision d'une image. Des guillemets doubles
 # simples, sans barre oblique : il est inséré entre apostrophes dans les commandes distantes.
 LABEL_REVISION='{{ index .Config.Labels "org.opencontainers.image.revision" }}'
@@ -82,10 +84,13 @@ conclusion="$(
 import json, re, sys, urllib.error, urllib.request
 from pathlib import Path
 
+import os
+
 depot, sha = sys.argv[1], sys.argv[2]
 fichier = Path.home() / ".git-credentials"
-jeton = None
-if fichier.exists():
+# GH_TOKEN d'abord : un déploiement lancé depuis GitHub (ASSISTANTE-176) n'a pas de fichier.
+jeton = os.getenv("GH_TOKEN", "").strip() or None
+if not jeton and fichier.exists():
     for ligne in fichier.read_text().splitlines():
         m = re.match(r"https://([^:]+):([^@]+)@github\.com", ligne.strip())
         if m:
@@ -141,6 +146,34 @@ case "$conclusion" in
   ROUGE:*)    refus "CI en échec sur ce commit (${conclusion#ROUGE:})." ;;
   SANS_JETON) refus "aucun jeton GitHub dans ~/.git-credentials : impossible de vérifier la CI." ;;
   *)          refus "état de CI indéterminé ($conclusion) — je ne déploie pas à l'aveugle." ;;
+esac
+
+# ── 2 bis. Aucun appel en cours ─────────────────────────────────────────────────
+# Le conteneur redémarre : un appel en cours serait coupé net. Jusqu'ici, « déployer hors
+# appel » ne tenait que par celui qui lançait le script ; un déploiement lancé depuis GitHub
+# (ASSISTANTE-176) n'a personne pour regarder. La jauge des appels en cours de /metrics est
+# lue sur le serveur, avec le jeton de son .env (jamais affiché).
+etape "Appels en cours…"
+appels="$(distant "
+  jeton=\$(grep -m1 '^METRIQUES_TOKEN=' '$CHEMIN/.env' 2>/dev/null | cut -d= -f2- | tr -d '\"')
+  [ -n \"\$jeton\" ] || { echo sans-jeton; exit 0; }
+  mesures=\$(curl -sf --max-time 10 -H \"Authorization: Bearer \$jeton\" http://127.0.0.1:8000/metrics) \
+    || { echo muette; exit 0; }
+  printf '%s\\n' \"\$mesures\" | awk '/^helmane_appels_en_cours[{ ]/ { n += \$NF } END { print n + 0 }'
+" 2>/dev/null || echo illisible)"
+case "$appels" in
+  0)          etape "Aucun appel en cours." ;;
+  sans-jeton) echo "⚠ METRIQUES_TOKEN absent du .env du serveur : impossible de savoir si un appel est en cours." ;;
+  muette|illisible)
+              echo "⚠ /metrics ne répond pas : la production est peut-être arrêtée ; on ne sait pas si un appel est en cours." ;;
+  *)
+    # Une jauge restée haute (un appel dont la fin n'a pas été vue) bloquerait tout
+    # déploiement : DEPLOY_MALGRE_APPEL=1 passe outre, en connaissance de cause.
+    if [ "${DEPLOY_MALGRE_APPEL:-0}" = 1 ]; then
+      echo "⚠ $appels appel(s) en cours, déploiement forcé (DEPLOY_MALGRE_APPEL=1) : ils seront coupés."
+    else
+      refus "$appels appel(s) en cours : le redémarrage les couperait. Réessayer plus tard (ou DEPLOY_MALGRE_APPEL=1 si la jauge est figée)."
+    fi ;;
 esac
 
 if [ "$CHECK_ONLY" = 1 ]; then
@@ -291,6 +324,21 @@ verifier() {
 
 # ── 7. Déployer, vérifier, et revenir en arrière si besoin ──────────────────────
 image_id="$(distant "docker image inspect -f '{{.Id}}' '$image'")"
+
+# Les journaux du conteneur s'effacent avec lui : sauvegardés sur le serveur avant de le
+# remplacer, quatorze jours comme les sauvegardes de la base, lisibles par root seul (ils
+# peuvent citer des numéros d'appelants : docs/RGPD.md). Une sauvegarde ratée ne bloque pas
+# un correctif.
+etape "Sauvegarde des journaux du conteneur…"
+distant "
+  set -e
+  mkdir -p -m 700 '$JOURNAUX'
+  f='$JOURNAUX'/prod-api-\$(date +%Y%m%d-%H%M%S).log
+  ( umask 077; cd '$CHEMIN' && docker compose logs --no-color api > \"\$f\" 2>&1 )
+  find '$JOURNAUX' -name 'prod-api-*.log' -mtime +14 -delete
+  echo \"   \$f\"
+" || echo "⚠ journaux non sauvegardés."
+
 etape "Déploiement de ${local_sha:0:8} sur $HOTE (en service : ${precedent_sha:0:8})…"
 lancer "$local_sha" "$image" || ECHEC="le lancement a échoué sur le serveur"
 if [ -n "$ECHEC" ] || ! verifier "$local_sha" "$image_id"; then

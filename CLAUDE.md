@@ -84,10 +84,10 @@ le `.lock` ce qui est installé (régénération : `docs/DEPLOY.md`).
    déploiement*. Fusion par commit de fusion, sur le commit que la CI a testé
    (`depot_github.py fusionner`, jamais à la main).
 9. **Déploiement** : attendre la CI de `main` (tests, puis l'image publiée sur GHCR par le
-   job `image`), sauvegarder les journaux du conteneur (ils s'effacent), lancer
-   `scripts/deploy.sh`, qui télécharge l'image du commit (le serveur ne construit rien),
-   vérifier dans le conteneur, recaler la branche de travail sur `main`. Le conteneur
-   redémarre : déployer hors service.
+   job `image`), lancer `scripts/deploy.sh`, qui télécharge l'image du commit (le serveur
+   ne construit rien), refuse pendant un appel en cours et sauvegarde les journaux du
+   conteneur sur le serveur (`/opt/journaux`, 14 jours) ; vérifier dans le conteneur,
+   recaler la branche de travail sur `main`.
 10. **Recette** sur un vrai appel (`docs/RECETTE.md`), puis ticket Jira à « Terminé ».
     Tant que la recette n'est pas faite, le ticket reste « En cours de revue ». Tout ce
     qui se vérifie sans téléphone passe d'abord par l'agent `qa-recette`

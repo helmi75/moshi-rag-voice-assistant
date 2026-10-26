@@ -350,6 +350,41 @@ Le CHANGELOG fait foi ; la release GitHub le recopie.
 Une version ne se déploie pas toute seule : `bash scripts/deploy.sh --version vX.Y.Z` remet
 en service le commit du tag, avec les mêmes vérifications.
 
+## Depuis GitHub (ASSISTANTE-176)
+
+Le workflow « Déploiement » (`.github/workflows/deploiement.yml`) lance les **mêmes
+scripts** depuis GitHub : « Run workflow », cible `production` ou `preproduction`, et un
+commit ou tag de `main` (vide : le dernier). La préproduction peut aussi partir seule après
+chaque CI verte de `main`. Un seul déploiement à la fois.
+
+Deux garde-fous de `scripts/deploy.sh` servent d'abord ce cas, où personne ne regarde :
+
+- **Pas pendant un appel.** La jauge `helmane_appels_en_cours` de `/metrics` est lue sur le
+  serveur (jeton `METRIQUES_TOKEN` de son `.env`) ; un appel en cours = refus.
+  `DEPLOY_MALGRE_APPEL=1` passe outre si la jauge est restée figée. Sans jeton, ou
+  `/metrics` muet (production arrêtée), le script le dit et continue : bloquer empêcherait
+  de réparer.
+- **Les journaux du conteneur** sont copiés dans `/opt/journaux` sur le serveur avant le
+  lancement, 14 jours, lisibles par root seul (`docs/RGPD.md`).
+
+**Pas encore branché** (décision du 24/10/2026 : le bouton viendra avec de vrais clients).
+Pour le brancher, Helmi :
+
+1. Une clé SSH **dédiée**, sans phrase de passe, qui ne sert qu'à GitHub :
+   `ssh-keygen -t ed25519 -N "" -C github-deploiement -f cle-github`, puis ajouter
+   `cle-github.pub` à `/root/.ssh/authorized_keys` du serveur. La retirer de ce fichier
+   suffit à tout couper.
+2. GitHub → Settings → Environments : créer `production` (**Required reviewers** : Helmi ;
+   **Deployment branches** : `main` seulement) et `preproduction` (`main` seulement).
+   Dans chacun, deux secrets : `DEPLOY_SSH_KEY` (le contenu de `cle-github`) et
+   `DEPLOY_KNOWN_HOSTS` (la sortie de `ssh-keyscan -t ed25519 187.77.172.87`, vérifiée contre
+   l'empreinte du serveur). Puis effacer `cle-github` du poste.
+3. Préproduction automatique : Settings → Variables → `PREPROD_AUTO` = `1`, une fois la
+   préproduction installée (« Préproduction » ci-dessus).
+
+Sans ces secrets, un « Run workflow » échoue tout de suite en le disant ; sans
+`PREPROD_AUTO`, rien ne part après une CI.
+
 ## Retour arrière (ASSISTANTE-168)
 
 **Automatique.** Après le lancement, `scripts/deploy.sh` vérifie : `/health` répond 200, le

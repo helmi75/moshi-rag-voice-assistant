@@ -229,6 +229,20 @@ class TestLeCommit:
 
 
 class TestLeJeton:
+    @pytest.fixture(autouse=True)
+    def sans_gh_token(self, monkeypatch):
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    def test_gh_token_d_abord_pour_github_actions(self, tmp_path, monkeypatch):
+        # ASSISTANTE-176 : un déploiement lancé depuis GitHub n'a pas de ~/.git-credentials.
+        monkeypatch.setenv("GH_TOKEN", JETON)
+        assert dg.lire_jeton(tmp_path / "absent") == JETON
+
+    def test_un_gh_token_vide_ne_compte_pas(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GH_TOKEN", "  ")
+        with pytest.raises(dg.RefusGitHub, match="aucun jeton"):
+            dg.lire_jeton(tmp_path / "absent")
+
     def test_lu_dans_git_credentials(self, tmp_path):
         fichier = tmp_path / "cred"
         fichier.write_text(f"https://autre:x@gitlab.com\nhttps://helmi75:{JETON}@github.com\n")
