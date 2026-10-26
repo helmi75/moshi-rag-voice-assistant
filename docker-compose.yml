@@ -247,6 +247,9 @@ services:
       # son certificat. Défaut ":81" = port non publié, donc bloc inoffensif en dev.
       SITE_REDIRECTS: "${SITE_REDIRECTS:-:81}"
       SITE_CANONICAL: "${SITE_CANONICAL:-http://localhost}"
+      # Le nom de la préproduction (preprod.helmane.fr) ; défaut ":82", port non publié,
+      # donc bloc mort. Cf. docker-compose.preprod.yml et docs/DEPLOY.md, « Préproduction ».
+      PREPROD_ADDRESS: "${PREPROD_ADDRESS:-:82}"
     ports:
       - "80:80"
       - "443:443"

@@ -289,6 +289,51 @@ zcat /tmp/app-AAAAMMJJ-HHMM.db.gz > /tmp/restore-test.db
 sqlite3 /tmp/restore-test.db "PRAGMA integrity_check;"
 ```
 
+## Préproduction (ASSISTANTE-174)
+
+`https://preprod.helmane.fr` : la même image que la production, sur le même serveur, pour
+voir une version démarrer, migrer sa base et servir ses pages **avant** la production. Elle
+n'a **ni numéro ni clé de fournisseur** (décision du 26/10/2026) : elle ne prend aucun
+appel et ne dépense rien. Les appels se vérifient toujours en production.
+
+| | Production | Préproduction |
+|---|---|---|
+| Copie du dépôt | `/opt/moshi-rag-voice-assistant` | `/opt/helmane-preprod` |
+| Conteneur | `api` | `api_preprod` (`docker-compose.preprod.yml`) |
+| Base | volume `moshi-rag-voice-assistant_api_data` | volume `helmane-preprod_api_data` |
+| Port, boucle locale | 8000 | 8001 |
+| Déploiement | `scripts/deploy.sh` | `scripts/deploy_preprod.sh [<commit>]` |
+
+Le conteneur de préproduction rejoint le réseau Docker de la production pour que le même
+Caddy le serve (bloc `PREPROD_ADDRESS` de `caddy/Caddyfile`). D'où son nom, `api_preprod` :
+deux conteneurs `api` sur ce réseau se partageraient le nom. Conséquence : tant qu'il
+tourne, `docker compose down` côté production ne peut pas retirer le réseau. Et la
+préproduction joint l'API de la production sans passer par Caddy : il faudrait d'abord y
+exécuter du code, mais elle pourrait alors forger `X-Forwarded-For`, que lit le frein des
+connexions à l'admin (`admin/throttle.py`).
+
+`scripts/deploy_preprod.sh` n'accepte qu'un commit de `main` dont la CI est verte, télécharge
+son image, la lance (sans ménage : seul `scripts/deploy.sh` retire des images, après une
+vérification réussie), puis vérifie : `/health` sur le serveur, l'image du conteneur, le port
+8001 fermé vu de l'extérieur, la sonde qui répond (503 attendu : sans numéro ni clé, des
+contrôles sont en panne), et l'adresse publique. **Pas de retour arrière** : une
+préproduction qui ne démarre pas est ce qu'on voulait apprendre avant la production.
+
+**Mise en place, une fois** (Helmi) :
+
+1. DNS : un enregistrement `A` `preprod` → `187.77.172.87`.
+2. Une fois ce lot déployé en production, ajouter `PREPROD_ADDRESS=preprod.helmane.fr` au
+   `.env` de la production, puis, **hors appel en cours** (Caddy redémarre) :
+   `cd /opt/moshi-rag-voice-assistant && docker compose up -d caddy`.
+3. Depuis le poste : `bash scripts/deploy_preprod.sh --installer`. Il clone le dépôt dans
+   `/opt/helmane-preprod` et y écrit un `.env` sans numéro ni clé ; ses secrets sont tirés
+   sur le serveur et n'en sortent pas. Pour ouvrir l'admin de la préproduction, y ajouter
+   `ADMIN_PASSWORD=…` à la main.
+4. `bash scripts/deploy_preprod.sh`.
+
+Le déploiement automatique après chaque fusion viendra avec le workflow de déploiement
+(étape 5 du chantier « livraison »).
+
 ## Retour arrière (ASSISTANTE-168)
 
 **Automatique.** Après le lancement, `scripts/deploy.sh` vérifie : `/health` répond 200, le

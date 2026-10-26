@@ -1,0 +1,34 @@
+# La préproduction (ASSISTANTE-174) : la même image que la production, sur le même serveur,
+# avec sa base, son `.env` et aucun numéro de téléphone (décision du 26/10/2026). Elle se
+# lance depuis sa PROPRE copie du dépôt (/opt/helmane-preprod), au commit qu'elle sert :
+# un `extends` lu dans la copie de la production prendrait la configuration du commit en
+# production, et une variable nouvelle n'arriverait jamais en préproduction.
+#
+#   docker compose -f docker-compose.preprod.yml up -d --no-build   (scripts/deploy_preprod.sh)
+#
+# Le service s'appelle `api_preprod`, pas `api` : il rejoint le réseau de la production pour
+# que son Caddy le serve, et deux conteneurs nommés `api` sur ce réseau se partageraient
+# le nom — Caddy enverrait des appels de production en préproduction.
+name: helmane-preprod
+
+services:
+  api_preprod:
+    extends:
+      file: docker-compose.yml
+      service: api
+    # Étiquetée par scripts/deploy_preprod.sh ; `latest` reste celle de la production.
+    image: moshi-rag-voice-assistant-api:preprod
+    ports: !override
+      # Boucle locale seulement, comme la production : Caddy passe par le réseau Docker.
+      - "127.0.0.1:8001:8000"
+    networks:
+      - production
+
+networks:
+  production:
+    external: true
+    name: moshi-rag-voice-assistant_default
+
+volumes:
+  # helmane-preprod_api_data : jamais la base de la production.
+  api_data:
