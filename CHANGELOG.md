@@ -7,6 +7,15 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — des versions numérotées (26/10/2026, ASSISTANTE-175)
+
+### Ajouté
+- **Un tag `vX.Y.Z` sur `main` publie une version** : la release GitHub, avec les notes du
+  CHANGELOG, et l'image de la CI étiquetée `vX.Y.Z` sur GHCR, sans rien reconstruire.
+  `scripts/notes_de_version.py preparer` regroupe d'abord les sections « Non publiée ».
+  Poser le tag vaut accord de Helmi (décision du 24/10) ; la production ne se déploie
+  toujours que par `scripts/deploy.sh`.
+
 ## Non publiée — une préproduction (26/10/2026, ASSISTANTE-174)
 
 ### Ajouté

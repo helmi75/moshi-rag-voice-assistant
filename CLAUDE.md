@@ -42,6 +42,8 @@ bash scripts/deploy.sh --check && bash scripts/deploy.sh
 bash scripts/deploy.sh --version <commit>
 # Préproduction (preprod.helmane.fr, même serveur, sans numéro) : un commit de `main`, CI verte
 bash scripts/deploy_preprod.sh
+# Version groupée (docs/DEPLOY.md, « Versions ») : préparer le CHANGELOG ; le tag est à Helmi
+python3 scripts/notes_de_version.py preparer vX.Y.Z
 
 # GitHub sans quitter le terminal (jeton de ~/.git-credentials, jamais affiché)
 python3 scripts/depot_github.py ci HEAD --attendre        # toutes les exécutions, workflows compris
