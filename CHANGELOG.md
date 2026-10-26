@@ -15,10 +15,11 @@
   `main`. Mêmes scripts que depuis le poste, un seul déploiement à la fois. **Pas encore
   branché** : clé SSH dédiée et secrets à poser (`docs/DEPLOY.md`, « Depuis GitHub »).
 - **`scripts/deploy.sh` refuse de déployer pendant un appel** (jauge des appels en cours
-  lue sur le serveur) : le redémarrage du conteneur le couperait.
-  `DEPLOY_MALGRE_APPEL=1` passe outre une jauge figée.
+  lue sur le serveur, au début puis juste avant le lancement) : le redémarrage du conteneur
+  le couperait. Une mesure impossible refuse aussi ; `DEPLOY_MALGRE_APPEL=1` passe outre.
 - **Les journaux du conteneur sont sauvegardés sur le serveur** avant chaque lancement
-  (`/opt/journaux`, 14 jours, root seul) : ils s'effaçaient avec le conteneur.
+  (`/opt/journaux`, root seul) : ils s'effaçaient avec le conteneur. Purgés à 14 jours par
+  la sauvegarde de chaque nuit.
 
 ## Non publiée — des versions numérotées (26/10/2026, ASSISTANTE-175)
 

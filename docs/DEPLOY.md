@@ -354,18 +354,24 @@ en service le commit du tag, avec les mêmes vérifications.
 
 Le workflow « Déploiement » (`.github/workflows/deploiement.yml`) lance les **mêmes
 scripts** depuis GitHub : « Run workflow », cible `production` ou `preproduction`, et un
-commit ou tag de `main` (vide : le dernier). La préproduction peut aussi partir seule après
-chaque CI verte de `main`. Un seul déploiement à la fois.
+commit ou tag de `main` (obligatoire pour la production : c'est lui qu'on approuve ; vide en
+préproduction : le dernier). La préproduction peut aussi partir seule après chaque CI verte
+de `main`. Un seul déploiement à la fois ; GitHub ne garde qu'un passage en attente, un
+troisième annule celui qui attendait.
 
 Deux garde-fous de `scripts/deploy.sh` servent d'abord ce cas, où personne ne regarde :
 
 - **Pas pendant un appel.** La jauge `helmane_appels_en_cours` de `/metrics` est lue sur le
-  serveur (jeton `METRIQUES_TOKEN` de son `.env`) ; un appel en cours = refus.
-  `DEPLOY_MALGRE_APPEL=1` passe outre si la jauge est restée figée. Sans jeton, ou
-  `/metrics` muet (production arrêtée), le script le dit et continue : bloquer empêcherait
-  de réparer.
+  serveur (jeton `METRIQUES_TOKEN` de son `.env`), au début puis juste avant le lancement
+  (le téléchargement de l'image laisse le temps à un appel de commencer) ; un appel en
+  cours = refus. Une mesure impossible (jeton absent ou refusé, jauge absente) refuse
+  aussi. `DEPLOY_MALGRE_APPEL=1` passe outre, depuis le poste. Seule une API qui ne répond
+  pas du tout (production arrêtée) laisse passer : aucun appel n'y est en cours.
 - **Les journaux du conteneur** sont copiés dans `/opt/journaux` sur le serveur avant le
-  lancement, 14 jours, lisibles par root seul (`docs/RGPD.md`).
+  lancement, lisibles par root seul, effacés à 14 jours par la sauvegarde de chaque nuit
+  (`scripts/backup-db.sh`, synchronisée au déploiement) et par chaque déploiement
+  (`docs/RGPD.md`). Ceux d'une version ratée puis défaite par le retour arrière ne sont pas
+  copiés.
 
 **Pas encore branché** (décision du 24/10/2026 : le bouton viendra avec de vrais clients).
 Pour le brancher, Helmi :
@@ -379,6 +385,10 @@ Pour le brancher, Helmi :
    Dans chacun, deux secrets : `DEPLOY_SSH_KEY` (le contenu de `cle-github`) et
    `DEPLOY_KNOWN_HOSTS` (la sortie de `ssh-keyscan -t ed25519 187.77.172.87`, vérifiée contre
    l'empreinte du serveur). Puis effacer `cle-github` du poste.
+   **Jamais en secret du dépôt** (Settings → Secrets → Actions), et jamais d'environnement
+   sans la règle « `main` seulement » : la clé ouvre root sur le serveur, et c'est cette
+   règle seule qui empêche une branche au workflow modifié de s'en servir. La préproduction
+   n'a pas d'approbation ; la règle de branche y compte donc autant qu'en production.
 3. Préproduction automatique : Settings → Variables → `PREPROD_AUTO` = `1`, une fois la
    préproduction installée (« Préproduction » ci-dessus).
 

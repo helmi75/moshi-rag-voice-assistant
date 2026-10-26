@@ -21,7 +21,7 @@ on:
         options: [preproduction, production]
         default: preproduction
       version:
-        description: "Commit ou tag de main (vide : le dernier commit de main)"
+        description: "Commit ou tag de main (obligatoire pour la production ; vide en préproduction : le dernier)"
         required: false
         default: ""
   workflow_run:
@@ -30,12 +30,6 @@ on:
     branches: [main]
 
 permissions: {}
-
-# Un seul déploiement à la fois, production et préproduction confondues : elles partagent
-# le serveur, son Caddy et ses images. Celui qui arrive attend, rien n'est annulé.
-concurrency:
-  group: deploiement
-  cancel-in-progress: false
 
 jobs:
   preproduction:
@@ -46,6 +40,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: preproduction
+    # Un seul déploiement à la fois, production et préproduction confondues : elles partagent
+    # le serveur, son Caddy et ses images. Posée sur les jobs, pas sur le workflow : un
+    # passage dont les jobs sont sautés (CI de main sans PREPROD_AUTO) n'entre pas dans le
+    # groupe. Celui qui tourne n'est jamais annulé ; mais GitHub ne garde qu'UN passage en
+    # attente : un troisième annule celui qui attendait (rien n'a alors commencé).
+    concurrency:
+      group: deploiement
+      cancel-in-progress: false
     permissions:
       contents: read
       actions: read
@@ -78,6 +80,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+    # Même groupe que la préproduction (voir plus haut).
+    concurrency:
+      group: deploiement
+      cancel-in-progress: false
     permissions:
       contents: read
       actions: read
@@ -95,12 +101,15 @@ jobs:
         run: bash scripts/cle_de_deploiement.sh
 
       # `--version` : le runner n'est pas sur une branche, et deploy.sh n'accepte alors qu'un
-      # commit déjà passé par main.
+      # commit déjà passé par main. La version est obligatoire : lue après l'approbation,
+      # « le dernier commit de main » pourrait ne plus être celui que Helmi a approuvé.
       - name: Déploiement
         env:
           GH_TOKEN: ${{ github.token }}
           DEMANDE: ${{ inputs.version }}
-        run: bash scripts/deploy.sh --version "${DEMANDE:-$(git rev-parse origin/main)}"
+        run: |
+          [ -n "$DEMANDE" ] || { echo "::error::production : indiquer le commit ou le tag à déployer, celui qu'on approuve."; exit 1; }
+          bash scripts/deploy.sh --version "$DEMANDE"
 
       - name: Effacement de la clé
         if: always()
