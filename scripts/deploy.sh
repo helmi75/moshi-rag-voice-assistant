@@ -316,7 +316,7 @@ distant "
     | while read -r t; do docker rmi -f '$REGISTRE':\$t >/dev/null 2>&1 || true; done
   # Les images restées sans nom : celle que la préproduction (scripts/deploy_preprod.sh)
   # vient de quitter, ou une ancienne production dont l'étiquette sha- est partie. Jamais
-  # avant ce point : l'image de retour arrière pourrait en faire partie. `prune` ne touche
+  # avant ce point : l'image de retour arrière pourrait en faire partie. prune ne touche
   # pas une image qu'un conteneur utilise.
   docker image prune -f >/dev/null 2>&1 || true
 "
