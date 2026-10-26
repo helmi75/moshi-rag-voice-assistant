@@ -142,6 +142,15 @@ class TestLesPoints:
             {"titre": "C", "niveau": "panne", "resume": "r"}]}
         assert [p["titre"] for p in tournee.points(etat, {"echecs": []})] == ["C", "B"]
 
+    def test_l_e_mail_dit_l_heure_reelle_pas_ce_matin(self):
+        # Le 24/10, une tournée faite à 20 h après un déploiement disait « ce matin ».
+        quand = datetime(2026, 10, 24, 20, 5, tzinfo=horloge.FUSEAU)
+        point = {"titre": "B", "niveau": "attention", "resume": "r", "detail": ""}
+        sujet, corps = tournee.message([point], quand)
+        assert "ce matin" not in corps
+        assert "La tournée du 24/10 à 20 h 05 a relevé 1 point(s)" in corps
+        assert "tournée du 24/10" in sujet
+
 
 class TestLaTournee:
     def _comptes(self):

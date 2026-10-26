@@ -16,6 +16,17 @@
   avant la production. `scripts/deploy_preprod.sh` la déploie depuis un commit de `main`
   dont la CI est verte, puis la vérifie ; mise en place décrite dans `docs/DEPLOY.md`.
 
+## Non publiée — la tournée dit son heure (26/10/2026, ASSISTANTE-173)
+
+### Corrigé
+- **L'e-mail de la tournée dit le jour et l'heure réels.** Le 24/10, faite vers 20 h après
+  un déploiement, elle écrivait « La tournée de ce matin ».
+
+### Ajouté
+- **Les e-mails des fournisseurs sont lus chaque jour à 8 h 10** par une routine cloud, hors
+  de l'application (`docs/SUPERVISION.md`) ; Helmi n'est prévenu que si un fournisseur
+  demande une action.
+
 ## Non publiée — la tournée quotidienne (24/10/2026, ASSISTANTE-172)
 
 ### Ajouté

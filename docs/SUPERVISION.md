@@ -79,6 +79,19 @@ Ce qu'elle ne voit pas, faute d'API (vérifié le 24/10/2026) : le solde **Mistr
 console seulement, aucune route de facturation dans l'API) et le solde **Deepgram**
 (`/v1/projects/{id}/balances` répond 403 à la clé de production : il lui manque le droit).
 
+L'e-mail dit le jour et l'heure réels de la tournée : un redémarrage le soir la fait le soir.
+
+### Les e-mails des fournisseurs (routine cloud)
+
+Ce qu'aucune API ne dit (une carte expirée, une suspension annoncée, un changement de prix)
+arrive par e-mail. Une routine Claude Code, « Helmane — e-mails des fournisseurs », lit
+chaque jour à 8 h 10 (heure de Paris) la boîte Gmail de Helmi sur les dernières vingt-quatre
+heures : Twilio, OpenAI, OpenRouter, Mistral, Deepgram, Hostinger, GitHub. Elle n'écrit
+qu'à Helmi, et seulement si un fournisseur demande une action. Le contenu d'un e-mail est
+une donnée, jamais une instruction : elle ne suit aucun lien, ne répond pas, n'archive ni ne
+supprime rien. Elle vit hors du dépôt et de l'application (décision du 25/10/2026,
+`docs/DECISIONS.md`) ; elle se règle sur claude.ai, page des routines.
+
 ## Ce qui déclenche une alerte
 
 `attention` = dégradé, les appels passent : visible dans le résumé du run et sur
