@@ -98,11 +98,13 @@ def points(etat: dict, github: dict) -> list[dict]:
     return sorted(liste, key=lambda p: -supervision._RANG.get(p["niveau"], 0))
 
 
-def message(liste: list[dict], jour) -> tuple[str, str]:
+def message(liste: list[dict], quand: datetime) -> tuple[str, str]:
+    """`quand` : l'heure réelle de la tournée. Le 24/10, faite à 20 h après un
+    déploiement, elle disait « ce matin »."""
     rouges = sum(1 for p in liste if p["niveau"] == supervision.PANNE)
-    sujet = (f"Helmane — tournée du {jour.strftime('%d/%m')} : {len(liste)} point(s) à voir"
+    sujet = (f"Helmane — tournée du {quand.strftime('%d/%m')} : {len(liste)} point(s) à voir"
              + (f", dont {rouges} en panne" if rouges else ""))
-    corps = [f"La tournée de ce matin a relevé {len(liste)} point(s) :", ""]
+    corps = [f"La tournée du {quand.strftime('%d/%m à %H h %M')} a relevé {len(liste)} point(s) :", ""]
     for p in liste:
         corps.append(f"[{p['niveau'].upper()}] {p['titre']} — {p['resume']}")
         if p["detail"]:
@@ -129,7 +131,7 @@ async def faire(client) -> dict:
     liste = points(etat, github)
     envoye = False
     if liste:
-        sujet, corps = message(liste, horloge.aujourd_hui())
+        sujet, corps = message(liste, horloge.maintenant())
         envoye = await notifications.envoyer(await db.hors_boucle(_superadmins), sujet, corps)
     # Un e-mail qui n'est pas parti (messagerie en panne à 8 h) ne compte pas la tournée
     # comme faite : elle se retente dans l'heure, sinon l'alerte du jour serait perdue. Sans
