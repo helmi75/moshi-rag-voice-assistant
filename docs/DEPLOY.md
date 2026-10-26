@@ -307,10 +307,14 @@ appel et ne dépense rien. Les appels se vérifient toujours en production.
 Le conteneur de préproduction rejoint le réseau Docker de la production pour que le même
 Caddy le serve (bloc `PREPROD_ADDRESS` de `caddy/Caddyfile`). D'où son nom, `api_preprod` :
 deux conteneurs `api` sur ce réseau se partageraient le nom. Conséquence : tant qu'il
-tourne, `docker compose down` côté production ne peut pas retirer le réseau.
+tourne, `docker compose down` côté production ne peut pas retirer le réseau. Et la
+préproduction joint l'API de la production sans passer par Caddy : il faudrait d'abord y
+exécuter du code, mais elle pourrait alors forger `X-Forwarded-For`, que lit le frein des
+connexions à l'admin (`admin/throttle.py`).
 
 `scripts/deploy_preprod.sh` n'accepte qu'un commit de `main` dont la CI est verte, télécharge
-son image, la lance, puis vérifie : `/health` sur le serveur, l'image du conteneur, le port
+son image, la lance (sans ménage : seul `scripts/deploy.sh` retire des images, après une
+vérification réussie), puis vérifie : `/health` sur le serveur, l'image du conteneur, le port
 8001 fermé vu de l'extérieur, la sonde qui répond (503 attendu : sans numéro ni clé, des
 contrôles sont en panne), et l'adresse publique. **Pas de retour arrière** : une
 préproduction qui ne démarre pas est ce qu'on voulait apprendre avant la production.

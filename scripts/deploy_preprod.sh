@@ -24,8 +24,6 @@ DEPOT_GIT="https://github.com/helmi75/moshi-rag-voice-assistant.git"
 REGISTRE="ghcr.io/helmi75/moshi-rag-voice-assistant"
 IMAGE_LOCALE="moshi-rag-voice-assistant-api:preprod"
 COMPOSE="docker compose -f docker-compose.preprod.yml"
-# Même règle que scripts/deploy.sh : les cinq images les plus récentes restent sur le disque.
-GARDER=5
 LABEL_REVISION='{{ index .Config.Labels "org.opencontainers.image.revision" }}'
 
 refus() { echo "✗ $1" >&2; exit 1; }
@@ -39,6 +37,7 @@ distant() { ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "$@"; }
 if [ "${1:-}" = "--installer" ]; then
   distant "
     set -eo pipefail
+    command -v openssl >/dev/null || { echo '  openssl manque sur le serveur : rien n’est créé.' >&2; exit 1; }
     if [ -e '$CHEMIN/.env' ]; then echo '  $CHEMIN/.env existe déjà : rien n’est remplacé.'; exit 0; fi
     [ -d '$CHEMIN/.git' ] || git clone -q '$DEPOT_GIT' '$CHEMIN'
     umask 077
@@ -75,7 +74,7 @@ code=0
 python3 "$(dirname "$0")/depot_github.py" ci "$sha" >/dev/null || code=$?
 case "$code" in
   0) etape "CI verte." ;;
-  2) refus "la CI n'a pas fini sur ce commit — attends-la." ;;
+  2) refus "la CI n'a pas fini sur ce commit, ou n'y a jamais tourné — attends-la." ;;
   *) refus "CI en échec ou illisible sur ce commit (python3 scripts/depot_github.py ci ${sha:0:8})." ;;
 esac
 
@@ -103,7 +102,7 @@ distant "
   git reset -q --hard '$sha'
   docker tag '$image' '$IMAGE_LOCALE'
   $COMPOSE up -d --no-build 2>&1 | tail -3
-"
+" || refus "le lancement a échoué sur le serveur (un commit antérieur à la préproduction n'a pas docker-compose.preprod.yml) ; $CHEMIN est resté sur ${sha:0:8}."
 
 # ── 4. Vérifier ─────────────────────────────────────────────────────────────────
 etape "Attente de la remise en route…"
@@ -134,11 +133,10 @@ case "$sonde" in
   *)       refus "la sonde de la préproduction répond HTTP $sonde." ;;
 esac
 
-# Ménage : comme scripts/deploy.sh. `latest` (production) et `preprod` gardent leur image.
-distant "
-  docker images '$REGISTRE' --format '{{.Tag}}' | grep '^sha-' | tail -n +$((GARDER + 1)) \
-    | while read -r t; do docker rmi -f '$REGISTRE':\$t >/dev/null 2>&1 || true; done
-"
+# Aucun ménage ici : c'est scripts/deploy.sh qui le fait, après une vérification réussie.
+# Un ménage de la préproduction, en avance de cinq commits sur la production, retirait
+# l'étiquette de l'image en service ; lancé pendant un déploiement de la production, il
+# pouvait supprimer son image de retour arrière (relecture d'ASSISTANTE-174).
 
 public="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$URL/health" || true)"
 [ "$public" = "200" ] \
