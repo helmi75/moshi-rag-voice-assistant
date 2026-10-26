@@ -56,6 +56,8 @@ distant() { ssh -i "$CLE" -o ConnectTimeout=20 "$HOTE" "$@"; }
 # ── 1. Branche, arbre, origine ──────────────────────────────────────────────────
 etape "Récupération de l'état distant…"
 git fetch -q origin "$BRANCHE_PROD"
+# Un tag (`--version v1.2.0`) posé depuis l'autre poste ou sur GitHub n'arrive pas avec main.
+[ -z "$VERSION" ] || git fetch -q --tags origin
 if [ -z "$VERSION" ]; then
   branche="$(git rev-parse --abbrev-ref HEAD)"
   [ "$branche" = "$BRANCHE_PROD" ] || refus "tu es sur « $branche ». La production se déploie depuis « $BRANCHE_PROD » (git checkout $BRANCHE_PROD)."

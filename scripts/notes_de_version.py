@@ -34,7 +34,7 @@ def _verifier(version: str) -> None:
 def _titres(lignes: list[str]) -> list[int]:
     titres, dans_un_bloc = [], False
     for i, ligne in enumerate(lignes):
-        if ligne.startswith("```"):
+        if ligne.lstrip().startswith("```"):
             dans_un_bloc = not dans_un_bloc
         elif not dans_un_bloc and ligne.startswith("## "):
             titres.append(i)
@@ -54,7 +54,7 @@ def preparer(texte: str, version: str, jour: str) -> str:
     fin = next((i for i in titres if not lignes[i].startswith(NON_PUBLIEE)), len(lignes))
     corps, dans_un_bloc = [], False
     for ligne in lignes[titres[0]:fin]:
-        if ligne.startswith("```"):
+        if ligne.lstrip().startswith("```"):
             dans_un_bloc = not dans_un_bloc
         # Dans un bloc de code, `# …` est un commentaire de shell, pas un titre.
         if dans_un_bloc:
@@ -62,7 +62,7 @@ def preparer(texte: str, version: str, jour: str) -> str:
         elif ligne.startswith(NON_PUBLIEE):
             titre = ligne[len(NON_PUBLIEE):]
             ligne = "### " + titre[:1].upper() + titre[1:]
-        elif ligne.startswith("#"):
+        elif re.match(r"#+ ", ligne):
             ligne = "#" + ligne
         corps.append(ligne)
     while corps and corps[-1] == "":

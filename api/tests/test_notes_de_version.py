@@ -52,6 +52,13 @@ class TestPreparer:
         assert "```bash\n# relancer\n## pas un titre\n```" in texte
         assert "### La tournée dit son heure" in texte
 
+    def test_un_bloc_de_code_dans_une_liste_ne_coupe_pas_la_version(self):
+        journal = JOURNAL.replace("- La préproduction.\n",
+                                  "- étapes :\n  ```\n  ## pas un titre\n  ```\n#hashtag\n")
+        texte = nv.preparer(journal, "v1.2.0", "26/10/2026")
+        assert "  ## pas un titre" in texte and "\n#hashtag\n" in texte
+        assert texte.count("## Non publiée") == 1
+
     def test_une_version_deja_publiee_est_refusee(self):
         with pytest.raises(nv.Refus, match="existe déjà"):
             nv.preparer(JOURNAL, "v1.1.0", "26/10/2026")

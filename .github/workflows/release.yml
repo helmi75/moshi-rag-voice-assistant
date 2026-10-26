@@ -12,14 +12,15 @@ on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
-permissions:
-  contents: write
-  packages: write
+permissions: {}
 
 jobs:
   version:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: write
     env:
       VERSION: ${{ github.ref_name }}
       REGISTRE: ghcr.io/${{ github.repository }}
@@ -36,6 +37,16 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
             || { echo "::error::$VERSION n'est pas posé sur un commit de main."; exit 1; }
 
+      # Un tag repoussé (`git push -f`) relancerait le workflow : l'étiquette de l'image
+      # bougerait sous une release dont les notes décrivent l'ancienne. Refus d'abord.
+      - name: La version est-elle nouvelle ?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "::error::la release $VERSION existe déjà : une version publiée ne se remplace pas."; exit 1
+          fi
+
       - name: Notes de version (CHANGELOG)
         run: python3 scripts/notes_de_version.py notes "$VERSION" > "$RUNNER_TEMP/notes.md"
 
@@ -47,12 +58,17 @@ jobs:
 
       # L'image existe seulement si la CI de main a réussi sur ce commit (tests, puis
       # image qui démarre). `imagetools create` copie l'étiquette au registre, sans rien
-      # télécharger ni reconstruire : l'empreinte est la même.
+      # télécharger ni reconstruire. La CI publie un manifeste seul (relevé le 26/10/2026) :
+      # sans `--prefer-index=false`, il serait emballé dans un index, d'une autre empreinte.
       - name: Étiquette de l'image
         run: |
-          docker buildx imagetools inspect "$REGISTRE:sha-$GITHUB_SHA" >/dev/null \
+          empreinte() { docker buildx imagetools inspect --format '{{json .Manifest.Digest}}' "$1"; }
+          source="$(empreinte "$REGISTRE:sha-$GITHUB_SHA")" \
             || { echo "::error::pas d'image sha-$GITHUB_SHA : la CI de main a-t-elle réussi sur ce commit ?"; exit 1; }
-          docker buildx imagetools create -t "$REGISTRE:$VERSION" "$REGISTRE:sha-$GITHUB_SHA"
+          docker buildx imagetools create --prefer-index=false -t "$REGISTRE:$VERSION" "$REGISTRE:sha-$GITHUB_SHA"
+          [ "$(empreinte "$REGISTRE:$VERSION")" = "$source" ] \
+            || { echo "::error::$VERSION n'a pas l'empreinte de sha-$GITHUB_SHA ($source)."; exit 1; }
+          echo "$VERSION → $source"
 
       - name: Release GitHub
         env:
