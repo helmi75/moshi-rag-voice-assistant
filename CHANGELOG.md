@@ -7,6 +7,15 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — une préproduction (26/10/2026, ASSISTANTE-174)
+
+### Ajouté
+- **Préproduction sur `preprod.helmane.fr`**, sur le même serveur : la même image que la
+  production, sa propre base, aucun numéro ni clé de fournisseur, donc aucune dépense
+  (décision du 26/10). Une version s'y voit démarrer, migrer sa base et servir ses pages
+  avant la production. `scripts/deploy_preprod.sh` la déploie depuis un commit de `main`
+  dont la CI est verte, puis la vérifie ; mise en place décrite dans `docs/DEPLOY.md`.
+
 ## Non publiée — la tournée quotidienne (24/10/2026, ASSISTANTE-172)
 
 ### Ajouté

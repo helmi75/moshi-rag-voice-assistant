@@ -54,3 +54,13 @@
 	import securite
 	redir {$SITE_CANONICAL:http://localhost}{uri} permanent
 }
+
+# La préproduction (ASSISTANTE-174, docker-compose.preprod.yml), servie par ce même Caddy.
+# PREPROD_ADDRESS par défaut ":82", un port non publié : bloc mort tant qu'il n'est pas posé.
+# `api_preprod`, jamais `api` : c'est le nom qui sépare les deux conteneurs sur le réseau.
+{$PREPROD_ADDRESS::82} {
+	import securite
+	# Hors des moteurs de recherche : un visiteur n'a rien à faire sur une copie sans numéro.
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy api_preprod:8000
+}

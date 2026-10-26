@@ -40,6 +40,8 @@ docker run --rm --tmpfs /tmp:exec -v "$PWD:/repo" -w /repo moshi-rag-voice-assis
 bash scripts/deploy.sh --check && bash scripts/deploy.sh
 # Revenir à un commit déjà passé par `main` (docs/DEPLOY.md, « Retour arrière »)
 bash scripts/deploy.sh --version <commit>
+# Préproduction (preprod.helmane.fr, même serveur, sans numéro) : un commit de `main`, CI verte
+bash scripts/deploy_preprod.sh
 
 # GitHub sans quitter le terminal (jeton de ~/.git-credentials, jamais affiché)
 python3 scripts/depot_github.py ci HEAD --attendre        # toutes les exécutions, workflows compris
