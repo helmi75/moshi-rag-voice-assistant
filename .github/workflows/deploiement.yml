@@ -1,0 +1,116 @@
+# Déploiement depuis GitHub (ASSISTANTE-176), par les mêmes scripts que depuis le poste :
+# scripts/deploy.sh pour la production, scripts/deploy_preprod.sh pour la préproduction.
+# Le workflow n'ajoute aucune règle ; ce sont les scripts qui refusent (commit hors de main,
+# CI pas verte, appel en cours) et qui reviennent en arrière.
+#
+# - Production : seulement à la main (« Run workflow »), dans l'environnement `production`,
+#   que Helmi approuve à chaque fois (règle de l'environnement, docs/DEPLOY.md).
+# - Préproduction : à la main, ou seule après chaque CI verte de main quand la variable du
+#   dépôt PREPROD_AUTO vaut 1 (décision du 24/10/2026, « une fois la préprod en place »).
+#
+# Rien ne part tant que les secrets DEPLOY_SSH_KEY et DEPLOY_KNOWN_HOSTS n'existent pas dans
+# l'environnement : décision du 24/10/2026, le circuit est prêt sans être branché.
+name: Déploiement
+
+on:
+  workflow_dispatch:
+    inputs:
+      cible:
+        description: "Où déployer"
+        type: choice
+        options: [preproduction, production]
+        default: preproduction
+      version:
+        description: "Commit ou tag de main (obligatoire pour la production ; vide en préproduction : le dernier)"
+        required: false
+        default: ""
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  preproduction:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.cible == 'preproduction') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.conclusion == 'success' && vars.PREPROD_AUTO == '1')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: preproduction
+    # Un seul déploiement à la fois, production et préproduction confondues : elles partagent
+    # le serveur, son Caddy et ses images. Posée sur les jobs, pas sur le workflow : un
+    # passage dont les jobs sont sautés (CI de main sans PREPROD_AUTO) n'entre pas dans le
+    # groupe. Celui qui tourne n'est jamais annulé ; mais GitHub ne garde qu'UN passage en
+    # attente : un troisième annule celui qui attendait (rien n'a alors commencé).
+    concurrency:
+      group: deploiement
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Clé SSH du serveur
+        env:
+          CLE: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOTES: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: bash scripts/cle_de_deploiement.sh
+
+      - name: Déploiement
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Le commit testé par la CI qui a déclenché ce passage, sinon celui demandé.
+          DEMANDE: ${{ github.event.workflow_run.head_sha || inputs.version }}
+        run: bash scripts/deploy_preprod.sh ${DEMANDE:+"$DEMANDE"}
+
+      - name: Effacement de la clé
+        if: always()
+        run: rm -f ~/.ssh/moshi-vps-deploy
+
+  production:
+    if: github.event_name == 'workflow_dispatch' && inputs.cible == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    # Même groupe que la préproduction (voir plus haut).
+    concurrency:
+      group: deploiement
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Clé SSH du serveur
+        env:
+          CLE: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOTES: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: bash scripts/cle_de_deploiement.sh
+
+      # `--version` : le runner n'est pas sur une branche, et deploy.sh n'accepte alors qu'un
+      # commit déjà passé par main. La version est obligatoire : lue après l'approbation,
+      # « le dernier commit de main » pourrait ne plus être celui que Helmi a approuvé.
+      - name: Déploiement
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEMANDE: ${{ inputs.version }}
+        run: |
+          [ -n "$DEMANDE" ] || { echo "::error::production : indiquer le commit ou le tag à déployer, celui qu'on approuve."; exit 1; }
+          bash scripts/deploy.sh --version "$DEMANDE"
+
+      - name: Effacement de la clé
+        if: always()
+        run: rm -f ~/.ssh/moshi-vps-deploy

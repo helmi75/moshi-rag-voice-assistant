@@ -84,6 +84,11 @@ trap - EXIT
 
 find "$DEST" -name 'app-*.db.gz' -mtime "+$RETENTION_JOURS" -delete
 
+# Les journaux du conteneur que scripts/deploy.sh copie avant chaque lancement : purgés ici
+# aussi, chaque nuit, sinon ils resteraient tant qu'aucun déploiement n'a lieu (docs/RGPD.md).
+# +13 : effacés dès leurs quatorze jours révolus.
+find "${JOURNAUX:-/opt/journaux}" -name 'prod-api-*.log' -mtime +13 -delete 2>/dev/null || true
+
 TAILLE="$(du -h "$DEST/app-$STAMP.db.gz" | cut -f1)"
 
 # Le jeton porte la date en UTC : la supervision compare des heures, pas des fuseaux.

@@ -16,7 +16,8 @@
 # sonde de supervision muette, ou un contrôle qui PASSE en panne), le script remet en
 # service ce qui tournait avant — le code et l'image — et le dit (ASSISTANTE-168).
 #
-# Le jeton GitHub vient de ~/.git-credentials (celui dont git se sert déjà pour pousser).
+# Le jeton GitHub vient de GH_TOKEN (un déploiement lancé depuis GitHub), sinon de
+# ~/.git-credentials (celui dont git se sert déjà pour pousser).
 # Il n'est jamais affiché ni copié ailleurs.
 set -euo pipefail
 
@@ -34,6 +35,8 @@ IMAGE_LOCALE="moshi-rag-voice-assistant-api:latest"
 # Images gardées sur le serveur, la courante comprise : de quoi revenir en arrière sans
 # dépendre du registre. ~1,2 Go chacune ; 91 Go libres relevés le 24/10/2026.
 GARDER=5
+# Les journaux du conteneur, sauvegardés avant chaque lancement (ASSISTANTE-176).
+JOURNAUX="${DEPLOY_JOURNAUX:-/opt/journaux}"
 # Le gabarit de `docker inspect` qui lit la révision d'une image. Des guillemets doubles
 # simples, sans barre oblique : il est inséré entre apostrophes dans les commandes distantes.
 LABEL_REVISION='{{ index .Config.Labels "org.opencontainers.image.revision" }}'
@@ -82,10 +85,13 @@ conclusion="$(
 import json, re, sys, urllib.error, urllib.request
 from pathlib import Path
 
+import os
+
 depot, sha = sys.argv[1], sys.argv[2]
 fichier = Path.home() / ".git-credentials"
-jeton = None
-if fichier.exists():
+# GH_TOKEN d'abord : un déploiement lancé depuis GitHub (ASSISTANTE-176) n'a pas de fichier.
+jeton = os.getenv("GH_TOKEN", "").strip() or None
+if not jeton and fichier.exists():
     for ligne in fichier.read_text().splitlines():
         m = re.match(r"https://([^:]+):([^@]+)@github\.com", ligne.strip())
         if m:
@@ -139,9 +145,54 @@ case "$conclusion" in
   EN_COURS)   refus "la CI n'a pas fini sur ce commit — attends-la." ;;
   AUCUN_RUN)  refus "aucune CI trouvée pour ce commit. Pousse-le et attends la CI." ;;
   ROUGE:*)    refus "CI en échec sur ce commit (${conclusion#ROUGE:})." ;;
-  SANS_JETON) refus "aucun jeton GitHub dans ~/.git-credentials : impossible de vérifier la CI." ;;
+  SANS_JETON) refus "aucun jeton GitHub (GH_TOKEN, ~/.git-credentials) : impossible de vérifier la CI." ;;
   *)          refus "état de CI indéterminé ($conclusion) — je ne déploie pas à l'aveugle." ;;
 esac
+
+# ── 2 bis. Aucun appel en cours ─────────────────────────────────────────────────
+# Le conteneur redémarre : un appel en cours serait coupé net. Jusqu'ici, « déployer hors
+# appel » ne tenait que par celui qui lançait le script ; un déploiement lancé depuis GitHub
+# (ASSISTANTE-176) n'a personne pour regarder. La jauge des appels en cours de /metrics est
+# lue sur le serveur, avec le jeton de son .env (jamais affiché). Relevée ici, puis de
+# nouveau juste avant le lancement : entre les deux, le téléchargement de l'image (~1,2 Go)
+# laisse le temps à un appel de commencer.
+#
+# « Pas de mesure » n'est pas un feu vert : sans jeton, un jeton refusé (401) ou une jauge
+# absente, on refuse comme pour un appel. Seule une API qui ne répond pas du tout laisse
+# passer : aucun appel ne peut alors être en cours, et bloquer empêcherait de réparer.
+forcer_ou_refuser() {
+  if [ "${DEPLOY_MALGRE_APPEL:-0}" = 1 ]; then
+    echo "⚠ $1 ; déploiement forcé (DEPLOY_MALGRE_APPEL=1)."
+  else
+    refus "$1. Réessayer plus tard, ou DEPLOY_MALGRE_APPEL=1 en connaissance de cause (jauge figée, mesure cassée)."
+  fi
+}
+garde_appels() {
+  etape "Appels en cours…"
+  local appels
+  appels="$(distant "
+    jeton=\$(grep -m1 '^METRIQUES_TOKEN=' '$CHEMIN/.env' 2>/dev/null | cut -d= -f2- | tr -d '\"')
+    [ -n \"\$jeton\" ] || { echo sans-jeton; exit 0; }
+    f=\$(mktemp)
+    code=\$(curl -s -o \"\$f\" -w '%{http_code}' --max-time 10 -H \"Authorization: Bearer \$jeton\" http://127.0.0.1:8000/metrics || true)
+    case \"\$code\" in
+      000|'') echo muette ;;
+      200) awk '/^helmane_appels_en_cours[{ ]/ { n += \$NF; vu = 1 } END { print vu ? n + 0 : \"sans-jauge\" }' \"\$f\" ;;
+      *) echo \"http-\$code\" ;;
+    esac
+    rm -f \"\$f\"
+  " 2>/dev/null || echo illisible)"
+  case "$appels" in
+    0)          etape "Aucun appel en cours." ;;
+    muette)     echo "⚠ l'API ne répond pas sur le serveur : aucun appel n'y est en cours, on continue (la production est peut-être arrêtée)." ;;
+    sans-jeton) forcer_ou_refuser "METRIQUES_TOKEN absent du .env du serveur : impossible de savoir si un appel est en cours" ;;
+    sans-jauge) forcer_ou_refuser "/metrics ne publie pas helmane_appels_en_cours : impossible de savoir si un appel est en cours" ;;
+    http-*)     forcer_ou_refuser "/metrics répond HTTP ${appels#http-} (jeton du .env refusé ?) : impossible de savoir si un appel est en cours" ;;
+    ''|*[!0-9]*) forcer_ou_refuser "jauge des appels illisible (« $appels ») : impossible de savoir si un appel est en cours" ;;
+    *)          forcer_ou_refuser "$appels appel(s) en cours : le redémarrage les couperait" ;;
+  esac
+}
+garde_appels
 
 if [ "$CHECK_ONLY" = 1 ]; then
   echo "✓ Toutes les conditions sont réunies pour déployer ${local_sha:0:8}."
@@ -291,6 +342,25 @@ verifier() {
 
 # ── 7. Déployer, vérifier, et revenir en arrière si besoin ──────────────────────
 image_id="$(distant "docker image inspect -f '{{.Id}}' '$image'")"
+
+# Les journaux du conteneur s'effacent avec lui : sauvegardés sur le serveur avant de le
+# remplacer, quatorze jours comme les sauvegardes de la base, lisibles par root seul (ils
+# peuvent citer des numéros d'appelants : docs/RGPD.md). Une sauvegarde ratée ne bloque pas
+# un correctif.
+etape "Sauvegarde des journaux du conteneur…"
+distant "
+  set -e
+  mkdir -p -m 700 '$JOURNAUX'
+  f='$JOURNAUX'/prod-api-\$(date +%Y%m%d-%H%M%S).log
+  ( umask 077; cd '$CHEMIN' && docker compose logs --no-color api > \"\$f\" 2>&1 )
+  # +13 : effacé dès ses quatorze jours révolus. La purge tourne aussi chaque nuit
+  # (scripts/backup-db.sh) : sans déploiement, rien ne resterait au-delà.
+  find '$JOURNAUX' -name 'prod-api-*.log' -mtime +13 -delete
+  echo \"   \$f\"
+" || echo "⚠ journaux non sauvegardés."
+
+# Relevé de nouveau : le téléchargement de l'image a pu durer.
+garde_appels
 etape "Déploiement de ${local_sha:0:8} sur $HOTE (en service : ${precedent_sha:0:8})…"
 lancer "$local_sha" "$image" || ECHEC="le lancement a échoué sur le serveur"
 if [ -n "$ECHEC" ] || ! verifier "$local_sha" "$image_id"; then

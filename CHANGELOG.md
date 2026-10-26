@@ -7,6 +7,20 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — déployer depuis GitHub, jamais pendant un appel (26/10/2026, ASSISTANTE-176)
+
+### Ajouté
+- **Workflow « Déploiement »** : la production depuis GitHub, après approbation de Helmi
+  dans l'environnement `production` ; la préproduction à la main ou après chaque CI verte de
+  `main`. Mêmes scripts que depuis le poste, un seul déploiement à la fois. **Pas encore
+  branché** : clé SSH dédiée et secrets à poser (`docs/DEPLOY.md`, « Depuis GitHub »).
+- **`scripts/deploy.sh` refuse de déployer pendant un appel** (jauge des appels en cours
+  lue sur le serveur, au début puis juste avant le lancement) : le redémarrage du conteneur
+  le couperait. Une mesure impossible refuse aussi ; `DEPLOY_MALGRE_APPEL=1` passe outre.
+- **Les journaux du conteneur sont sauvegardés sur le serveur** avant chaque lancement
+  (`/opt/journaux`, root seul) : ils s'effaçaient avec le conteneur. Purgés à 14 jours par
+  la sauvegarde de chaque nuit.
+
 ## Non publiée — des versions numérotées (26/10/2026, ASSISTANTE-175)
 
 ### Ajouté

@@ -19,6 +19,7 @@ Code de sortie : 0 vert (ou fait), 1 rouge (ou refusé), 2 encore en cours au bo
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -46,6 +47,10 @@ class RefusGitHub(Exception):
 
 
 def lire_jeton(fichier: Path | None = None) -> str:
+    # GH_TOKEN d'abord : c'est ainsi que GitHub Actions le donne (déploiement depuis
+    # GitHub, ASSISTANTE-176), sans fichier ~/.git-credentials.
+    if os.getenv("GH_TOKEN", "").strip():
+        return os.environ["GH_TOKEN"].strip()
     fichier = fichier or Path.home() / ".git-credentials"
     try:
         lignes = fichier.read_text().splitlines()
