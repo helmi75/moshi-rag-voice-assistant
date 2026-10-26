@@ -1,0 +1,60 @@
+# Une version numérotée (ASSISTANTE-175). Poser le tag vX.Y.Z sur un commit de `main` vaut
+# accord de Helmi (décision du 24/10/2026) : ce workflow ne construit rien, il nomme ce qui
+# existe déjà. L'image est celle que la CI a construite et publiée pour ce commit
+# (sha-<commit>) ; elle reçoit l'étiquette vX.Y.Z, même empreinte. Les notes sont la section
+# vX.Y.Z du CHANGELOG (scripts/notes_de_version.py).
+#
+# Ce workflow ne déploie pas : la production reste déployée par scripts/deploy.sh, à la
+# demande de Helmi (`--version vX.Y.Z` accepte un tag).
+name: Version
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ github.ref_name }}
+      REGISTRE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Un tag posé sur une branche de travail ne fait pas une version : seule `main` est
+      # passée par la CI, la revue et la production.
+      - name: Le commit est-il sur main ?
+        run: |
+          git fetch -q origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$VERSION n'est pas posé sur un commit de main."; exit 1; }
+
+      - name: Notes de version (CHANGELOG)
+        run: python3 scripts/notes_de_version.py notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # L'image existe seulement si la CI de main a réussi sur ce commit (tests, puis
+      # image qui démarre). `imagetools create` copie l'étiquette au registre, sans rien
+      # télécharger ni reconstruire : l'empreinte est la même.
+      - name: Étiquette de l'image
+        run: |
+          docker buildx imagetools inspect "$REGISTRE:sha-$GITHUB_SHA" >/dev/null \
+            || { echo "::error::pas d'image sha-$GITHUB_SHA : la CI de main a-t-elle réussi sur ce commit ?"; exit 1; }
+          docker buildx imagetools create -t "$REGISTRE:$VERSION" "$REGISTRE:sha-$GITHUB_SHA"
+
+      - name: Release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$VERSION" --verify-tag --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md"

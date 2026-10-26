@@ -334,6 +334,22 @@ préproduction qui ne démarre pas est ce qu'on voulait apprendre avant la produ
 Le déploiement automatique après chaque fusion viendra avec le workflow de déploiement
 (étape 5 du chantier « livraison »).
 
+## Versions (ASSISTANTE-175)
+
+Releases groupées (décision du 24/10/2026) : une version rassemble plusieurs déploiements.
+Le CHANGELOG fait foi ; la release GitHub le recopie.
+
+1. Sur une branche : `python3 scripts/notes_de_version.py preparer vX.Y.Z`. Les sections
+   « Non publiée » du haut du CHANGELOG passent sous `## vX.Y.Z — date`. PR, puis fusion.
+2. **Le tag vaut accord de Helmi** : `git tag vX.Y.Z <commit de main> && git push origin vX.Y.Z`.
+3. Le workflow « Version » (`.github/workflows/release.yml`) vérifie que le commit est sur
+   `main`, tire les notes du CHANGELOG, donne à l'image `sha-<commit>` l'étiquette `vX.Y.Z`
+   sur GHCR (même empreinte, rien n'est reconstruit ; refus si la CI de `main` n'a pas
+   publié d'image pour ce commit) et crée la release.
+
+Une version ne se déploie pas toute seule : `bash scripts/deploy.sh --version vX.Y.Z` remet
+en service le commit du tag, avec les mêmes vérifications.
+
 ## Retour arrière (ASSISTANTE-168)
 
 **Automatique.** Après le lancement, `scripts/deploy.sh` vérifie : `/health` répond 200, le
