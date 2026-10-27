@@ -105,3 +105,18 @@ class TestLaSupervision:
                     "status": "secours_renvoye", "secours_motif": renvoi.VOIX}]
         with patch.object(supervision.calls, "secours_recents", return_value=recents):
             assert supervision._controle_secours().niveau == supervision.PANNE
+
+
+def test_la_vidange_ne_fait_pas_sonner_telegram(drapeau, monkeypatch):
+    """Les renvois d'un déploiement sont voulus : pas d'alerte à chaque mise à jour."""
+    from app import telegram
+    envoyes = []
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "000:jeton-de-test")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    monkeypatch.setattr(telegram, "expedier", envoyes.append)
+    telegram.reinitialiser()
+    drapeau.touch()
+    TestClient(main.app).post("/twilio/voice", data={"CallSid": "CA-vidange-tg", "To": DEMO,
+                                                     "From": "+33612345678"})
+    assert envoyes == []
+    telegram.reinitialiser()

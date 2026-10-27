@@ -26,7 +26,7 @@ from datetime import datetime, time, timedelta
 from typing import Optional
 from xml.sax.saxutils import escape  # nosemgrep: use-defused-xml — échappe le TwiML qu'on écrit, ne lit aucun XML
 
-from . import calls, connecteurs, db, disponibilite, horloge
+from . import calls, connecteurs, db, disponibilite, horloge, telegram
 
 # Pourquoi l'assistante passe la main. Rangé dans `calls.secours_motif`.
 VOIX, MODELE, TRANSCRIPTION = "voix", "modele", "transcription"
@@ -143,6 +143,15 @@ def signaler_panne(motif: str, tenant_id: Optional[int] = None) -> None:
     d'un établissement, et n'engage que lui."""
     cle = tenant_id if motif in (PIPELINE, ESSAI) else None
     _pannes[cle] = (_temps.monotonic(), motif)
+    # Un message par panne, pas par appel : l'épisode se referme avec la mémoire de la panne.
+    # Un essai (bouton de l'admin, recette automatique) n'est pas une panne : pas d'alerte.
+    if motif == ESSAI:
+        return
+    portee = "tout le parc" if cle is None else f"établissement n°{cle}"
+    telegram.alerter(f"panne:{motif}:{cle}",
+                     f"Helmane : panne constatée ({motif}), {portee}. "
+                     "Les appels sont renvoyés vers le restaurant ou le répondeur.",
+                     valable_secondes=MEMOIRE_PANNE_SECONDES)
 
 
 def panne_recente(tenant_id: int) -> Optional[str]:

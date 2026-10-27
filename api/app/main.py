@@ -18,7 +18,7 @@ from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
 from . import (calls, db, en_cours, llm, messages, metriques, notifications, rappel, renvoi,
-               supervision, taches, tenants, tournee, twilio_signature, users)
+               supervision, taches, telegram, tenants, tournee, twilio_signature, users)
 from .voice import live
 
 
@@ -370,6 +370,15 @@ async def _secours(tenant, call_sid: Optional[str], appelant: Optional[str],
     action, numero = renvoi.decision(tenant, appelant=appelant, transfere_depuis=transfere_depuis)
     logger.warning(f"[secours] appel {call_sid} (établissement {tenant.id}) : {motif} → "
                    f"{'renvoi vers le restaurant' if action == renvoi.RENVOI else 'répondeur'}")
+    # Un message par établissement et par motif, pas par appel (30 minutes d'épisode). Un
+    # essai de renvoi, ou la vidange d'un déploiement (ASSISTANTE-159), ne sont pas une
+    # panne : pas d'alerte.
+    if motif not in (renvoi.ESSAI, renvoi.VIDANGE):
+        telegram.alerter(
+            f"secours:{tenant.id}:{motif}",
+            f"Helmane : un appel est passé en secours ({motif}), {tenant.name}. "
+            f"Suite : {'renvoi vers le restaurant' if action == renvoi.RENVOI else 'répondeur'}.",
+            valable_secondes=1800)
     try:
         await db.hors_boucle(calls.ouvrir_secours, call_sid, tenant.id,
                              calls.numero_appelant(appelant), motif)

@@ -39,6 +39,10 @@ Durées réglables : `RETENTION_TRANSCRIPT_JOURS`, `RETENTION_NUMERO_JOURS`,
 longtemps que le texte qu'il a produit. C'est un invariant vérifié par un garde-fou de
 mutation, pas une intention.
 
+**Telegram** (alertes d'exploitation, ASSISTANTE-161) reçoit le nom de l'établissement et
+le motif d'une panne, aucune donnée d'appelant : ni numéro, ni transcription, ni voix.
+Le destinataire est l'exploitant seul.
+
 ## 3. La purge est appliquée, pas seulement écrite
 
 Une durée de conservation qu'aucun code n'applique est **pire** que pas de durée : elle
