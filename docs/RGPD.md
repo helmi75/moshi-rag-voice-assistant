@@ -87,7 +87,7 @@ faux du traitement.** Vérifié dans le code le 30/08/2026 :
 | Fournisseur | Rôle | Où |
 |---|---|---|
 | Hostinger | VPS, base de données **et enregistrements audio** | 🇫🇷 Paris — vérifié |
-| **Mistral (Voxtral)** | **Synthèse vocale depuis le 28/09/2026 : reçoit le texte que dit l'assistante** — qui peut contenir le nom du client, sa date, son numéro relu | 🇫🇷 société française ; **lieu de traitement de l'API à vérifier** (contrat, console Mistral) |
+| **Mistral (Voxtral)** | **Synthèse vocale depuis le 28/09/2026 : reçoit le texte que dit l'assistante** — qui peut contenir le nom du client, sa date, son numéro relu | 🇫🇷 société française ; lieu de traitement **non écrit dans le DPA**, à lire sur la liste de ses sous-traitants (`trust.mistral.ai/subprocessors`, page non lisible sans navigateur) — voir § 5 bis |
 | Modal | GPU, synthèse vocale : **secours seulement** depuis le 28/09/2026, abandon prévu | 🇪🇺 `MODAL_REGION=eu` — vérifié |
 | **Deepgram** | **Transcription : reçoit l'audio de la conversation** | 🇺🇸 endpoint par défaut, **aucune région EU configurée** |
 | **OpenRouter → Google** | **LLM : reçoit le texte de la conversation** | 🇺🇸 |
@@ -95,6 +95,28 @@ faux du traitement.** Vérifié dans le code le 30/08/2026 :
 | **OpenAI (GPT-Live)** | **Depuis le 04/10/2026, pour les seuls établissements dont c'est le moteur (choisi par l'exploitant dans la fiche de l'établissement, jamais par le restaurateur) : reçoit TOUTE la voix du client et de l'assistante, et la conversation en texte** | 🇺🇸 ; résidence des données non vérifiée |
 | Grafana Labs (Grafana Cloud) | Métriques d'exploitation (ASSISTANTE-156) : compteurs d'appels par établissement, noms des établissements, blancs, erreurs. **Aucune donnée d'appelant** — ni numéro, ni propos, ni identifiant d'appel, exigé par `tests/test_metriques.py` | Pile à créer **en région européenne** ; à vérifier à la création |
 
+
+### 5 bis. Mistral, sous-traitant de la voix (ASSISTANTE-104, relevé le 27/10/2026)
+
+Relevé sur les pages publiques de Mistral le 27/10/2026, pas sur notre compte :
+
+| Question | Ce que dit Mistral | Source |
+|---|---|---|
+| Contrat de sous-traitance (DPA) | Un « Data Processing Addendum » en vigueur depuis le 27/07/2026, **incorporé par référence** au contrat : accepter les conditions de l'API l'accepte, sans signature à part | `legal.mistral.ai/terms/data-processing-addendum`, § 1(a) et 11.1 |
+| Lieu de traitement | **Non écrit dans le DPA**. Il renvoie à la liste des sous-traitants ultérieurs du Trust Center | DPA, § 7.1 et annexe 1 |
+| Transferts hors UE | Permis vers un pays adéquat, ou sous garanties appropriées (clauses contractuelles types) | DPA, § 8.1 |
+| Conservation | « La durée du contrat » ; plus accessibles 30 jours après la fin de l'accès. Une rétention zéro existe, sur demande | DPA, annexe 1 et § 10.1, 2.3 |
+| **Entraînement** | Mistral peut entraîner ses modèles sur les données **sauf si le client s'y est opposé** (« opted-out ») | DPA, § 2.3 |
+| Comment s'y opposer | `admin.mistral.ai` → **Privacy** → « Anonymous improvement data » : désactiver. Réglage propre à l'API (celui de Vibe est séparé) | Centre d'aide Mistral, article du 03/09/2026 |
+
+**Ce qu'il reste à faire, par Helmi** (son compte, sa décision) :
+1. **Désactiver « Anonymous improvement data »** dans la console Mistral : le texte que dit
+   l'assistante contient le nom du client et sa date. Tant que ce n'est pas fait, ce texte
+   peut servir à entraîner les modèles de Mistral — à dire aux restaurateurs, ou à corriger.
+2. Lire le lieu de traitement sur `trust.mistral.ai/subprocessors` et le reporter dans le
+   tableau ci-dessus.
+3. Ajouter Mistral à la liste des sous-traitants ultérieurs donnée aux restaurateurs (contrat
+   Helmane ↔ restaurant, § 3).
 
 Autrement dit : **le contenu des conversations quitte l'Union européenne.** Ce n'est pas
 nécessairement interdit — cadres de transfert, clauses contractuelles types, Data Privacy
