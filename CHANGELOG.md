@@ -18,6 +18,15 @@
   L'envoi tourne dans un fil daemon et ne lève jamais ; le jeton, qui est dans l'URL de
   l'API, n'est jamais journalisé. Sans `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID`, rien ne part.
 - Les messages portent le nom de l'établissement et le motif, jamais un numéro d'appelant.
+## Non publiée — les actions de la CI épinglées par empreinte (27/10/2026, ASSISTANTE-178)
+
+### Sécurité
+- **Chaque action des workflows est désignée par l'empreinte de son commit** (version écrite
+  à côté), plus par une étiquette que son auteur peut déplacer : le déploiement, qui tient
+  une clé du serveur, n'exécute que du code relu. Dependabot propose les montées en PR ;
+  `test_workflows.py` refuse une action non épinglée.
+- **La CI n'a plus de droits par défaut** (`permissions: {}`) : `tests` lit le dépôt, et
+  seul `image` peut publier sur GHCR.
 
 ## Non publiée — l'audit des dépendances bloque la CI (27/10/2026, ASSISTANTE-177)
 
@@ -29,7 +38,9 @@
   s'accepte par écrit dans `.github/pip-audit-exceptions.txt` (raison, version visée). Trois
   exceptions : nltk (aucun correctif publié), le runner de développement de Pipecat (non
   importé) et Pillow 12.3 (13 est refusé par Pipecat 1.5 ; aucune image dans un appel). Les
-  deux dernières partiront avec Pipecat 1.6.
+  exceptions de Pipecat et de Pillow partiront avec Pipecat 1.14, qui accepte Pillow 13 ; à
+  partir de 1.12, Pipecat ne demande plus nltk (ASSISTANTE-179). La 1.6 ne retire que celle
+  de Pipecat.
 
 ## Non publiée — déployer depuis GitHub, jamais pendant un appel (26/10/2026, ASSISTANTE-176)
 
