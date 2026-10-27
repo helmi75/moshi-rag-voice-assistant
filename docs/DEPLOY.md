@@ -375,6 +375,82 @@ zcat /tmp/app-AAAAMMJJ-HHMM.db.gz > /tmp/restore-test.db
 sqlite3 /tmp/restore-test.db "PRAGMA integrity_check;"
 ```
 
+## Reconstruire le serveur (ASSISTANTE-160)
+
+Pour une machine perdue (disque, hébergeur, compte fermé) : repartir d'un VPS vide jusqu'à
+la ligne qui répond. **Procédure écrite, jamais jouée** : elle n'est ni éprouvée ni
+chronométrée tant qu'elle n'a pas tourné une fois sur une machine jetable (une dépense,
+donc l'accord de Helmi ; ligne S14 de `docs/RECETTE.md`). Chaque étape renvoie à la section
+qui la détaille plus haut.
+
+### Ce qui doit exister AILLEURS que sur la machine, dès aujourd'hui
+
+Sans ces quatre choses, une machine perdue n'est pas reconstruite : elle est refaite à
+neuf, sans les réservations, et chaque clé est à régénérer chez son fournisseur.
+
+| Quoi | Où le garder | Sans lui |
+|---|---|---|
+| La base | Réplique Litestream ou archives `rclone` (« Sauvegardes » ci-dessus) | Réservations, appels et comptes perdus |
+| Le `.env` de production | Un gestionnaire de mots de passe de Helmi, **jamais** le dépôt ni un e-mail | Chaque secret à régénérer (tableau ci-dessous) |
+| `/opt/backups/backup.env` et la configuration `rclone` | Même endroit que le `.env` | Les sauvegardes quotidiennes ne repartent pas hors du serveur |
+| Les secrets de GitHub (`DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `SUPERVISION_TOKEN`) | Déjà chez GitHub ; à mettre à jour avec la nouvelle machine | Ni déploiement depuis GitHub, ni sonde |
+
+### Les étapes
+
+1. **VPS** en région UE, Ubuntu, Docker (« 1 — VPS + Docker ») ; ports 80 et 443 ouverts,
+   **pas** 8000 (`deploy.sh --check` vérifie que l'API n'est pas joignable hors Caddy).
+2. **Accès** : la clé publique de déploiement dans `/root/.ssh/authorized_keys` ; nouvelle
+   ligne `known_hosts` dans le secret `DEPLOY_KNOWN_HOSTS` de GitHub.
+3. **Code** : `git clone` dans `/opt/moshi-rag-voice-assistant`, puis `git checkout` du
+   commit de `main` qui était en service (le dernier « Déploiement » réussi dans GitHub
+   Actions).
+4. **Secrets** : le `.env` recopié depuis le gestionnaire de mots de passe, **sans jamais
+   l'afficher** (`chmod 600 .env`). S'il est perdu, chaque variable du tableau ci-dessous se
+   régénère chez son fournisseur.
+5. **Registre** : `docker login ghcr.io -u helmi75` avec un jeton `read:packages`
+   (« Exploitation », **Image**).
+6. **Base**, avant le premier démarrage de l'API : créer le volume (`docker compose create
+   api`), puis y restaurer la réplique (« Réplication continue », **Restaurer**) ou la
+   dernière archive (« Copie hors du serveur »). `PRAGMA integrity_check` doit répondre `ok`
+   avant d'aller plus loin. Démarrer l'API sur un volume vide créerait une base neuve : le
+   service répondrait, sans aucune réservation.
+7. **DNS** : l'enregistrement A de `app.helmane.fr` (et `preprod.helmane.fr`) vers la nouvelle
+   adresse. Caddy obtient le certificat seul au démarrage. Twilio n'a rien à changer : il
+   appelle le domaine, pas l'adresse.
+8. **Lancement** depuis un poste : `DEPLOY_HOST=root@<nouvelle adresse> bash scripts/deploy.sh
+   --version <commit>` (« Retour arrière ») : l'image de ce commit, téléchargée, vérifiée.
+   Puis mettre à jour l'adresse par défaut de `scripts/deploy.sh` (`HOTE`) dans un commit.
+9. **Tâches de l'hôte** : le cron de `backup-db.sh` et `backup.env` (« Sauvegardes »),
+   `COMPOSE_PROFILES=replication` si la réplication était active.
+10. **Vérifier** : `bash scripts/deploy.sh --check`, `/supervision` (chaque contrôle lu, en
+    particulier « Sauvegarde » et « Réplication continue »), une réservation de la veille
+    visible dans l'admin, puis un appel.
+
+### Les secrets du `.env`, et où les régénérer
+
+Chaque variable secrète déclarée dans `docker-compose.yml` est ici (un test l'exige :
+`test_documentation.py`). Régénérer une clé révoque l'ancienne : à faire aussi si le `.env`
+a pu fuir avec la machine.
+
+| Variable | Où la régénérer |
+|---|---|
+| `TWILIO_AUTH_TOKEN`, `TWILIO_AUTH_TOKEN_IE1` | Console Twilio, jeton de chaque région (« Région Twilio », `docs/TWILIO_SETUP.md` § 8) |
+| `DEEPGRAM_API_KEY` | Console Deepgram |
+| `MISTRAL_API_KEY` | Console Mistral |
+| `OPENROUTER_API_KEY` | openrouter.ai, Keys |
+| `OPENAI_API_KEY` | Console OpenAI (voix temps réel) |
+| `MOSHI_TTS_API_KEY` | `openssl rand -hex 32`, la même valeur redéployée sur Modal (`docs/MODAL.md`) |
+| `SMTP_PASSWORD` | Le fournisseur de messagerie |
+| `ADMIN_PASSWORD` | Au choix ; ne sert qu'à créer le premier compte sur une base vide |
+| `SESSION_SECRET` | `openssl rand -hex 32` (les sessions ouvertes sont perdues, sans autre effet) |
+| `SUPERVISION_TOKEN` | `openssl rand -hex 32`, la même valeur dans le secret GitHub `SUPERVISION_TOKEN` |
+| `METRIQUES_TOKEN` | `openssl rand -hex 32`, la même valeur dans la relève Grafana Cloud |
+| `RECETTE_JETON` | `openssl rand -hex 32` |
+| `TELEGRAM_BOT_TOKEN` | @BotFather, `/revoke` puis `/token` |
+| `SENTRY_DSN` | Sentry, réglages du projet, Client Keys |
+| `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` | Le fournisseur du stockage objet. Il faut ces clés **avant** l'étape 6 : elles seules ouvrent la réplique |
+| `RESOS_API_KEYS` | Chaque restaurant les crée dans son resOS : à redemander (`docs/RESOS.md`) |
+
 ## Préproduction (ASSISTANTE-174)
 
 `https://preprod.helmane.fr` : la même image que la production, sur le même serveur, pour

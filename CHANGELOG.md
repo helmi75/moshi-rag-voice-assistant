@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — reconstruire le serveur, procédure écrite (27/10/2026, ASSISTANTE-160)
+
+### Documentation
+- **`docs/DEPLOY.md`, « Reconstruire le serveur »** : d'un VPS vide à la ligne qui répond,
+  en dix étapes, chacune renvoyant à sa section. La base est restaurée **avant** le premier
+  démarrage de l'API : sur un volume vide, elle répondrait sans aucune réservation. On y
+  trouve aussi ce qui doit déjà exister hors de la machine (la base, le `.env`, la
+  configuration des sauvegardes, les secrets de GitHub), et où régénérer chaque secret.
+  Un test exige que chaque variable secrète de `docker-compose.yml` y figure.
+- **Jamais jouée, donc ni éprouvée ni chronométrée** : il faut une machine jetable, une
+  dépense (ligne S14 de `docs/RECETTE.md`).
+
 ## Non publiée — la base se réplique en continu (27/10/2026, ASSISTANTE-158)
 
 ### Ajouté
