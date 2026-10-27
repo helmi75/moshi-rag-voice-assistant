@@ -7,6 +7,16 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — les erreurs remontent à Sentry (27/10/2026, ASSISTANTE-163)
+
+### Ajouté
+- **Sentry, sans donnée personnelle** (`erreurs.py`) : une erreur du flux vocal ou d'une
+  tâche de fond arrive avec son établissement et son identifiant d'appel, au lieu d'une
+  ligne dans des journaux effacés au redéploiement. Ni numéro, ni corps de requête, ni
+  cookie, ni variable locale, ni secret ; un filtre qui échoue jette l'événement.
+  Sans `SENTRY_DSN`, rien ne s'initialise et rien ne part. `sentry-sdk` 2.73.0 (et
+  `urllib3`) ajoutés au verrou, aucune autre version ne bouge.
+
 ## Non publiée — chaque numéro sans URL de secours se voit (27/10/2026, ASSISTANTE-157)
 
 ### Ajouté

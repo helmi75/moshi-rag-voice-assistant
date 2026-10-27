@@ -13,6 +13,8 @@ exception (autre qu'une annulation) est écrite dans le journal, avec le nom de 
 import asyncio
 from typing import Coroutine
 
+from . import erreurs
+
 from loguru import logger
 
 _taches: set[asyncio.Task] = set()
@@ -42,6 +44,7 @@ def _terminee(tache: asyncio.Task) -> None:
     if exc is not None:
         logger.warning(f"tâche de fond « {tache.get_name()} » terminée en erreur : "
                        f"{type(exc).__name__}: {exc}")
+        erreurs.capturer(exc)
 
 
 def en_cours() -> int:
