@@ -22,11 +22,13 @@ CVE-2026-102682
 # et dessin de texte. Pipecat charge Pillow pendant un appel, mais ne s'en sert que pour
 # des trames d'image (vidéo, image envoyée au modèle) : le pipeline téléphonique n'en
 # produit aucune, et l'application n'ouvre jamais d'image venue de l'extérieur. Corrigé en
-# 13.0.0, que pipecat-ai 1.5 refuse (pillow<13) : il partira avec la montée de Pipecat.
+# 13.0.0, que pipecat-ai refuse jusqu'à 1.13 (pillow<13) : il partira avec Pipecat 1.14.
 CVE-2026-112390
 CVE-2026-112391
 CVE-2026-112392
 CVE-2026-112393
+# Publié le 19/10, relevé par la CI le 27/10 : décodeurs bruts P;2L et P;4L, même nature.
+PYSEC-2026-4327
 CVE-2026-112395
 CVE-2026-112396
 CVE-2026-112397
