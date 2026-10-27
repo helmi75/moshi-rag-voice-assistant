@@ -58,7 +58,7 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | 13/10/2026 | Un appel qui tombe en panne en cours de route a eu un flux audio que son chiffrage de secours (`conclure_secours`) ne compte pas : 0,0044 $ par minute, cas rare. | Aucune ; écrit dans le code et au `CHANGELOG.md`. |
 | 13/10/2026 | Le tarif américain (0,0085 $ la minute) n'est pas distingué : le numéro américain ne sert plus qu'au Banc d'essai. | Aucune tant que c'est vrai. |
 | 24/10/2026 | « Rappelez-moi » n'est pas freiné par le solde Twilio. Avec un compte suspendu, Twilio refuse de toute façon. | À décider. |
-| 27/10/2026 | Corrigé le jour même : Pipecat 1.6 ne retire qu'une exception de `pip-audit` (son runner). Pipecat ne dépend plus de nltk qu'avant 1.12 et n'accepte Pillow 13 qu'à partir de 1.14 (métadonnées relevées). La montée touche le chemin d'appel. | ASSISTANTE-179, sprint 4. |
+| 27/10/2026 | Pipecat 1.14 signale des fonctions dépréciées que nous utilisons (`live_options`/`LiveOptions` de Deepgram, `function_schema`, `PipelineTask`/`PipelineRunner`, `ErrorFrame.fatal`) : retirées en 2.0 seulement. | À faire avant Pipecat 2.0 ; aucun ticket tant qu'elle n'est pas annoncée. |
 | 24/10/2026 | Les e-mails d'épisode (solde Twilio, crédit OpenAI) sont marqués envoyés avant l'envoi : une panne de la messagerie à ce moment-là perd l'e-mail. | Choix assumé ; la supervision reste en alerte. |
 | 25/10/2026 | La routine des e-mails est réglée en UTC (`10 7 * * *`) : à l'heure d'été, fin mars 2027, elle passera à 9 h 10 heure de Paris. | La recaler à `10 6 * * *` au changement d'heure. |
 | 12/10/2026 | T19 : 5 requêtes au cerveau sur 24 ont été redemandées (1 sur 21 avant). | À surveiller quand les appels reprendront. |

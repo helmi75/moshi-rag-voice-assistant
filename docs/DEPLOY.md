@@ -233,11 +233,9 @@ la rend **rouge**. Deux réponses :
    vérifiée dans le code. `test_audit_dependances.py` rougit dès que le paquet monte : le
    bloc est alors à revoir.
 
-Au 27/10/2026, trois blocs : `nltk` (aucun correctif publié), `pipecat-ai` (son runner de
-développement, que l'application n'importe pas) et `pillow` (13.0.0 est refusé par
-Pipecat 1.5, et le pipeline téléphonique ne lui donne aucune image). Relevé le 27/10 dans
-les métadonnées de Pipecat : sa 1.6 retire l'avis `pipecat-ai`, sa 1.12 ne dépend plus de
-`nltk`, et seule sa 1.14 accepte Pillow 13 (ASSISTANTE-179).
+Depuis le 27/10/2026 (ASSISTANTE-179), **aucune exception** : la montée de Pipecat en 1.14
+a emporté les trois blocs d'ASSISTANTE-177 (`nltk`, le runner de `pipecat-ai`, `pillow`
+12.3). Ils restent lisibles dans l'historique git du fichier.
 
 ## Sauvegardes
 

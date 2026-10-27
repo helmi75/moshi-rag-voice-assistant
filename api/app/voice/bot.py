@@ -364,7 +364,7 @@ def une_seule_reponse_par_tour(aggregateur) -> bool:
     validation (`_maybe_emit_user_turn_stopped` pousse tout ce qui a été accumulé). Sur
     un tour franc, pressentiment et validation sont consécutifs : aucun délai ajouté.
 
-    Touche l'intérieur de Pipecat 1.5 : si sa forme change, on le signale et on garde le
+    Touche l'intérieur de Pipecat (vérifié sur 1.14) : si sa forme change, on le signale et on garde le
     comportement d'origine — un appel qui répond deux fois vaut mieux qu'un appel muet.
     Renvoie True si la correction est en place."""
     controleur = getattr(aggregateur, "_user_turn_controller", None)
@@ -375,7 +375,9 @@ def une_seule_reponse_par_tour(aggregateur) -> bool:
                        "comportement d'origine conservé")
         return False
 
-    async def _signal_seulement(_controleur, strategie):
+    # `*_reste` : Pipecat 1.14 passe aussi `speculation` (une inférence anticipée, qu'on ne
+    # lance pas plus que l'autre). Sans lui, chaque fin de tour levait une TypeError.
+    async def _signal_seulement(_controleur, strategie, *_reste):
         await aggregateur._call_event_handler("on_user_turn_inference_triggered", strategie)
 
     controleur.remove_event_handler("on_user_turn_inference_triggered", origine)

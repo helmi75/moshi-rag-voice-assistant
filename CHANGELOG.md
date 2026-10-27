@@ -7,6 +7,19 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Pipecat 1.14, plus aucune faille acceptée (27/10/2026, ASSISTANTE-179)
+
+### Sécurité
+- **pipecat-ai 1.5.0 → 1.14.0, Pillow 12.3.0 → 13.0.0, nltk retiré** : `pip-audit` ne trouve
+  plus rien, et `.github/pip-audit-exceptions.txt` est vide (38 avis Pillow, celui du runner
+  de Pipecat, celui de nltk).
+
+### Corrigé
+- **« Une seule réponse par tour » aurait cassé chaque fin de tour** : Pipecat 1.14 passe un
+  troisième argument (`speculation`) au gestionnaire qu'on remplace ; le nôtre n'en prenait
+  que deux. Corrigé, et éprouvé par la vraie distribution d'événements de Pipecat — le test
+  d'avant appelait le gestionnaire à la main, avec deux arguments, et ne l'aurait pas vu.
+
 ## Non publiée — les actions de la CI épinglées par empreinte (27/10/2026, ASSISTANTE-178)
 
 ### Sécurité

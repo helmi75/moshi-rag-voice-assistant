@@ -608,13 +608,33 @@ class TestReponseAnticipee:
         """C'est sur ce point de Pipecat que repose la correction."""
         agg = self._aggregateur()
         bot.une_seule_reponse_par_tour(agg)
-        agg.push_aggregation = AsyncMock(return_value="Alors moi c'est Paul")
+        # Pipecat 1.14 : la validation écrit par `_push_aggregation`, qui lance le modèle.
+        agg._push_aggregation = AsyncMock(return_value="Alors moi c'est Paul")
         agg._call_event_handler = AsyncMock()
         asyncio.run(agg._maybe_emit_user_turn_stopped(None))
-        agg.push_aggregation.assert_awaited_once()
+        agg._push_aggregation.assert_awaited_once()
+        assert agg._push_aggregation.await_args.kwargs.get("run_llm", True) is True
         evenement, _strategie, message = agg._call_event_handler.await_args.args
         assert evenement == "on_user_turn_stopped"
         assert message.content == "Alors moi c'est Paul"
+
+    def test_par_la_vraie_distribution_d_evenements_de_pipecat(self):
+        """Le contrôleur appelle le gestionnaire avec ses propres arguments (en 1.14 :
+        stratégie ET spéculation). Appelé à la main avec deux, le test d'avant ne l'aurait
+        pas vu : chaque fin de tour levait une TypeError."""
+        agg = self._aggregateur()
+        assert bot.une_seule_reponse_par_tour(agg) is True
+        agg._push_aggregation = AsyncMock(return_value="Alors moi c'est")
+        signaux = []
+
+        async def ecoute(_agg, strategie):
+            signaux.append(strategie)
+
+        agg.add_event_handler("on_user_turn_inference_triggered", ecoute)
+        controleur = agg._user_turn_controller
+        asyncio.run(controleur._call_event_handler("on_user_turn_inference_triggered", None, None))
+        agg._push_aggregation.assert_not_awaited()
+        assert signaux == [None]
 
     def test_structure_inattendue_rend_la_main(self):
         assert bot.une_seule_reponse_par_tour(SimpleNamespace()) is False

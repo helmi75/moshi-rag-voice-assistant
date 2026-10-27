@@ -38,8 +38,8 @@ class TestLesExceptions:
                 f"({verrou.get(paquet)}) : relancer pip-audit et revoir ce bloc.")
 
     def test_une_ligne_un_identifiant_d_avis(self):
+        # Vide depuis Pipecat 1.14 (ASSISTANTE-179) : c'est l'état normal, pas une erreur.
         avis = [a for _, _, liste in _blocs() for a in liste]
-        assert avis
         for a in avis:
             assert _AVIS.fullmatch(a), a
         assert len(avis) == len(set(avis))
