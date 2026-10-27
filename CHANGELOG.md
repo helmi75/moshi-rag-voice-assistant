@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — pas de réservation avec un couvert ou une heure inventés (27/10/2026, ASSISTANTE-91)
+
+### Corrigé
+- **Le serveur refuse une réservation dont le nombre de personnes ou l'heure n'a été dit par
+  personne dans la conversation.** Appel 163 (25/09) : l'appelant n'avait donné que son
+  nom, et le modèle a envoyé 1 personne à l'heure qu'il était ; seule l'heure déjà passée
+  avait empêché la table. Une valeur dite par l'assistante compte (« vingt heures, ça vous
+  va ? » — « oui ») ; pour une personne, « un » ne suffit pas (« un instant ») : il faut
+  « seul », « une personne »… Le refus dit au modèle ce qui manque, il le demande.
+  Chaîne classique et cerveau de la voix temps réel ; pas l'appel direct d'un outil par la
+  voix temps réel, dont la transcription peut arriver après lui. Rien ne change par SMS.
+
 ## Non publiée — l'audit des dépendances bloque la CI (27/10/2026, ASSISTANTE-177)
 
 ### Sécurité

@@ -702,7 +702,7 @@ class TestLeCerveauEstLeNotre:
             dits = session.de_type("session.commentary.append")
             if evt["type"] == "session.commentary.append" and len(dits) == 1:      # l'accueil
                 return [_fragment("assistant", " Bonjour.", 0, 500),
-                        _fragment("user", " Une table pour quatre, au nom de Dupont.", 1000, 3000), CONFIE]
+                        _fragment("user", " Une table pour quatre à vingt heures trente, au nom de Dupont.", 1000, 3000), CONFIE]
             if evt["type"] == "session.commentary.append" and len(dits) == 2:      # le résultat
                 return [_fragment("assistant", " C'est enregistré. Au revoir.", 4000, 5200)]
             return []
@@ -722,7 +722,7 @@ class TestLeCerveauEstLeNotre:
         systeme, demande = premier["messages"][0], premier["messages"][1]
         assert systeme["role"] == "system" and "tu ne parles pas au client" in systeme["content"]
         assert systeme["content"].startswith(llm.build_system_prompt(tenant)[:200])
-        assert "Client : Une table pour quatre, au nom de Dupont." in demande["content"]
+        assert "Client : Une table pour quatre à vingt heures trente, au nom de Dupont." in demande["content"]
         assert "Assistante : Bonjour." in demande["content"]
         # L'outil est passé par run_tool, avec le numéro venu du réseau.
         resa = [r for r in reservations.list_reservations(tenant.id) if r["customer_name"] == "Dupont"]
@@ -800,7 +800,7 @@ class TestLeCerveauEstLeNotre:
         def scenario(evt, session):
             dits = session.de_type("session.commentary.append")
             if evt["type"] == "session.commentary.append" and len(dits) == 1:
-                return [_fragment("user", " Une table pour deux, au nom de Tenace.", 0, 900), CONFIE]
+                return [_fragment("user", " Une table pour deux, vingt heures trente ou midi et demi, au nom de Tenace.", 0, 900), CONFIE]
             if evt["type"] == "session.commentary.append" and len(dits) == 2:
                 return [_fragment("assistant", " C'est enregistré. Au revoir.", 2000, 3000)]
             return []
@@ -937,7 +937,7 @@ class TestUneReservationAnnonceeSansEtreEnregistree:
         def scenario(evt, session):
             dits = session.de_type("session.commentary.append")
             if evt["type"] == "session.commentary.append" and len(dits) == 1:
-                return [_fragment("user", " Une table pour deux, au nom de Vrai.", 0, 900), CONFIE]
+                return [_fragment("user", " Une table pour deux à vingt heures trente, au nom de Vrai.", 0, 900), CONFIE]
             if evt["type"] == "session.commentary.append" and len(dits) == 2:
                 return [_fragment("assistant", " C'est enregistré. Au revoir.", 2000, 3000)]
             return []

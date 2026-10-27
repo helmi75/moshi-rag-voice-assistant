@@ -81,6 +81,7 @@ bilingue`.
 | B1 | « Une table pour 2 demain à 20h, au nom de Martin » | Récapitulatif, puis confirmation **après** l'outil | |
 | B2 | Regarder l'admin | La réservation, avec **ton numéro** en téléphone | |
 | B3 | Appeler en numéro masqué (`#31#` devant) et réserver | La réservation existe, **téléphone vide** | |
+| B4 | Dire seulement « Bonjour, c'est au nom de Martin » et attendre (ASSISTANTE-91) | Elle **demande** l'heure et le nombre de personnes ; aucune réservation n'apparaît tant qu'ils n'ont pas été dits. 🤖 en partie : `test_valeurs_inventees.py` | |
 
 **B2 est le test de la correction du 31/08** : le téléphone doit venir du réseau, pas du
 modèle. S'il est vide alors que tu appelais en clair, `caller_number` ne parvient pas

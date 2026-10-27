@@ -11,6 +11,7 @@ vectoriel n'apporterait rien à cette échelle (voir ARCHITECTURE.md).
 """
 import json
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -528,6 +529,80 @@ def _sur_une_ligne(nom) -> str:
     return " ".join(str(nom or "").split())
 
 
+# Les nombres tels qu'on les dit au téléphone, en français et en anglais (les deux langues
+# de l'assistante), jusqu'à trente : un nombre de couverts ou une heure, pas davantage.
+_UNITES_FR = ["zéro", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf",
+              "dix", "onze", "douze", "treize", "quatorze", "quinze", "seize"]
+_NOMBRES_DITS = {mot: n for n, mot in enumerate(_UNITES_FR)} | {"une": 1, "vingt": 20,
+                                                                "trente": 30}
+_NOMBRES_DITS |= {f"dix {u}": 10 + n for n, u in enumerate(_UNITES_FR) if 7 <= n <= 9}
+_NOMBRES_DITS |= {"vingt et un": 21, "vingt et une": 21}
+_NOMBRES_DITS |= {f"vingt {u}": 20 + n for n, u in enumerate(_UNITES_FR) if 2 <= n <= 9}
+_NOMBRES_DITS |= {mot: n for n, mot in enumerate(
+    ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+     "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+     "eighteen", "nineteen", "twenty"])}
+# « Un » est partout (« un instant », « une table ») : pour une personne seule, il faut
+# l'avoir dit en clair.
+_UNE_PERSONNE = ("seul", "seule", "une personne", "1 personne", "pour moi", "juste moi",
+                 "moi seul", "alone", "just me", "myself", "one person", "1 person",
+                 "for one", "table for one", "un couvert", "1 couvert")
+
+
+def _mots(texte: str) -> str:
+    """Minuscules, ponctuation et traits d'union en espaces : « dix-neuf » = « dix neuf »."""
+    return " " + " ".join("".join(c if c.isalnum() or c == ":" else " "
+                                  for c in texte.casefold()).split()) + " "
+
+
+def _nombres_dits(texte: str) -> set[int]:
+    mots = _mots(texte)
+    dits = {int(n) for n in re.findall(r"(?<![\d:])(\d{1,2})(?=h|:|\D|$)", mots)}
+    # « 20h30 », « 20:00 » : l'heure est le nombre avant le séparateur.
+    dits |= {int(h) for h in re.findall(r"(\d{1,2})\s*(?:h|:)\s*\d{0,2}", mots)}
+    dits |= {n for mot, n in _NOMBRES_DITS.items() if f" {mot} " in mots}
+    return dits
+
+
+def _non_dit(tool_input: dict, conversation: Optional[str]) -> Optional[str]:
+    """Ce que le modèle enverrait sans que personne l'ait prononcé (ASSISTANTE-91).
+
+    Appel 163, le 25/09/2026 : l'appelant n'avait donné que son nom, et le modèle a envoyé
+    1 personne à l'heure qu'il était. Le serveur ne comprend pas la conversation, mais il
+    sait si un nombre y apparaît : un couvert ou une heure jamais dits ne sont pas ceux du
+    client. Dits par l'assistante (« vingt heures, ça vous va ? »), ils comptent : le client
+    les a entendus. Sans conversation (SMS), on ne vérifie rien."""
+    if not conversation:
+        return None
+    dits = _nombres_dits(conversation)
+    manque = []
+    try:
+        couverts = int(tool_input.get("party_size"))
+    except (TypeError, ValueError):
+        couverts = None
+    if couverts == 1:
+        if not any(f" {m} " in _mots(conversation) for m in _UNE_PERSONNE):
+            manque.append("le nombre de personnes")
+    elif couverts is not None and couverts not in dits:
+        manque.append("le nombre de personnes")
+    try:
+        heure = int(str(tool_input.get("time")).split(":")[0])
+    except (TypeError, ValueError):
+        heure = None
+    if heure is not None:
+        mots = _mots(conversation)
+        dite = (heure in dits or (heure > 12 and heure - 12 in dits)
+                or (heure == 12 and (" midi " in mots or " noon " in mots))
+                or (heure == 0 and (" minuit " in mots or " midnight " in mots)))
+        if not dite:
+            manque.append("l'heure")
+    if not manque:
+        return None
+    ce_qui_manque = manque[0] if len(manque) == 1 else f"ni {manque[0]} ni {manque[1]}"
+    return (f"Le client n'a pas encore donné {ce_qui_manque} : ne l'invente pas. "
+            "Demande-le-lui, puis rappelle cet outil.")
+
+
 def _fourni(valeur) -> bool:
     """Un champ que le modèle a vraiment rempli : ni absent, ni fait d'espaces."""
     return valeur is not None and str(valeur).strip() != ""
@@ -624,7 +699,8 @@ def _creneau_refuse(tenant: Tenant, date_iso, heure, jour_dit=None) -> Optional[
 
 async def run_tool(tenant: Tenant, name: str, tool_input: dict,
                    caller_number: Optional[str] = None,
-                   call_id: Optional[int] = None) -> str:
+                   call_id: Optional[int] = None,
+                   conversation: Optional[str] = None) -> str:
     """Exécute un outil métier. Partagé entre le mode Gather (respond) et le
     pipeline streaming Pipecat (voice/bot.py).
 
@@ -635,6 +711,10 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
     `call_id` rattache un message pris à l'appel qui l'a produit, pour que le
     restaurateur puisse réécouter ce qui a été dit. Absent, le message est quand même
     enregistré : une trace incomplète vaut mieux qu'une promesse perdue.
+
+    `conversation` : ce qui a été dit jusqu'ici, par le client et par l'assistante (ni le
+    prompt ni les résultats d'outils). Une réservation n'est créée qu'avec un nombre de
+    personnes et une heure qu'on y trouve (`_non_dit`). Absente, rien n'est vérifié.
 
     Chaque accès à la base passe par `db.hors_boucle` : cette fonction s'exécute dans la
     boucle d'événements qui sert TOUS les appels en cours, et un verrou SQLite attendu
@@ -687,7 +767,7 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
         return json.dumps({"error": f"outil inconnu: {name}"}, ensure_ascii=False)
     try:
         return await _outil_du_carnet(connecteurs.pour(tenant), tenant, name, tool_input,
-                                      caller_number, call_id)
+                                      caller_number, call_id, conversation)
     except connecteurs.Complet as exc:
         return _refus_complet(exc.autres_horaires)
     except connecteurs.Refus as exc:
@@ -700,7 +780,8 @@ async def run_tool(tenant: Tenant, name: str, tool_input: dict,
 
 
 async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
-                           caller_number: Optional[str], call_id: Optional[int]) -> str:
+                           caller_number: Optional[str], call_id: Optional[int],
+                           conversation: Optional[str] = None) -> str:
     """Les outils qui lisent ou écrivent une réservation, quel que soit le carnet."""
     if name == "find_reservation":
         trouvees = await carnet.retrouver(caller_number, a_partir_de=tool_input.get("date"))
@@ -811,6 +892,9 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     # « Très bien merci », et une table enregistrée SANS NOM — introuvable en salle.
     if not str(tool_input.get("customer_name") or "").strip():
         return _refus("Nom manquant : demande le nom du client avant d'enregistrer.")
+    non_dit = _non_dit(tool_input, conversation)
+    if non_dit:
+        return _refus(non_dit)
     # Appel masqué : le numéro dicté va dans les NOTES, jamais dans le téléphone de la
     # réservation — c'est ce champ-là qui ouvre la modification (#33), et le modèle ne
     # le fournit pas. Les notes, elles, sont lues par le restaurant qui doit rappeler.

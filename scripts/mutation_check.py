@@ -1044,6 +1044,15 @@ GARDE_FOUS = [
         panne="corriger un nom créerait une deuxième table : deux réservations et deux e-mails pour un client",
     ),
     GardeFou(
+        nom="Réservation : un couvert ou une heure jamais dits sont refusés",
+        fichier="api/app/llm.py",
+        avant="    non_dit = _non_dit(tool_input, conversation)\n    if non_dit:",
+        apres="    non_dit = None  # mutation\n    if non_dit:",
+        tests=["test_valeurs_inventees.py"],
+        k="Appel163 or un_ne_vaut_pas",
+        panne="appel 163 : le modèle enregistre une table à l'heure qu'il est, pour une personne, sans rien avoir demandé",
+    ),
+    GardeFou(
         nom="Rappel : hors plage, la demande compte dans les plafonds",
         fichier="api/app/rappel.py",
         avant="    if refus is not None:\n        return refus\n    debut, _ = heures()",
