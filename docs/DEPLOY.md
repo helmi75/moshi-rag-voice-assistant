@@ -212,6 +212,16 @@ uv pip compile api/app/requirements.txt -o api/app/requirements.lock \
 (`--upgrade-package pipecat-ai` pour ne monter qu'un paquet.) Puis : suite de tests,
 construction de l'image, et la recette (`docs/RECETTE.md`) avant de déployer.
 
+**Actions épinglées (ASSISTANTE-178).** Chaque `uses:` des workflows désigne une action par
+l'empreinte complète de son commit, suivie de `# vX.Y.Z` : une étiquette (`@v4`) peut être
+déplacée par son auteur, et le workflow de déploiement tient une clé root du serveur.
+Dependabot (`.github/dependabot.yml`) ouvre chaque semaine une PR pour les montées ; elle
+passe la CI et la revue comme les autres. Épingler une nouvelle action : lire l'empreinte de
+l'étiquette exacte chez son auteur (`git ls-remote https://github.com/<auteur>/<action>
+refs/tags/vX.Y.Z`), jamais celle d'une branche. `test_workflows.py` refuse une action non
+épinglée, une empreinte sans sa version, et un workflow sans `permissions:` de premier
+niveau.
+
 **Avis de sécurité (ASSISTANTE-177).** La CI passe le verrou à `pip-audit`, et un avis
 la rend **rouge**. Deux réponses :
 
@@ -225,8 +235,9 @@ la rend **rouge**. Deux réponses :
 
 Au 27/10/2026, trois blocs : `nltk` (aucun correctif publié), `pipecat-ai` (son runner de
 développement, que l'application n'importe pas) et `pillow` (13.0.0 est refusé par
-Pipecat 1.5, et le pipeline téléphonique ne lui donne aucune image). Les deux derniers
-partiront avec la montée de Pipecat à 1.6.
+Pipecat 1.5, et le pipeline téléphonique ne lui donne aucune image). Relevé le 27/10 dans
+les métadonnées de Pipecat : sa 1.6 retire l'avis `pipecat-ai`, sa 1.12 ne dépend plus de
+`nltk`, et seule sa 1.14 accepte Pillow 13 (ASSISTANTE-179).
 
 ## Sauvegardes
 
