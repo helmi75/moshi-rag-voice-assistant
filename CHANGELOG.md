@@ -48,6 +48,18 @@
   établissement (403 sur un autre) ; le super-admin voit tout le parc.
 - **`app/en_cours.py`** : registre en mémoire du processus, alimenté par le flux média. Il ne
   garde ni le numéro de l'appelant ni la transcription, et ne lève jamais d'exception.
+## Non publiée — un déploiement ne coupe plus les appels en cours (27/10/2026, ASSISTANTE-159)
+
+### Ajouté
+- **La vidange** : juste avant le lancement, `scripts/deploy.sh` pose un drapeau dans le
+  volume de données ; chaque nouvel appel est alors servi comme pendant une panne (renvoi
+  au restaurant, ou répondeur), et le script attend que les appels en cours finissent
+  (jusqu'à 10 min, `VIDANGE_ATTENTE`) avant de lancer la nouvelle version, qui efface le
+  drapeau en démarrant. Jusqu'ici, un appel en cours faisait refuser le déploiement, et
+  « déployer hors service » ne tenait qu'à celui qui lançait le script.
+- Ces renvois comptent dans « Appels passés en secours », en attention et jamais en
+  panne : sinon la vérification d'après lancement défaisait le déploiement.
+
 ## Non publiée — les actions de la CI épinglées par empreinte (27/10/2026, ASSISTANTE-178)
 
 ### Sécurité

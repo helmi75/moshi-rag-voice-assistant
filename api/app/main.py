@@ -30,6 +30,9 @@ async def _cycle_de_vie(_app: FastAPI):
     l'ordre de déclaration dans le fichier, et rien ne garantissait que l'arrêt suive
     un démarrage qui aurait échoué à mi-chemin. Ici `finally` arrête les tâches de fond
     dans tous les cas."""
+    # Cette version reprend les appels que la précédente laissait au restaurant pendant
+    # qu'elle se vidait (ASSISTANTE-159).
+    renvoi.fin_de_vidange()
     await _partager_le_modele_de_fin_de_tour()
     await _prerender_greetings()
     await _demarrer_taches_de_fond()
@@ -348,10 +351,15 @@ async def voice_webhook(
     # Une panne vient d'être constatée sur un autre appel : celui-ci ne la revit pas, il
     # est renvoyé d'emblée (ASSISTANTE-118). Passé le délai, un appel retente l'assistante.
     panne = renvoi.panne_recente(tenant.id)
+    # Un déploiement attend la fin des appels en cours (ASSISTANTE-159) : un appel qui
+    # commencerait maintenant serait coupé au redémarrage. Il va au restaurant.
+    if not panne and renvoi.vidange_en_cours():
+        panne = renvoi.VIDANGE
     if panne:
         form = await request.form()
         return await _secours(tenant, CallSid, From, To, form.get("ForwardedFrom"),
-                              renvoi.ESSAI if panne == renvoi.ESSAI else renvoi.PANNE_RECENTE)
+                              panne if panne in (renvoi.ESSAI, renvoi.VIDANGE)
+                              else renvoi.PANNE_RECENTE)
     return _stream_twiml(request, To or "", CallSid or "", From or "")
 
 
