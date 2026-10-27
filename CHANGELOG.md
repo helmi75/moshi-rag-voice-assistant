@@ -7,6 +7,15 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — une sonde externe chaque minute : étude (27/10/2026, ASSISTANTE-162)
+
+### Documentation
+- **`docs/SUPERVISION.md`, « Sonde externe chaque minute »** : la relève de Grafana Cloud
+  prévue pour `/metrics` (ASSISTANTE-156) fait déjà la sonde demandée, de l'extérieur et
+  chaque minute (alertes « ne répond plus » et « supervision en panne »). Aucun service de
+  plus n'est recommandé. UptimeRobot Solo reste le recours si Grafana Cloud n'est pas monté.
+  Tarifs relevés le 27/10/2026. Rien n'est ouvert ni payé.
+
 ## Non publiée — Pipecat 1.14, plus aucune faille acceptée (27/10/2026, ASSISTANTE-179)
 
 ### Sécurité

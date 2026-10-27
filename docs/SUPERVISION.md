@@ -205,6 +205,36 @@ réel. Écarter l'établissement d'essai partout (`etablissement!="essai"`).
   dit `servi` ou `muet`, c'est le compteur de secours qui fait foi. Même chose pour un
   pipeline Pipecat qui lève une exception : issue `echec`, et un secours compté.
 
+### Sonde externe chaque minute : étude (ASSISTANTE-162, relevé le 27/10/2026)
+
+Le besoin : savoir en une minute, et non en quinze, que l'application ne répond plus ou
+que `/supervision` dirait 503, par un surveillant qui ne tourne pas sur la machine.
+
+**Ce que nous avons déjà, sans nouveau service.** La relève de Grafana Cloud ci-dessus
+vient de l'extérieur chaque minute, et `/metrics` porte le verdict de `/supervision`
+(`helmane_supervision_niveau{controle="global"}`, lu dans le même cache de 15 s). Les
+deux premières alertes proposées font donc exactement la sonde demandée :
+« L'application ne répond plus » (`absent(…)`, la machine, le réseau ou Caddy) et
+« Supervision en panne » (`== 2`, l'équivalent du 503). Elles partent de chez Grafana :
+une machine tombée ne les fait pas taire, contrairement à `app/telegram.py`.
+
+**Recommandation : ne pas ouvrir de service de plus.** Finir la mise en place de Grafana
+Cloud (étapes 1 à 5 ci-dessus), avec un point de contact Telegram configuré chez Grafana.
+Pour une alerte par appel ou SMS, ajouter Grafana IRM, dans la même pile.
+Le workflow `supervision.yml` reste le filet, toutes les 15 minutes.
+
+| Service | Ce que la page de tarifs dit (relevé le 27/10/2026) | Pour nous |
+|---|---|---|
+| **Grafana Cloud** (recommandé) | Offre gratuite : 100 000 exécutions de tests d'API par mois en Synthetic Monitoring, IRM limité à 3 utilisateurs actifs par mois. Au-delà, 5 $ les 10 000 exécutions | Déjà prévu pour `/metrics`. Un test synthétique de `/health` chaque minute depuis un point de sonde : environ 44 000 exécutions par mois, sous le plafond gratuit. Il n'est utile que si la relève n'est pas posée. Le prix d'un SMS ou d'un appel par IRM n'est pas écrit sur la page de tarifs : à lire à l'ouverture |
+| UptimeRobot | Gratuit : contrôle toutes les **5 min**, sans en-tête personnalisé ni Telegram. Solo : **60 s**, en-têtes personnalisés, Telegram ; 9 €/mois payé à l'année, 10 €/mois au mois. SMS et appels vocaux : crédits payants (10 crédits pour 3 $), 10 à 20 inclus en Solo | Le seul choix si Grafana Cloud n'est pas monté. L'offre gratuite ne peut pas porter le jeton de `/supervision` (`X-Supervision-Token`) |
+| Better Stack | Gratuit : 10 moniteurs, alertes Slack et e-mail. La page ne donne ni la cadence de l'offre gratuite ni le prix de base de l'offre payante | Non retenu : rien à comparer sans ces chiffres |
+| Healthchecks.io | Reçoit des signaux (surveillance de tâches planifiées), n'interroge pas une adresse | Ne répond pas au besoin |
+
+Ce qui reste à Helmi : ouvrir la pile Grafana Cloud et poser les alertes, ou à défaut
+choisir UptimeRobot Solo. Puis l'essai du ticket : l'application arrêtée quelques
+minutes hors des heures d'appels (une écriture en production, donc avec son accord) doit
+déclencher l'alerte « ne répond plus ».
+
 ## Alertes Telegram
 
 `api/app/telegram.py` pousse un message sur le téléphone de Helmi dès que l'application
