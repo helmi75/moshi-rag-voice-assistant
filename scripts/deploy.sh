@@ -167,10 +167,8 @@ forcer_ou_refuser() {
     refus "$1. Réessayer plus tard, ou DEPLOY_MALGRE_APPEL=1 en connaissance de cause (jauge figée, mesure cassée)."
   fi
 }
-garde_appels() {
-  etape "Appels en cours…"
-  local appels
-  appels="$(distant "
+mesurer_appels() {
+  distant "
     jeton=\$(grep -m1 '^METRIQUES_TOKEN=' '$CHEMIN/.env' 2>/dev/null | cut -d= -f2- | tr -d '\"')
     [ -n \"\$jeton\" ] || { echo sans-jeton; exit 0; }
     f=\$(mktemp)
@@ -181,16 +179,69 @@ garde_appels() {
       *) echo \"http-\$code\" ;;
     esac
     rm -f \"\$f\"
-  " 2>/dev/null || echo illisible)"
+  " 2>/dev/null || echo illisible
+}
+# Ce qu'une mesure impossible veut dire ; un nombre d'appels est traité par l'appelant.
+mesure_impossible() {
+  case "$1" in
+    sans-jeton) forcer_ou_refuser "METRIQUES_TOKEN absent du .env du serveur : impossible de savoir si un appel est en cours" ;;
+    sans-jauge) forcer_ou_refuser "/metrics ne publie pas helmane_appels_en_cours : impossible de savoir si un appel est en cours" ;;
+    http-*)     forcer_ou_refuser "/metrics répond HTTP ${1#http-} (jeton du .env refusé ?) : impossible de savoir si un appel est en cours" ;;
+    *)          forcer_ou_refuser "jauge des appels illisible (« $1 ») : impossible de savoir si un appel est en cours" ;;
+  esac
+}
+# Au début : un appel en cours ne refuse plus (ASSISTANTE-159), il finira pendant la vidange.
+garde_appels() {
+  etape "Appels en cours…"
+  local appels
+  appels="$(mesurer_appels)"
   case "$appels" in
     0)          etape "Aucun appel en cours." ;;
     muette)     echo "⚠ l'API ne répond pas sur le serveur : aucun appel n'y est en cours, on continue (la production est peut-être arrêtée)." ;;
-    sans-jeton) forcer_ou_refuser "METRIQUES_TOKEN absent du .env du serveur : impossible de savoir si un appel est en cours" ;;
-    sans-jauge) forcer_ou_refuser "/metrics ne publie pas helmane_appels_en_cours : impossible de savoir si un appel est en cours" ;;
-    http-*)     forcer_ou_refuser "/metrics répond HTTP ${appels#http-} (jeton du .env refusé ?) : impossible de savoir si un appel est en cours" ;;
-    ''|*[!0-9]*) forcer_ou_refuser "jauge des appels illisible (« $appels ») : impossible de savoir si un appel est en cours" ;;
-    *)          forcer_ou_refuser "$appels appel(s) en cours : le redémarrage les couperait" ;;
+    ''|*[!0-9]*) mesure_impossible "$appels" ;;
+    *)          etape "$appels appel(s) en cours : ils finiront avant le lancement (vidange)." ;;
   esac
+}
+
+# ── La vidange (ASSISTANTE-159) ──────────────────────────────────────────────────
+# Juste avant le lancement : un drapeau dans le volume de données fait servir chaque NOUVEL
+# appel comme pendant une panne (renvoi au restaurant, ou répondeur — app/renvoi.py), et on
+# attend que les appels en cours finissent. Le redémarrage ne coupe alors plus personne. La
+# nouvelle version efface le drapeau en démarrant ; la sortie du script aussi, quoi qu'il
+# arrive (trap). Un drapeau oublié ne compte plus au bout d'un quart d'heure.
+# Le chemin se calcule DANS le conteneur, à côté de la base : rien à deviner sur l'hôte.
+DRAPEAU_POSE=0
+VIDANGE_ATTENTE="${VIDANGE_ATTENTE:-600}"
+drapeau() {
+  distant "cd '$CHEMIN' && docker compose exec -T api sh -c '$1 \"\$(dirname \"\${DB_PATH:-./data/app.db}\")/vidange\"'" >/dev/null 2>&1
+}
+lever_drapeau() {
+  [ "$DRAPEAU_POSE" = 1 ] || return 0
+  drapeau "rm -f" || echo "⚠ drapeau de vidange non effacé : il expirera seul (15 min) ; les nouveaux appels vont au restaurant d'ici là."
+  DRAPEAU_POSE=0
+}
+vidanger() {
+  etape "Vidange : les nouveaux appels vont au restaurant, ceux en cours finissent…"
+  if drapeau touch; then DRAPEAU_POSE=1; else
+    echo "⚠ drapeau de vidange non posé (API arrêtée ?) : de nouveaux appels peuvent commencer pendant l'attente."
+  fi
+  local debut=$SECONDS appels
+  while :; do
+    appels="$(mesurer_appels)"
+    case "$appels" in
+      0)           etape "Plus aucun appel en cours."; return ;;
+      muette)      echo "⚠ l'API ne répond pas sur le serveur : aucun appel n'y est en cours, on continue."; return ;;
+      # Refusée, la sortie lève le drapeau (trap) ; forcée, il reste : les nouveaux appels
+      # continuent d'aller au restaurant pendant le lancement.
+      ''|*[!0-9]*) mesure_impossible "$appels"; return ;;
+    esac
+    if [ $((SECONDS - debut)) -ge "$VIDANGE_ATTENTE" ]; then
+      forcer_ou_refuser "$appels appel(s) encore en cours après ${VIDANGE_ATTENTE} s de vidange : le redémarrage les couperait"
+      return
+    fi
+    echo "   $appels appel(s) en cours, attente ($((SECONDS - debut)) s)…"
+    sleep 5
+  done
 }
 garde_appels
 
@@ -217,7 +268,7 @@ jeton="$(distant "grep -m1 '^SUPERVISION_TOKEN=' '$CHEMIN/.env' 2>/dev/null | cu
 [ -n "${jeton:-}" ] || refus "SUPERVISION_TOKEN absent du .env du serveur : la production tournerait sans surveillance (cf. docs/SUPERVISION.md)."
 SONDE="${SANTE%/health}/supervision"
 REPONSE="$(mktemp)"
-trap 'rm -f "$REPONSE"' EXIT
+trap 'rm -f "$REPONSE"; lever_drapeau' EXIT
 
 # Interroge la sonde ; rend le code HTTP, et laisse le corps dans $REPONSE.
 sonder() {
@@ -359,8 +410,8 @@ distant "
   echo \"   \$f\"
 " || echo "⚠ journaux non sauvegardés."
 
-# Relevé de nouveau : le téléchargement de l'image a pu durer.
-garde_appels
+# Le téléchargement de l'image a pu durer : on vide maintenant, juste avant le lancement.
+vidanger
 etape "Déploiement de ${local_sha:0:8} sur $HOTE (en service : ${precedent_sha:0:8})…"
 lancer "$local_sha" "$image" || ECHEC="le lancement a échoué sur le serveur"
 if [ -n "$ECHEC" ] || ! verifier "$local_sha" "$image_id"; then

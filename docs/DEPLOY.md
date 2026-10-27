@@ -388,12 +388,22 @@ troisième annule celui qui attendait.
 
 Deux garde-fous de `scripts/deploy.sh` servent d'abord ce cas, où personne ne regarde :
 
-- **Pas pendant un appel.** La jauge `helmane_appels_en_cours` de `/metrics` est lue sur le
-  serveur (jeton `METRIQUES_TOKEN` de son `.env`), au début puis juste avant le lancement
-  (le téléchargement de l'image laisse le temps à un appel de commencer) ; un appel en
-  cours = refus. Une mesure impossible (jeton absent ou refusé, jauge absente) refuse
-  aussi. `DEPLOY_MALGRE_APPEL=1` passe outre, depuis le poste. Seule une API qui ne répond
-  pas du tout (production arrêtée) laisse passer : aucun appel n'y est en cours.
+- **Aucun appel coupé : la vidange (ASSISTANTE-159).** Juste avant le lancement, le script
+  pose un drapeau `vidange` dans le volume de données, à côté de la base (écrit par
+  `docker compose exec`, sans route ni secret). Tant qu'il est là, chaque NOUVEL appel est
+  servi comme pendant une panne : renvoyé au restaurant, ou au répondeur
+  (`app/renvoi.py`, motif `vidange`). Le script lit la jauge `helmane_appels_en_cours` de
+  `/metrics` (jeton `METRIQUES_TOKEN` du `.env` du serveur) toutes les 5 s, et lance la
+  nouvelle version dès qu'elle tombe à zéro. Au-delà de `VIDANGE_ATTENTE` (600 s par
+  défaut), il refuse. La nouvelle version efface le drapeau en démarrant, et la sortie du
+  script aussi, quoi qu'il arrive ; un drapeau oublié ne compte plus au bout de 15 min.
+  Une mesure impossible (jeton absent ou refusé, jauge absente) refuse ;
+  `DEPLOY_MALGRE_APPEL=1` passe outre, depuis le poste. Seule une API qui ne répond pas du
+  tout (production arrêtée) laisse passer. Les renvois de vidange comptent dans « Appels
+  passés en secours », en attention, jamais en panne : sinon la vérification d'après
+  lancement défaisait le déploiement. **Le premier déploiement de cette fonction** tourne
+  encore contre une version qui ignore le drapeau : il attend la fin des appels sans
+  détourner les nouveaux.
 - **Les journaux du conteneur** sont copiés dans `/opt/journaux` sur le serveur avant le
   lancement, lisibles par root seul, effacés à 14 jours par la sauvegarde de chaque nuit
   (`scripts/backup-db.sh`, synchronisée au déploiement) et par chaque déploiement
