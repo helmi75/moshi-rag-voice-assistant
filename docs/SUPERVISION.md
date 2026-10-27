@@ -230,6 +230,9 @@ Le workflow `supervision.yml` reste le filet, toutes les 15 minutes.
 | Better Stack | Gratuit : 10 moniteurs, alertes Slack et e-mail. La page ne donne ni la cadence de l'offre gratuite ni le prix de base de l'offre payante | Non retenu : rien à comparer sans ces chiffres |
 | Healthchecks.io | Reçoit des signaux (surveillance de tâches planifiées), n'interroge pas une adresse | Ne répond pas au besoin |
 
+Sources : `grafana.com/pricing`, `uptimerobot.com/pricing` (et sa version `pricing.md`),
+`betterstack.com/pricing`, `healthchecks.io/pricing`, lues le 27/10/2026.
+
 Ce qui reste à Helmi : ouvrir la pile Grafana Cloud et poser les alertes, ou à défaut
 choisir UptimeRobot Solo. Puis l'essai du ticket : l'application arrêtée quelques
 minutes hors des heures d'appels (une écriture en production, donc avec son accord) doit
