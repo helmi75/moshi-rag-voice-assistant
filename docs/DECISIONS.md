@@ -49,6 +49,9 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | avant le 13/10/2026 | **Horaires du premier client** à saisir. | Sans eux, l'assistante ne refuse aucun créneau. |
 | 24/10/2026 | Twilio : un seul bundle « Business » au nom d'Helmane suffit-il pour tous les numéros (le bundle actuel est « Individual ») ? Un numéro géographique doit-il correspondre à l'adresse du dossier ? | L'achat des numéros des clients. À vérifier chez Twilio. |
 | 24/10/2026 | Chantier « fiabilité », lot 1 : plafond mensuel de la lecture des e-mails des fournisseurs (un modèle intervient). | Le coût d'un passage n'est affiché nulle part (essai du 25/10) : l'usage de l'abonnement se relit au bout d'une semaine, vers le 02/11. |
+| 27/10/2026 | Alertes **Telegram** (ASSISTANTE-161) : créer le bot (@BotFather) et poser `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID` dans le `.env` du serveur ? | Sans eux, le module ne fait rien. |
+| 27/10/2026 | **Mistral** (ASSISTANTE-104) : désactiver « Anonymous improvement data » dans la console (sinon le texte dit par l'assistante peut servir à l'entraînement), lire le lieu de traitement sur `trust.mistral.ai/subprocessors` ? | `docs/RGPD.md` § 5 bis. |
+| 27/10/2026 | **Retrait de Moshi** (ASSISTANTE-103) : son préalable, une à deux semaines de vrais appels sur Mistral sans incident, ne peut pas se vérifier tant que Twilio est suspendu. Le faire quand même ? L'arrêt du GPU sur Modal est à Helmi. | Le dernier ticket du sprint 4. |
 | 24/10/2026 | Solde **Deepgram** : créer une clé en lecture seule qui a le droit de lire le solde (`/v1/projects/{id}/balances` répond 403 à la clé de production) ? | Sans elle, la tournée ne voit pas le solde Deepgram. |
 
 ## Remarques sans ticket
@@ -59,6 +62,8 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | 13/10/2026 | Le tarif américain (0,0085 $ la minute) n'est pas distingué : le numéro américain ne sert plus qu'au Banc d'essai. | Aucune tant que c'est vrai. |
 | 24/10/2026 | « Rappelez-moi » n'est pas freiné par le solde Twilio. Avec un compte suspendu, Twilio refuse de toute façon. | À décider. |
 | 27/10/2026 | Pipecat 1.14 : la vigie ne voit plus d'erreur « fatale » (`fatal=True` remplacé par `force_treat_as_permanent`) ; un refus de Deepgram à la connexion met la transcription hors service sans seconde erreur, donc sans renvoi. Pas une régression (1.5 réessayait sans rien dire). | À traiter avec un ticket si le cas se présente ; relecture d'ASSISTANTE-179. |
+| 27/10/2026 | La règle Grafana « Appels en secours », si elle existe déjà chez Grafana Cloud, doit exclure `motif="vidange"` (ASSISTANTE-159), sinon chaque déploiement avec des appels en cours la déclenche. | À vérifier par Helmi chez Grafana Cloud. |
+| 27/10/2026 | Deux commits d'agents (0d90a86, d71b001) portent une ligne `Co-Authored-By` qui nomme un autre modèle que la ligne convenue. Déjà poussés : la réécriture est refusée par le garde-fou. | Rien ; les briefs d'agents le rappelleront. |
 | 27/10/2026 | Pipecat 1.14 signale des fonctions dépréciées que nous utilisons (`live_options`/`LiveOptions` de Deepgram, `function_schema`, `PipelineTask`/`PipelineRunner`, `ErrorFrame.fatal`) : retirées en 2.0 seulement. | À faire avant Pipecat 2.0 ; aucun ticket tant qu'elle n'est pas annoncée. |
 | 24/10/2026 | Les e-mails d'épisode (solde Twilio, crédit OpenAI) sont marqués envoyés avant l'envoi : une panne de la messagerie à ce moment-là perd l'e-mail. | Choix assumé ; la supervision reste en alerte. |
 | 25/10/2026 | La routine des e-mails est réglée en UTC (`10 7 * * *`) : à l'heure d'été, fin mars 2027, elle passera à 9 h 10 heure de Paris. | La recaler à `10 6 * * *` au changement d'heure. |
