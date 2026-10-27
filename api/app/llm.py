@@ -533,8 +533,11 @@ def _sur_une_ligne(nom) -> str:
 # de l'assistante), jusqu'à trente : un nombre de couverts ou une heure, pas davantage.
 _UNITES_FR = ["zéro", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf",
               "dix", "onze", "douze", "treize", "quatorze", "quinze", "seize"]
-_NOMBRES_DITS = {mot: n for n, mot in enumerate(_UNITES_FR)} | {"une": 1, "vingt": 20,
-                                                                "trente": 30}
+# « Un » et « une » n'y sont pas : ils sont partout (« un instant », « une table »), et une
+# heure inventée à 13 h passerait toujours. Une heure se dit « une heure », une personne
+# seule se dit en clair (`_UNE_PERSONNE`).
+_NOMBRES_DITS = {mot: n for n, mot in enumerate(_UNITES_FR) if n != 1} | {
+    "une heure": 1, "vingt": 20, "trente": 30}
 _NOMBRES_DITS |= {f"dix {u}": 10 + n for n, u in enumerate(_UNITES_FR) if 7 <= n <= 9}
 _NOMBRES_DITS |= {"vingt et un": 21, "vingt et une": 21}
 _NOMBRES_DITS |= {f"vingt {u}": 20 + n for n, u in enumerate(_UNITES_FR) if 2 <= n <= 9}
@@ -542,11 +545,16 @@ _NOMBRES_DITS |= {mot: n for n, mot in enumerate(
     ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
      "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
      "eighteen", "nineteen", "twenty"])}
+# Deux personnes, sans le nombre.
+_NOMBRES_DITS |= {"un couple": 2, "ma femme et moi": 2, "mon mari et moi": 2,
+                  "mon conjoint et moi": 2, "ma compagne et moi": 2, "mon compagnon et moi": 2,
+                  "my wife and i": 2, "my husband and i": 2, "a couple": 2}
 # « Un » est partout (« un instant », « une table ») : pour une personne seule, il faut
 # l'avoir dit en clair.
 _UNE_PERSONNE = ("seul", "seule", "une personne", "1 personne", "pour moi", "juste moi",
                  "moi seul", "alone", "just me", "myself", "one person", "1 person",
-                 "for one", "table for one", "un couvert", "1 couvert")
+                 "for one", "table for one", "un couvert", "1 couvert", "juste une",
+                 "juste un", "rien que moi")
 
 
 def _mots(texte: str) -> str:
@@ -578,7 +586,7 @@ def _non_dit(tool_input: dict, conversation: Optional[str]) -> Optional[str]:
     manque = []
     try:
         couverts = int(tool_input.get("party_size"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         couverts = None
     if couverts == 1:
         if not any(f" {m} " in _mots(conversation) for m in _UNE_PERSONNE):
@@ -586,12 +594,15 @@ def _non_dit(tool_input: dict, conversation: Optional[str]) -> Optional[str]:
     elif couverts is not None and couverts not in dits:
         manque.append("le nombre de personnes")
     try:
-        heure = int(str(tool_input.get("time")).split(":")[0])
+        heure, minutes = (int(x) for x in str(tool_input.get("time")).split(":")[:2])
     except (TypeError, ValueError):
-        heure = None
+        heure = minutes = None
     if heure is not None:
         mots = _mots(conversation)
+        # « Huit heures moins le quart » : le client a dit 8 (ou 20), le modèle envoie 19:45.
+        suivante = (heure + 1) % 24 if minutes and minutes >= 30 else None
         dite = (heure in dits or (heure > 12 and heure - 12 in dits)
+                or (suivante is not None and (suivante in dits or (suivante > 12 and suivante - 12 in dits)))
                 or (heure == 12 and (" midi " in mots or " noon " in mots))
                 or (heure == 0 and (" minuit " in mots or " midnight " in mots)))
         if not dite:

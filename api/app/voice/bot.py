@@ -32,7 +32,9 @@ def texte_de_la_conversation(context) -> Optional[str]:
     try:
         morceaux = []
         for message in context.get_messages():
-            if message.get("role") not in ("user", "assistant"):
+            # Un message propre à un fournisseur (`LLMSpecificMessage`) n'est pas un dict :
+            # on le saute, plutôt que de couper la vérification pour tout l'appel.
+            if not isinstance(message, dict) or message.get("role") not in ("user", "assistant"):
                 continue
             contenu = message.get("content")
             if isinstance(contenu, str):
