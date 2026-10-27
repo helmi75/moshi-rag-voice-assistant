@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — l'audit des dépendances bloque la CI (27/10/2026, ASSISTANTE-177)
+
+### Sécurité
+- **aiohttp 3.14.5, certifi 2026.10.23, multidict 6.9.1 (et yarl 1.25.1)** dans le verrou :
+  ils corrigent dix avis relevés par `pip-audit` le 27/10 (dont un contournement de
+  `Secure` sur les cookies et un défaut de lecture des requêtes HTTP dans aiohttp).
+- **`pip-audit` bloque la CI** : un avis sur une version verrouillée se corrige, ou
+  s'accepte par écrit dans `.github/pip-audit-exceptions.txt` (raison, version visée). Trois
+  exceptions : nltk (aucun correctif publié), le runner de développement de Pipecat (non
+  importé) et Pillow 12.3 (13 est refusé par Pipecat 1.5 ; aucune image dans un appel). Les
+  deux dernières partiront avec Pipecat 1.6.
+
 ## Non publiée — déployer depuis GitHub, jamais pendant un appel (26/10/2026, ASSISTANTE-176)
 
 ### Ajouté
