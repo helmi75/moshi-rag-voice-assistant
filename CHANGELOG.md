@@ -60,6 +60,13 @@
 - Ces renvois comptent dans « Appels passés en secours », en attention et jamais en
   panne : sinon la vérification d'après lancement défaisait le déploiement.
 
+## Non publiée — Mistral, sous-traitant de la voix : ce que dit son contrat (27/10/2026, ASSISTANTE-104)
+
+### Documentation
+- **`docs/RGPD.md` § 5 bis** : le DPA de Mistral (en vigueur le 27/07/2026, accepté avec les
+  conditions de l'API), ce qu'il ne dit pas (le lieu de traitement), et ce qu'il permet :
+  **l'entraînement sur nos données tant qu'on ne s'y est pas opposé** dans la console Mistral.
+  Trois gestes restent à Helmi, listés au même endroit.
 ## Non publiée — les actions de la CI épinglées par empreinte (27/10/2026, ASSISTANTE-178)
 
 ### Sécurité
