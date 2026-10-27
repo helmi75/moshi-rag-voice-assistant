@@ -212,6 +212,22 @@ uv pip compile api/app/requirements.txt -o api/app/requirements.lock \
 (`--upgrade-package pipecat-ai` pour ne monter qu'un paquet.) Puis : suite de tests,
 construction de l'image, et la recette (`docs/RECETTE.md`) avant de déployer.
 
+**Avis de sécurité (ASSISTANTE-177).** La CI passe le verrou à `pip-audit`, et un avis
+la rend **rouge**. Deux réponses :
+
+1. Monter le paquet : `--upgrade-package <paquet>` en gardant le verrou existant comme
+   point de départ (copié dans le fichier de sortie), pour que rien d'autre ne bouge.
+2. Si la correction est hors d'atteinte (un paquet qui en bloque un autre), l'accepter par
+   écrit dans `.github/pip-audit-exceptions.txt` : un bloc `# paquet==version : raison`,
+   puis un identifiant par ligne. La raison dit pourquoi l'application n'est pas touchée,
+   vérifiée dans le code. `test_audit_dependances.py` rougit dès que le paquet monte : le
+   bloc est alors à revoir.
+
+Au 27/10/2026, trois blocs : `nltk` (aucun correctif publié), `pipecat-ai` (son runner de
+développement, que l'application n'importe pas) et `pillow` (13.0.0 est refusé par
+Pipecat 1.5, et le pipeline téléphonique ne lui donne aucune image). Les deux derniers
+partiront avec la montée de Pipecat à 1.6.
+
 ## Sauvegardes
 
 La base vit dans le volume `api_data`, sur la machine, en un seul exemplaire. Une
