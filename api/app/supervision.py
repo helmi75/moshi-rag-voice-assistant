@@ -1278,7 +1278,9 @@ def _pousser_telegram(liste: list) -> None:
             if c.niveau == PANNE:
                 telegram.alerter(f"supervision:{c.cle}",
                                  f"Helmane : {c.titre} en panne. {c.resume}")
-            else:
+            elif c.niveau == OK:
+                # « Rétabli » seulement au vert : une attention, ou un contrôle devenu
+                # impossible, ne sont pas un retour à la normale.
                 telegram.retablir(f"supervision:{c.cle}", f"Helmane : {c.titre} est rétabli.")
     except Exception as exc:
         from loguru import logger

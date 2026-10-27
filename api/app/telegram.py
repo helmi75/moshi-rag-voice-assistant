@@ -27,6 +27,11 @@ import httpx
 from loguru import logger
 
 _ouverts: dict[str, Optional[float]] = {}   # clé d'épisode → échéance (monotonic) ou None
+_derniers: dict[str, float] = {}            # clé d'épisode → dernière alerte (monotonic)
+# Une même clé ne réalerte pas avant ce délai, même si son épisode s'est refermé : une panne
+# qui dure (la mémoire du renvoi expire toutes les 3 min, l'appel suivant la reconstate) ou
+# un contrôle qui oscille autour de son seuil ne font pas une rafale (relecture d'ASSISTANTE-161).
+REPRISE_SECONDES = 15 * 60
 _verrou = threading.Lock()
 
 
@@ -73,7 +78,10 @@ def alerter(cle: str, texte: str, valable_secondes: Optional[float] = None) -> b
             echeance = _ouverts[cle]
             if echeance is None or echeance > maintenant:
                 return False
+        if cle in _derniers and maintenant - _derniers[cle] < REPRISE_SECONDES:
+            return False
         _ouverts[cle] = maintenant + valable_secondes if valable_secondes else None
+        _derniers[cle] = maintenant
     return expedier(texte)
 
 
@@ -94,3 +102,4 @@ def retablir(cle: str, texte: str) -> bool:
 def reinitialiser() -> None:
     with _verrou:
         _ouverts.clear()
+        _derniers.clear()

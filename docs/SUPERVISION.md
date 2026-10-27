@@ -221,6 +221,13 @@ filet si l'application elle-même est tombée). Mise en place : créer un bot av
 | Contrôle en panne / rétabli | `supervision.etat`, à chaque recalcul | jusqu'au retour au vert |
 | Crédit OpenAI, solde Twilio | `notifications.py` | ceux de l'e-mail |
 
+Une même alerte ne repart pas avant **15 minutes** (`REPRISE_SECONDES`), même si son épisode
+s'est refermé : une panne qui dure, ou un contrôle qui oscille autour de son seuil, ne font
+pas une rafale. « Rétabli » ne part qu'au vert, jamais sur une attention ni sur un contrôle
+devenu impossible. Les essais de renvoi (bouton de l'admin, recette automatique) ne sonnent
+pas. Un même fait peut donner deux ou trois messages (un compte Twilio suspendu : le solde,
+puis les contrôles « Twilio » et « Solde Twilio ») : assumé, chacun dit sa source.
+
 L'envoi ne bloque jamais l'appelant et ne lève jamais. Le jeton est dans l'URL de l'API
 Telegram : un échec ne journalise que le nom de l'exception et le code HTTP. Les épisodes
 sont en mémoire : un redémarrage de l'application peut répéter une alerte de panne qui dure.

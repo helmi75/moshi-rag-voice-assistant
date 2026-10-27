@@ -58,11 +58,14 @@ def test_inactif_avec_le_jeton_seul(monkeypatch, envoyes):
     assert telegram.actif() is False
 
 
-def test_une_seule_alerte_par_episode_puis_le_retour_a_la_normale(actif, envoyes):
+def test_une_seule_alerte_par_episode_puis_le_retour_a_la_normale(actif, envoyes, monkeypatch):
+    t = [1000.0]
+    monkeypatch.setattr(telegram.time, "monotonic", lambda: t[0])
     assert telegram.alerter("ep", "panne") is True
     assert telegram.alerter("ep", "panne encore") is False
     assert telegram.retablir("ep", "rétabli") is True
     assert telegram.retablir("ep", "rétabli encore") is False
+    t[0] += telegram.REPRISE_SECONDES
     assert telegram.alerter("ep", "nouvelle panne") is True
     assert envoyes == ["panne", "rétabli", "nouvelle panne"]
 
@@ -79,8 +82,11 @@ def test_l_episode_expire(actif, envoyes, monkeypatch):
     t[0] += 59
     assert telegram.alerter("ep", "deux", valable_secondes=60) is False
     t[0] += 2
-    assert telegram.alerter("ep", "trois", valable_secondes=60) is True
-    assert envoyes == ["un", "trois"]
+    # Épisode refermé, mais pas de nouvelle alerte avant REPRISE_SECONDES : pas de rafale.
+    assert telegram.alerter("ep", "trois", valable_secondes=60) is False
+    t[0] += telegram.REPRISE_SECONDES
+    assert telegram.alerter("ep", "quatre", valable_secondes=60) is True
+    assert envoyes == ["un", "quatre"]
 
 
 def test_pas_de_retablissement_pour_un_episode_expire(actif, envoyes, monkeypatch):
@@ -92,10 +98,18 @@ def test_pas_de_retablissement_pour_un_episode_expire(actif, envoyes, monkeypatc
 
 
 def test_l_envoi_ne_bloque_pas_l_appelant(actif, monkeypatch):
-    sortie = threading.Event()
-    monkeypatch.setattr(telegram, "_envoyer", lambda texte: sortie.wait(5))
-    assert telegram.expedier("lent") is True   # rend la main alors que l'envoi attend
+    sortie, fini = threading.Event(), threading.Event()
+
+    def lent(texte):
+        sortie.wait(5)
+        fini.set()
+
+    monkeypatch.setattr(telegram, "_envoyer", lent)
+    assert telegram.expedier("lent") is True
+    # Rendu la main AVANT la fin de l'envoi : appelé en direct, `fini` serait déjà posé.
+    assert not fini.is_set()
     sortie.set()
+    assert fini.wait(5)
 
 
 def _journaux():
@@ -198,3 +212,31 @@ def test_le_credit_openai_et_le_solde_twilio_ecrivent_aussi_sur_telegram(actif, 
     asyncio.run(notifications.prevenir_solde_twilio(None, None, 5.0))
     assert len(envoyes) == 3
     assert "OpenAI" in envoyes[0] and "1.50" in envoyes[1] and "suspendu" in envoyes[2]
+
+
+def test_un_controle_qui_oscille_ne_fait_pas_de_rafale(actif, envoyes, monkeypatch):
+    t = [1000.0]
+    monkeypatch.setattr(telegram.time, "monotonic", lambda: t[0])
+    for _ in range(5):
+        telegram.alerter("supervision:x", "panne")
+        telegram.retablir("supervision:x", "rétabli")
+        t[0] += 20
+    assert envoyes == ["panne", "rétabli"]
+
+
+def test_un_essai_de_renvoi_ne_fait_pas_sonner_l_alerte(actif, envoyes):
+    from app import renvoi
+    renvoi.signaler_panne(renvoi.ESSAI, 7)
+    assert envoyes == []
+
+
+def test_retabli_seulement_au_vert(actif, envoyes):
+    from app import supervision
+    panne = supervision.Controle("x", "Contrôle X", supervision.PANNE, "en panne")
+    attention = supervision.Controle("x", "Contrôle X", supervision.ATTENTION, "INCONNU")
+    ok = supervision.Controle("x", "Contrôle X", supervision.OK, "ok")
+    supervision._pousser_telegram([panne])
+    supervision._pousser_telegram([attention])
+    assert envoyes == ["Helmane : Contrôle X en panne. en panne"]
+    supervision._pousser_telegram([ok])
+    assert envoyes[-1] == "Helmane : Contrôle X est rétabli."

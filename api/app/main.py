@@ -362,12 +362,14 @@ async def _secours(tenant, call_sid: Optional[str], appelant: Optional[str],
     action, numero = renvoi.decision(tenant, appelant=appelant, transfere_depuis=transfere_depuis)
     logger.warning(f"[secours] appel {call_sid} (établissement {tenant.id}) : {motif} → "
                    f"{'renvoi vers le restaurant' if action == renvoi.RENVOI else 'répondeur'}")
-    # Un message par établissement et par motif, pas par appel (30 minutes d'épisode).
-    telegram.alerter(
-        f"secours:{tenant.id}:{motif}",
-        f"Helmane : un appel est passé en secours ({motif}), {tenant.name}. "
-        f"Suite : {'renvoi vers le restaurant' if action == renvoi.RENVOI else 'répondeur'}.",
-        valable_secondes=1800)
+    # Un message par établissement et par motif, pas par appel (30 minutes d'épisode). Un
+    # essai de renvoi n'est pas une panne : pas d'alerte.
+    if motif != renvoi.ESSAI:
+        telegram.alerter(
+            f"secours:{tenant.id}:{motif}",
+            f"Helmane : un appel est passé en secours ({motif}), {tenant.name}. "
+            f"Suite : {'renvoi vers le restaurant' if action == renvoi.RENVOI else 'répondeur'}.",
+            valable_secondes=1800)
     try:
         await db.hors_boucle(calls.ouvrir_secours, call_sid, tenant.id,
                              calls.numero_appelant(appelant), motif)
