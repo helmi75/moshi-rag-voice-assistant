@@ -23,6 +23,30 @@ from ..tenants import Tenant
 from .rattrapage import PARDON, pardon
 
 
+def texte_de_la_conversation(context) -> Optional[str]:
+    """Ce que le client et l'assistante se sont dit, pour `llm.run_tool` (ASSISTANTE-91).
+
+    Ni le prompt système, qui cite les horaires et rendrait toute heure « dite », ni les
+    résultats d'outils, que le client n'a pas entendus. Un contexte illisible rend None :
+    la vérification saute plutôt que de bloquer une réservation."""
+    try:
+        morceaux = []
+        for message in context.get_messages():
+            # Un message propre à un fournisseur (`LLMSpecificMessage`) n'est pas un dict :
+            # on le saute, plutôt que de couper la vérification pour tout l'appel.
+            if not isinstance(message, dict) or message.get("role") not in ("user", "assistant"):
+                continue
+            contenu = message.get("content")
+            if isinstance(contenu, str):
+                morceaux.append(contenu)
+            elif isinstance(contenu, list):
+                morceaux += [p.get("text", "") for p in contenu
+                             if isinstance(p, dict) and p.get("type") == "text"]
+        return "\n".join(m for m in morceaux if m)
+    except Exception:
+        return None
+
+
 def make_tool_handler(
     tenant: Tenant,
     created_reservations: list[int | str] | None = None,
@@ -45,7 +69,8 @@ def make_tool_handler(
         args = dict(params.arguments or {})
         try:
             result = await llm.run_tool(tenant, params.function_name, args,
-                                        caller_number, call_id)
+                                        caller_number, call_id,
+                                        texte_de_la_conversation(getattr(params, "context", None)))
         except Exception as exc:
             result = f"Erreur outil {params.function_name}: {exc}"
         if created_reservations is not None and params.function_name == "create_reservation":
