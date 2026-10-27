@@ -652,7 +652,6 @@ async def voice_stream(websocket: WebSocket):
         # Le client est toujours en ligne : à la fermeture du flux, Twilio le passe au
         # restaurant (ASSISTANTE-118).
         renvoi.demander(call_sid, renvoi.SESSION if session_live is not None else renvoi.PIPELINE)
-        en_cours.incident(call_sid, type(exc).__name__)
         if session_live is not None:
             # C'est GPT-Live qui servait l'appel : la chaîne classique, elle, n'a rien
             # montré. Les appels suivants passent par elle, pas au restaurant.

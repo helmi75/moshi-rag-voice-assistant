@@ -12,7 +12,7 @@
 ### Ajouté
 - **Admin → Appels en cours** : les appels qui se déroulent, avec leur établissement,
   leur heure de début, leur durée, leur moteur (« temps réel » ou « classique », sans nom de
-  fournisseur) et leur dernier incident. Jusqu'ici, seul un compteur Prometheus le disait.
+  fournisseur). Pas encore d'incident par appel (non mesuré, voir `app/en_cours.py`). Jusqu'ici, seul un compteur Prometheus le disait.
   La liste se rafraîchit toute seule toutes les 3 s. Le restaurateur ne voit que son
   établissement (403 sur un autre) ; le super-admin voit tout le parc.
 - **`app/en_cours.py`** : registre en mémoire du processus, alimenté par le flux média. Il ne

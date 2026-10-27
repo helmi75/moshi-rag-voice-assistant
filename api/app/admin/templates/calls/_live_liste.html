@@ -5,16 +5,15 @@
   {% if appels %}
   <table>
     <thead>
-      <tr><th>Établissement</th><th>Début</th><th>Durée</th><th>Moteur</th><th>Incident</th></tr>
+      <tr><th>Établissement</th><th>Début</th><th>Durée</th><th>Moteur</th></tr>
     </thead>
     <tbody>
       {% for a in appels %}
       <tr>
-        <td>{{ a.etablissement }}{% if a.incident %}<span class="chip chip-warn incident-court">{{ a.incident }}</span>{% endif %}</td>
+        <td>{{ a.etablissement }}</td>
         <td>{{ a.debut | heure_paris }}</td>
         <td>{{ a.duree }}</td>
         <td>{{ a.moteur }}</td>
-        <td>{% if a.incident %}<span class="chip chip-warn">{{ a.incident }}</span>{% else %}<span class="muted">Aucun</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

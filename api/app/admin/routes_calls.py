@@ -60,7 +60,6 @@ async def _appels_en_cours(user: User, tenant_id: Optional[int]) -> dict:
             "debut": e["debut"],
             "duree": f"{secondes // 60} min {secondes % 60:02d} s",
             "moteur": "temps réel" if e["moteur"] == en_cours.TEMPS_REEL else "classique",
-            "incident": e["incident"],
         })
     return {"appels": lignes, "tenant_id": tenant_id}
 

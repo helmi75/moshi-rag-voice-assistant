@@ -38,29 +38,26 @@ class TestRegistre:
     def test_un_appel_ouvert_est_liste_en_classique(self):
         en_cours.ouvrir("CA1", 7)
         [e] = en_cours.lister()
-        assert (e["tenant_id"], e["moteur"], e["incident"]) == (7, "classique", None)
+        assert (e["tenant_id"], e["moteur"]) == (7, "classique")
         assert "caller" not in e and "from_number" not in e
 
-    def test_moteur_et_incident_se_renseignent_puis_l_appel_se_ferme(self):
+    def test_le_moteur_se_renseigne_puis_l_appel_se_ferme(self):
         en_cours.ouvrir("CA1", 7)
         en_cours.moteur("CA1", "temps_reel")
-        en_cours.incident("CA1", "RuntimeError")
         [e] = en_cours.lister()
-        assert (e["moteur"], e["incident"]) == ("temps_reel", "RuntimeError")
+        assert e["moteur"] == "temps_reel"
         en_cours.fermer("CA1")
         assert en_cours.lister() == []
 
     def test_un_call_sid_absent_ne_s_enregistre_pas(self):
         en_cours.ouvrir(None, 7)
         en_cours.moteur(None, "temps_reel")
-        en_cours.incident(None, "x")
         assert en_cours.lister() == []
 
     def test_fermer_ou_renseigner_un_inconnu_ne_leve_pas(self):
         en_cours.fermer("inconnu")
         en_cours.fermer(None)
         en_cours.moteur("inconnu", "temps_reel")
-        en_cours.incident("inconnu", "x")
 
     def test_la_liste_est_triee_par_debut_et_filtrable(self):
         en_cours.ouvrir("CA1", 1)
@@ -81,11 +78,11 @@ class TestPage:
         en_cours.ouvrir("CA-a", a.id)
         en_cours.ouvrir("CA-b", b.id)
         en_cours.moteur("CA-b", "temps_reel")
-        en_cours.incident("CA-b", "RuntimeError")
         texte = _connecte().get("/admin/calls/live").text
         assert "Chez Alpha 164" in texte and "Chez Beta 164" in texte
         assert "temps réel" in texte and "classique" in texte
-        assert "RuntimeError" in texte
+        # Pas de colonne « Incident » : elle aurait affiché « Aucun » sans rien mesurer.
+        assert "Incident" not in texte and "Aucun<" not in texte
         assert "min" in texte
 
     def test_le_fragment_se_rafraichit_tout_seul(self, deux_etablissements):
@@ -129,3 +126,36 @@ class TestCloisonnement:
             r = client.get(f"{adresse}?tenant_id={b.id}")
             assert r.status_code == 403
             assert "Chez Beta 164" not in r.text
+
+
+class TestSurLeVraiFluxMedia:
+    """Le branchement de `main.py` : un appel apparaît pendant qu'il dure et disparaît à sa
+    fin. Sans `fermer`, les appels terminés s'accumuleraient sur la page."""
+
+    def test_l_appel_est_liste_pendant_et_retire_apres(self, deux_etablissements):
+        import json
+        import time
+        from unittest.mock import patch
+
+        a, _, _ = deux_etablissements
+        pendant = []
+
+        async def faux_bot(*args, **kwargs):
+            pendant.extend(en_cours.lister())
+
+        depart = {"event": "start", "streamSid": "MZ164", "start": {
+            "streamSid": "MZ164", "callSid": "CA-flux-164",
+            "customParameters": {"To": a.phone_number, "CallSid": "CA-flux-164"}}}
+        with patch("app.main._get_bot_runner", return_value=faux_bot):
+            with TestClient(app).websocket_connect("/ws/voice") as ws:
+                ws.send_text(json.dumps({"event": "connected"}))
+                ws.send_text(json.dumps(depart))
+                fin = time.monotonic() + 2
+                while not pendant and time.monotonic() < fin:
+                    time.sleep(0.01)
+        fin = time.monotonic() + 2
+        while en_cours.lister() and time.monotonic() < fin:
+            time.sleep(0.01)
+        assert [(e["call_sid"], e["tenant_id"], e["moteur"]) for e in pendant] == [
+            ("CA-flux-164", a.id, "classique")]
+        assert en_cours.lister() == []

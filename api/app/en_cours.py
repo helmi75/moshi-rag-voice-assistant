@@ -2,15 +2,15 @@
 
 Mémoire du processus, comme la jauge de `metriques.py` : il n'y a qu'un worker uvicorn, et
 un redémarrage coupe de toute façon les appels, donc rien à persister. Une entrée ne garde
-ni le numéro de l'appelant ni la transcription : le support voit qu'un appel dure ou a
-rencontré un incident, pas ce qui s'y dit.
+ni le numéro de l'appelant ni la transcription : le support voit qu'un appel dure, pas ce qui
+s'y dit.
 
 Aucune fonction ne lève : elles sont appelées sur le chemin d'un appel, et une page de
 supervision ne doit jamais en faire échouer un.
 
-Limite connue : l'incident n'est noté que par l'erreur qui termine l'appel, dans
-`main.py`, juste avant sa fermeture : il ne reste visible qu'un instant. Les pannes que
-voit `voice/vigie.py` pendant l'appel n'y arrivent pas encore.
+Pas d'incident par appel pour l'instant : l'erreur qui termine un appel le retire du
+registre l'instant d'après, et les pannes que voit `voice/vigie.py` n'y arrivent pas. Une
+colonne « Incident » aurait affiché « Aucun » sans rien mesurer (relecture d'ASSISTANTE-164).
 """
 from datetime import datetime, timezone
 from typing import Optional
@@ -29,7 +29,7 @@ def ouvrir(call_sid: Optional[str], tenant_id: int) -> None:
             return
         _appels[call_sid] = {"call_sid": call_sid, "tenant_id": tenant_id,
                              "debut": datetime.now(timezone.utc),
-                             "moteur": CLASSIQUE, "incident": None}
+                             "moteur": CLASSIQUE}
     except Exception as exc:  # pragma: no cover - défensif
         logger.warning(f"[en_cours] ouvrir KO (sans conséquence): {exc}")
 
@@ -40,14 +40,6 @@ def moteur(call_sid: Optional[str], nom: str) -> None:
             _appels[call_sid]["moteur"] = nom
     except Exception as exc:  # pragma: no cover - défensif
         logger.warning(f"[en_cours] moteur KO (sans conséquence): {exc}")
-
-
-def incident(call_sid: Optional[str], motif: str) -> None:
-    try:
-        if call_sid in _appels:
-            _appels[call_sid]["incident"] = str(motif)[:80]
-    except Exception as exc:  # pragma: no cover - défensif
-        logger.warning(f"[en_cours] incident KO (sans conséquence): {exc}")
 
 
 def fermer(call_sid: Optional[str]) -> None:
