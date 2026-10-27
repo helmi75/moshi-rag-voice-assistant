@@ -6,7 +6,9 @@
 # Versions alignées le 19/09/2026 sur celles qui tournaient en production (pip freeze du
 # conteneur, passé en `-c`) : déployer ce verrou ne change aucune version en service.
 # 27/10/2026 (ASSISTANTE-177) : aiohttp, certifi, multidict et yarl montés pour des avis de pip-audit
-# (--upgrade-package, multidict gardé sous 7) ; aucune autre version ne bouge.
+# (--upgrade-package) ; aucune autre version ne bouge. multidict laissé en 6.x pour ce lot
+# (6.9.1 corrige l'avis ; la 7 est une version majeure, sans incompatibilité connue) :
+# une régénération complète (--upgrade) peut la monter, à tester comme le reste.
 
 aiofiles==25.1.0
 aiohappyeyeballs==2.7.1
