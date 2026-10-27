@@ -27,7 +27,9 @@
   s'accepte par écrit dans `.github/pip-audit-exceptions.txt` (raison, version visée). Trois
   exceptions : nltk (aucun correctif publié), le runner de développement de Pipecat (non
   importé) et Pillow 12.3 (13 est refusé par Pipecat 1.5 ; aucune image dans un appel). Les
-  trois partiront avec Pipecat 1.14 (ASSISTANTE-179) ; la 1.6 ne retire que celle de Pipecat.
+  exceptions de Pipecat et de Pillow partiront avec Pipecat 1.14, qui accepte Pillow 13 ; à
+  partir de 1.12, Pipecat ne demande plus nltk (ASSISTANTE-179). La 1.6 ne retire que celle
+  de Pipecat.
 
 ## Non publiée — déployer depuis GitHub, jamais pendant un appel (26/10/2026, ASSISTANTE-176)
 

@@ -104,9 +104,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # `packages: write` sert aussi sur les branches, où rien n'est publié : un droit ne
-    # dépend pas d'une condition, et le séparer coûterait un second job identique. Laissé
-    # (ASSISTANTE-178) : seul quelqu'un qui peut déjà écrire dans le dépôt pousse une branche,
-    # et une PR venue d'un fork ne lance pas ce job (`push` seulement).
+    # dépend pas d'une condition ; il faudrait un job de publication de plus, réservé à main,
+    # qui reconstruirait l'image depuis le cache. Laissé (ASSISTANTE-178) : seul quelqu'un qui
+    # peut déjà modifier ce fichier pousse une branche, une PR venue d'un fork ne lance pas ce
+    # job (`push` seulement), et les actions qui reçoivent le jeton sont épinglées.
     permissions:
       contents: read
       packages: write

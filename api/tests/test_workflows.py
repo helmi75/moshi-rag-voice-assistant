@@ -6,12 +6,19 @@ import re
 
 WORKFLOWS = pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows"
 _USES = re.compile(r"^\s*(?:-\s+)?uses:\s*(\S+)(.*)$")
+
+
+def _fichiers():
+    # Les deux extensions : un workflow en `.yaml` échapperait sinon à tous les contrôles.
+    return sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")])
+
+
 _EPINGLEE = re.compile(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}")
 _VERSION = re.compile(r"#\s*v\d+\.\d+\.\d+\s*$")
 
 
 def _usages():
-    for fichier in sorted(WORKFLOWS.glob("*.yml")):
+    for fichier in _fichiers():
         for n, ligne in enumerate(fichier.read_text().splitlines(), 1):
             m = _USES.match(ligne)
             if m:
@@ -35,6 +42,6 @@ class TestActionsEpinglees:
         assert not muettes, f"empreinte sans « # vX.Y.Z » : {muettes}"
 
     def test_aucun_workflow_ne_garde_les_droits_par_defaut(self):
-        sans = [f.name for f in sorted(WORKFLOWS.glob("*.yml"))
+        sans = [f.name for f in _fichiers()
                 if not re.search(r"^permissions:", f.read_text(), re.M)]
         assert not sans, f"workflow sans « permissions: » de premier niveau : {sans}"

@@ -8,4 +8,6 @@ updates:
     schedule:
       interval: weekly
     commit-message:
-      prefix: "ASSISTANTE-178 · actions"
+      # Dependabot écrit la suite du message lui-même, en anglais (« bump … from … to … ») :
+      # la PR se renomme en français à la relecture, avec la clé de son ticket.
+      prefix: "CI · actions"
