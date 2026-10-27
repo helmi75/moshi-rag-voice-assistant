@@ -29,7 +29,7 @@ from typing import Optional
 
 from pathlib import Path as _Path
 
-from . import calls, db, horloge, tenants, twilio_region
+from . import calls, db, horloge, telegram, tenants, twilio_region
 
 # --- Niveaux -----------------------------------------------------------------
 # Ordonnés : `pire()` prend le maximum. « attention » = dégradé mais le standard
@@ -1266,7 +1266,23 @@ def etat(*, force: bool = False) -> dict:
     }
     _cache.clear()
     _cache.update({"t": maintenant, "etat": resultat})
+    _pousser_telegram(liste)
     return resultat
+
+
+def _pousser_telegram(liste: list) -> None:
+    """Une alerte quand un contrôle passe en panne, une autre quand il revient (une fois
+    par épisode, app/telegram.py). Jamais d'exception vers la sonde."""
+    try:
+        for c in liste:
+            if c.niveau == PANNE:
+                telegram.alerter(f"supervision:{c.cle}",
+                                 f"Helmane : {c.titre} en panne. {c.resume}")
+            else:
+                telegram.retablir(f"supervision:{c.cle}", f"Helmane : {c.titre} est rétabli.")
+    except Exception as exc:
+        from loguru import logger
+        logger.warning(f"[telegram] alerte de supervision ignorée ({type(exc).__name__})")
 
 
 def vider_cache() -> None:

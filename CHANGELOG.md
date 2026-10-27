@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — alertes poussées sur Telegram (27/10/2026, ASSISTANTE-161)
+
+### Ajouté
+- **`app/telegram.py`** : l'application écrit à Helmi sur Telegram à la seconde où elle
+  constate une panne (l'e-mail du workflow GitHub arrive jusqu'à 15 minutes après). Un
+  message par épisode : panne du renvoi (`renvoi.signaler_panne`), appel passé en secours
+  (un par établissement et par motif, 30 minutes), contrôle de supervision qui passe en
+  panne puis qui revient, crédit OpenAI épuisé, solde Twilio bas ou compte suspendu.
+  L'envoi tourne dans un fil daemon et ne lève jamais ; le jeton, qui est dans l'URL de
+  l'API, n'est jamais journalisé. Sans `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID`, rien ne part.
+- Les messages portent le nom de l'établissement et le motif, jamais un numéro d'appelant.
+
 ## Non publiée — l'audit des dépendances bloque la CI (27/10/2026, ASSISTANTE-177)
 
 ### Sécurité

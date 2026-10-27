@@ -33,7 +33,7 @@ from typing import Optional
 
 from loguru import logger
 
-from . import db, horloge, taches, users
+from . import db, horloge, taches, telegram, users
 
 EVENEMENTS = ("reservation_creee", "reservation_modifiee", "reservation_annulee", "message_pris",
               "message_vocal", "annonce_sans_trace")
@@ -286,6 +286,11 @@ async def prevenir_solde_twilio(solde: Optional[float], devise: Optional[str],
     écrit aux super-admins, une fois par épisode (app/supervision.py). Le 12/10/2026 le
     compte s'est vidé et la ligne est restée morte onze jours sans que rien ne prévienne.
     NE LÈVE JAMAIS ; sans SMTP, rien."""
+    if solde is None:
+        telegram.expedier("Helmane : compte Twilio suspendu, la ligne ne prend plus d'appel.")
+    else:
+        telegram.expedier(f"Helmane : solde Twilio bas, {solde:.2f} {devise or 'USD'} "
+                          f"(seuil {seuil:.2f}). À recharger dans la console Twilio.")
     if not actif():
         return False
     try:
@@ -316,6 +321,8 @@ async def prevenir_credit_openai(le_utc: str) -> bool:
     """ASSISTANTE-151 : prévient les comptes super-admin que les sessions GPT-Live sont
     refusées faute de crédit. Aucun établissement n'est concerné (le restaurateur ne lit
     jamais « OpenAI ») : on n'écrit qu'à l'exploitant. NE LÈVE JAMAIS ; sans SMTP, rien."""
+    telegram.expedier("Helmane : crédit OpenAI épuisé, GPT-Live est refusé. "
+                      "La chaîne classique sert les appels ; recharger le crédit OpenAI.")
     if not actif():
         return False
     try:

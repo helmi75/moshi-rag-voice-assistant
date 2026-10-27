@@ -205,6 +205,26 @@ réel. Écarter l'établissement d'essai partout (`etablissement!="essai"`).
   dit `servi` ou `muet`, c'est le compteur de secours qui fait foi. Même chose pour un
   pipeline Pipecat qui lève une exception : issue `echec`, et un secours compté.
 
+## Alertes Telegram
+
+`api/app/telegram.py` pousse un message sur le téléphone de Helmi dès que l'application
+constate une panne, sans attendre le cycle de 15 minutes du workflow GitHub (qui reste le
+filet si l'application elle-même est tombée). Mise en place : créer un bot avec
+@BotFather, écrire un message au bot, lire `result[0].message.chat.id` dans
+`https://api.telegram.org/bot<jeton>/getUpdates`, puis poser `TELEGRAM_BOT_TOKEN` et
+`TELEGRAM_CHAT_ID` dans le `.env` du serveur. Sans les deux, le module ne fait rien.
+
+| Message | Quand | Épisode |
+|---|---|---|
+| Panne constatée | `renvoi.signaler_panne` | un par motif et par établissement, refermé avec la mémoire de la panne (3 min) |
+| Appel passé en secours | `main._secours` | un par établissement et par motif, 30 min |
+| Contrôle en panne / rétabli | `supervision.etat`, à chaque recalcul | jusqu'au retour au vert |
+| Crédit OpenAI, solde Twilio | `notifications.py` | ceux de l'e-mail |
+
+L'envoi ne bloque jamais l'appelant et ne lève jamais. Le jeton est dans l'URL de l'API
+Telegram : un échec ne journalise que le nom de l'exception et le code HTTP. Les épisodes
+sont en mémoire : un redémarrage de l'application peut répéter une alerte de panne qui dure.
+
 ## Angles morts, assumés
 
 - **Le TTS Modal n'est pas sondé activement.** Si le serveur de voix tombe et que
