@@ -7,12 +7,15 @@ rencontré un incident, pas ce qui s'y dit.
 
 Aucune fonction ne lève : elles sont appelées sur le chemin d'un appel, et une page de
 supervision ne doit jamais en faire échouer un.
+
+Limite connue : l'incident n'est noté que par l'erreur qui termine l'appel, dans
+`main.py`, juste avant sa fermeture : il ne reste visible qu'un instant. Les pannes que
+voit `voice/vigie.py` pendant l'appel n'y arrivent pas encore.
 """
-import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 CLASSIQUE = "classique"
 TEMPS_REEL = "temps_reel"
