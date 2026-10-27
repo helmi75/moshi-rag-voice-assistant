@@ -277,6 +277,13 @@ production, `SENTRY_ENVIRONMENT`) dans le `.env` du serveur. Sans DSN, le module
 rien. Ni traces de performance, ni journal de bord des requêtes : les erreurs seulement.
 Un filtre qui échoue jette l'événement plutôt que de l'envoyer brut.
 
+Ce que Sentry ne voit pas : une erreur que Pipecat absorbe sans interrompre l'appel. Par
+exemple, une phrase que la voix n'a pas rendue, ou une transcription refusée une fois :
+la vigie les compte, mais aucune exception ne remonte. Pour « Deepgram a échoué 4 fois chez
+tel restaurant », la source est la série `helmane_erreurs_maillon_total`, par
+établissement et par maillon (Grafana, ci-dessus). Les messages d'erreur de Pipecat ne
+sont pas envoyés à Sentry : rien ne garantit qu'ils ne recopient pas une phrase dite.
+
 ## Angles morts, assumés
 
 - **Le TTS Modal n'est pas sondé activement.** Si le serveur de voix tombe et que
