@@ -1051,6 +1051,8 @@ GARDE_FOUS = [
         tests=["test_vigie.py"],
         k="echo_de_pipecat or une_seule_phrase_perdue",
         panne="une seule phrase de la voix perdue renvoie l'appel au restaurant",
+    ),
+    GardeFou(
         nom="Réservation : un couvert ou une heure jamais dits sont refusés",
         fichier="api/app/llm.py",
         avant="    non_dit = _non_dit(tool_input, conversation)\n    if non_dit:",
@@ -1058,6 +1060,8 @@ GARDE_FOUS = [
         tests=["test_valeurs_inventees.py"],
         k="Appel163 or un_ne_vaut_pas",
         panne="appel 163 : le modèle enregistre une table à l'heure qu'il est, pour une personne, sans rien avoir demandé",
+    ),
+    GardeFou(
         nom="Vidange : un nouvel appel pendant un déploiement va au restaurant",
         fichier="api/app/main.py",
         avant="    if not panne and renvoi.vidange_en_cours():",
