@@ -9,8 +9,8 @@ Ce module ne passe PAS par Pipecat : GPT-Live accepte le format du téléphone t
 (µ-law 8 kHz), rend un flux continu au rythme de la parole, silences compris, et gère
 elle-même les interruptions. Il n'y a donc rien à détecter ni à assembler : on relaie
 l'audio dans les deux sens, et on répond à ses *délégations* — le travail qu'elle confie
-à un second modèle, lequel appelle nos outils. Notre Pipecat 1.5 ne connaît pas ce
-service, et monter de version pour un essai aurait touché tous les appels.
+à un second modèle, lequel appelle nos outils. Pipecat 1.5 ne connaissait pas ce service
+quand ce relais a été écrit (1.14 en a un, `services/openai/live`, non essayé).
 
 GPT-Live n'est que la voix. Le cerveau reste le nôtre : le modèle de `llm.MODEL`
 (Gemini 2.5 Flash par OpenRouter), celui qui sert déjà tous les appels et pour lequel

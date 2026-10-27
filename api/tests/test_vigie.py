@@ -68,6 +68,18 @@ class TestDeuxEchecsDeSuite:
     def test_un_seul_accroc_ne_suffit_pas(self):
         assert _jouer((_erreur(VOIX), VOIX))[1] == []
 
+    def test_l_echo_de_pipecat_ne_double_pas_une_phrase_perdue(self):
+        """Pipecat 1.14 ajoute sa propre erreur pour chaque phrase restée muette : une seule
+        phrase perdue ne doit pas compter deux fois."""
+        echo = ErrorFrame(error="TTS context ctx-1 completed with no audio")
+        echo.processor = VOIX
+        assert _jouer((_erreur(VOIX), VOIX), (echo, VOIX))[1] == []
+
+    def test_une_voix_hors_service_pour_pipecat_compte(self):
+        hors_service = ErrorFrame(error="3 consecutive TTS contexts completed with no audio")
+        hors_service.processor = VOIX
+        assert _jouer((_erreur(VOIX), VOIX), (hors_service, VOIX))[1] == [renvoi.VOIX]
+
     def test_une_phrase_reussie_remet_le_compte_a_zero(self):
         _, alertes = _jouer((_erreur(VOIX), VOIX), (BotStartedSpeakingFrame(), AUTRE),
                             (_erreur(VOIX), VOIX))
@@ -202,4 +214,54 @@ class TestAvecLeVraiPipeline:
         assert renvoi.panne_recente(42) == renvoi.VOIX
         # Chaque phrase a été essayée deux fois avant d'être abandonnée.
         assert len(voxtral_tts.echecs_depuis(60)) in (4, 6)
+        voxtral_tts.oublier_echecs()
+
+    def test_une_seule_phrase_perdue_ne_rend_pas_la_ligne(self, monkeypatch):
+        """Pipecat 1.14 ajoute, ~3 s après, sa propre erreur pour chaque phrase restée
+        muette. Sans le filtre de la vigie, une phrase perdue comptait deux fois et l'appel
+        partait au restaurant (relecture d'ASSISTANTE-179). Pas de transport de sortie ici :
+        aucune voix « sortie » ne remet le compte à zéro entre les deux."""
+        import numpy as np
+        from pipecat.frames.frames import EndFrame, TTSSpeakFrame
+        from pipecat.pipeline.pipeline import Pipeline
+        from pipecat.pipeline.runner import PipelineRunner
+        from pipecat.pipeline.task import PipelineParams, PipelineTask
+
+        from app.voice import voxtral_tts
+
+        async def une_phrase_perdue(client, texte, voix_id):
+            if texte.startswith("Bonjour"):
+                raise voxtral_tts.VoxtralErreur("HTTP 503 : service indisponible")
+            yield np.zeros(2400, dtype="<f4")
+
+        monkeypatch.setattr(voxtral_tts, "flux_pcm", une_phrase_perdue)
+        monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
+        voxtral_tts.oublier_echecs()
+        vues, erreurs = [], []
+
+        class Temoin(Vigie):
+            async def _erreur(self, frame, source):
+                erreurs.append(str(frame.error))
+                await super()._erreur(frame, source)
+
+        async def scenario():
+            async def alerter(maillon):
+                vues.append(maillon)
+
+            task = PipelineTask(Pipeline([voxtral_tts.VoxtralTTSService("fr_marie_neutral")]),
+                                observers=[Temoin(alerter)],
+                                params=PipelineParams(audio_out_sample_rate=8000))
+            await task.queue_frames([TTSSpeakFrame("Bonjour, je regarde nos disponibilités."),
+                                     TTSSpeakFrame("Pour combien de personnes ?")])
+
+            async def finir():
+                await asyncio.sleep(6)       # le temps que l'erreur de Pipecat arrive
+                await task.queue_frame(EndFrame())
+
+            await asyncio.wait_for(asyncio.gather(
+                PipelineRunner(handle_sigint=False).run(task), finir()), 20)
+
+        asyncio.run(scenario())
+        assert vues == []
+        assert any(e.startswith("Voxtral") for e in erreurs)
         voxtral_tts.oublier_echecs()

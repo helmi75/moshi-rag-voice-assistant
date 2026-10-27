@@ -15,10 +15,17 @@
   de Pipecat, celui de nltk).
 
 ### Corrigé
-- **« Une seule réponse par tour » aurait cassé chaque fin de tour** : Pipecat 1.14 passe un
-  troisième argument (`speculation`) au gestionnaire qu'on remplace ; le nôtre n'en prenait
-  que deux. Corrigé, et éprouvé par la vraie distribution d'événements de Pipecat — le test
-  d'avant appelait le gestionnaire à la main, avec deux arguments, et ne l'aurait pas vu.
+- **« Une seule réponse par tour »** : Pipecat 1.14 passe un troisième argument
+  (`speculation`) au gestionnaire qu'on remplace ; le nôtre n'en prenait que deux — une
+  TypeError à chaque fin de tour, journalisée par Pipecat. Corrigé, et éprouvé par la vraie
+  distribution d'événements de Pipecat.
+- **Une phrase perdue ne rend plus la ligne** : Pipecat 1.14 ajoute sa propre erreur pour
+  chaque phrase restée muette ; la vigie la comptait en plus de la nôtre, et un seul
+  accroc de la voix aurait renvoyé l'appel au restaurant. Filtré, prouvé sur un vrai
+  pipeline. Son erreur « plusieurs phrases muettes de suite » compte toujours.
+- **Pas de relance après un tour vide** (`empty_user_turn=None`) : nouveauté de Pipecat
+  1.14, active par défaut, qui relance le modèle avec une consigne en anglais ; on garde le
+  comportement mesuré jusqu'ici.
 
 ## Non publiée — les actions de la CI épinglées par empreinte (27/10/2026, ASSISTANTE-178)
 

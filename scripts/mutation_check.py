@@ -1044,6 +1044,15 @@ GARDE_FOUS = [
         panne="corriger un nom créerait une deuxième table : deux réservations et deux e-mails pour un client",
     ),
     GardeFou(
+        nom="Vigie : l'écho de Pipecat ne double pas une phrase perdue",
+        fichier="api/app/voice/vigie.py",
+        avant='        if _ECHO_DE_PIPECAT.fullmatch(str(getattr(frame, "error", "") or "")):',
+        apres="        if False:  # mutation",
+        tests=["test_vigie.py"],
+        k="echo_de_pipecat or une_seule_phrase_perdue",
+        panne="une seule phrase de la voix perdue renvoie l'appel au restaurant",
+    ),
+    GardeFou(
         nom="Rappel : hors plage, la demande compte dans les plafonds",
         fichier="api/app/rappel.py",
         avant="    if refus is not None:\n        return refus\n    debut, _ = heures()",

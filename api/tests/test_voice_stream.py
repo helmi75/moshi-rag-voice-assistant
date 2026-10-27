@@ -621,7 +621,7 @@ class TestReponseAnticipee:
     def test_par_la_vraie_distribution_d_evenements_de_pipecat(self):
         """Le contrôleur appelle le gestionnaire avec ses propres arguments (en 1.14 :
         stratégie ET spéculation). Appelé à la main avec deux, le test d'avant ne l'aurait
-        pas vu : chaque fin de tour levait une TypeError."""
+        pas vu : une TypeError à chaque fin de tour, avalée et journalisée par Pipecat."""
         agg = self._aggregateur()
         assert bot.une_seule_reponse_par_tour(agg) is True
         agg._push_aggregation = AsyncMock(return_value="Alors moi c'est")

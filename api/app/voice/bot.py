@@ -376,7 +376,8 @@ def une_seule_reponse_par_tour(aggregateur) -> bool:
         return False
 
     # `*_reste` : Pipecat 1.14 passe aussi `speculation` (une inférence anticipée, qu'on ne
-    # lance pas plus que l'autre). Sans lui, chaque fin de tour levait une TypeError.
+    # lance pas plus que l'autre). Sans lui, une TypeError à chaque fin de tour (avalée et
+    # journalisée par Pipecat, mais le signal ne partait plus).
     async def _signal_seulement(_controleur, strategie, *_reste):
         await aggregateur._call_event_handler("on_user_turn_inference_triggered", strategie)
 
@@ -723,7 +724,7 @@ async def run_bot(
     context_aggregator = LLMContextAggregatorPair(
         context,
         # VAD Silero pour le début de tour ; fin de tour via smart-turn v3 (défaut
-        # Pipecat 1.5, modèle ONNX embarqué) -> barge-in et coupures naturelles.
+        # Pipecat, modèle ONNX embarqué) -> barge-in et coupures naturelles.
         user_params=LLMUserAggregatorParams(
             vad_analyzer=SileroVADAnalyzer(params=vad_params),
             # Émet on_user_turn_idle si le client est inactif ce délai APRÈS que le bot
@@ -733,6 +734,11 @@ async def run_bot(
             user_turn_stop_timeout=turn_stop_timeout,
             # Ce qui autorise le client à couper la parole (cf. interruption_strategies).
             user_turn_strategies=interruption_strategies(),
+            # Pipecat 1.14 relance le modèle, avec une consigne en anglais au rôle
+            # « developer », après un tour fini sans transcription pendant que l'assistante
+            # parlait. Pas en 1.5 : on garde ce comportement, celui qu'on a mesuré
+            # (relecture d'ASSISTANTE-179). Le « toujours là ? » a son propre filet.
+            empty_user_turn=None,
         ),
     )
 

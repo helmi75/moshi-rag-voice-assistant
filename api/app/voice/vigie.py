@@ -14,6 +14,7 @@ déjà depuis trop longtemps pour parier sur la troisième.
 Passe par un OBSERVATEUR, comme la mesure de latence : rien n'est inséré sur le chemin
 de l'audio.
 """
+import re
 from typing import Awaitable, Callable, Optional
 
 from pipecat.frames.frames import (
@@ -30,6 +31,10 @@ from pipecat.services.tts_service import TTSService
 from .. import metriques, renvoi
 
 ERREURS_DE_SUITE = 2
+
+
+# L'erreur que Pipecat (1.14) ajoute pour chaque contexte de synthèse terminé sans audio.
+_ECHO_DE_PIPECAT = re.compile(r"TTS context \S+ completed with no audio")
 
 
 def cause(processeur) -> Optional[str]:
@@ -73,6 +78,12 @@ class Vigie(BaseObserver):
     async def _erreur(self, frame: ErrorFrame, source) -> None:
         # Une erreur remonte le pipeline de maillon en maillon : comptée une seule fois.
         if frame.id in self._vues:
+            return
+        if _ECHO_DE_PIPECAT.fullmatch(str(getattr(frame, "error", "") or "")):
+            # Pipecat 1.14 signale lui-même, ~3 s après, chaque phrase restée muette : pour
+            # une synthèse en échec, c'est le doublon de NOTRE erreur, et une seule phrase
+            # perdue aurait suffi à rendre la ligne (relecture d'ASSISTANTE-179). Son
+            # « N contextes de suite sans audio », lui, compte : la voix est hors service.
             return
         self._vues.add(frame.id)
         maillon = cause(getattr(frame, "processor", None)) or cause(source)
