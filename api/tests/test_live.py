@@ -1378,3 +1378,36 @@ class TestLeCreditOpenAIEpuise:
         monkeypatch.setattr(notifications, "_envoyer_sync", casse)
         assert self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted") is None
         assert live.credit_epuise() is not None
+
+
+class TestLeRappelDuSite:
+    """ASSISTANTE-134 (recette W5, 06/10/2026) : le rappel « Rappelez-moi » passe par
+    l'établissement de démonstration, dont le moteur est la voix temps réel. Le site promet
+    Marie : c'est l'accueil du rappel qui doit être donné, pas celui du restaurant."""
+
+    def test_l_accueil_du_rappel_est_donne_a_la_voix_temps_reel(self, client, monkeypatch, tenant):
+        from app import rappel
+
+        def scenario(evt, session):
+            if evt["type"] == "session.commentary.append":
+                return [_fragment("assistant", " Bonjour. Au revoir.", 500, 900)]
+            return []
+
+        session = FausseSession(scenario)
+        _brancher(monkeypatch, session)
+        debut = json.loads(_debut("CA-live-rappel"))
+        debut["start"]["customParameters"]["Rappel"] = "1"
+        run_bot = AsyncMock()
+        with patch("app.main._get_bot_runner", return_value=run_bot):
+            with client.websocket_connect("/ws/voice") as ws:
+                ws.send_text(json.dumps({"event": "connected"}))
+                ws.send_text(json.dumps(debut))
+                try:
+                    while True:
+                        ws.receive_text()
+                except WebSocketDisconnect:
+                    pass
+        assert run_bot.await_count == 0, "le rappel n'est pas passé par la voix temps réel"
+        dit = session.de_type("session.commentary.append")[0]["content"]
+        assert dit.startswith(rappel.ACCUEIL.format(nom=tenant.name))
+        assert "c'est Marie" in dit
