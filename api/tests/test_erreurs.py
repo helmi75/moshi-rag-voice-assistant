@@ -126,3 +126,19 @@ def test_une_erreur_du_flux_vocal_arrive_avec_etablissement_et_appel(sentry):
         assert NUMERO not in json.dumps(evenements[0], ensure_ascii=False)
     finally:
         tenants.delete_tenant(tenant.id)
+
+
+def test_les_journaux_ne_partent_jamais(sentry):
+    """Relecture du sprint 5 : l'intégration loguru de sentry-sdk s'active seule. Une phrase
+    d'appelant journalisée pendant l'appel serait partie en fil d'Ariane avec l'erreur
+    suivante, et un `logger.error` de Pipecat serait devenu un événement."""
+    from loguru import logger
+
+    logger.info("[rattrapage] entendu : « je voudrais une table au nom de Dupont »")
+    logger.error("DeepgramSTTService : phrase « au nom de Dupont » refusée")
+    assert sentry.evenements == []          # un journal d'erreur n'est pas un événement
+    erreurs.capturer(RuntimeError("boum"))
+    assert len(sentry.evenements) == 1
+    texte = json.dumps(sentry.evenements[0], ensure_ascii=False)
+    assert "Dupont" not in texte
+    assert not (sentry.evenements[0].get("breadcrumbs") or {}).get("values")

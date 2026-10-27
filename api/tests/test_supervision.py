@@ -1059,6 +1059,16 @@ class TestReplication:
         assert controle["niveau"] == supervision.ATTENTION
         assert "retard" in controle["resume"].lower()
 
+    def test_une_releve_ratee_ne_remet_pas_le_retard_a_zero(self, base, monkeypatch):
+        """Relecture du sprint 5 : un Litestream qui redémarre, tantôt muet tantôt en
+        retard, ne doit pas faire repartir le compteur des dix minutes."""
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_EN_RETARD)
+        debut = supervision.relire("replication")[0]["en_retard_depuis"]
+        self._relever(monkeypatch, injoignable=True)
+        self._relever(monkeypatch, METRIQUES_EN_RETARD)
+        assert supervision.relire("replication")[0]["en_retard_depuis"] == debut
+
     def test_le_retard_se_referme_quand_la_replique_rattrape(self, base, monkeypatch):
         monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
         self._relever(monkeypatch, METRIQUES_EN_RETARD)
@@ -1284,11 +1294,16 @@ class TestSecoursTwilio:
         assert "1 numéro(s) sur 2" in controle["resume"] and "…1234" in controle["resume"]
         assert "+1555" not in controle["resume"]
 
-    def test_une_url_de_secours_sur_notre_domaine_ne_compte_pas(self, base, monkeypatch):
-        """Elle tomberait avec le serveur, exactement quand on en a besoin."""
+    @pytest.mark.parametrize("secours", ["https://APP.helmane.fr/twilio/suite",
+                                         "https://preprod.helmane.fr/twilio/voice",
+                                         "https://helmane.fr/secours"])
+    def test_une_url_de_secours_sur_notre_domaine_ne_compte_pas(self, base, monkeypatch,
+                                                               secours):
+        """Elle tomberait avec le serveur, exactement quand on en a besoin : la préproduction
+        et la racine passent par la même machine et le même Caddy."""
         self._relever(monkeypatch, [
             {"phone_number": "+33512345678", "voice_url": self.PRINCIPALE,
-             "voice_fallback_url": "https://APP.helmane.fr/twilio/suite"}])
+             "voice_fallback_url": secours}])
         assert _controle("secours_twilio")["niveau"] == supervision.ATTENTION
 
     def test_tous_les_numeros_couverts_c_est_vert(self, base, monkeypatch):

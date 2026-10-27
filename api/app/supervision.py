@@ -1579,15 +1579,20 @@ def _hote(adresse: str) -> str:
         return ""
 
 
+def _domaine(hote: str) -> str:
+    """`app.helmane.fr`, `preprod.helmane.fr` et `helmane.fr` → `helmane.fr`."""
+    return ".".join(hote.split(".")[-2:])
+
+
 def _secours_utile(numero: dict) -> bool:
     """Une URL de secours ne sert que si elle est servie AILLEURS que l'URL principale :
     pointée sur notre propre domaine, elle tombe avec lui, exactement quand on en a
-    besoin (ASSISTANTE-157)."""
-    secours = str(numero.get("voice_fallback_url") or "").strip()
+    besoin (ASSISTANTE-157). Le domaine, pas l'hôte : `preprod.helmane.fr` passe par le
+    même serveur et le même Caddy que `app.helmane.fr` (relecture du sprint 5)."""
+    secours = _hote(str(numero.get("voice_fallback_url") or "").strip())
     if not secours:
         return False
-    principale = _hote(str(numero.get("voice_url") or ""))
-    return bool(_hote(secours)) and _hote(secours) != principale
+    return _domaine(secours) != _domaine(_hote(str(numero.get("voice_url") or "")))
 
 
 async def _relever_les_numeros(client, *, inactif: bool) -> None:
@@ -1709,6 +1714,11 @@ async def rafraichir_replication() -> None:
             depuis = _maintenant().isoformat()
         releve = {"a_jour": a_jour, "en_retard_depuis": depuis,
                   "erreurs": int(m.get("litestream_sync_error_count", 0))}
+    if "erreur" in releve and depuis:
+        # Une relève ratée ne remet pas le retard à zéro : un Litestream qui redémarre en
+        # boucle, tantôt muet tantôt en retard, n'atteindrait jamais les 10 minutes
+        # (relecture du sprint 5).
+        releve["en_retard_depuis"] = depuis
     await db.hors_boucle(noter, "replication", releve)
 
 

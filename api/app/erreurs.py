@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 import sentry_sdk
 from loguru import logger
+from sentry_sdk.integrations.logging import LoggingIntegration
+from sentry_sdk.integrations.loguru import LoguruIntegration
 
 # Un numéro : un « + » facultatif, puis au moins neuf chiffres séparés ou non par des
 # espaces, points ou tirets.
@@ -123,6 +125,15 @@ def initialiser(transport=None) -> bool:
             include_local_variables=False,
             max_request_body_size="never",
             traces_sample_rate=0,
+            # Les journaux ne partent JAMAIS : sentry-sdk active seul ses intégrations
+            # loguru et logging, qui feraient de chaque `logger.info` un fil d'Ariane et de
+            # chaque `logger.error` (Pipecat compris) un événement. Or nos journaux recopient
+            # la phrase de l'appelant (voice/rattrapage.py) et le résumé de l'appel
+            # (resume.py) : le filtre n'ôte que numéros et secrets (relecture du sprint 5).
+            disabled_integrations=[LoguruIntegration(), LoggingIntegration()],
+            # Aucun fil d'Ariane, de quelque source : une requête httpx en laisserait un
+            # avec son URL, et celle de Telegram porte le jeton du bot.
+            max_breadcrumbs=0,
             before_send=avant_envoi,
             before_breadcrumb=avant_fil,
             transport=transport,

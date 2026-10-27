@@ -247,7 +247,8 @@ services:
   # Réplication continue de la base vers un stockage objet (ASSISTANTE-158). Le profil
   # `replication` le garde éteint : sans COMPOSE_PROFILES=replication dans le .env, ce
   # service n'existe pas pour `docker compose up` et la production ne change pas. Il
-  # lit le même fichier que l'API (volume api_data) et n'y écrit jamais. Version épinglée,
+  # partage le fichier de l'API (volume api_data) et y ÉCRIT : ses tables `_litestream_*`
+  # et les points de contrôle du WAL. Ne jamais monter ce volume en lecture seule. Version épinglée,
   # jamais « latest » : une réplication qui change de format en silence ne se restaure pas.
   # Aucun `ports:` : ses métriques (:9090) ne sont lues que par l'API, sur le réseau Docker.
   litestream:

@@ -308,8 +308,16 @@ docker compose logs litestream | tail              # « wal segment written »
 `scripts/deploy.sh` relance `docker compose up -d --no-build` : sans le profil, le service
 n'existe pas pour lui ; avec, il est lancé comme le reste. Le contrôle « Réplication continue
 de la base » (docs/SUPERVISION.md) passe de « Non configurée » à « Réplique à jour ». Le
-service lit la base sans jamais l'écrire ; il a ses métriques sur le réseau Docker (`:9090`),
+service écrit dans la base (ses tables `_litestream_*` et les points de contrôle du WAL) : son volume ne se monte jamais en lecture seule ; il a ses métriques sur le réseau Docker (`:9090`),
 aucun port n'est publié.
+
+Deux pièges de `deploy.sh` (relecture du sprint 5) : une modification de
+`deploy/litestream.yml` n'est **pas** appliquée par un déploiement, puisque `up -d` ne
+recrée pas un conteneur dont l'image n'a pas changé. Il faut ensuite lancer
+`docker compose up -d --no-build --force-recreate litestream`. Un retour arrière vers une
+version d'avant ASSISTANTE-158 laisse le conteneur `litestream` tourner sans être
+surveillé, et sa configuration disparaît du disque. Il faut alors l'arrêter :
+`docker rm -f $(docker ps -q --filter name=litestream)`.
 
 **Restaurer** (machine perdue, ou base corrompue). L'API arrêtée, la base restaurée dans un
 dossier vide **d'abord**, vérifiée, puis seulement mise en place :
@@ -409,9 +417,11 @@ neuf, sans les réservations, et chaque clé est à régénérer chez son fourni
    régénère chez son fournisseur.
 5. **Registre** : `docker login ghcr.io -u helmi75` avec un jeton `read:packages`
    (« Exploitation », **Image**).
-6. **Base**, avant le premier démarrage de l'API : créer le volume (`docker compose create
-   api`), puis y restaurer la réplique (« Réplication continue », **Restaurer**) ou la
-   dernière archive (« Copie hors du serveur »). `PRAGMA integrity_check` doit répondre `ok`
+6. **Base**, avant le premier démarrage de l'API : restaurer la réplique (« Réplication
+   continue », **Restaurer** : `docker compose run … litestream` crée le volume) ou la
+   dernière archive (« Copie hors du serveur », dans un volume créé par `docker volume
+   create moshi-rag-voice-assistant_api_data`). **Pas** `docker compose create api` : l'image
+   n'est pas encore là (l'étape 8 la télécharge) et Compose la construirait sur le serveur. `PRAGMA integrity_check` doit répondre `ok`
    avant d'aller plus loin. Démarrer l'API sur un volume vide créerait une base neuve : le
    service répondrait, sans aucune réservation.
 7. **DNS** : l'enregistrement A de `app.helmane.fr` (et `preprod.helmane.fr`) vers la nouvelle
