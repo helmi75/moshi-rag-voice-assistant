@@ -1,0 +1,25 @@
+{# Se remplace lui-même toutes les 3 s : l'écran suit les appels sans rechargement. #}
+<section class="card card-table" id="appels-en-cours"
+         hx-get="/admin/calls/live/_liste{% if tenant_id %}?tenant_id={{ tenant_id }}{% endif %}"
+         hx-trigger="every 3s" hx-swap="outerHTML">
+  {% if appels %}
+  <table>
+    <thead>
+      <tr><th>Établissement</th><th>Début</th><th>Durée</th><th>Moteur</th><th>Incident</th></tr>
+    </thead>
+    <tbody>
+      {% for a in appels %}
+      <tr>
+        <td>{{ a.etablissement }}{% if a.incident %}<span class="chip chip-warn incident-court">{{ a.incident }}</span>{% endif %}</td>
+        <td>{{ a.debut | heure_paris }}</td>
+        <td>{{ a.duree }}</td>
+        <td>{{ a.moteur }}</td>
+        <td>{% if a.incident %}<span class="chip chip-warn">{{ a.incident }}</span>{% else %}<span class="muted">Aucun</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Aucun appel en cours.</p>
+  {% endif %}
+</section>

@@ -1,9 +1,10 @@
 """Journal des appels : liste filtrée + panneau de détail (fragment htmx)."""
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from .. import calls, db, messages, reservations, tenants
+from .. import calls, db, en_cours, messages, reservations, tenants
 from ..users import User
 from . import deps, presenters
 
@@ -38,6 +39,45 @@ def _pane_context(request: Request, call: dict) -> dict:
     return {"call": view, "reservation": resa,
             "messages": messages.messages_d_un_appel(call["id"]),
             "tenant": tenants.get_by_id(call["tenant_id"])}
+
+
+# Déclarées AVANT `/admin/calls/{call_id}` : « live » ne doit pas être pris pour un numéro.
+async def _appels_en_cours(user: User, tenant_id: Optional[int]) -> dict:
+    """Les appels du périmètre de `user`, prêts à afficher. Le super-admin sans filtre voit
+    tout le parc ; un restaurateur passe toujours par `resolve_tenant` (403 sur un autre)."""
+    if user.is_superadmin and tenant_id is None:
+        visibles = en_cours.lister()
+        noms = {t.id: t.name for t in await db.hors_boucle(tenants.list_all)}
+    else:
+        tenant = await db.hors_boucle(deps.resolve_tenant, tenant_id, user)
+        visibles, noms = en_cours.lister(tenant.id), {tenant.id: tenant.name}
+    maintenant = datetime.now(timezone.utc)
+    lignes = []
+    for e in visibles:
+        secondes = max(0, int((maintenant - e["debut"]).total_seconds()))
+        lignes.append({
+            "etablissement": noms.get(e["tenant_id"], f"#{e['tenant_id']}"),
+            "debut": e["debut"],
+            "duree": f"{secondes // 60} min {secondes % 60:02d} s",
+            "moteur": "temps réel" if e["moteur"] == en_cours.TEMPS_REEL else "classique",
+            "incident": e["incident"],
+        })
+    return {"appels": lignes, "tenant_id": tenant_id}
+
+
+@router.get("/admin/calls/live")
+async def appels_en_cours(request: Request, user: User = Depends(deps.current_user),
+                          tenant_id: Optional[int] = None):
+    deps.ensure_csrf(request)
+    return deps.templates.TemplateResponse(
+        request, "calls/live.html", await _appels_en_cours(user, tenant_id))
+
+
+@router.get("/admin/calls/live/_liste")
+async def appels_en_cours_liste(request: Request, user: User = Depends(deps.current_user),
+                                tenant_id: Optional[int] = None):
+    return deps.templates.TemplateResponse(
+        request, "calls/_live_liste.html", await _appels_en_cours(user, tenant_id))
 
 
 @router.get("/admin/calls")

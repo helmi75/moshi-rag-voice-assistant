@@ -186,7 +186,8 @@ class TestLAdminNeBloquePasLaBoucle:
 
             resa = reservations.create_reservation(t, "Hors boucle", "2030-03-13", "20:00", 2)
             monkeypatch.setattr(db, "get_conn", get_conn)
-            for page in ["/admin/", "/admin/health", "/admin/calls", "/admin/reservations",
+            for page in ["/admin/", "/admin/health", "/admin/calls", "/admin/calls/live",
+                         "/admin/calls/live/_liste", "/admin/reservations",
                          "/admin/tenants", f"/admin/tenants/{t}/edit",
                          f"/admin/tenants/{t}/knowledge", f"/admin/tenants/{t}/voice",
                          f"/admin/tenants/{t}/knowledge/fiches/nouvelle",

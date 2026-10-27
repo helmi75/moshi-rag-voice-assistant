@@ -365,6 +365,7 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T20 | Sans téléphone (tests) : une session refusée pour un établissement | Lui seul est à l'écart trois minutes ; « Santé & coûts » nomme l'établissement ; un deuxième établissement refusé pendant ce temps écarte tout le parc (ASSISTANTE-128) | |
 | T22 | Sans téléphone (tests) : une session refusée avec le code `credit_balance_exhausted` | Tout le parc passe par la chaîne classique ; un seul e-mail aux super-admins par épisode ; `/supervision` répond 503 avec le contrôle « Crédit OpenAI » en alerte jusqu'à ce qu'une session s'ouvre (ASSISTANTE-151) | |
 | T21 | Sans téléphone (tests) : la session tombe au milieu d'un appel | Le client est renvoyé au restaurant ; la fiche de l'appel dit « la voix s'est interrompue au milieu de l'appel », sans nommer le moteur ; l'appel suivant est servi par la chaîne classique (ASSISTANTE-129) | |
+| T23 🤖 (étage 1) | Ouvrir Admin → Appels en cours pendant un appel d'essai, puis le restaurateur de l'établissement, puis celui d'un autre | La ligne apparaît avec son établissement, sa durée qui avance et son moteur (« temps réel » ou « classique », sans nom de fournisseur) ; elle disparaît à la fin de l'appel ; le restaurateur ne voit que son établissement et reçoit 403 sur un autre (ASSISTANTE-164) | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 

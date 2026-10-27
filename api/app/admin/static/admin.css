@@ -618,6 +618,14 @@ tbody td { padding: .75rem .95rem; border-bottom: 1px solid var(--app-hairline);
 tbody tr { transition: background .12s ease; }
 tbody tr:hover { background: var(--app-surface-2); }
 tbody tr:last-child td { border-bottom: none; }
+/* Appels en cours : ni durée ni moteur ne se coupent ; sur téléphone la table défile. */
+#appels-en-cours td:nth-child(n+2) { white-space: nowrap; }
+#appels-en-cours .incident-court { display: none; }
+@media (max-width: 600px) {
+  /* L'incident est ce que le support cherche : il passe sous le nom plutôt que de sortir de l'écran. */
+  #appels-en-cours th:nth-child(5), #appels-en-cours td:nth-child(5) { display: none; }
+  #appels-en-cours .incident-court { display: block; margin-top: .3rem; width: fit-content; }
+}
 tr.htmx-swapping { opacity: 0.3; transition: opacity 0.2s; }
 
 /* ---- Transcript (bulles style iMessage) --------------------------------- */

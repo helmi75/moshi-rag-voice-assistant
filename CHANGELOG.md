@@ -7,6 +7,17 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la page « Appels en cours » (27/10/2026, ASSISTANTE-164)
+
+### Ajouté
+- **Admin → Appels en cours** : les appels qui se déroulent, avec leur établissement,
+  leur heure de début, leur durée, leur moteur (« temps réel » ou « classique », sans nom de
+  fournisseur) et leur dernier incident. Jusqu'ici, seul un compteur Prometheus le disait.
+  La liste se rafraîchit toute seule toutes les 3 s. Le restaurateur ne voit que son
+  établissement (403 sur un autre) ; le super-admin voit tout le parc.
+- **`app/en_cours.py`** : registre en mémoire du processus, alimenté par le flux média. Il ne
+  garde ni le numéro de l'appelant ni la transcription, et ne lève jamais d'exception.
+
 ## Non publiée — l'audit des dépendances bloque la CI (27/10/2026, ASSISTANTE-177)
 
 ### Sécurité
