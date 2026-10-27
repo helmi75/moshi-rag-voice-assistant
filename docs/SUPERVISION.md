@@ -232,6 +232,17 @@ L'envoi ne bloque jamais l'appelant et ne lève jamais. Le jeton est dans l'URL 
 Telegram : un échec ne journalise que le nom de l'exception et le code HTTP. Les épisodes
 sont en mémoire : un redémarrage de l'application peut répéter une alerte de panne qui dure.
 
+## Erreurs dans Sentry
+
+`api/app/erreurs.py` remonte à Sentry les erreurs de l'application, marquées de leur
+établissement (`etablissement`) et de leur appel (`appel`) : la pile d'une erreur du flux
+vocal et celle d'une tâche de fond qui finit en échec. Ce qui part et ce qui est retiré
+(numéros, corps, cookies, variables locales, secrets) : `docs/RGPD.md` § 2. Mise en place :
+ouvrir un compte (région UE), créer un projet Python, poser `SENTRY_DSN` (et, hors
+production, `SENTRY_ENVIRONMENT`) dans le `.env` du serveur. Sans DSN, le module ne fait
+rien. Ni traces de performance, ni journal de bord des requêtes : les erreurs seulement.
+Un filtre qui échoue jette l'événement plutôt que de l'envoyer brut.
+
 ## Angles morts, assumés
 
 - **Le TTS Modal n'est pas sondé activement.** Si le serveur de voix tombe et que

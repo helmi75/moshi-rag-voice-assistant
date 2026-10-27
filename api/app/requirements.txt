@@ -17,6 +17,8 @@ msgpack
 # hérités d'un autre paquet.
 numpy
 loguru
+# Erreurs remontées avec leur établissement et leur appel, sans donnée personnelle (app/erreurs.py).
+sentry-sdk[fastapi]~=2.0
 # Plateforme admin (dashboard server-rendered) : gabarits, sessions signées, mots de passe.
 jinja2
 itsdangerous

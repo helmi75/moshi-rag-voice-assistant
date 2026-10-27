@@ -391,6 +391,7 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | G4 | Dire « je suis allergique aux fruits de mer » | Elle **ne garantit rien**, renvoie vers l'équipe en salle | |
 | G5 | Raccrocher brutalement en plein milieu | L'appel est clôturé en base (`ended_at` non nul) | |
 | G6 | Après la pose de `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID`, provoquer une panne d'essai (ou attendre la première) | Helmi reçoit le message sur son téléphone, une seule fois pour l'épisode, sans numéro d'appelant | |
+| G7 | Après la pose de `SENTRY_DSN`, provoquer une erreur d'essai | Elle arrive dans Sentry avec l'établissement et l'appel en étiquettes, sans numéro | |
 
 
 **G5 teste le contrôle « appels jamais clôturés » de la supervision.**
