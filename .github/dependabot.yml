@@ -1,0 +1,11 @@
+# Les actions des workflows sont épinglées par l'empreinte de leur commit (ASSISTANTE-178) :
+# elles ne bougent plus seules, donc elles ne reçoivent plus seules leurs correctifs non plus.
+# Dependabot propose chaque montée en PR, qui passe la CI et la revue comme le reste.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ASSISTANTE-178 · actions"
