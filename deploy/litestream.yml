@@ -1,0 +1,26 @@
+# Réplication continue de la base SQLite (ASSISTANTE-158). Lue par le service `litestream`
+# de docker-compose.yml, qui ne démarre que si COMPOSE_PROFILES=replication. Tout vient de
+# l'environnement : aucun secret ici. Mode d'emploi : docs/DEPLOY.md, « Sauvegardes ».
+#
+# Les métriques servent à la tâche de fond de la supervision (contrôle « Réplication
+# continue de la base ») ; le port n'est publié nulle part, il n'existe que sur le réseau
+# interne de Docker.
+addr: ":9090"
+
+dbs:
+  - path: /app/data/app.db
+    replicas:
+      - type: s3
+        # Une URL s3://seau/dossier. Pour un stockage autre qu'Amazon, le point de
+        # terminaison se pose dans LITESTREAM_ENDPOINT (https://…).
+        url: ${LITESTREAM_REPLICA_URL}
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        endpoint: ${LITESTREAM_ENDPOINT}
+        force-path-style: ${LITESTREAM_PATH_STYLE}
+        # Intervalles par défaut de Litestream, écrits pour qu'on sache ce qu'on promet :
+        # le WAL part chaque seconde (la perte maximale visée), et un instantané complet
+        # chaque jour ; on garde sept jours de WAL derrière.
+        sync-interval: 1s
+        snapshot-interval: 24h
+        retention: 168h

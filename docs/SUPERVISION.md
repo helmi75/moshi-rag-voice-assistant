@@ -36,7 +36,7 @@ appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles mor
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les vingt et un contrôles
+## Les vingt-deux contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
@@ -58,6 +58,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Crédit OpenRouter | Le crédit qui paie le cerveau de la chaîne classique, aussi secours de GPT-Live (ASSISTANTE-172) : acheté moins consommé, lu à `/api/v1/credits` par la tournée quotidienne. Sous `SUPERVISION_CREDIT_OPENROUTER_MIN` (3 $, décision du 24/10/2026) : attention ; épuisé : panne. Relève ratée ou vieille de plus de 26 h : attention. Sans clé : OK, rien à surveiller | oui à 0 |
 | Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) ; message « rappelez dans quelques minutes » absent — si le GPU ne vient pas, l'appelant n'entendra que le silence | non |
 | Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité ; copie hors du serveur absente ou arrêtée (attention) | oui à 72 h |
+| Réplication continue de la base | Litestream (ASSISTANTE-158) a-t-il rattrapé la copie locale ? Une tâche de fond lit ses métriques chaque minute (aucun appel réseau dans la sonde) et compare la position de la réplique à celle du WAL local. Attention si les métriques sont injoignables, si la relève est vieille de plus de 5 min, ou si la réplique est en retard depuis 10 min. Sans `LITESTREAM_REPLICA_URL` : OK, « Non configurée », la sauvegarde quotidienne reste la seule protection | non : un appelant n'est pas concerné |
 | Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |
 | Espace disque | Un disque plein laisse passer les `SELECT` et fait échouer la seule chose qui compte : enregistrer une réservation | oui sous 2 Go |
 | Enregistrement des appels | Activé mais n'aboutit pas — « 0 sur 12 » est le cas qu'on veut voir | non |
@@ -129,7 +130,7 @@ Grafana Cloud, qui les garde et les trace. C'est là que se posent les alertes p
 Grafana Cloud ──1 min──► GET /metrics  (Authorization: Bearer METRIQUES_TOKEN)
   relève, garde,           api/app/metriques.py
   trace, alerte            • compteurs en mémoire, ZÉRO appel réseau
-                           • niveaux des 21 contrôles de supervision
+                           • niveaux des 22 contrôles de supervision
 ```
 
 Les mesures sont prises là où l'appel passe déjà — ouverture du flux (`main.py`), clôture

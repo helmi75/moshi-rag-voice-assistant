@@ -154,7 +154,7 @@ retrait est prévu (`docs/VOXTRAL.md`).
 
 ## Exploitation
 
-- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 21
+- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 22
   contrôles, une seule source pour l'écran « Santé & coûts » et la sonde `/supervision`.
   « Pas de mesure » n'est jamais un feu vert. La tournée de 8 h (`tournee.py`) les relit
   avec les échecs de GitHub Actions et n'écrit aux super-admins que si un point est à voir.
