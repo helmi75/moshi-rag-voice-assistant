@@ -282,6 +282,67 @@ zcat /opt/backups/db/app-AAAAMMJJ-HHMM.db.gz \
 docker compose start api
 ```
 
+### Réplication continue (Litestream, ASSISTANTE-158)
+
+La sauvegarde de 4 h laisse jusqu'à une journée de réservations à découvert. Le service
+`litestream` (image épinglée `litestream/litestream:0.3.13`, `deploy/litestream.yml`) envoie
+le journal de la base (WAL) à un stockage objet chaque seconde : la perte visée tombe à
+quelques secondes. Il est **éteint par défaut** (profil Compose `replication`) : tant que
+`COMPOSE_PROFILES` n'est pas posé, rien ne tourne et rien ne change.
+
+**Activer** (Helmi, après avoir ouvert un stockage objet **dans l'UE** : le choix du
+fournisseur est le sien, et son prix à relever à l'ouverture) :
+
+```bash
+# .env du serveur
+COMPOSE_PROFILES=replication
+LITESTREAM_REPLICA_URL=s3://seau/helmane          # seau/dossier
+LITESTREAM_ACCESS_KEY_ID=...
+LITESTREAM_SECRET_ACCESS_KEY=...
+LITESTREAM_ENDPOINT=https://...                    # vide pour Amazon S3
+LITESTREAM_PATH_STYLE=false                        # true si le fournisseur l'exige
+docker compose up -d --no-build                    # (ou le prochain deploy.sh)
+docker compose logs litestream | tail              # « wal segment written »
+```
+
+`scripts/deploy.sh` relance `docker compose up -d --no-build` : sans le profil, le service
+n'existe pas pour lui ; avec, il est lancé comme le reste. Le contrôle « Réplication continue
+de la base » (docs/SUPERVISION.md) passe de « Non configurée » à « Réplique à jour ». Le
+service lit la base sans jamais l'écrire ; il a ses métriques sur le réseau Docker (`:9090`),
+aucun port n'est publié.
+
+**Restaurer** (machine perdue, ou base corrompue). L'API arrêtée, la base restaurée dans un
+dossier vide **d'abord**, vérifiée, puis seulement mise en place :
+
+```bash
+cd /opt/moshi-rag-voice-assistant
+docker compose stop api litestream
+mkdir -p /tmp/restauration
+docker compose run --rm --no-deps -v /tmp/restauration:/restauration litestream \
+  restore -config /etc/litestream.yml -o /restauration/app.db /app/data/app.db
+sqlite3 /tmp/restauration/app.db "PRAGMA integrity_check; SELECT count(*) FROM reservations;"
+# si c'est bon : remplacer la base du volume, puis relancer
+cp /tmp/restauration/app.db /var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db
+rm -f /var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db-wal \
+      /var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db-shm
+docker compose up -d --no-build
+```
+
+Pour un point dans le temps : `-timestamp 2026-11-02T10:00:00Z` après `restore`. La commande `restore` a été éprouvée par `docker run` avec la même configuration ; le
+enrobage `docker compose run` ci-dessus ne l'a pas été sur un serveur. Les fichiers
+restaurés appartiennent à root (le conteneur y tourne) et sont en `0600`.
+
+**Éprouvé en local le 27/10/2026**, sur un MinIO jetable : base de 800 lignes en WAL avec
+écritures en continu, `restore` dans un dossier vide, `PRAGMA integrity_check` = `ok`, 800
+lignes retrouvées sur 800, en **6,4 s** conteneur compris. Cette durée est celle d'une
+petite base sur le réseau local, **pas** celle d'une vraie restauration depuis un stockage
+distant : elle croît avec la taille de la base et le débit du fournisseur, et reste à
+mesurer sur la vraie réplique (ligne S13 de `docs/RECETTE.md`).
+
+Les sauvegardes quotidiennes (`backup-db.sh`) restent utiles — fichier unique,
+restaurable sans Litestream — et peuvent viser **le même stockage** : `RCLONE_REMOTE`
+(ci-dessous, ASSISTANTE-80) accepte un autre dossier du même seau.
+
 ### Copie hors du serveur
 
 Les copies locales protègent d'une erreur de manipulation, pas de la perte de la machine :

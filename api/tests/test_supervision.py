@@ -88,7 +88,7 @@ class TestEnumeration:
                 "voxtral", "secours",
                 "credit_openai", "credit_openrouter",
                 "accueils",
-                "sauvegarde", "purge", "disque", "enregistrements"]
+                "sauvegarde", "replication", "purge", "disque", "enregistrements"]
 
     def test_tous_les_controles_sont_presents(self, base):
         assert [c["cle"] for c in supervision.etat(force=True)["controles"]] == self.ATTENDUS
@@ -973,6 +973,113 @@ class TestEcranAdmin:
             assert client.get("/admin/health").status_code == 403
         finally:
             tenants.delete_tenant(tenant.id)
+
+
+METRIQUES_A_JOUR = """\
+# TYPE litestream_replica_wal_index gauge
+litestream_replica_wal_index{db="/app/data/app.db",name="s3"} 3
+litestream_replica_wal_offset{db="/app/data/app.db",name="s3"} 1.285472e+06
+litestream_shadow_wal_index{db="/app/data/app.db"} 3
+litestream_shadow_wal_size{db="/app/data/app.db"} 1.285472e+06
+litestream_sync_error_count{db="/app/data/app.db"} 0
+"""
+# Le stockage est tombé : la réplique est restée à 4 152 octets, la copie locale a grossi
+# (relevé réel du 27/10/2026, MinIO arrêté pendant des écritures).
+METRIQUES_EN_RETARD = METRIQUES_A_JOUR.replace(
+    "litestream_replica_wal_offset{db=\"/app/data/app.db\",name=\"s3\"} 1.285472e+06",
+    "litestream_replica_wal_offset{db=\"/app/data/app.db\",name=\"s3\"} 4152")
+
+
+class TestReplication:
+    """La réplication continue (ASSISTANTE-158) est surveillée sans appel réseau dans la
+    sonde : une tâche de fond lit les métriques de Litestream. Jamais en panne — un
+    appelant n'est pas concerné, seule la perte du disque le serait."""
+
+    URL = "s3://helmane-eu/app"
+
+    def _relever(self, monkeypatch, corps=None, *, injoignable=False):
+        import asyncio
+
+        class _Reponse:
+            status_code = 200
+            text = corps or ""
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, adresse, **k):
+                assert adresse.startswith("http://litestream:9090")
+                if injoignable:
+                    raise ConnectionError("litestream ne répond pas")
+                return _Reponse()
+
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_replication())
+        supervision.vider_cache()
+
+    def test_sans_url_de_replique_rien_a_surveiller(self, base, monkeypatch):
+        monkeypatch.delenv("LITESTREAM_REPLICA_URL", raising=False)
+        controle = _controle("replication")
+        assert controle["niveau"] == supervision.OK
+        assert "Non configurée" in controle["resume"]
+        assert "Sauvegarde de la base" in controle["detail"]
+
+    def test_configuree_mais_jamais_relevee_nest_pas_un_feu_vert(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        assert _controle("replication")["niveau"] == supervision.ATTENTION
+
+    def test_replique_a_jour(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_A_JOUR)
+        controle = _controle("replication")
+        assert controle["niveau"] == supervision.OK
+        assert controle["mesure"]["a_jour"] is True
+
+    def test_metriques_injoignables_en_attention_jamais_en_panne(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, injoignable=True)
+        controle = _controle("replication")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "injoignable" in controle["resume"].lower()
+
+    def test_un_retard_court_ne_dit_rien_un_retard_de_dix_minutes_si(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_EN_RETARD)
+        assert _controle("replication")["niveau"] == supervision.OK   # il y a une seconde
+        # Le retard dure depuis onze minutes : la réplique ne rattrape plus.
+        depuis = (supervision._maintenant() - timedelta(minutes=11)).isoformat()
+        valeur, _ = supervision.relire("replication")
+        supervision.noter("replication", {**valeur, "en_retard_depuis": depuis})
+        supervision.vider_cache()
+        controle = _controle("replication")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "retard" in controle["resume"].lower()
+
+    def test_le_retard_se_referme_quand_la_replique_rattrape(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_EN_RETARD)
+        assert supervision.relire("replication")[0]["en_retard_depuis"]
+        self._relever(monkeypatch, METRIQUES_A_JOUR)
+        assert supervision.relire("replication")[0]["en_retard_depuis"] is None
+
+    def test_une_releve_vieille_est_signalee(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_A_JOUR)
+        with patch.object(supervision, "_maintenant",
+                          return_value=datetime.now(timezone.utc) + timedelta(minutes=20)):
+            controle = _controle("replication")
+        assert controle["niveau"] == supervision.ATTENTION
+
+    def test_ne_va_jamais_jusqua_la_panne(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, injoignable=True)
+        with patch.object(supervision, "_maintenant",
+                          return_value=datetime.now(timezone.utc) + timedelta(days=30)):
+            assert _controle("replication")["niveau"] == supervision.ATTENTION
 
 
 class TestCablage:

@@ -162,6 +162,7 @@ async def _demarrer_taches_de_fond():
     from . import rgpd
 
     taches.lancer(supervision.boucle_twilio(), nom="relève des alertes Twilio")
+    taches.lancer(supervision.boucle_replication(), nom="relève de la réplication")
     taches.lancer(tournee.boucle(), nom="tournée quotidienne")
     taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
     # Les séries de chaque établissement existent à zéro dès la première relève : une

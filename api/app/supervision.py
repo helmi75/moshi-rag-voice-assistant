@@ -638,6 +638,70 @@ def _controle_sauvegarde() -> Controle:
     )
 
 
+def replication_url() -> str:
+    """Où Litestream réplique la base (ASSISTANTE-158). Vide : rien n'est répliqué, et le
+    service `litestream` n'est pas lancé (docker-compose.yml, profil `replication`)."""
+    return os.getenv("LITESTREAM_REPLICA_URL", "").strip()
+
+
+# Au-delà de ce retard continu, la réplique ne rattrape plus : le stockage ou ses
+# identifiants sont en cause, pas un simple instant de latence.
+_REPLICATION_RETARD_MAX = timedelta(minutes=10)
+# La tâche de fond lit les métriques chaque minute : cinq minutes sans relève, c'est
+# qu'elle ne tourne plus.
+_REPLICATION_RELEVE_MAX = timedelta(minutes=5)
+
+
+def _controle_replication() -> Controle:
+    """La réplique continue de la base suit-elle l'écriture ? Lit l'ardoise que
+    `rafraichir_replication` tient à jour : aucun appel réseau dans la sonde.
+
+    Jamais PANNE, comme la copie distante de `_controle_sauvegarde` : un appelant n'est
+    pas concerné, la perte ne survient qu'avec un incident disque, et la sauvegarde
+    nocturne existe. « Pas de mesure » n'est pas un feu vert : configurée sans relève,
+    c'est ATTENTION."""
+    titre = "Réplication continue de la base"
+    if not replication_url():
+        return Controle("replication", titre, OK, "Non configurée.",
+                        "Rien n'est répliqué en continu : seule la sauvegarde quotidienne "
+                        "protège la base (voir « Sauvegarde de la base »). Activation : "
+                        "docs/DEPLOY.md, « Sauvegardes ».",
+                        mesure={"configuree": False})
+    memo = relire("replication")
+    if memo is None:
+        return Controle("replication", titre, ATTENTION, "Pas encore relevée.",
+                        "La tâche de fond n'a encore lu aucune métrique de Litestream "
+                        "(service `litestream` lancé ? COMPOSE_PROFILES=replication).",
+                        mesure={"configuree": True, "releve": False})
+    valeur, maj = memo
+    age = (_maintenant() - maj) if maj else None
+    mesure = {"configuree": True, "releve": "erreur" not in valeur,
+              "age_secondes": round(age.total_seconds()) if age else None}
+    if age is None or age > _REPLICATION_RELEVE_MAX:
+        return Controle("replication", titre, ATTENTION,
+                        "Relève figée : la réplication n'est plus surveillée.",
+                        "La tâche de fond ne tourne plus ; la réplique peut être à jour ou non, "
+                        "on ne le sait pas.", mesure=mesure)
+    if "erreur" in valeur:
+        return Controle("replication", titre, ATTENTION,
+                        "Métriques de Litestream injoignables.",
+                        f"Le service `litestream` ne répond pas ({valeur['erreur']}) : la base "
+                        "n'est probablement plus répliquée. `docker compose logs litestream`.",
+                        mesure=mesure)
+    mesure.update(a_jour=valeur.get("a_jour"), erreurs=valeur.get("erreurs"))
+    depuis = horloge.lire_utc(valeur.get("en_retard_depuis") or "")
+    if depuis is not None and _maintenant() - depuis >= _REPLICATION_RETARD_MAX:
+        minutes = int((_maintenant() - depuis).total_seconds() // 60)
+        return Controle("replication", titre, ATTENTION,
+                        f"La réplique est en retard depuis {minutes} min.",
+                        "Litestream écrit en local mais n'arrive plus à envoyer au stockage "
+                        "(identifiants, quota, réseau) : `docker compose logs litestream`. "
+                        "Un incident disque perdrait ce qui n'est pas parti.", mesure=mesure)
+    return Controle("replication", titre, OK,
+                    "Réplique à jour." if valeur.get("a_jour") else "Réplique en cours de rattrapage.",
+                    mesure=mesure)
+
+
 def _controle_purge() -> Controle:
     """La purge des données personnelles tourne-t-elle vraiment ? (#22)
 
@@ -1290,6 +1354,7 @@ def controles() -> list[Controle]:
         ("credit_openrouter", _controle_credit_openrouter),
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
+        ("replication", _controle_replication),
         ("purge", _controle_purge),
         ("disque", _controle_disque),
         ("enregistrements", _controle_enregistrements),
@@ -1587,3 +1652,78 @@ async def boucle_twilio() -> None:
         except Exception as exc:  # la boucle ne doit jamais mourir
             logger.warning(f"supervision : relève Twilio échouée ({exc}).")
         await asyncio.sleep(intervalle)
+
+
+# --- Relève de la réplication (tâche de fond) --------------------------------
+
+def _lire_metriques(texte: str) -> dict[str, float]:
+    """Les échantillons d'un texte Prometheus, par nom, sans les étiquettes (une seule base,
+    une seule réplique). Ce qui n'est pas un nombre est ignoré."""
+    mesures: dict[str, float] = {}
+    for ligne in texte.splitlines():
+        if not ligne or ligne.startswith("#"):
+            continue
+        gauche, _, valeur = ligne.rpartition(" ")
+        try:
+            mesures[gauche.split("{")[0]] = float(valeur)
+        except ValueError:
+            continue
+    return mesures
+
+
+async def rafraichir_replication() -> None:
+    """Lit une fois les métriques de Litestream (0.3.13) et note sur l'ardoise si la
+    réplique a rattrapé la copie locale. N'échoue jamais bruyamment.
+
+    Pourquoi comparer deux positions : sans écriture, rien n'avance et pourtant tout va
+    bien ; un compteur « dernière synchro » mentirait la nuit. La réplique est à jour
+    quand sa position (`litestream_replica_wal_index`/`_offset`) a rejoint celle du WAL
+    local (`litestream_shadow_wal_index`/`_size`) ; relevé réel, stockage arrêté : la
+    première restait à 4 152 octets pendant que la seconde grossissait. Le compteur
+    `litestream_sync_error_count` n'entre pas dans le verdict : un « database is locked »
+    passager (point de contrôle contre une écriture) l'incrémente sans conséquence."""
+    if not replication_url():
+        return
+    import httpx
+
+    adresse = os.getenv("LITESTREAM_METRIQUES_URL", "http://litestream:9090/metrics")
+    precedent = await db.hors_boucle(relire, "replication")
+    depuis = (precedent[0] if precedent else {}).get("en_retard_depuis")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            reponse = await client.get(adresse)
+        if reponse.status_code >= 400:
+            raise RuntimeError(f"HTTP {reponse.status_code}")
+        m = _lire_metriques(reponse.text)
+        local = (m["litestream_shadow_wal_index"], m["litestream_shadow_wal_size"])
+        replique = (m["litestream_replica_wal_index"], m["litestream_replica_wal_offset"])
+    except KeyError as exc:
+        releve: dict = {"erreur": f"métrique absente : {exc.args[0]}"}
+    except Exception as exc:
+        releve = {"erreur": type(exc).__name__}
+    else:
+        a_jour = replique >= local
+        if a_jour:
+            depuis = None
+        elif not depuis:
+            depuis = _maintenant().isoformat()
+        releve = {"a_jour": a_jour, "en_retard_depuis": depuis,
+                  "erreurs": int(m.get("litestream_sync_error_count", 0))}
+    await db.hors_boucle(noter, "replication", releve)
+
+
+async def boucle_replication() -> None:
+    """Relève chaque minute, lancée au démarrage ; ne fait rien sans réplique configurée."""
+    import asyncio
+
+    from loguru import logger
+
+    if not replication_url():
+        return
+    logger.info("supervision : relève de la réplication Litestream chaque minute.")
+    while True:
+        try:
+            await rafraichir_replication()
+        except Exception as exc:  # la boucle ne doit jamais mourir
+            logger.warning(f"supervision : relève de la réplication échouée ({exc}).")
+        await asyncio.sleep(60)

@@ -42,6 +42,10 @@ services:
       PUBLIC_URL: "${PUBLIC_URL:-}"
       TWILIO_SIGNATURE: "${TWILIO_SIGNATURE:-}"
       DB_PATH: "/app/data/app.db"
+      # Réplication continue (ASSISTANTE-158) : l'API ne répliquera rien elle-même, elle lit
+      # seulement ces deux variables pour savoir si la surveiller (service `litestream`).
+      LITESTREAM_REPLICA_URL: "${LITESTREAM_REPLICA_URL:-}"
+      LITESTREAM_METRIQUES_URL: "${LITESTREAM_METRIQUES_URL:-http://litestream:9090/metrics}"
       # URL publique du flux média annoncée à Twilio (wss://<domaine>/ws/voice). Exigée
       # par la supervision : sans elle, l'appel raccroche sans un mot.
       PUBLIC_WS_URL: "${PUBLIC_WS_URL:-}"
@@ -239,6 +243,27 @@ services:
       RESUME_MODEL:
     volumes:
       - api_data:/app/data
+
+  # Réplication continue de la base vers un stockage objet (ASSISTANTE-158). Le profil
+  # `replication` le garde éteint : sans COMPOSE_PROFILES=replication dans le .env, ce
+  # service n'existe pas pour `docker compose up` et la production ne change pas. Il
+  # lit le même fichier que l'API (volume api_data) et n'y écrit jamais. Version épinglée,
+  # jamais « latest » : une réplication qui change de format en silence ne se restaure pas.
+  # Aucun `ports:` : ses métriques (:9090) ne sont lues que par l'API, sur le réseau Docker.
+  litestream:
+    image: litestream/litestream:0.3.13
+    profiles: ["replication"]
+    restart: unless-stopped
+    command: ["replicate", "-config", "/etc/litestream.yml"]
+    environment:
+      LITESTREAM_REPLICA_URL: "${LITESTREAM_REPLICA_URL:-}"
+      LITESTREAM_ACCESS_KEY_ID: "${LITESTREAM_ACCESS_KEY_ID:-}"
+      LITESTREAM_SECRET_ACCESS_KEY: "${LITESTREAM_SECRET_ACCESS_KEY:-}"
+      LITESTREAM_ENDPOINT: "${LITESTREAM_ENDPOINT:-}"
+      LITESTREAM_PATH_STYLE: "${LITESTREAM_PATH_STYLE:-false}"
+    volumes:
+      - api_data:/app/data
+      - ./deploy/litestream.yml:/etc/litestream.yml:ro
 
   caddy:
     image: caddy:2-alpine

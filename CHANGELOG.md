@@ -7,6 +7,23 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — la base se réplique en continu (27/10/2026, ASSISTANTE-158)
+
+### Ajouté
+- **Réplication continue de la base** (Litestream 0.3.13, `deploy/litestream.yml`) : le
+  journal de la base part chaque seconde vers un stockage objet UE, au lieu d'une seule
+  sauvegarde à 4 h sur le serveur lui-même. Service Compose du profil `replication` :
+  **éteint tant que Helmi ne pose pas `COMPOSE_PROFILES=replication`**, donc aucun effet en
+  production à ce stade. Aucun port publié ; le service lit la base sans jamais l'écrire.
+- **Contrôle « Réplication continue de la base »** (le 22ᵉ) : une tâche de fond lit les
+  métriques de Litestream chaque minute et compare la position de la réplique à celle du WAL
+  local (relevé réel, stockage arrêté : 4 152 octets contre 1,5 Mo). Attention si les
+  métriques sont injoignables, la relève vieille, ou la réplique en retard depuis 10 min ;
+  jamais en panne. Sans stockage configuré : OK, « Non configurée ».
+- Restauration éprouvée sur un MinIO jetable : 800 lignes sur 800, `integrity_check` ok,
+  6,4 s (petite base, réseau local). `docs/DEPLOY.md` donne les commandes ; `docs/RGPD.md`
+  dit où vivent les copies.
+
 ## Non publiée — les erreurs remontent à Sentry (27/10/2026, ASSISTANTE-163)
 
 ### Ajouté
