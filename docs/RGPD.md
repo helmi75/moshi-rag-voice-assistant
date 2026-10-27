@@ -116,7 +116,7 @@ Relevé sur les pages publiques de Mistral le 27/10/2026, pas sur notre compte :
 2. Lire le lieu de traitement sur `trust.mistral.ai/subprocessors` et le reporter dans le
    tableau ci-dessus.
 3. Ajouter Mistral à la liste des sous-traitants ultérieurs donnée aux restaurateurs (contrat
-   Helmane ↔ restaurant, § 3).
+   Helmane ↔ restaurant).
 
 Autrement dit : **le contenu des conversations quitte l'Union européenne.** Ce n'est pas
 nécessairement interdit — cadres de transfert, clauses contractuelles types, Data Privacy
