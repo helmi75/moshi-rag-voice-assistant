@@ -211,7 +211,12 @@ garde_appels() {
 # arrive (trap). Un drapeau oublié ne compte plus au bout d'un quart d'heure.
 # Le chemin se calcule DANS le conteneur, à côté de la base : rien à deviner sur l'hôte.
 DRAPEAU_POSE=0
+VIDANGE_FAITE=0
 VIDANGE_ATTENTE="${VIDANGE_ATTENTE:-600}"
+# La jauge ne compte un appel qu'à l'ouverture de son flux (/ws/voice), une à deux secondes
+# après /twilio/voice : un appel accepté juste avant le drapeau serait sinon lancé non
+# compté, puis coupé (relecture d'ASSISTANTE-159). On lui laisse ce temps.
+VIDANGE_GRACE="${VIDANGE_GRACE:-10}"
 drapeau() {
   distant "cd '$CHEMIN' && docker compose exec -T api sh -c '$1 \"\$(dirname \"\${DB_PATH:-./data/app.db}\")/vidange\"'" >/dev/null 2>&1
 }
@@ -222,7 +227,7 @@ lever_drapeau() {
 }
 vidanger() {
   etape "Vidange : les nouveaux appels vont au restaurant, ceux en cours finissent…"
-  if drapeau touch; then DRAPEAU_POSE=1; else
+  if drapeau touch; then DRAPEAU_POSE=1; VIDANGE_FAITE=1; sleep "$VIDANGE_GRACE"; else
     echo "⚠ drapeau de vidange non posé (API arrêtée ?) : de nouveaux appels peuvent commencer pendant l'attente."
   fi
   local debut=$SECONDS appels
@@ -379,6 +384,10 @@ verifier() {
     esac
     [ "$pannes_avant" = "inconnues" ] && break
     nouvelles="$(comm -13 <(printf '%s\n' "$pannes_avant") <(pannes) | sed '/^$/d' | paste -sd, -)"
+    # Les renvois de la vidange sont voulus. La version lancée les excepte d'elle-même ; une
+    # version d'avant ASSISTANTE-159 (--version) les prendrait pour une panne, et le script
+    # défairait son propre lancement (relecture d'ASSISTANTE-159).
+    [ "$VIDANGE_FAITE" = 1 ] && nouvelles="$(printf '%s' "$nouvelles" | tr ',' '\n' | { grep -vx secours || true; } | paste -sd, -)"
     [ -z "$nouvelles" ] && break
     sleep 16   # la sonde garde son verdict 15 s en cache
   done

@@ -403,7 +403,10 @@ Deux garde-fous de `scripts/deploy.sh` servent d'abord ce cas, où personne ne r
   passés en secours », en attention, jamais en panne : sinon la vérification d'après
   lancement défaisait le déploiement. **Le premier déploiement de cette fonction** tourne
   encore contre une version qui ignore le drapeau : il attend la fin des appels sans
-  détourner les nouveaux.
+  détourner les nouveaux. Un appel accepté juste avant le drapeau n'est compté qu'à
+  l'ouverture de son flux : le script attend `VIDANGE_GRACE` (10 s) avant de mesurer.
+  **Le retour arrière automatique ne vidange pas** : les appels pris par la nouvelle version
+  pendant sa vérification (2 à 3 min) sont coupés si elle est défaite.
 - **Les journaux du conteneur** sont copiés dans `/opt/journaux` sur le serveur avant le
   lancement, lisibles par root seul, effacés à 14 jours par la sauvegarde de chaque nuit
   (`scripts/backup-db.sh`, synchronisée au déploiement) et par chaque déploiement

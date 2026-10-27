@@ -186,7 +186,7 @@ réel. Écarter l'établissement d'essai partout (`etablissement!="essai"`).
 | L'application ne répond plus | `absent(helmane_supervision_niveau{controle="global"})` pendant 3 min | La relève échoue : machine, réseau ou Caddy. La panne qui compte le plus |
 | Supervision en panne | `helmane_supervision_niveau{controle="global"} == 2` pendant 2 min | Le même verdict que `/supervision`, en 1 min au lieu de 15 |
 | Appels muets | `sum by (etablissement) (increase(helmane_appels_termines_total{issue="muet"}[30m])) >= 2` | La panne du 30/07/2026, par client |
-| Appels en secours | `sum by (etablissement) (increase(helmane_secours_total[10m])) > 0` | Un client n'a pas été servi par l'assistante |
+| Appels en secours | `sum by (etablissement) (increase(helmane_secours_total{motif!="vidange"}[10m])) > 0` | Un client n'a pas été servi par l'assistante. Les renvois d'une vidange de déploiement (ASSISTANTE-159) sont voulus : exclus. **Si la règle existe déjà chez Grafana Cloud, la mettre à jour** |
 | Blanc qui dérive | `histogram_quantile(0.9, sum by (etablissement, le) (rate(helmane_blanc_secondes_bucket[30m]))) > 2.5` | Le seuil « attention » de la supervision, par client |
 | Un maillon qui perd des phrases | `sum by (etablissement, maillon) (increase(helmane_erreurs_maillon_total[15m])) >= 5` | Une voix qui perd une phrase sur dix ne renvoie aucun appel : seule cette série la voit |
 

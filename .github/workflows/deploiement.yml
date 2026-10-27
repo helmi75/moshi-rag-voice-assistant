@@ -78,7 +78,9 @@ jobs:
   production:
     if: github.event_name == 'workflow_dispatch' && inputs.cible == 'production'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Téléchargement, jusqu'à 10 min de vidange (ASSISTANTE-159), vérification, et un retour
+    # arrière possible : 20 min pouvaient couper le job en plein lancement.
+    timeout-minutes: 35
     environment: production
     # Même groupe que la préproduction (voir plus haut).
     concurrency:
