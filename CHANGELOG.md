@@ -7,6 +7,19 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — chaque numéro sans URL de secours se voit (27/10/2026, ASSISTANTE-157)
+
+### Ajouté
+- **Contrôle « URL de secours Twilio »** (le 21ᵉ) : quand notre serveur ne répond plus, la
+  seule chose que Twilio peut encore jouer est l'URL de secours du numéro, et
+  `renvoi.py` comme la vigie tournent dans l'application. La relève Twilio, en tâche de
+  fond, lit désormais aussi les numéros du compte. Un numéro sans URL de secours, ou avec
+  une URL sur notre propre domaine (elle tomberait avec lui), met le contrôle en
+  attention ; il est nommé par ses quatre derniers chiffres. Jamais en panne : les appels
+  passent, c'est le filet qui manque.
+- `docs/TWILIO_SETUP.md` § 6 : ce que vérifie le contrôle, le cas d'un établissement sans
+  numéro de secours, la boucle possible, et l'essai serveur arrêté (S12).
+
 ## Non publiée — une sonde externe chaque minute : étude (27/10/2026, ASSISTANTE-162)
 
 ### Documentation

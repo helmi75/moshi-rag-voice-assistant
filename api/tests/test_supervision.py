@@ -83,7 +83,8 @@ class TestEnumeration:
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
     ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
-                "appels_echoues", "appels_inacheves", "latence", "twilio", "solde_twilio", "carnets",
+                "appels_echoues", "appels_inacheves", "latence", "twilio", "solde_twilio", "secours_twilio",
+                "carnets",
                 "voxtral", "secours",
                 "credit_openai", "credit_openrouter",
                 "accueils",
@@ -546,6 +547,9 @@ class TestTwilio:
             ("https://monitor.dublin.ie1.twilio.com/v1/Alerts", ("AC-test", "jeton-irlandais")),
             # Le solde : un seul compte pour les deux régions, lu à l'API américaine.
             ("https://api.twilio.com/2010-04-01/Accounts/AC-test/Balance.json",
+             ("AC-test", "jeton-americain")),
+            # Les numéros aussi : ils sont au compte, pas à une région (ASSISTANTE-157).
+            ("https://api.twilio.com/2010-04-01/Accounts/AC-test/IncomingPhoneNumbers.json",
              ("AC-test", "jeton-americain"))]
         valeur, _ = supervision.relire("twilio")
         assert valeur == {"erreurs": 3, "codes": {"11200": 3}}
@@ -1115,3 +1119,81 @@ class TestCreditOpenAI:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         live._credit_epuise.update({"le": "2026-10-12T08:30:00Z", "refus": 1})
         assert self._controle()["niveau"] == supervision.OK
+
+
+class TestSecoursTwilio:
+    """ASSISTANTE-157 : quand le serveur ne répond plus, seule l'URL de secours réglée chez
+    Twilio sert encore l'appel. Un numéro qui n'en a pas doit se voir."""
+
+    def _relever(self, monkeypatch, numeros=None, statut=200):
+        import asyncio
+
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-test")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "jeton-americain")
+        monkeypatch.delenv("TWILIO_AUTH_TOKEN_IE1", raising=False)
+
+        class _Reponse:
+            def __init__(self, corps, status_code=200):
+                self.corps, self.status_code = corps, status_code
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.corps
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, adresse, params=None, auth=None):
+                if adresse.endswith("/IncomingPhoneNumbers.json"):
+                    return _Reponse({"incoming_phone_numbers": numeros or []}, statut)
+                if adresse.endswith("/Balance.json"):
+                    return _Reponse({"balance": "20", "currency": "USD"})
+                return _Reponse({"alerts": []})
+
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_twilio())
+        supervision.vider_cache()
+
+    PRINCIPALE = "https://app.helmane.fr/twilio/voice"
+
+    def test_sans_releve_le_controle_le_dit(self, base):
+        assert "Pas encore relevé" in _controle("secours_twilio")["resume"]
+
+    def test_un_numero_sans_url_de_secours_est_signale_par_sa_fin(self, base, monkeypatch):
+        self._relever(monkeypatch, [
+            {"phone_number": "+33512345678", "voice_url": self.PRINCIPALE,
+             "voice_fallback_url": "https://handler.twilio.com/twiml/EH-test"},
+            {"phone_number": "+15550001234", "voice_url": self.PRINCIPALE,
+             "voice_fallback_url": ""},
+        ])
+        controle = _controle("secours_twilio")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "1 numéro(s) sur 2" in controle["resume"] and "…1234" in controle["resume"]
+        assert "+1555" not in controle["resume"]
+
+    def test_une_url_de_secours_sur_notre_domaine_ne_compte_pas(self, base, monkeypatch):
+        """Elle tomberait avec le serveur, exactement quand on en a besoin."""
+        self._relever(monkeypatch, [
+            {"phone_number": "+33512345678", "voice_url": self.PRINCIPALE,
+             "voice_fallback_url": "https://APP.helmane.fr/twilio/suite"}])
+        assert _controle("secours_twilio")["niveau"] == supervision.ATTENTION
+
+    def test_tous_les_numeros_couverts_c_est_vert(self, base, monkeypatch):
+        self._relever(monkeypatch, [
+            {"phone_number": "+33512345678", "voice_url": self.PRINCIPALE,
+             "voice_fallback_url": "https://handler.twilio.com/twiml/EH-test"}])
+        controle = _controle("secours_twilio")
+        assert controle["niveau"] == supervision.OK
+        assert controle["mesure"] == {"releve": True, "numeros": 1, "sans_secours": 0}
+
+    def test_une_releve_refusee_n_est_pas_un_feu_vert(self, base, monkeypatch):
+        self._relever(monkeypatch, statut=500)
+        controle = _controle("secours_twilio")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "INCONNU" in controle["detail"]

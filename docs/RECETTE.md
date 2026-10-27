@@ -293,6 +293,7 @@ l'établissement. Il faut deux téléphones : celui qui appelle, et celui du num
 | S8 🤖 (étage 2) | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
 | S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
 | S11 | Pendant un déploiement (ASSISTANTE-159) : être en ligne avec l'assistante, et appeler d'un second téléphone pendant que `deploy.sh` affiche « Vidange » | Le premier appel va à son terme, sans coupure ; le second sonne au restaurant (ou au répondeur) ; le script lance la nouvelle version après le raccrochage du premier. 🤖 en partie : `test_vidange.py`, et la logique d'attente éprouvée avec une fausse jauge | |
+| S12 | Serveur arrêté, avec l'accord de Helmi, hors des heures d'appels (ASSISTANTE-157) : appeler le numéro | Le restaurant sonne (bin de secours Twilio), sinon le message « merci de rappeler » ; « Santé & coûts » montrait « URL de secours Twilio » au vert avant l'essai. 🤖 en partie : `test_supervision.py::TestSecoursTwilio` | |
 | S10 🤖 (étage 2) | Appeler la ligne et raccrocher dès la première sonnerie, puis rappeler aussitôt (ASSISTANTE-127) | Le second appel est servi par l'assistante, pas par le répondeur ; « Appels passés en secours » ne bouge pas | |
 
 ## W. Le site et « Rappelez-moi » (ASSISTANTE-119)

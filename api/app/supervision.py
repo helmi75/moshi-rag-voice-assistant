@@ -863,6 +863,60 @@ def _controle_twilio() -> Controle:
     )
 
 
+def _fin_du_numero(numero: str) -> str:
+    return f"…{numero[-4:]}" if len(numero) >= 4 else "…"
+
+
+def _controle_secours_twilio() -> Controle:
+    """Chaque numéro a-t-il une URL de secours servie hors de notre serveur ?
+    (ASSISTANTE-157). Sans elle, un serveur injoignable laisse l'appelant dans le vide :
+    `renvoi.py` et la vigie tournent DANS l'application et ne peuvent rien. Attention,
+    jamais panne : les appels passent aujourd'hui, c'est le filet qui manque."""
+    titre = "URL de secours Twilio"
+    memo = relire("numeros_twilio")
+    if memo is None:
+        return Controle(
+            "secours_twilio", titre, OK,
+            "Pas encore relevé — ce contrôle ne dit rien pour l'instant.",
+            "La relève a lieu avec celle des alertes Twilio, au démarrage puis "
+            "périodiquement.",
+            mesure={"releve": False},
+        )
+    valeur, _maj = memo
+    if valeur.get("erreur"):
+        return Controle(
+            "secours_twilio", titre, ATTENTION,
+            f"Relève impossible ({valeur['erreur']}).",
+            "On ne sait pas si les numéros ont une URL de secours : l'état est INCONNU, "
+            "pas bon.",
+            mesure={"releve": False, "cause": valeur["erreur"]},
+        )
+    numeros = valeur.get("numeros") or []
+    sans = [n["numero"] for n in numeros if not n.get("secours")]
+    if not numeros:
+        return Controle(
+            "secours_twilio", titre, OK,
+            "Aucun numéro sur le compte Twilio — pas de mesure.",
+            mesure={"releve": True, "numeros": 0, "sans_secours": 0},
+        )
+    if sans:
+        return Controle(
+            "secours_twilio", titre, ATTENTION,
+            f"{len(sans)} numéro(s) sur {len(numeros)} sans URL de secours "
+            f"({', '.join(_fin_du_numero(n) for n in sans)}).",
+            "Si le serveur ne répond plus, Twilio n'a rien d'autre à jouer et l'appelant "
+            "n'entend rien. À régler dans la console Twilio, numéro par numéro, avec une "
+            "cible servie hors de notre serveur (docs/TWILIO_SETUP.md, « URL de secours ») ; "
+            "une URL de secours sur notre propre domaine compte comme absente.",
+            mesure={"releve": True, "numeros": len(numeros), "sans_secours": len(sans)},
+        )
+    return Controle(
+        "secours_twilio", titre, OK,
+        f"Les {len(numeros)} numéro(s) ont une URL de secours hors de notre serveur.",
+        mesure={"releve": True, "numeros": len(numeros), "sans_secours": 0},
+    )
+
+
 def _controle_solde_twilio() -> Controle:
     """Le solde du compte Twilio, relevé avec les alertes (`_relever_le_solde`). Sous le
     seuil, attention ; à zéro ou compte suspendu, panne : plus un appel ne passe."""
@@ -1228,6 +1282,7 @@ def controles() -> list[Controle]:
         ("latence", _controle_latence),
         ("twilio", _controle_twilio),
         ("solde_twilio", _controle_solde_twilio),
+        ("secours_twilio", _controle_secours_twilio),
         ("carnets", _controle_carnets),
         ("voxtral", _controle_voxtral),
         ("secours", _controle_secours),
@@ -1357,6 +1412,7 @@ async def rafraichir_twilio() -> None:
             except Exception as exc:
                 muettes[region] = type(exc).__name__
         await _relever_le_solde(client, inactif=COMPTE_INACTIF in muettes.values())
+        await _relever_les_numeros(client, inactif=COMPTE_INACTIF in muettes.values())
     if len(muettes) == len(acces):
         await db.hors_boucle(noter, "twilio", {"erreur": next(iter(muettes.values()))})
         return
@@ -1448,6 +1504,54 @@ async def _relever_le_solde(client, *, inactif: bool) -> None:
         taches.lancer(notifications.prevenir_solde_twilio(
             releve.get("solde"), releve.get("devise"), solde_twilio_seuil()),
             nom="e-mail solde Twilio")
+
+
+def _hote(adresse: str) -> str:
+    from urllib.parse import urlparse
+    try:
+        return (urlparse(adresse).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _secours_utile(numero: dict) -> bool:
+    """Une URL de secours ne sert que si elle est servie AILLEURS que l'URL principale :
+    pointée sur notre propre domaine, elle tombe avec lui, exactement quand on en a
+    besoin (ASSISTANTE-157)."""
+    secours = str(numero.get("voice_fallback_url") or "").strip()
+    if not secours:
+        return False
+    principale = _hote(str(numero.get("voice_url") or ""))
+    return bool(_hote(secours)) and _hote(secours) != principale
+
+
+async def _relever_les_numeros(client, *, inactif: bool) -> None:
+    """Les numéros du compte et leur URL de secours (Voice Fallback URL), notés sur
+    l'ardoise (`numeros_twilio`). Quand notre serveur ne répond plus, c'est Twilio qui
+    applique cette URL : rien dans l'application ne peut prendre le relais, puisqu'elle
+    est injoignable. Les numéros appartiennent au compte, pas à une région : lus à l'API
+    américaine. N'échoue jamais bruyamment."""
+    identifiants = twilio_region.identifiants("us1")
+    if inactif:
+        releve: dict = {"erreur": COMPTE_INACTIF}
+    elif not identifiants:
+        releve = {"erreur": "identifiants Twilio absents"}
+    else:
+        try:
+            reponse = await client.get(
+                f"{twilio_region.hote('us1')}/2010-04-01/Accounts/{identifiants[0]}"
+                "/IncomingPhoneNumbers.json",
+                params={"PageSize": 100}, auth=identifiants)
+            if reponse.status_code >= 400:
+                releve = {"erreur": _motif_du_refus(reponse)}
+            else:
+                numeros = (reponse.json() or {}).get("incoming_phone_numbers") or []
+                # Nos propres numéros (ceux des établissements), pas ceux d'appelants.
+                releve = {"numeros": [{"numero": str(n.get("phone_number") or ""),
+                                       "secours": _secours_utile(n)} for n in numeros]}
+        except Exception as exc:
+            releve = {"erreur": type(exc).__name__}
+    await db.hors_boucle(noter, "numeros_twilio", releve)
 
 
 def solde_insuffisant() -> Optional[str]:

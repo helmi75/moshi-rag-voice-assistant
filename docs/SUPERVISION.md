@@ -36,7 +36,7 @@ appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles mor
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les vingt contrôles
+## Les vingt et un contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
@@ -50,6 +50,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Blanc ressenti | Dérive de la latence (mesuré en prod : 1,16 s ; attention à 2,5 s, panne à 4 s) | oui |
 | Alertes Twilio | Webhook injoignable, TwiML invalide — **invisible de l'intérieur**. Relevées dans chaque région dont on a le jeton ; une région qui le refuse est nommée (« relève impossible en ie1 (HTTP 401) ») sans faire taire l'autre. Un compte Twilio **suspendu** (401, « is not active ») est nommé pour ce qu'il est, et non plus pris pour un jeton à renouveler | si le compte est suspendu |
 | Solde Twilio | Le solde du compte, relevé avec les alertes (un seul compte pour les deux régions, lu à l'API américaine). Sous `SUPERVISION_SOLDE_TWILIO_MIN` (5 $, décision du 23/10/2026) : attention, un e-mail aux super-admins une fois par épisode, et la recette automatique ne compose plus — elle refuse aussi un solde inconnu ou relevé il y a plus d'une heure. Le 12/10/2026, le solde s'est vidé sans prévenir et la ligne est restée morte onze jours | à zéro, ou compte suspendu |
+| URL de secours Twilio | Un numéro du compte sans URL de secours (*Voice Fallback URL*) servie hors de notre serveur (ASSISTANTE-157). Quand le serveur ne répond plus, c'est la seule chose que Twilio peut encore jouer : `renvoi.py` et la vigie tournent dans l'application. Relevé avec les alertes, à l'API américaine (les numéros sont au compte). Une URL de secours sur notre propre domaine compte comme absente ; les numéros sont nommés par leurs quatre derniers chiffres | non |
 | Carnet resOS | Établissements dont les réservations vont dans resOS : clé API absente, ou resOS en échec (état écrit sur l'ardoise à chaque changement, il survit aux redémarrages). Pendant la panne, l'assistante prend des messages au lieu de réserver. Le bac à sable plafonne à « attention » : une panne simulée ne réveille pas l'alerte | oui si dernier échec < 1 h |
 | Voix Mistral | La voix de tous les établissements (Voxtral) : clé `MISTRAL_API_KEY` absente (voix de secours Moshi, réveil de GPU), ou synthèses échouées dans l'heure — chacune est une phrase que l'appelant n'a pas entendue. On ne sonde pas Mistral : chaque sonde serait facturée | oui si la clé manque |
 | Appels passés en secours | Des appels que l'assistante n'a pas pu servir (ASSISTANTE-118) : renvoyés au restaurant, passés au répondeur, ou repartis sans personne — une panne de fournisseur de dix minutes ne laisse rien d'autre dans la base. Attention aussi si un établissement n'a pas de numéro de secours. Les essais lancés depuis l'admin ne comptent pas. Les renvois d'une vidange de déploiement (ASSISTANTE-159) comptent, mais en attention seulement | oui si un appel est passé en secours dans les 20 dernières minutes, hors vidange |
@@ -128,7 +129,7 @@ Grafana Cloud, qui les garde et les trace. C'est là que se posent les alertes p
 Grafana Cloud ──1 min──► GET /metrics  (Authorization: Bearer METRIQUES_TOKEN)
   relève, garde,           api/app/metriques.py
   trace, alerte            • compteurs en mémoire, ZÉRO appel réseau
-                           • niveaux des 20 contrôles de supervision
+                           • niveaux des 21 contrôles de supervision
 ```
 
 Les mesures sont prises là où l'appel passe déjà — ouverture du flux (`main.py`), clôture
