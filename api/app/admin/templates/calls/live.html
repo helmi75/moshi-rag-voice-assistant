@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Appels en cours{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Appels en cours</h1>
+    <p class="lede">Les appels qui se déroulent maintenant, mis à jour toutes les 3 secondes.
+      <a href="/admin/calls">Voir le journal des appels</a></p>
+  </div>
+</div>
+{% include "calls/_live_liste.html" %}
+{% endblock %}

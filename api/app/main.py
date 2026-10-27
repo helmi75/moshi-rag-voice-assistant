@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, W
 from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
-from . import (calls, db, llm, messages, metriques, notifications, rappel, renvoi,
+from . import (calls, db, en_cours, llm, messages, metriques, notifications, rappel, renvoi,
                supervision, taches, tenants, tournee, twilio_signature, users)
 from .voice import live
 
@@ -627,6 +627,7 @@ async def voice_stream(websocket: WebSocket):
     # la cause : c'est la jauge « appels en cours » des tableaux de bord.
     etablissement_mesure = tenant.id
     metriques.appel_ouvert(etablissement_mesure, call_sid)
+    en_cours.ouvrir(call_sid, tenant.id)
     try:
         # GPT-Live (app/voice/live.py) : seulement pour les établissements dont c'est le
         # moteur, seulement s'il n'est pas à l'écart après un échec, et seulement si la
@@ -635,10 +636,12 @@ async def voice_stream(websocket: WebSocket):
             tenant_live, prompt_live = await live.preparer(tenant, from_number, demonstration)
             session_live = await live.ouvrir(tenant_live, prompt_live, bool(from_number))
         if session_live is not None:
+            en_cours.moteur(call_sid, "temps_reel")
             await live.run_live(websocket, session_live, stream_sid, call_sid, tenant_live,
                                 caller_number=from_number, call_id=call_id,
                                 prompt_systeme=prompt_live)
         else:
+            en_cours.moteur(call_sid, "classique")
             await run_bot(websocket, stream_sid, call_sid, tenant,
                           caller_number=from_number, call_id=call_id,
                           demonstration=demonstration)
@@ -663,3 +666,4 @@ async def voice_stream(websocket: WebSocket):
             pass  # déjà fermée
     finally:
         metriques.appel_ferme(etablissement_mesure, call_sid)
+        en_cours.fermer(call_sid)

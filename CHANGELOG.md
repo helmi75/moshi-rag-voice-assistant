@@ -38,6 +38,16 @@
   « seul », « une personne »… Le refus dit au modèle ce qui manque, il le demande.
   Chaîne classique et cerveau de la voix temps réel ; pas l'appel direct d'un outil par la
   voix temps réel, dont la transcription peut arriver après lui. Rien ne change par SMS.
+## Non publiée — la page « Appels en cours » (27/10/2026, ASSISTANTE-164)
+
+### Ajouté
+- **Admin → Appels en cours** : les appels qui se déroulent, avec leur établissement,
+  leur heure de début, leur durée, leur moteur (« temps réel » ou « classique », sans nom de
+  fournisseur). Pas encore d'incident par appel (non mesuré, voir `app/en_cours.py`). Jusqu'ici, seul un compteur Prometheus le disait.
+  La liste se rafraîchit toute seule toutes les 3 s. Le restaurateur ne voit que son
+  établissement (403 sur un autre) ; le super-admin voit tout le parc.
+- **`app/en_cours.py`** : registre en mémoire du processus, alimenté par le flux média. Il ne
+  garde ni le numéro de l'appelant ni la transcription, et ne lève jamais d'exception.
 ## Non publiée — les actions de la CI épinglées par empreinte (27/10/2026, ASSISTANTE-178)
 
 ### Sécurité
