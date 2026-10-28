@@ -77,7 +77,7 @@ Rien à régler côté Twilio pour les deux premiers cas : c'est l'application q
 |---|---|---|
 | La voix, le modèle ou la transcription lâche **pendant** l'appel (deux échecs de suite) | L'assistante rend la ligne ; Twilio lit la suite du TwiML (`/twilio/suite`) : le restaurant sonne 15 s, sinon répondeur | « Fiche établissement » → **Numéro de secours** |
 | Une panne vient d'être constatée (moins de 3 minutes) | Les appels suivants sont renvoyés dès le décroché, sans revivre le silence | idem |
-| **Notre serveur ne répond plus du tout** (VPS éteint, déploiement en cours) | Twilio n'obtient aucun TwiML : l'appel échoue, **sauf** si le numéro a une adresse de secours | console Twilio, ci-dessous — **pas encore fait** |
+| **Notre serveur ne répond plus du tout** (VPS éteint, déploiement en cours) | Twilio n'obtient aucun TwiML : l'appel échoue, **sauf** si le numéro a une adresse de secours | console Twilio, ci-dessous. Le contrôle « URL de secours Twilio » de la supervision (ASSISTANTE-157) signale chaque numéro qui n'en a pas |
 
 Pour le troisième cas, l'adresse de secours doit vivre hors de notre serveur. Dans la
 console Twilio : *TwiML Bins* → créer un bin par numéro, avec le numéro de secours de
@@ -95,6 +95,19 @@ l'établissement :
 puis *Phone Numbers* → le numéro → *A call comes in* → **Primary handler fails** → ce bin.
 Ce bin ne connaît ni les horaires ni le répondeur : il sonne, et c'est tout. À refaire si
 le numéro de secours change.
+
+Ce que la supervision vérifie (ASSISTANTE-157) : chaque numéro du compte a une URL de
+secours, et elle n'est **pas** sur notre domaine. Une adresse de secours en
+`app.helmane.fr/…` tomberait avec le serveur, exactement quand on en a besoin : elle compte
+comme absente. Un établissement sans numéro de secours (le Banc d'essai) garde un bin
+sans `<Dial>`, avec le seul message. Le bin ne sait pas non plus écarter un appel venu du
+numéro de secours (la règle anti-boucle ci-dessous vit dans l'application) : si le fixe du
+restaurant renvoie vers nous quand personne ne décroche, les 15 s de sonnerie limitent la
+boucle à un aller-retour, payé au tarif du renvoi.
+
+**Essayer** (avec l'accord de Helmi : c'est une coupure en production) : hors des heures
+d'appels, arrêter l'application quelques minutes, appeler le numéro, le restaurant doit
+sonner ; puis relancer par `scripts/deploy.sh --version <commit en service>`.
 
 **Coût d'un appel renvoyé** (grille Twilio du compte, France, relevée le 01/10/2026) :
 l'appel reçu continue de courir (0,010 $/min) et le renvoi s'y ajoute — 0,0187 $/min vers

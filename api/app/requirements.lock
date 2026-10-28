@@ -12,6 +12,10 @@
 # 27/10/2026 (ASSISTANTE-179) : pipecat-ai 1.5.0 → 1.14.0 (--upgrade-package pipecat-ai pillow), pour
 # Pillow 13 (38 avis) ; nltk n'est plus demandé. Les autres versions bougent seulement là où
 # Pipecat 1.14 change ses dépendances (scipy, pyloudnorm → soundfile, loudness ; h2…).
+# 27/10/2026 (ASSISTANTE-163) : sentry-sdk 2.73.0 ajouté (--upgrade-package sentry-sdk) avec urllib3,
+# qu'il demande ; aucune autre version ne bouge.
+# 27/10/2026 (sprint 5) : msgpack 1.2.2 → 1.2.4 (--upgrade-package msgpack), pour CVE-2026-114613 ;
+# aucune autre version ne bouge.
 aiofiles==25.1.0
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.5
@@ -48,7 +52,7 @@ loudness==0.2.0
 markdown==3.10.3
 markupsafe==3.0.3
 mpmath==1.3.0
-msgpack==1.2.2
+msgpack==1.2.4
 multidict==6.9.1
 num2words==0.5.14
 numba==0.67.0
@@ -69,6 +73,7 @@ python-multipart==0.0.32
 pyyaml==6.0.3
 resampy==0.4.3
 sentencex==1.0.32
+sentry-sdk==2.73.0
 sniffio==1.3.1
 soundfile==0.13.1
 soxr==1.0.0
@@ -77,6 +82,7 @@ sympy==1.14.0
 tqdm==4.70.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
+urllib3==2.8.0
 uvicorn==0.52.4
 uvloop==0.22.1
 watchfiles==1.2.0

@@ -174,3 +174,18 @@ def test_le_skill_ne_redonne_pas_les_consignes_perimees():
     for ligne in skill.splitlines():
         if "asyncio.create_task" in ligne:
             assert "jamais" in ligne
+
+
+def test_la_reconstruction_du_serveur_nomme_chaque_secret():
+    """ASSISTANTE-160 : une machine perdue avec son `.env`, et chaque secret est à régénérer
+    chez son fournisseur. Un secret ajouté à docker-compose.yml sans sa ligne dans
+    « Reconstruire le serveur » serait découvert le jour de la panne."""
+    compose = (RACINE / "docker-compose.yml").read_text(encoding="utf-8")
+    noms = set(re.findall(r"^\s+([A-Z][A-Z0-9_]+):", compose, flags=re.M))
+    secrets = {n for n in noms
+               if re.search(r"KEY|TOKEN|SECRET|PASSWORD|DSN|JETON", n) and n != "DEEPGRAM_KEYWORDS"}
+    assert {"TWILIO_AUTH_TOKEN", "SESSION_SECRET", "SENTRY_DSN"} <= secrets  # le motif mord
+    deploy = (RACINE / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+    section = deploy.split("## Reconstruire le serveur")[1].split("\n## ")[0]
+    manquants = sorted(n for n in secrets if f"`{n}`" not in section)
+    assert not manquants, f"docs/DEPLOY.md, « Reconstruire le serveur » : {manquants}"

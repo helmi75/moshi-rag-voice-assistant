@@ -7,6 +7,67 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — reconstruire le serveur, procédure écrite (27/10/2026, ASSISTANTE-160)
+
+### Documentation
+- **`docs/DEPLOY.md`, « Reconstruire le serveur »** : d'un VPS vide à la ligne qui répond,
+  en dix étapes, chacune renvoyant à sa section. La base est restaurée **avant** le premier
+  démarrage de l'API : sur un volume vide, elle répondrait sans aucune réservation. On y
+  trouve aussi ce qui doit déjà exister hors de la machine (la base, le `.env`, la
+  configuration des sauvegardes, les secrets de GitHub), et où régénérer chaque secret.
+  Un test exige que chaque variable secrète de `docker-compose.yml` y figure.
+- **Jamais jouée, donc ni éprouvée ni chronométrée** : il faut une machine jetable, une
+  dépense (ligne S14 de `docs/RECETTE.md`).
+
+## Non publiée — la base se réplique en continu (27/10/2026, ASSISTANTE-158)
+
+### Ajouté
+- **Réplication continue de la base** (Litestream 0.3.13, `deploy/litestream.yml`) : le
+  journal de la base part chaque seconde vers un stockage objet UE, au lieu d'une seule
+  sauvegarde à 4 h sur le serveur lui-même. Service Compose du profil `replication` :
+  **éteint tant que Helmi ne pose pas `COMPOSE_PROFILES=replication`**, donc aucun effet en
+  production à ce stade. Aucun port publié ; le service lit la base sans jamais l'écrire.
+- **Contrôle « Réplication continue de la base »** (le 22ᵉ) : une tâche de fond lit les
+  métriques de Litestream chaque minute et compare la position de la réplique à celle du WAL
+  local (relevé réel, stockage arrêté : 4 152 octets contre 1,5 Mo). Attention si les
+  métriques sont injoignables, la relève vieille, ou la réplique en retard depuis 10 min ;
+  jamais en panne. Sans stockage configuré : OK, « Non configurée ».
+- Restauration éprouvée sur un MinIO jetable : 800 lignes sur 800, `integrity_check` ok,
+  6,4 s (petite base, réseau local). `docs/DEPLOY.md` donne les commandes ; `docs/RGPD.md`
+  dit où vivent les copies.
+
+## Non publiée — les erreurs remontent à Sentry (27/10/2026, ASSISTANTE-163)
+
+### Ajouté
+- **Sentry, sans donnée personnelle** (`erreurs.py`) : une erreur du flux vocal ou d'une
+  tâche de fond arrive avec son établissement et son identifiant d'appel, au lieu d'une
+  ligne dans des journaux effacés au redéploiement. Ni numéro, ni corps de requête, ni
+  cookie, ni variable locale, ni secret ; un filtre qui échoue jette l'événement.
+  Sans `SENTRY_DSN`, rien ne s'initialise et rien ne part. `sentry-sdk` 2.73.0 (et
+  `urllib3`) ajoutés au verrou, aucune autre version ne bouge.
+
+## Non publiée — chaque numéro sans URL de secours se voit (27/10/2026, ASSISTANTE-157)
+
+### Ajouté
+- **Contrôle « URL de secours Twilio »** (le 21ᵉ) : quand notre serveur ne répond plus, la
+  seule chose que Twilio peut encore jouer est l'URL de secours du numéro, et
+  `renvoi.py` comme la vigie tournent dans l'application. La relève Twilio, en tâche de
+  fond, lit désormais aussi les numéros du compte. Un numéro sans URL de secours, ou avec
+  une URL sur notre propre domaine (elle tomberait avec lui), met le contrôle en
+  attention ; il est nommé par ses quatre derniers chiffres. Jamais en panne : les appels
+  passent, c'est le filet qui manque.
+- `docs/TWILIO_SETUP.md` § 6 : ce que vérifie le contrôle, le cas d'un établissement sans
+  numéro de secours, la boucle possible, et l'essai serveur arrêté (S12).
+
+## Non publiée — une sonde externe chaque minute : étude (27/10/2026, ASSISTANTE-162)
+
+### Documentation
+- **`docs/SUPERVISION.md`, « Sonde externe chaque minute »** : la relève de Grafana Cloud
+  prévue pour `/metrics` (ASSISTANTE-156) fait déjà la sonde demandée, de l'extérieur et
+  chaque minute (alertes « ne répond plus » et « supervision en panne »). Aucun service de
+  plus n'est recommandé. UptimeRobot Solo reste le recours si Grafana Cloud n'est pas monté.
+  Tarifs relevés le 27/10/2026. Rien n'est ouvert ni payé.
+
 ## Non publiée — Pipecat 1.14, plus aucune faille acceptée (27/10/2026, ASSISTANTE-179)
 
 ### Sécurité

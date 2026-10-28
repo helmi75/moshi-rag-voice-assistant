@@ -638,6 +638,70 @@ def _controle_sauvegarde() -> Controle:
     )
 
 
+def replication_url() -> str:
+    """Où Litestream réplique la base (ASSISTANTE-158). Vide : rien n'est répliqué, et le
+    service `litestream` n'est pas lancé (docker-compose.yml, profil `replication`)."""
+    return os.getenv("LITESTREAM_REPLICA_URL", "").strip()
+
+
+# Au-delà de ce retard continu, la réplique ne rattrape plus : le stockage ou ses
+# identifiants sont en cause, pas un simple instant de latence.
+_REPLICATION_RETARD_MAX = timedelta(minutes=10)
+# La tâche de fond lit les métriques chaque minute : cinq minutes sans relève, c'est
+# qu'elle ne tourne plus.
+_REPLICATION_RELEVE_MAX = timedelta(minutes=5)
+
+
+def _controle_replication() -> Controle:
+    """La réplique continue de la base suit-elle l'écriture ? Lit l'ardoise que
+    `rafraichir_replication` tient à jour : aucun appel réseau dans la sonde.
+
+    Jamais PANNE, comme la copie distante de `_controle_sauvegarde` : un appelant n'est
+    pas concerné, la perte ne survient qu'avec un incident disque, et la sauvegarde
+    nocturne existe. « Pas de mesure » n'est pas un feu vert : configurée sans relève,
+    c'est ATTENTION."""
+    titre = "Réplication continue de la base"
+    if not replication_url():
+        return Controle("replication", titre, OK, "Non configurée.",
+                        "Rien n'est répliqué en continu : seule la sauvegarde quotidienne "
+                        "protège la base (voir « Sauvegarde de la base »). Activation : "
+                        "docs/DEPLOY.md, « Sauvegardes ».",
+                        mesure={"configuree": False})
+    memo = relire("replication")
+    if memo is None:
+        return Controle("replication", titre, ATTENTION, "Pas encore relevée.",
+                        "La tâche de fond n'a encore lu aucune métrique de Litestream "
+                        "(service `litestream` lancé ? COMPOSE_PROFILES=replication).",
+                        mesure={"configuree": True, "releve": False})
+    valeur, maj = memo
+    age = (_maintenant() - maj) if maj else None
+    mesure = {"configuree": True, "releve": "erreur" not in valeur,
+              "age_secondes": round(age.total_seconds()) if age else None}
+    if age is None or age > _REPLICATION_RELEVE_MAX:
+        return Controle("replication", titre, ATTENTION,
+                        "Relève figée : la réplication n'est plus surveillée.",
+                        "La tâche de fond ne tourne plus ; la réplique peut être à jour ou non, "
+                        "on ne le sait pas.", mesure=mesure)
+    if "erreur" in valeur:
+        return Controle("replication", titre, ATTENTION,
+                        "Métriques de Litestream injoignables.",
+                        f"Le service `litestream` ne répond pas ({valeur['erreur']}) : la base "
+                        "n'est probablement plus répliquée. `docker compose logs litestream`.",
+                        mesure=mesure)
+    mesure.update(a_jour=valeur.get("a_jour"), erreurs=valeur.get("erreurs"))
+    depuis = horloge.lire_utc(valeur.get("en_retard_depuis") or "")
+    if depuis is not None and _maintenant() - depuis >= _REPLICATION_RETARD_MAX:
+        minutes = int((_maintenant() - depuis).total_seconds() // 60)
+        return Controle("replication", titre, ATTENTION,
+                        f"La réplique est en retard depuis {minutes} min.",
+                        "Litestream écrit en local mais n'arrive plus à envoyer au stockage "
+                        "(identifiants, quota, réseau) : `docker compose logs litestream`. "
+                        "Un incident disque perdrait ce qui n'est pas parti.", mesure=mesure)
+    return Controle("replication", titre, OK,
+                    "Réplique à jour." if valeur.get("a_jour") else "Réplique en cours de rattrapage.",
+                    mesure=mesure)
+
+
 def _controle_purge() -> Controle:
     """La purge des données personnelles tourne-t-elle vraiment ? (#22)
 
@@ -860,6 +924,60 @@ def _controle_twilio() -> Controle:
         "sont morts avant d'atteindre l'application. Détail dans la console Twilio → "
         "Monitor → Alerts." if n else "",
         mesure={"releve": True, "erreurs": n, "age_minutes": age_min},
+    )
+
+
+def _fin_du_numero(numero: str) -> str:
+    return f"…{numero[-4:]}" if len(numero) >= 4 else "…"
+
+
+def _controle_secours_twilio() -> Controle:
+    """Chaque numéro a-t-il une URL de secours servie hors de notre serveur ?
+    (ASSISTANTE-157). Sans elle, un serveur injoignable laisse l'appelant dans le vide :
+    `renvoi.py` et la vigie tournent DANS l'application et ne peuvent rien. Attention,
+    jamais panne : les appels passent aujourd'hui, c'est le filet qui manque."""
+    titre = "URL de secours Twilio"
+    memo = relire("numeros_twilio")
+    if memo is None:
+        return Controle(
+            "secours_twilio", titre, OK,
+            "Pas encore relevé — ce contrôle ne dit rien pour l'instant.",
+            "La relève a lieu avec celle des alertes Twilio, au démarrage puis "
+            "périodiquement.",
+            mesure={"releve": False},
+        )
+    valeur, _maj = memo
+    if valeur.get("erreur"):
+        return Controle(
+            "secours_twilio", titre, ATTENTION,
+            f"Relève impossible ({valeur['erreur']}).",
+            "On ne sait pas si les numéros ont une URL de secours : l'état est INCONNU, "
+            "pas bon.",
+            mesure={"releve": False, "cause": valeur["erreur"]},
+        )
+    numeros = valeur.get("numeros") or []
+    sans = [n["numero"] for n in numeros if not n.get("secours")]
+    if not numeros:
+        return Controle(
+            "secours_twilio", titre, OK,
+            "Aucun numéro sur le compte Twilio — pas de mesure.",
+            mesure={"releve": True, "numeros": 0, "sans_secours": 0},
+        )
+    if sans:
+        return Controle(
+            "secours_twilio", titre, ATTENTION,
+            f"{len(sans)} numéro(s) sur {len(numeros)} sans URL de secours "
+            f"({', '.join(_fin_du_numero(n) for n in sans)}).",
+            "Si le serveur ne répond plus, Twilio n'a rien d'autre à jouer et l'appelant "
+            "n'entend rien. À régler dans la console Twilio, numéro par numéro, avec une "
+            "cible servie hors de notre serveur (docs/TWILIO_SETUP.md, « URL de secours ») ; "
+            "une URL de secours sur notre propre domaine compte comme absente.",
+            mesure={"releve": True, "numeros": len(numeros), "sans_secours": len(sans)},
+        )
+    return Controle(
+        "secours_twilio", titre, OK,
+        f"Les {len(numeros)} numéro(s) ont une URL de secours hors de notre serveur.",
+        mesure={"releve": True, "numeros": len(numeros), "sans_secours": 0},
     )
 
 
@@ -1228,6 +1346,7 @@ def controles() -> list[Controle]:
         ("latence", _controle_latence),
         ("twilio", _controle_twilio),
         ("solde_twilio", _controle_solde_twilio),
+        ("secours_twilio", _controle_secours_twilio),
         ("carnets", _controle_carnets),
         ("voxtral", _controle_voxtral),
         ("secours", _controle_secours),
@@ -1235,6 +1354,7 @@ def controles() -> list[Controle]:
         ("credit_openrouter", _controle_credit_openrouter),
         ("accueils", _controle_accueils),
         ("sauvegarde", _controle_sauvegarde),
+        ("replication", _controle_replication),
         ("purge", _controle_purge),
         ("disque", _controle_disque),
         ("enregistrements", _controle_enregistrements),
@@ -1357,6 +1477,7 @@ async def rafraichir_twilio() -> None:
             except Exception as exc:
                 muettes[region] = type(exc).__name__
         await _relever_le_solde(client, inactif=COMPTE_INACTIF in muettes.values())
+        await _relever_les_numeros(client, inactif=COMPTE_INACTIF in muettes.values())
     if len(muettes) == len(acces):
         await db.hors_boucle(noter, "twilio", {"erreur": next(iter(muettes.values()))})
         return
@@ -1450,6 +1571,59 @@ async def _relever_le_solde(client, *, inactif: bool) -> None:
             nom="e-mail solde Twilio")
 
 
+def _hote(adresse: str) -> str:
+    from urllib.parse import urlparse
+    try:
+        return (urlparse(adresse).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _domaine(hote: str) -> str:
+    """`app.helmane.fr`, `preprod.helmane.fr` et `helmane.fr` → `helmane.fr`."""
+    return ".".join(hote.split(".")[-2:])
+
+
+def _secours_utile(numero: dict) -> bool:
+    """Une URL de secours ne sert que si elle est servie AILLEURS que l'URL principale :
+    pointée sur notre propre domaine, elle tombe avec lui, exactement quand on en a
+    besoin (ASSISTANTE-157). Le domaine, pas l'hôte : `preprod.helmane.fr` passe par le
+    même serveur et le même Caddy que `app.helmane.fr` (relecture du sprint 5)."""
+    secours = _hote(str(numero.get("voice_fallback_url") or "").strip())
+    if not secours:
+        return False
+    return _domaine(secours) != _domaine(_hote(str(numero.get("voice_url") or "")))
+
+
+async def _relever_les_numeros(client, *, inactif: bool) -> None:
+    """Les numéros du compte et leur URL de secours (Voice Fallback URL), notés sur
+    l'ardoise (`numeros_twilio`). Quand notre serveur ne répond plus, c'est Twilio qui
+    applique cette URL : rien dans l'application ne peut prendre le relais, puisqu'elle
+    est injoignable. Les numéros appartiennent au compte, pas à une région : lus à l'API
+    américaine. N'échoue jamais bruyamment."""
+    identifiants = twilio_region.identifiants("us1")
+    if inactif:
+        releve: dict = {"erreur": COMPTE_INACTIF}
+    elif not identifiants:
+        releve = {"erreur": "identifiants Twilio absents"}
+    else:
+        try:
+            reponse = await client.get(
+                f"{twilio_region.hote('us1')}/2010-04-01/Accounts/{identifiants[0]}"
+                "/IncomingPhoneNumbers.json",
+                params={"PageSize": 100}, auth=identifiants)
+            if reponse.status_code >= 400:
+                releve = {"erreur": _motif_du_refus(reponse)}
+            else:
+                numeros = (reponse.json() or {}).get("incoming_phone_numbers") or []
+                # Nos propres numéros (ceux des établissements), pas ceux d'appelants.
+                releve = {"numeros": [{"numero": str(n.get("phone_number") or ""),
+                                       "secours": _secours_utile(n)} for n in numeros]}
+        except Exception as exc:
+            releve = {"erreur": type(exc).__name__}
+    await db.hors_boucle(noter, "numeros_twilio", releve)
+
+
 def solde_insuffisant() -> Optional[str]:
     """Pourquoi la recette automatique ne doit pas dépenser chez Twilio, ou None. Un solde
     inconnu vaut un refus : c'est une dépense qu'on garde."""
@@ -1483,3 +1657,83 @@ async def boucle_twilio() -> None:
         except Exception as exc:  # la boucle ne doit jamais mourir
             logger.warning(f"supervision : relève Twilio échouée ({exc}).")
         await asyncio.sleep(intervalle)
+
+
+# --- Relève de la réplication (tâche de fond) --------------------------------
+
+def _lire_metriques(texte: str) -> dict[str, float]:
+    """Les échantillons d'un texte Prometheus, par nom, sans les étiquettes (une seule base,
+    une seule réplique). Ce qui n'est pas un nombre est ignoré."""
+    mesures: dict[str, float] = {}
+    for ligne in texte.splitlines():
+        if not ligne or ligne.startswith("#"):
+            continue
+        gauche, _, valeur = ligne.rpartition(" ")
+        try:
+            mesures[gauche.split("{")[0]] = float(valeur)
+        except ValueError:
+            continue
+    return mesures
+
+
+async def rafraichir_replication() -> None:
+    """Lit une fois les métriques de Litestream (0.3.13) et note sur l'ardoise si la
+    réplique a rattrapé la copie locale. N'échoue jamais bruyamment.
+
+    Pourquoi comparer deux positions : sans écriture, rien n'avance et pourtant tout va
+    bien ; un compteur « dernière synchro » mentirait la nuit. La réplique est à jour
+    quand sa position (`litestream_replica_wal_index`/`_offset`) a rejoint celle du WAL
+    local (`litestream_shadow_wal_index`/`_size`) ; relevé réel, stockage arrêté : la
+    première restait à 4 152 octets pendant que la seconde grossissait. Le compteur
+    `litestream_sync_error_count` n'entre pas dans le verdict : un « database is locked »
+    passager (point de contrôle contre une écriture) l'incrémente sans conséquence."""
+    if not replication_url():
+        return
+    import httpx
+
+    adresse = os.getenv("LITESTREAM_METRIQUES_URL", "http://litestream:9090/metrics")
+    precedent = await db.hors_boucle(relire, "replication")
+    depuis = (precedent[0] if precedent else {}).get("en_retard_depuis")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            reponse = await client.get(adresse)
+        if reponse.status_code >= 400:
+            raise RuntimeError(f"HTTP {reponse.status_code}")
+        m = _lire_metriques(reponse.text)
+        local = (m["litestream_shadow_wal_index"], m["litestream_shadow_wal_size"])
+        replique = (m["litestream_replica_wal_index"], m["litestream_replica_wal_offset"])
+    except KeyError as exc:
+        releve: dict = {"erreur": f"métrique absente : {exc.args[0]}"}
+    except Exception as exc:
+        releve = {"erreur": type(exc).__name__}
+    else:
+        a_jour = replique >= local
+        if a_jour:
+            depuis = None
+        elif not depuis:
+            depuis = _maintenant().isoformat()
+        releve = {"a_jour": a_jour, "en_retard_depuis": depuis,
+                  "erreurs": int(m.get("litestream_sync_error_count", 0))}
+    if "erreur" in releve and depuis:
+        # Une relève ratée ne remet pas le retard à zéro : un Litestream qui redémarre en
+        # boucle, tantôt muet tantôt en retard, n'atteindrait jamais les 10 minutes
+        # (relecture du sprint 5).
+        releve["en_retard_depuis"] = depuis
+    await db.hors_boucle(noter, "replication", releve)
+
+
+async def boucle_replication() -> None:
+    """Relève chaque minute, lancée au démarrage ; ne fait rien sans réplique configurée."""
+    import asyncio
+
+    from loguru import logger
+
+    if not replication_url():
+        return
+    logger.info("supervision : relève de la réplication Litestream chaque minute.")
+    while True:
+        try:
+            await rafraichir_replication()
+        except Exception as exc:  # la boucle ne doit jamais mourir
+            logger.warning(f"supervision : relève de la réplication échouée ({exc}).")
+        await asyncio.sleep(60)

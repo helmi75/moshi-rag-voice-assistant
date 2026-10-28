@@ -43,6 +43,22 @@ mutation, pas une intention.
 le motif d'une panne, aucune donnée d'appelant : ni numéro, ni transcription, ni voix.
 Le destinataire est l'exploitant seul.
 
+**Réplique de la base** (Litestream, ASSISTANTE-158) : si Helmi l'active, une copie
+continue de la base, donc de **tout** son contenu (réservations, noms et numéros des
+appelants, transcriptions), vit sur un stockage objet que Helmi choisit ; la région UE
+est exigée, et le fournisseur est à nommer ici à l'ouverture. Une donnée purgée de la base
+(`rgpd.py`) reste dans l'historique de la réplique tant que dure sa rétention
+(`retention: 168h`, soit sept jours). Chiffrement côté fournisseur : à vérifier à l'ouverture,
+Litestream ne chiffre pas lui-même. Sans stockage configuré, aucune copie ne quitte le
+serveur.
+
+**Sentry** (erreurs de l'application, ASSISTANTE-163) reçoit l'établissement, l'identifiant
+d'appel Twilio (`CA…`) et la pile d'erreur ; ni numéro (remplacé par `[numéro]` dans tout
+message), ni transcription, ni voix, ni corps de requête, ni cookie, ni variable locale.
+Les secrets présents dans l'environnement sont masqués. Sans `SENTRY_DSN`, rien ne part.
+Durée de conservation chez Sentry : à relever par Helmi à l'ouverture du compte, avec la
+date ; la région UE se choisit à la création du compte (Helmi).
+
 ## 3. La purge est appliquée, pas seulement écrite
 
 Une durée de conservation qu'aucun code n'applique est **pire** que pas de durée : elle

@@ -282,6 +282,75 @@ zcat /opt/backups/db/app-AAAAMMJJ-HHMM.db.gz \
 docker compose start api
 ```
 
+### Réplication continue (Litestream, ASSISTANTE-158)
+
+La sauvegarde de 4 h laisse jusqu'à une journée de réservations à découvert. Le service
+`litestream` (image épinglée `litestream/litestream:0.3.13`, `deploy/litestream.yml`) envoie
+le journal de la base (WAL) à un stockage objet chaque seconde : la perte visée tombe à
+quelques secondes. Il est **éteint par défaut** (profil Compose `replication`) : tant que
+`COMPOSE_PROFILES` n'est pas posé, rien ne tourne et rien ne change.
+
+**Activer** (Helmi, après avoir ouvert un stockage objet **dans l'UE** : le choix du
+fournisseur est le sien, et son prix à relever à l'ouverture) :
+
+```bash
+# .env du serveur
+COMPOSE_PROFILES=replication
+LITESTREAM_REPLICA_URL=s3://seau/helmane          # seau/dossier
+LITESTREAM_ACCESS_KEY_ID=...
+LITESTREAM_SECRET_ACCESS_KEY=...
+LITESTREAM_ENDPOINT=https://...                    # vide pour Amazon S3
+LITESTREAM_PATH_STYLE=false                        # true si le fournisseur l'exige
+docker compose up -d --no-build                    # (ou le prochain deploy.sh)
+docker compose logs litestream | tail              # « wal segment written »
+```
+
+`scripts/deploy.sh` relance `docker compose up -d --no-build` : sans le profil, le service
+n'existe pas pour lui ; avec, il est lancé comme le reste. Le contrôle « Réplication continue
+de la base » (docs/SUPERVISION.md) passe de « Non configurée » à « Réplique à jour ». Le
+service écrit dans la base (ses tables `_litestream_*` et les points de contrôle du WAL) : son volume ne se monte jamais en lecture seule ; il a ses métriques sur le réseau Docker (`:9090`),
+aucun port n'est publié.
+
+Deux pièges de `deploy.sh` (relecture du sprint 5) : une modification de
+`deploy/litestream.yml` n'est **pas** appliquée par un déploiement, puisque `up -d` ne
+recrée pas un conteneur dont l'image n'a pas changé. Il faut ensuite lancer
+`docker compose up -d --no-build --force-recreate litestream`. Un retour arrière vers une
+version d'avant ASSISTANTE-158 laisse le conteneur `litestream` tourner sans être
+surveillé, et sa configuration disparaît du disque. Il faut alors l'arrêter :
+`docker rm -f $(docker ps -q --filter name=litestream)`.
+
+**Restaurer** (machine perdue, ou base corrompue). L'API arrêtée, la base restaurée dans un
+dossier vide **d'abord**, vérifiée, puis seulement mise en place :
+
+```bash
+cd /opt/moshi-rag-voice-assistant
+docker compose stop api litestream
+mkdir -p /tmp/restauration
+docker compose run --rm --no-deps -v /tmp/restauration:/restauration litestream \
+  restore -config /etc/litestream.yml -o /restauration/app.db /app/data/app.db
+sqlite3 /tmp/restauration/app.db "PRAGMA integrity_check; SELECT count(*) FROM reservations;"
+# si c'est bon : remplacer la base du volume, puis relancer
+cp /tmp/restauration/app.db /var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db
+rm -f /var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db-wal \
+      /var/lib/docker/volumes/moshi-rag-voice-assistant_api_data/_data/app.db-shm
+docker compose up -d --no-build
+```
+
+Pour un point dans le temps : `-timestamp 2026-11-02T10:00:00Z` après `restore`. La commande `restore` a été éprouvée par `docker run` avec la même configuration ; le
+enrobage `docker compose run` ci-dessus ne l'a pas été sur un serveur. Les fichiers
+restaurés appartiennent à root (le conteneur y tourne) et sont en `0600`.
+
+**Éprouvé en local le 27/10/2026**, sur un MinIO jetable : base de 800 lignes en WAL avec
+écritures en continu, `restore` dans un dossier vide, `PRAGMA integrity_check` = `ok`, 800
+lignes retrouvées sur 800, en **6,4 s** conteneur compris. Cette durée est celle d'une
+petite base sur le réseau local, **pas** celle d'une vraie restauration depuis un stockage
+distant : elle croît avec la taille de la base et le débit du fournisseur, et reste à
+mesurer sur la vraie réplique (ligne S13 de `docs/RECETTE.md`).
+
+Les sauvegardes quotidiennes (`backup-db.sh`) restent utiles — fichier unique,
+restaurable sans Litestream — et peuvent viser **le même stockage** : `RCLONE_REMOTE`
+(ci-dessous, ASSISTANTE-80) accepte un autre dossier du même seau.
+
 ### Copie hors du serveur
 
 Les copies locales protègent d'une erreur de manipulation, pas de la perte de la machine :
@@ -313,6 +382,84 @@ rclone copy sauvegardes:helmane-db/app-AAAAMMJJ-HHMM.db.gz /tmp/
 zcat /tmp/app-AAAAMMJJ-HHMM.db.gz > /tmp/restore-test.db
 sqlite3 /tmp/restore-test.db "PRAGMA integrity_check;"
 ```
+
+## Reconstruire le serveur (ASSISTANTE-160)
+
+Pour une machine perdue (disque, hébergeur, compte fermé) : repartir d'un VPS vide jusqu'à
+la ligne qui répond. **Procédure écrite, jamais jouée** : elle n'est ni éprouvée ni
+chronométrée tant qu'elle n'a pas tourné une fois sur une machine jetable (une dépense,
+donc l'accord de Helmi ; ligne S14 de `docs/RECETTE.md`). Chaque étape renvoie à la section
+qui la détaille plus haut.
+
+### Ce qui doit exister AILLEURS que sur la machine, dès aujourd'hui
+
+Sans ces quatre choses, une machine perdue n'est pas reconstruite : elle est refaite à
+neuf, sans les réservations, et chaque clé est à régénérer chez son fournisseur.
+
+| Quoi | Où le garder | Sans lui |
+|---|---|---|
+| La base | Réplique Litestream ou archives `rclone` (« Sauvegardes » ci-dessus) | Réservations, appels et comptes perdus |
+| Le `.env` de production | Un gestionnaire de mots de passe de Helmi, **jamais** le dépôt ni un e-mail | Chaque secret à régénérer (tableau ci-dessous) |
+| `/opt/backups/backup.env` et la configuration `rclone` | Même endroit que le `.env` | Les sauvegardes quotidiennes ne repartent pas hors du serveur |
+| Les secrets de GitHub (`DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `SUPERVISION_TOKEN`) | Déjà chez GitHub ; à mettre à jour avec la nouvelle machine | Ni déploiement depuis GitHub, ni sonde |
+
+### Les étapes
+
+1. **VPS** en région UE, Ubuntu, Docker (« 1 — VPS + Docker ») ; ports 80 et 443 ouverts,
+   **pas** 8000 (`deploy.sh --check` vérifie que l'API n'est pas joignable hors Caddy).
+2. **Accès** : la clé publique de déploiement dans `/root/.ssh/authorized_keys` ; nouvelle
+   ligne `known_hosts` dans le secret `DEPLOY_KNOWN_HOSTS` de GitHub.
+3. **Code** : `git clone` dans `/opt/moshi-rag-voice-assistant`, puis `git checkout` du
+   commit de `main` qui était en service (le dernier « Déploiement » réussi dans GitHub
+   Actions).
+4. **Secrets** : le `.env` recopié depuis le gestionnaire de mots de passe, **sans jamais
+   l'afficher** (`chmod 600 .env`). S'il est perdu, chaque variable du tableau ci-dessous se
+   régénère chez son fournisseur.
+5. **Registre** : `docker login ghcr.io -u helmi75` avec un jeton `read:packages`
+   (« Exploitation », **Image**).
+6. **Base**, avant le premier démarrage de l'API : restaurer la réplique (« Réplication
+   continue », **Restaurer** : `docker compose run … litestream` crée le volume) ou la
+   dernière archive (« Copie hors du serveur », dans un volume créé par `docker volume
+   create moshi-rag-voice-assistant_api_data`). **Pas** `docker compose create api` : l'image
+   n'est pas encore là (l'étape 8 la télécharge) et Compose la construirait sur le serveur. `PRAGMA integrity_check` doit répondre `ok`
+   avant d'aller plus loin. Démarrer l'API sur un volume vide créerait une base neuve : le
+   service répondrait, sans aucune réservation.
+7. **DNS** : l'enregistrement A de `app.helmane.fr` (et `preprod.helmane.fr`) vers la nouvelle
+   adresse. Caddy obtient le certificat seul au démarrage. Twilio n'a rien à changer : il
+   appelle le domaine, pas l'adresse.
+8. **Lancement** depuis un poste : `DEPLOY_HOST=root@<nouvelle adresse> bash scripts/deploy.sh
+   --version <commit>` (« Retour arrière ») : l'image de ce commit, téléchargée, vérifiée.
+   Puis mettre à jour l'adresse par défaut de `scripts/deploy.sh` (`HOTE`) dans un commit.
+9. **Tâches de l'hôte** : le cron de `backup-db.sh` et `backup.env` (« Sauvegardes »),
+   `COMPOSE_PROFILES=replication` si la réplication était active.
+10. **Vérifier** : `bash scripts/deploy.sh --check`, `/supervision` (chaque contrôle lu, en
+    particulier « Sauvegarde » et « Réplication continue »), une réservation de la veille
+    visible dans l'admin, puis un appel.
+
+### Les secrets du `.env`, et où les régénérer
+
+Chaque variable secrète déclarée dans `docker-compose.yml` est ici (un test l'exige :
+`test_documentation.py`). Régénérer une clé révoque l'ancienne : à faire aussi si le `.env`
+a pu fuir avec la machine.
+
+| Variable | Où la régénérer |
+|---|---|
+| `TWILIO_AUTH_TOKEN`, `TWILIO_AUTH_TOKEN_IE1` | Console Twilio, jeton de chaque région (« Région Twilio », `docs/TWILIO_SETUP.md` § 8) |
+| `DEEPGRAM_API_KEY` | Console Deepgram |
+| `MISTRAL_API_KEY` | Console Mistral |
+| `OPENROUTER_API_KEY` | openrouter.ai, Keys |
+| `OPENAI_API_KEY` | Console OpenAI (voix temps réel) |
+| `MOSHI_TTS_API_KEY` | `openssl rand -hex 32`, la même valeur redéployée sur Modal (`docs/MODAL.md`) |
+| `SMTP_PASSWORD` | Le fournisseur de messagerie |
+| `ADMIN_PASSWORD` | Au choix ; ne sert qu'à créer le premier compte sur une base vide |
+| `SESSION_SECRET` | `openssl rand -hex 32` (les sessions ouvertes sont perdues, sans autre effet) |
+| `SUPERVISION_TOKEN` | `openssl rand -hex 32`, la même valeur dans le secret GitHub `SUPERVISION_TOKEN` |
+| `METRIQUES_TOKEN` | `openssl rand -hex 32`, la même valeur dans la relève Grafana Cloud |
+| `RECETTE_JETON` | `openssl rand -hex 32` |
+| `TELEGRAM_BOT_TOKEN` | @BotFather, `/revoke` puis `/token` |
+| `SENTRY_DSN` | Sentry, réglages du projet, Client Keys |
+| `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` | Le fournisseur du stockage objet. Il faut ces clés **avant** l'étape 6 : elles seules ouvrent la réplique |
+| `RESOS_API_KEYS` | Chaque restaurant les crée dans son resOS : à redemander (`docs/RESOS.md`) |
 
 ## Préproduction (ASSISTANTE-174)
 

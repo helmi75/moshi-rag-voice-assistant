@@ -293,6 +293,9 @@ l'établissement. Il faut deux téléphones : celui qui appelle, et celui du num
 | S8 🤖 (étage 2) | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
 | S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
 | S11 | Pendant un déploiement (ASSISTANTE-159) : être en ligne avec l'assistante, et appeler d'un second téléphone pendant que `deploy.sh` affiche « Vidange » | Le premier appel va à son terme, sans coupure ; le second sonne au restaurant (ou au répondeur) ; le script lance la nouvelle version après le raccrochage du premier. 🤖 en partie : `test_vidange.py`, et la logique d'attente éprouvée avec une fausse jauge | |
+| S12 | Serveur arrêté, avec l'accord de Helmi, hors des heures d'appels (ASSISTANTE-157) : appeler le numéro | Le restaurant sonne (bin de secours Twilio), sinon le message « merci de rappeler » ; « Santé & coûts » montrait « URL de secours Twilio » au vert avant l'essai. 🤖 en partie : `test_supervision.py::TestSecoursTwilio` | |
+| S13 | Après l'ouverture du stockage et `COMPOSE_PROFILES=replication` (ASSISTANTE-158) : créer une réservation d'essai, attendre une minute, puis restaurer la réplique dans un dossier vide (`docs/DEPLOY.md`, « Réplication continue ») | `integrity_check` = ok, la réservation d'essai y figure ; « Réplication continue de la base » est au vert dans « Santé & coûts » ; la durée de restauration est notée dans DEPLOY.md. 🤖 en partie : `test_supervision.py::TestReplication`, et la restauration éprouvée sur un MinIO local | |
+| S14 | Sur une machine jetable, avec l'accord de Helmi (ASSISTANTE-160) : jouer « Reconstruire le serveur » de `docs/DEPLOY.md`, chronomètre en main, jusqu'à `deploy.sh --check` vert, sans basculer le DNS de production | La base restaurée passe `integrity_check`, l'admin montre les réservations de la veille ; la durée est notée dans `docs/DEPLOY.md`. Ce qui a manqué (un secret, une étape) est corrigé dans la procédure | |
 | S10 🤖 (étage 2) | Appeler la ligne et raccrocher dès la première sonnerie, puis rappeler aussitôt (ASSISTANTE-127) | Le second appel est servi par l'assistante, pas par le répondeur ; « Appels passés en secours » ne bouge pas | |
 
 ## W. Le site et « Rappelez-moi » (ASSISTANTE-119)
@@ -391,6 +394,7 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | G4 | Dire « je suis allergique aux fruits de mer » | Elle **ne garantit rien**, renvoie vers l'équipe en salle | |
 | G5 | Raccrocher brutalement en plein milieu | L'appel est clôturé en base (`ended_at` non nul) | |
 | G6 | Après la pose de `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID`, provoquer une panne d'essai (ou attendre la première) | Helmi reçoit le message sur son téléphone, une seule fois pour l'épisode, sans numéro d'appelant | |
+| G7 | Après la pose de `SENTRY_DSN`, provoquer une erreur d'essai | Elle arrive dans Sentry avec l'établissement et l'appel en étiquettes, sans numéro | |
 
 
 **G5 teste le contrôle « appels jamais clôturés » de la supervision.**

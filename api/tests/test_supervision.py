@@ -83,11 +83,12 @@ class TestEnumeration:
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
     ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
-                "appels_echoues", "appels_inacheves", "latence", "twilio", "solde_twilio", "carnets",
+                "appels_echoues", "appels_inacheves", "latence", "twilio", "solde_twilio", "secours_twilio",
+                "carnets",
                 "voxtral", "secours",
                 "credit_openai", "credit_openrouter",
                 "accueils",
-                "sauvegarde", "purge", "disque", "enregistrements"]
+                "sauvegarde", "replication", "purge", "disque", "enregistrements"]
 
     def test_tous_les_controles_sont_presents(self, base):
         assert [c["cle"] for c in supervision.etat(force=True)["controles"]] == self.ATTENDUS
@@ -546,6 +547,9 @@ class TestTwilio:
             ("https://monitor.dublin.ie1.twilio.com/v1/Alerts", ("AC-test", "jeton-irlandais")),
             # Le solde : un seul compte pour les deux régions, lu à l'API américaine.
             ("https://api.twilio.com/2010-04-01/Accounts/AC-test/Balance.json",
+             ("AC-test", "jeton-americain")),
+            # Les numéros aussi : ils sont au compte, pas à une région (ASSISTANTE-157).
+            ("https://api.twilio.com/2010-04-01/Accounts/AC-test/IncomingPhoneNumbers.json",
              ("AC-test", "jeton-americain"))]
         valeur, _ = supervision.relire("twilio")
         assert valeur == {"erreurs": 3, "codes": {"11200": 3}}
@@ -971,6 +975,123 @@ class TestEcranAdmin:
             tenants.delete_tenant(tenant.id)
 
 
+METRIQUES_A_JOUR = """\
+# TYPE litestream_replica_wal_index gauge
+litestream_replica_wal_index{db="/app/data/app.db",name="s3"} 3
+litestream_replica_wal_offset{db="/app/data/app.db",name="s3"} 1.285472e+06
+litestream_shadow_wal_index{db="/app/data/app.db"} 3
+litestream_shadow_wal_size{db="/app/data/app.db"} 1.285472e+06
+litestream_sync_error_count{db="/app/data/app.db"} 0
+"""
+# Le stockage est tombé : la réplique est restée à 4 152 octets, la copie locale a grossi
+# (relevé réel du 27/10/2026, MinIO arrêté pendant des écritures).
+METRIQUES_EN_RETARD = METRIQUES_A_JOUR.replace(
+    "litestream_replica_wal_offset{db=\"/app/data/app.db\",name=\"s3\"} 1.285472e+06",
+    "litestream_replica_wal_offset{db=\"/app/data/app.db\",name=\"s3\"} 4152")
+
+
+class TestReplication:
+    """La réplication continue (ASSISTANTE-158) est surveillée sans appel réseau dans la
+    sonde : une tâche de fond lit les métriques de Litestream. Jamais en panne — un
+    appelant n'est pas concerné, seule la perte du disque le serait."""
+
+    URL = "s3://helmane-eu/app"
+
+    def _relever(self, monkeypatch, corps=None, *, injoignable=False):
+        import asyncio
+
+        class _Reponse:
+            status_code = 200
+            text = corps or ""
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, adresse, **k):
+                assert adresse.startswith("http://litestream:9090")
+                if injoignable:
+                    raise ConnectionError("litestream ne répond pas")
+                return _Reponse()
+
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_replication())
+        supervision.vider_cache()
+
+    def test_sans_url_de_replique_rien_a_surveiller(self, base, monkeypatch):
+        monkeypatch.delenv("LITESTREAM_REPLICA_URL", raising=False)
+        controle = _controle("replication")
+        assert controle["niveau"] == supervision.OK
+        assert "Non configurée" in controle["resume"]
+        assert "Sauvegarde de la base" in controle["detail"]
+
+    def test_configuree_mais_jamais_relevee_nest_pas_un_feu_vert(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        assert _controle("replication")["niveau"] == supervision.ATTENTION
+
+    def test_replique_a_jour(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_A_JOUR)
+        controle = _controle("replication")
+        assert controle["niveau"] == supervision.OK
+        assert controle["mesure"]["a_jour"] is True
+
+    def test_metriques_injoignables_en_attention_jamais_en_panne(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, injoignable=True)
+        controle = _controle("replication")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "injoignable" in controle["resume"].lower()
+
+    def test_un_retard_court_ne_dit_rien_un_retard_de_dix_minutes_si(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_EN_RETARD)
+        assert _controle("replication")["niveau"] == supervision.OK   # il y a une seconde
+        # Le retard dure depuis onze minutes : la réplique ne rattrape plus.
+        depuis = (supervision._maintenant() - timedelta(minutes=11)).isoformat()
+        valeur, _ = supervision.relire("replication")
+        supervision.noter("replication", {**valeur, "en_retard_depuis": depuis})
+        supervision.vider_cache()
+        controle = _controle("replication")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "retard" in controle["resume"].lower()
+
+    def test_une_releve_ratee_ne_remet_pas_le_retard_a_zero(self, base, monkeypatch):
+        """Relecture du sprint 5 : un Litestream qui redémarre, tantôt muet tantôt en
+        retard, ne doit pas faire repartir le compteur des dix minutes."""
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_EN_RETARD)
+        debut = supervision.relire("replication")[0]["en_retard_depuis"]
+        self._relever(monkeypatch, injoignable=True)
+        self._relever(monkeypatch, METRIQUES_EN_RETARD)
+        assert supervision.relire("replication")[0]["en_retard_depuis"] == debut
+
+    def test_le_retard_se_referme_quand_la_replique_rattrape(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_EN_RETARD)
+        assert supervision.relire("replication")[0]["en_retard_depuis"]
+        self._relever(monkeypatch, METRIQUES_A_JOUR)
+        assert supervision.relire("replication")[0]["en_retard_depuis"] is None
+
+    def test_une_releve_vieille_est_signalee(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, METRIQUES_A_JOUR)
+        with patch.object(supervision, "_maintenant",
+                          return_value=datetime.now(timezone.utc) + timedelta(minutes=20)):
+            controle = _controle("replication")
+        assert controle["niveau"] == supervision.ATTENTION
+
+    def test_ne_va_jamais_jusqua_la_panne(self, base, monkeypatch):
+        monkeypatch.setenv("LITESTREAM_REPLICA_URL", self.URL)
+        self._relever(monkeypatch, injoignable=True)
+        with patch.object(supervision, "_maintenant",
+                          return_value=datetime.now(timezone.utc) + timedelta(days=30)):
+            assert _controle("replication")["niveau"] == supervision.ATTENTION
+
+
 class TestCablage:
     """Une variable lue par le code doit être TRANSMISE au conteneur.
 
@@ -1115,3 +1236,86 @@ class TestCreditOpenAI:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         live._credit_epuise.update({"le": "2026-10-12T08:30:00Z", "refus": 1})
         assert self._controle()["niveau"] == supervision.OK
+
+
+class TestSecoursTwilio:
+    """ASSISTANTE-157 : quand le serveur ne répond plus, seule l'URL de secours réglée chez
+    Twilio sert encore l'appel. Un numéro qui n'en a pas doit se voir."""
+
+    def _relever(self, monkeypatch, numeros=None, statut=200):
+        import asyncio
+
+        monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC-test")
+        monkeypatch.setenv("TWILIO_AUTH_TOKEN", "jeton-americain")
+        monkeypatch.delenv("TWILIO_AUTH_TOKEN_IE1", raising=False)
+
+        class _Reponse:
+            def __init__(self, corps, status_code=200):
+                self.corps, self.status_code = corps, status_code
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.corps
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, adresse, params=None, auth=None):
+                if adresse.endswith("/IncomingPhoneNumbers.json"):
+                    return _Reponse({"incoming_phone_numbers": numeros or []}, statut)
+                if adresse.endswith("/Balance.json"):
+                    return _Reponse({"balance": "20", "currency": "USD"})
+                return _Reponse({"alerts": []})
+
+        with patch("httpx.AsyncClient", lambda **k: _Client()):
+            asyncio.run(supervision.rafraichir_twilio())
+        supervision.vider_cache()
+
+    PRINCIPALE = "https://app.helmane.fr/twilio/voice"
+
+    def test_sans_releve_le_controle_le_dit(self, base):
+        assert "Pas encore relevé" in _controle("secours_twilio")["resume"]
+
+    def test_un_numero_sans_url_de_secours_est_signale_par_sa_fin(self, base, monkeypatch):
+        self._relever(monkeypatch, [
+            {"phone_number": "+33512345678", "voice_url": self.PRINCIPALE,
+             "voice_fallback_url": "https://handler.twilio.com/twiml/EH-test"},
+            {"phone_number": "+15550001234", "voice_url": self.PRINCIPALE,
+             "voice_fallback_url": ""},
+        ])
+        controle = _controle("secours_twilio")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "1 numéro(s) sur 2" in controle["resume"] and "…1234" in controle["resume"]
+        assert "+1555" not in controle["resume"]
+
+    @pytest.mark.parametrize("secours", ["https://APP.helmane.fr/twilio/suite",
+                                         "https://preprod.helmane.fr/twilio/voice",
+                                         "https://helmane.fr/secours"])
+    def test_une_url_de_secours_sur_notre_domaine_ne_compte_pas(self, base, monkeypatch,
+                                                               secours):
+        """Elle tomberait avec le serveur, exactement quand on en a besoin : la préproduction
+        et la racine passent par la même machine et le même Caddy."""
+        self._relever(monkeypatch, [
+            {"phone_number": "+33512345678", "voice_url": self.PRINCIPALE,
+             "voice_fallback_url": secours}])
+        assert _controle("secours_twilio")["niveau"] == supervision.ATTENTION
+
+    def test_tous_les_numeros_couverts_c_est_vert(self, base, monkeypatch):
+        self._relever(monkeypatch, [
+            {"phone_number": "+33512345678", "voice_url": self.PRINCIPALE,
+             "voice_fallback_url": "https://handler.twilio.com/twiml/EH-test"}])
+        controle = _controle("secours_twilio")
+        assert controle["niveau"] == supervision.OK
+        assert controle["mesure"] == {"releve": True, "numeros": 1, "sans_secours": 0}
+
+    def test_une_releve_refusee_n_est_pas_un_feu_vert(self, base, monkeypatch):
+        self._relever(monkeypatch, statut=500)
+        controle = _controle("secours_twilio")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert "INCONNU" in controle["detail"]

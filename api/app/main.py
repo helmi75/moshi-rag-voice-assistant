@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, W
 from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
-from . import (calls, db, en_cours, llm, messages, metriques, notifications, rappel, renvoi,
+from . import (calls, db, en_cours, erreurs, llm, messages, metriques, notifications, rappel, renvoi,
                supervision, taches, telegram, tenants, tournee, twilio_signature, users)
 from .voice import live
 
@@ -33,6 +33,7 @@ async def _cycle_de_vie(_app: FastAPI):
     # Cette version reprend les appels que la précédente laissait au restaurant pendant
     # qu'elle se vidait (ASSISTANTE-159).
     renvoi.fin_de_vidange()
+    erreurs.initialiser()
     await _partager_le_modele_de_fin_de_tour()
     await _prerender_greetings()
     await _demarrer_taches_de_fond()
@@ -161,6 +162,7 @@ async def _demarrer_taches_de_fond():
     from . import rgpd
 
     taches.lancer(supervision.boucle_twilio(), nom="relève des alertes Twilio")
+    taches.lancer(supervision.boucle_replication(), nom="relève de la réplication")
     taches.lancer(tournee.boucle(), nom="tournée quotidienne")
     taches.lancer(rgpd.boucle(), nom="purge des données personnelles")
     # Les séries de chaque établissement existent à zéro dès la première relève : une
@@ -645,6 +647,7 @@ async def voice_stream(websocket: WebSocket):
     etablissement_mesure = tenant.id
     metriques.appel_ouvert(etablissement_mesure, call_sid)
     en_cours.ouvrir(call_sid, tenant.id)
+    erreurs.contexte_appel(tenant.id, call_sid)
     try:
         # GPT-Live (app/voice/live.py) : seulement pour les établissements dont c'est le
         # moteur, seulement s'il n'est pas à l'écart après un échec, et seulement si la
@@ -666,6 +669,7 @@ async def voice_stream(websocket: WebSocket):
         # Avec la pile d'appels : c'est l'erreur qu'on aura à diagnostiquer, et le
         # message seul (« 'NoneType' object… ») ne dit jamais où.
         logger.exception(f"Erreur pipeline vocal (tenant {tenant.id}, appel {call_sid}): {exc}")
+        erreurs.capturer(exc)
         # Le client est toujours en ligne : à la fermeture du flux, Twilio le passe au
         # restaurant (ASSISTANTE-118).
         renvoi.demander(call_sid, renvoi.SESSION if session_live is not None else renvoi.PIPELINE)

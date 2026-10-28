@@ -45,7 +45,7 @@ Détail des choix : [ARCHITECTURE.md](ARCHITECTURE.md).
 | E-mail au restaurateur à chaque réservation, modification, annulation, message | `app/notifications.py` (SMTP) |
 | Admin : parc, salle de contrôle, journal des appels (transcription, écoute), calendrier des réservations, voix, fiche, comptes ; thème clair ou sombre ; tout à l'heure de Paris | `app/admin/` — `/admin` |
 | Coût de chaque appel chiffré poste par poste à sa clôture | `app/calls.py`, admin « Santé & coûts » |
-| Supervision : 20 contrôles, tournée quotidienne à 8 h, sonde `/supervision`, alerte GitHub Actions | `app/supervision.py` |
+| Supervision : 22 contrôles, tournée quotidienne à 8 h, sonde `/supervision`, alerte GitHub Actions | `app/supervision.py` |
 | RGPD : purges automatiques, droit à l'effacement | `app/rgpd.py`, [docs/RGPD.md](docs/RGPD.md) |
 | Formules et plafond mensuel (compte, prévient, ne coupe jamais la ligne) | `app/plans.py`, `app/quotas.py` |
 

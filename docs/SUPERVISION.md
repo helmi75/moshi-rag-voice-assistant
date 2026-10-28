@@ -36,7 +36,7 @@ appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles mor
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les vingt contrôles
+## Les vingt-deux contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
@@ -50,6 +50,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Blanc ressenti | Dérive de la latence (mesuré en prod : 1,16 s ; attention à 2,5 s, panne à 4 s) | oui |
 | Alertes Twilio | Webhook injoignable, TwiML invalide — **invisible de l'intérieur**. Relevées dans chaque région dont on a le jeton ; une région qui le refuse est nommée (« relève impossible en ie1 (HTTP 401) ») sans faire taire l'autre. Un compte Twilio **suspendu** (401, « is not active ») est nommé pour ce qu'il est, et non plus pris pour un jeton à renouveler | si le compte est suspendu |
 | Solde Twilio | Le solde du compte, relevé avec les alertes (un seul compte pour les deux régions, lu à l'API américaine). Sous `SUPERVISION_SOLDE_TWILIO_MIN` (5 $, décision du 23/10/2026) : attention, un e-mail aux super-admins une fois par épisode, et la recette automatique ne compose plus — elle refuse aussi un solde inconnu ou relevé il y a plus d'une heure. Le 12/10/2026, le solde s'est vidé sans prévenir et la ligne est restée morte onze jours | à zéro, ou compte suspendu |
+| URL de secours Twilio | Un numéro du compte sans URL de secours (*Voice Fallback URL*) servie hors de notre serveur (ASSISTANTE-157). Quand le serveur ne répond plus, c'est la seule chose que Twilio peut encore jouer : `renvoi.py` et la vigie tournent dans l'application. Relevé avec les alertes, à l'API américaine (les numéros sont au compte). Une URL de secours sur notre propre domaine compte comme absente ; les numéros sont nommés par leurs quatre derniers chiffres | non |
 | Carnet resOS | Établissements dont les réservations vont dans resOS : clé API absente, ou resOS en échec (état écrit sur l'ardoise à chaque changement, il survit aux redémarrages). Pendant la panne, l'assistante prend des messages au lieu de réserver. Le bac à sable plafonne à « attention » : une panne simulée ne réveille pas l'alerte | oui si dernier échec < 1 h |
 | Voix Mistral | La voix de tous les établissements (Voxtral) : clé `MISTRAL_API_KEY` absente (voix de secours Moshi, réveil de GPU), ou synthèses échouées dans l'heure — chacune est une phrase que l'appelant n'a pas entendue. On ne sonde pas Mistral : chaque sonde serait facturée | oui si la clé manque |
 | Appels passés en secours | Des appels que l'assistante n'a pas pu servir (ASSISTANTE-118) : renvoyés au restaurant, passés au répondeur, ou repartis sans personne — une panne de fournisseur de dix minutes ne laisse rien d'autre dans la base. Attention aussi si un établissement n'a pas de numéro de secours. Les essais lancés depuis l'admin ne comptent pas. Les renvois d'une vidange de déploiement (ASSISTANTE-159) comptent, mais en attention seulement | oui si un appel est passé en secours dans les 20 dernières minutes, hors vidange |
@@ -57,6 +58,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Crédit OpenRouter | Le crédit qui paie le cerveau de la chaîne classique, aussi secours de GPT-Live (ASSISTANTE-172) : acheté moins consommé, lu à `/api/v1/credits` par la tournée quotidienne. Sous `SUPERVISION_CREDIT_OPENROUTER_MIN` (3 $, décision du 24/10/2026) : attention ; épuisé : panne. Relève ratée ou vieille de plus de 26 h : attention. Sans clé : OK, rien à surveiller | oui à 0 |
 | Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) ; message « rappelez dans quelques minutes » absent — si le GPU ne vient pas, l'appelant n'entendra que le silence | non |
 | Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité ; copie hors du serveur absente ou arrêtée (attention) | oui à 72 h |
+| Réplication continue de la base | Litestream (ASSISTANTE-158) a-t-il rattrapé la copie locale ? Une tâche de fond lit ses métriques chaque minute (aucun appel réseau dans la sonde) et compare la position de la réplique à celle du WAL local. Attention si les métriques sont injoignables, si la relève est vieille de plus de 5 min, ou si la réplique est en retard depuis 10 min. Sans `LITESTREAM_REPLICA_URL` : OK, « Non configurée », la sauvegarde quotidienne reste la seule protection | non : un appelant n'est pas concerné |
 | Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |
 | Espace disque | Un disque plein laisse passer les `SELECT` et fait échouer la seule chose qui compte : enregistrer une réservation | oui sous 2 Go |
 | Enregistrement des appels | Activé mais n'aboutit pas — « 0 sur 12 » est le cas qu'on veut voir | non |
@@ -128,7 +130,7 @@ Grafana Cloud, qui les garde et les trace. C'est là que se posent les alertes p
 Grafana Cloud ──1 min──► GET /metrics  (Authorization: Bearer METRIQUES_TOKEN)
   relève, garde,           api/app/metriques.py
   trace, alerte            • compteurs en mémoire, ZÉRO appel réseau
-                           • niveaux des 20 contrôles de supervision
+                           • niveaux des 22 contrôles de supervision
 ```
 
 Les mesures sont prises là où l'appel passe déjà — ouverture du flux (`main.py`), clôture
@@ -205,6 +207,39 @@ réel. Écarter l'établissement d'essai partout (`etablissement!="essai"`).
   dit `servi` ou `muet`, c'est le compteur de secours qui fait foi. Même chose pour un
   pipeline Pipecat qui lève une exception : issue `echec`, et un secours compté.
 
+### Sonde externe chaque minute : étude (ASSISTANTE-162, relevé le 27/10/2026)
+
+Le besoin : savoir en une minute, et non en quinze, que l'application ne répond plus ou
+que `/supervision` dirait 503, par un surveillant qui ne tourne pas sur la machine.
+
+**Ce que nous avons déjà, sans nouveau service.** La relève de Grafana Cloud ci-dessus
+vient de l'extérieur chaque minute, et `/metrics` porte le verdict de `/supervision`
+(`helmane_supervision_niveau{controle="global"}`, lu dans le même cache de 15 s). Les
+deux premières alertes proposées font donc exactement la sonde demandée :
+« L'application ne répond plus » (`absent(…)`, la machine, le réseau ou Caddy) et
+« Supervision en panne » (`== 2`, l'équivalent du 503). Elles partent de chez Grafana :
+une machine tombée ne les fait pas taire, contrairement à `app/telegram.py`.
+
+**Recommandation : ne pas ouvrir de service de plus.** Finir la mise en place de Grafana
+Cloud (étapes 1 à 5 ci-dessus), avec un point de contact Telegram configuré chez Grafana.
+Pour une alerte par appel ou SMS, ajouter Grafana IRM, dans la même pile.
+Le workflow `supervision.yml` reste le filet, toutes les 15 minutes.
+
+| Service | Ce que la page de tarifs dit (relevé le 27/10/2026) | Pour nous |
+|---|---|---|
+| **Grafana Cloud** (recommandé) | Offre gratuite : 100 000 exécutions de tests d'API par mois en Synthetic Monitoring, IRM limité à 3 utilisateurs actifs par mois. Au-delà, 5 $ les 10 000 exécutions | Déjà prévu pour `/metrics`. Un test synthétique de `/health` chaque minute depuis un point de sonde : environ 44 000 exécutions par mois, sous le plafond gratuit. Il n'est utile que si la relève n'est pas posée. Le prix d'un SMS ou d'un appel par IRM n'est pas écrit sur la page de tarifs : à lire à l'ouverture |
+| UptimeRobot | Gratuit : contrôle toutes les **5 min**, sans en-tête personnalisé ni Telegram. Solo : **60 s**, en-têtes personnalisés, Telegram ; 9 €/mois payé à l'année, 10 €/mois au mois. SMS et appels vocaux : crédits payants (10 crédits pour 3 $), 10 à 20 inclus en Solo | Le seul choix si Grafana Cloud n'est pas monté. L'offre gratuite ne peut pas porter le jeton de `/supervision` (`X-Supervision-Token`) |
+| Better Stack | Gratuit : 10 moniteurs, alertes Slack et e-mail. La page ne donne ni la cadence de l'offre gratuite ni le prix de base de l'offre payante | Non retenu : rien à comparer sans ces chiffres |
+| Healthchecks.io | Reçoit des signaux (surveillance de tâches planifiées), n'interroge pas une adresse | Ne répond pas au besoin |
+
+Sources : `grafana.com/pricing`, `uptimerobot.com/pricing` (et sa version `pricing.md`),
+`betterstack.com/pricing`, `healthchecks.io/pricing`, lues le 27/10/2026.
+
+Ce qui reste à Helmi : ouvrir la pile Grafana Cloud et poser les alertes, ou à défaut
+choisir UptimeRobot Solo. Puis l'essai du ticket : l'application arrêtée quelques
+minutes hors des heures d'appels (une écriture en production, donc avec son accord) doit
+déclencher l'alerte « ne répond plus ».
+
 ## Alertes Telegram
 
 `api/app/telegram.py` pousse un message sur le téléphone de Helmi dès que l'application
@@ -231,6 +266,24 @@ puis les contrôles « Twilio » et « Solde Twilio ») : assumé, chacun dit sa
 L'envoi ne bloque jamais l'appelant et ne lève jamais. Le jeton est dans l'URL de l'API
 Telegram : un échec ne journalise que le nom de l'exception et le code HTTP. Les épisodes
 sont en mémoire : un redémarrage de l'application peut répéter une alerte de panne qui dure.
+
+## Erreurs dans Sentry
+
+`api/app/erreurs.py` remonte à Sentry les erreurs de l'application, marquées de leur
+établissement (`etablissement`) et de leur appel (`appel`) : la pile d'une erreur du flux
+vocal et celle d'une tâche de fond qui finit en échec. Ce qui part et ce qui est retiré
+(numéros, corps, cookies, variables locales, secrets) : `docs/RGPD.md` § 2. Mise en place :
+ouvrir un compte (région UE), créer un projet Python, poser `SENTRY_DSN` (et, hors
+production, `SENTRY_ENVIRONMENT`) dans le `.env` du serveur. Sans DSN, le module ne fait
+rien. Ni traces de performance, ni journal de bord des requêtes : les erreurs seulement.
+Un filtre qui échoue jette l'événement plutôt que de l'envoyer brut.
+
+Ce que Sentry ne voit pas : une erreur que Pipecat absorbe sans interrompre l'appel. Par
+exemple, une phrase que la voix n'a pas rendue, ou une transcription refusée une fois :
+la vigie les compte, mais aucune exception ne remonte. Pour « Deepgram a échoué 4 fois chez
+tel restaurant », la source est la série `helmane_erreurs_maillon_total`, par
+établissement et par maillon (Grafana, ci-dessus). Les messages d'erreur de Pipecat ne
+sont pas envoyés à Sentry : rien ne garantit qu'ils ne recopient pas une phrase dite.
 
 ## Angles morts, assumés
 
