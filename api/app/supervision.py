@@ -29,7 +29,7 @@ from typing import Optional
 
 from pathlib import Path as _Path
 
-from . import calls, db, horloge, tenants, twilio_region
+from . import calls, db, horloge, telegram, tenants, twilio_region
 
 # --- Niveaux -----------------------------------------------------------------
 # Ordonnés : `pire()` prend le maximum. « attention » = dégradé mais le standard
@@ -1033,7 +1033,12 @@ def _controle_secours() -> Controle:
                   f"{mesure['renvoyes']} renvoyé(s) au restaurant, {mesure['messages']} "
                   f"message(s), {mesure['non_servis']} sans personne.")
         detail = f"Le dernier il y a {age} min : {motif}."
-        niveau = PANNE if age is not None and age <= _SECOURS_RECENT_MINUTES else ATTENTION
+        # Un renvoi voulu (un déploiement qui laisse finir les appels, ASSISTANTE-159) est
+        # compté, mais ne dit pas une panne : sans cela, le contrôle d'après lancement de
+        # scripts/deploy.sh défaisait le déploiement même qui l'avait provoqué.
+        pannes = [a for a in recents if a["secours_motif"] != renvoi.VIDANGE]
+        age_panne = _age_minutes(pannes[0]["started_at"]) if pannes else None
+        niveau = PANNE if age_panne is not None and age_panne <= _SECOURS_RECENT_MINUTES else ATTENTION
         return Controle("secours", "Appels passés en secours", niveau, resume, detail, mesure)
     if sans_numero:
         return Controle(
@@ -1266,7 +1271,25 @@ def etat(*, force: bool = False) -> dict:
     }
     _cache.clear()
     _cache.update({"t": maintenant, "etat": resultat})
+    _pousser_telegram(liste)
     return resultat
+
+
+def _pousser_telegram(liste: list) -> None:
+    """Une alerte quand un contrôle passe en panne, une autre quand il revient (une fois
+    par épisode, app/telegram.py). Jamais d'exception vers la sonde."""
+    try:
+        for c in liste:
+            if c.niveau == PANNE:
+                telegram.alerter(f"supervision:{c.cle}",
+                                 f"Helmane : {c.titre} en panne. {c.resume}")
+            elif c.niveau == OK:
+                # « Rétabli » seulement au vert : une attention, ou un contrôle devenu
+                # impossible, ne sont pas un retour à la normale.
+                telegram.retablir(f"supervision:{c.cle}", f"Helmane : {c.titre} est rétabli.")
+    except Exception as exc:
+        from loguru import logger
+        logger.warning(f"[telegram] alerte de supervision ignorée ({type(exc).__name__})")
 
 
 def vider_cache() -> None:

@@ -20,12 +20,13 @@ Ce module ne fait ni réseau ni base : des décisions, du TwiML, et deux mémoir
 RAM (un seul worker uvicorn, comme tout l'état vivant des appels).
 """
 import asyncio
+import os
 import time as _temps
 from datetime import datetime, time, timedelta
 from typing import Optional
 from xml.sax.saxutils import escape  # nosemgrep: use-defused-xml — échappe le TwiML qu'on écrit, ne lit aucun XML
 
-from . import calls, connecteurs, disponibilite, horloge
+from . import calls, connecteurs, db, disponibilite, horloge, telegram
 
 # Pourquoi l'assistante passe la main. Rangé dans `calls.secours_motif`.
 VOIX, MODELE, TRANSCRIPTION = "voix", "modele", "transcription"
@@ -34,6 +35,13 @@ PIPELINE, FLUX, PANNE_RECENTE = "pipeline", "flux", "panne_recente"
 # restaurant : on ne reprend pas un appel en route avec une autre voix (décision de Helmi
 # du 09/10/2026, ASSISTANTE-129). La chaîne classique sert les appels SUIVANTS.
 SESSION = "session"
+# Un déploiement attend la fin des appels en cours (ASSISTANTE-159) : pendant ce temps, les
+# nouveaux appels sont servis comme pendant une panne, plutôt que coupés au redémarrage.
+VIDANGE = "vidange"
+# Au-delà, un drapeau oublié (déploiement interrompu sans nettoyage) ne compte plus : la
+# ligne ne reste pas renvoyée au restaurant indéfiniment. Plus long que l'attente maximale de
+# scripts/deploy.sh (VIDANGE_ATTENTE, 10 min par défaut).
+VIDANGE_MAX_SECONDES = 15 * 60
 # Un essai lancé depuis l'admin : le prochain appel de l'établissement est renvoyé, pour
 # vérifier que le téléphone du restaurant sonne — sans attendre une vraie panne.
 ESSAI = "essai"
@@ -46,6 +54,7 @@ LIBELLES = {
     FLUX: "le flux audio n'a pas pu s'ouvrir",
     PANNE_RECENTE: "une panne venait d'être constatée sur un autre appel",
     ESSAI: "essai de renvoi lancé depuis l'admin",
+    VIDANGE: "mise à jour en cours : les appels en cours finissent, les nouveaux vont au restaurant",
 }
 
 RENVOI, REPONDEUR = "renvoi", "repondeur"
@@ -95,6 +104,37 @@ def reinitialiser() -> None:
     _flux_coupe.clear()
 
 
+# ---- La vidange avant un déploiement --------------------------------------------------
+
+def chemin_du_drapeau() -> str:
+    """Le drapeau que pose scripts/deploy.sh, dans le volume de données, à côté de la base :
+    le script l'écrit depuis l'hôte, sans route ni secret, et le conteneur le lit."""
+    return os.path.join(os.path.dirname(db.DB_PATH), "vidange")
+
+
+def vidange_en_cours() -> bool:
+    """Un déploiement attend la fin des appels en cours. Lu à chaque nouvel appel : un
+    `stat`, rien de plus. Un drapeau illisible ou trop vieux ne compte pas — la ligne
+    reste à l'assistante, comme sans drapeau."""
+    try:
+        return _temps.time() - os.stat(chemin_du_drapeau()).st_mtime < VIDANGE_MAX_SECONDES
+    except OSError:
+        return False
+
+
+def fin_de_vidange() -> None:
+    """La nouvelle version démarre : elle reprend les appels. Sans cela, le drapeau que
+    l'ancienne version honorait renverrait encore les appels pendant un quart d'heure."""
+    try:
+        os.remove(chemin_du_drapeau())
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        from loguru import logger
+        logger.warning(f"[vidange] drapeau impossible à effacer ({type(exc).__name__}) : "
+                       f"les appels resteront renvoyés {VIDANGE_MAX_SECONDES // 60} min au plus")
+
+
 # ---- La mémoire des pannes ------------------------------------------------------------
 
 def signaler_panne(motif: str, tenant_id: Optional[int] = None) -> None:
@@ -103,6 +143,15 @@ def signaler_panne(motif: str, tenant_id: Optional[int] = None) -> None:
     d'un établissement, et n'engage que lui."""
     cle = tenant_id if motif in (PIPELINE, ESSAI) else None
     _pannes[cle] = (_temps.monotonic(), motif)
+    # Un message par panne, pas par appel : l'épisode se referme avec la mémoire de la panne.
+    # Un essai (bouton de l'admin, recette automatique) n'est pas une panne : pas d'alerte.
+    if motif == ESSAI:
+        return
+    portee = "tout le parc" if cle is None else f"établissement n°{cle}"
+    telegram.alerter(f"panne:{motif}:{cle}",
+                     f"Helmane : panne constatée ({motif}), {portee}. "
+                     "Les appels sont renvoyés vers le restaurant ou le répondeur.",
+                     valable_secondes=MEMOIRE_PANNE_SECONDES)
 
 
 def panne_recente(tenant_id: int) -> Optional[str]:

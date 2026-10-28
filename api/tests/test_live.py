@@ -702,7 +702,7 @@ class TestLeCerveauEstLeNotre:
             dits = session.de_type("session.commentary.append")
             if evt["type"] == "session.commentary.append" and len(dits) == 1:      # l'accueil
                 return [_fragment("assistant", " Bonjour.", 0, 500),
-                        _fragment("user", " Une table pour quatre, au nom de Dupont.", 1000, 3000), CONFIE]
+                        _fragment("user", " Une table pour quatre à vingt heures trente, au nom de Dupont.", 1000, 3000), CONFIE]
             if evt["type"] == "session.commentary.append" and len(dits) == 2:      # le résultat
                 return [_fragment("assistant", " C'est enregistré. Au revoir.", 4000, 5200)]
             return []
@@ -722,7 +722,7 @@ class TestLeCerveauEstLeNotre:
         systeme, demande = premier["messages"][0], premier["messages"][1]
         assert systeme["role"] == "system" and "tu ne parles pas au client" in systeme["content"]
         assert systeme["content"].startswith(llm.build_system_prompt(tenant)[:200])
-        assert "Client : Une table pour quatre, au nom de Dupont." in demande["content"]
+        assert "Client : Une table pour quatre à vingt heures trente, au nom de Dupont." in demande["content"]
         assert "Assistante : Bonjour." in demande["content"]
         # L'outil est passé par run_tool, avec le numéro venu du réseau.
         resa = [r for r in reservations.list_reservations(tenant.id) if r["customer_name"] == "Dupont"]
@@ -800,7 +800,7 @@ class TestLeCerveauEstLeNotre:
         def scenario(evt, session):
             dits = session.de_type("session.commentary.append")
             if evt["type"] == "session.commentary.append" and len(dits) == 1:
-                return [_fragment("user", " Une table pour deux, au nom de Tenace.", 0, 900), CONFIE]
+                return [_fragment("user", " Une table pour deux, vingt heures trente ou midi et demi, au nom de Tenace.", 0, 900), CONFIE]
             if evt["type"] == "session.commentary.append" and len(dits) == 2:
                 return [_fragment("assistant", " C'est enregistré. Au revoir.", 2000, 3000)]
             return []
@@ -937,7 +937,7 @@ class TestUneReservationAnnonceeSansEtreEnregistree:
         def scenario(evt, session):
             dits = session.de_type("session.commentary.append")
             if evt["type"] == "session.commentary.append" and len(dits) == 1:
-                return [_fragment("user", " Une table pour deux, au nom de Vrai.", 0, 900), CONFIE]
+                return [_fragment("user", " Une table pour deux à vingt heures trente, au nom de Vrai.", 0, 900), CONFIE]
             if evt["type"] == "session.commentary.append" and len(dits) == 2:
                 return [_fragment("assistant", " C'est enregistré. Au revoir.", 2000, 3000)]
             return []
@@ -1378,3 +1378,36 @@ class TestLeCreditOpenAIEpuise:
         monkeypatch.setattr(notifications, "_envoyer_sync", casse)
         assert self._ouvrir(monkeypatch, tenant, "credit_balance_exhausted") is None
         assert live.credit_epuise() is not None
+
+
+class TestLeRappelDuSite:
+    """ASSISTANTE-134 (recette W5, 06/10/2026) : le rappel « Rappelez-moi » passe par
+    l'établissement de démonstration, dont le moteur est la voix temps réel. Le site promet
+    Marie : c'est l'accueil du rappel qui doit être donné, pas celui du restaurant."""
+
+    def test_l_accueil_du_rappel_est_donne_a_la_voix_temps_reel(self, client, monkeypatch, tenant):
+        from app import rappel
+
+        def scenario(evt, session):
+            if evt["type"] == "session.commentary.append":
+                return [_fragment("assistant", " Bonjour. Au revoir.", 500, 900)]
+            return []
+
+        session = FausseSession(scenario)
+        _brancher(monkeypatch, session)
+        debut = json.loads(_debut("CA-live-rappel"))
+        debut["start"]["customParameters"]["Rappel"] = "1"
+        run_bot = AsyncMock()
+        with patch("app.main._get_bot_runner", return_value=run_bot):
+            with client.websocket_connect("/ws/voice") as ws:
+                ws.send_text(json.dumps({"event": "connected"}))
+                ws.send_text(json.dumps(debut))
+                try:
+                    while True:
+                        ws.receive_text()
+                except WebSocketDisconnect:
+                    pass
+        assert run_bot.await_count == 0, "le rappel n'est pas passé par la voix temps réel"
+        dit = session.de_type("session.commentary.append")[0]["content"]
+        assert dit.startswith(rappel.ACCUEIL.format(nom=tenant.name))
+        assert "c'est Marie" in dit

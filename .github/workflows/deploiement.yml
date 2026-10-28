@@ -53,7 +53,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           ref: main
@@ -78,7 +78,9 @@ jobs:
   production:
     if: github.event_name == 'workflow_dispatch' && inputs.cible == 'production'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Téléchargement, jusqu'à 10 min de vidange (ASSISTANTE-159), vérification, et un retour
+    # arrière possible : 20 min pouvaient couper le job en plein lancement.
+    timeout-minutes: 35
     environment: production
     # Même groupe que la préproduction (voir plus haut).
     concurrency:
@@ -89,7 +91,7 @@ jobs:
       actions: read
       checks: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           ref: main

@@ -7,6 +7,87 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Pipecat 1.14, plus aucune faille acceptée (27/10/2026, ASSISTANTE-179)
+
+### Sécurité
+- **pipecat-ai 1.5.0 → 1.14.0, Pillow 12.3.0 → 13.0.0, nltk retiré** : `pip-audit` ne trouve
+  plus rien, et `.github/pip-audit-exceptions.txt` est vide (38 avis Pillow, celui du runner
+  de Pipecat, celui de nltk).
+
+### Corrigé
+- **« Une seule réponse par tour »** : Pipecat 1.14 passe un troisième argument
+  (`speculation`) au gestionnaire qu'on remplace ; le nôtre n'en prenait que deux — une
+  TypeError à chaque fin de tour, journalisée par Pipecat. Corrigé, et éprouvé par la vraie
+  distribution d'événements de Pipecat.
+- **Une phrase perdue ne rend plus la ligne** : Pipecat 1.14 ajoute sa propre erreur pour
+  chaque phrase restée muette ; la vigie la comptait en plus de la nôtre, et un seul
+  accroc de la voix aurait renvoyé l'appel au restaurant. Filtré, prouvé sur un vrai
+  pipeline. Son erreur « plusieurs phrases muettes de suite » compte toujours.
+- **Pas de relance après un tour vide** (`empty_user_turn=None`) : nouveauté de Pipecat
+  1.14, active par défaut, qui relance le modèle avec une consigne en anglais ; on garde le
+  comportement mesuré jusqu'ici.
+
+## Non publiée — pas de réservation avec un couvert ou une heure inventés (27/10/2026, ASSISTANTE-91)
+
+### Corrigé
+- **Le serveur refuse une réservation dont le nombre de personnes ou l'heure n'a été dit par
+  personne dans la conversation.** Appel 163 (25/09) : l'appelant n'avait donné que son
+  nom, et le modèle a envoyé 1 personne à l'heure qu'il était ; seule l'heure déjà passée
+  avait empêché la table. Une valeur dite par l'assistante compte (« vingt heures, ça vous
+  va ? » — « oui ») ; pour une personne, « un » ne suffit pas (« un instant ») : il faut
+  « seul », « une personne »… Le refus dit au modèle ce qui manque, il le demande.
+  Chaîne classique et cerveau de la voix temps réel ; pas l'appel direct d'un outil par la
+  voix temps réel, dont la transcription peut arriver après lui. Rien ne change par SMS.
+## Non publiée — la page « Appels en cours » (27/10/2026, ASSISTANTE-164)
+
+### Ajouté
+- **Admin → Appels en cours** : les appels qui se déroulent, avec leur établissement,
+  leur heure de début, leur durée, leur moteur (« temps réel » ou « classique », sans nom de
+  fournisseur). Pas encore d'incident par appel (non mesuré, voir `app/en_cours.py`). Jusqu'ici, seul un compteur Prometheus le disait.
+  La liste se rafraîchit toute seule toutes les 3 s. Le restaurateur ne voit que son
+  établissement (403 sur un autre) ; le super-admin voit tout le parc.
+- **`app/en_cours.py`** : registre en mémoire du processus, alimenté par le flux média. Il ne
+  garde ni le numéro de l'appelant ni la transcription, et ne lève jamais d'exception.
+## Non publiée — un déploiement ne coupe plus les appels en cours (27/10/2026, ASSISTANTE-159)
+
+### Ajouté
+- **La vidange** : juste avant le lancement, `scripts/deploy.sh` pose un drapeau dans le
+  volume de données ; chaque nouvel appel est alors servi comme pendant une panne (renvoi
+  au restaurant, ou répondeur), et le script attend que les appels en cours finissent
+  (jusqu'à 10 min, `VIDANGE_ATTENTE`) avant de lancer la nouvelle version, qui efface le
+  drapeau en démarrant. Jusqu'ici, un appel en cours faisait refuser le déploiement, et
+  « déployer hors service » ne tenait qu'à celui qui lançait le script.
+- Ces renvois comptent dans « Appels passés en secours », en attention et jamais en
+  panne : sinon la vérification d'après lancement défaisait le déploiement.
+
+## Non publiée — Mistral, sous-traitant de la voix : ce que dit son contrat (27/10/2026, ASSISTANTE-104)
+
+### Documentation
+- **`docs/RGPD.md` § 5 bis** : le DPA de Mistral (en vigueur le 27/07/2026, accepté avec les
+  conditions de l'API), ce qu'il ne dit pas (le lieu de traitement), et ce qu'il permet :
+  **l'entraînement sur nos données tant qu'on ne s'y est pas opposé** dans la console Mistral.
+  Trois gestes restent à Helmi, listés au même endroit.
+## Non publiée — alertes poussées sur Telegram (27/10/2026, ASSISTANTE-161)
+
+### Ajouté
+- **`app/telegram.py`** : l'application écrit à Helmi sur Telegram à la seconde où elle
+  constate une panne (l'e-mail du workflow GitHub arrive jusqu'à 15 minutes après). Un
+  message par épisode : panne du renvoi (`renvoi.signaler_panne`), appel passé en secours
+  (un par établissement et par motif, 30 minutes), contrôle de supervision qui passe en
+  panne puis qui revient, crédit OpenAI épuisé, solde Twilio bas ou compte suspendu.
+  L'envoi tourne dans un fil daemon et ne lève jamais ; le jeton, qui est dans l'URL de
+  l'API, n'est jamais journalisé. Sans `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID`, rien ne part.
+- Les messages portent le nom de l'établissement et le motif, jamais un numéro d'appelant.
+## Non publiée — les actions de la CI épinglées par empreinte (27/10/2026, ASSISTANTE-178)
+
+### Sécurité
+- **Chaque action des workflows est désignée par l'empreinte de son commit** (version écrite
+  à côté), plus par une étiquette que son auteur peut déplacer : le déploiement, qui tient
+  une clé du serveur, n'exécute que du code relu. Dependabot propose les montées en PR ;
+  `test_workflows.py` refuse une action non épinglée.
+- **La CI n'a plus de droits par défaut** (`permissions: {}`) : `tests` lit le dépôt, et
+  seul `image` peut publier sur GHCR.
+
 ## Non publiée — l'audit des dépendances bloque la CI (27/10/2026, ASSISTANTE-177)
 
 ### Sécurité
@@ -17,7 +98,9 @@
   s'accepte par écrit dans `.github/pip-audit-exceptions.txt` (raison, version visée). Trois
   exceptions : nltk (aucun correctif publié), le runner de développement de Pipecat (non
   importé) et Pillow 12.3 (13 est refusé par Pipecat 1.5 ; aucune image dans un appel). Les
-  deux dernières partiront avec Pipecat 1.6.
+  exceptions de Pipecat et de Pillow partiront avec Pipecat 1.14, qui accepte Pillow 13 ; à
+  partir de 1.12, Pipecat ne demande plus nltk (ASSISTANTE-179). La 1.6 ne retire que celle
+  de Pipecat.
 
 ## Non publiée — déployer depuis GitHub, jamais pendant un appel (26/10/2026, ASSISTANTE-176)
 

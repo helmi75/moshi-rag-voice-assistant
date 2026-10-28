@@ -212,6 +212,16 @@ uv pip compile api/app/requirements.txt -o api/app/requirements.lock \
 (`--upgrade-package pipecat-ai` pour ne monter qu'un paquet.) Puis : suite de tests,
 construction de l'image, et la recette (`docs/RECETTE.md`) avant de déployer.
 
+**Actions épinglées (ASSISTANTE-178).** Chaque `uses:` des workflows désigne une action par
+l'empreinte complète de son commit, suivie de `# vX.Y.Z` : une étiquette (`@v4`) peut être
+déplacée par son auteur, et le workflow de déploiement tient une clé root du serveur.
+Dependabot (`.github/dependabot.yml`) ouvre chaque semaine une PR pour les montées ; elle
+passe la CI et la revue comme les autres. Épingler une nouvelle action : lire l'empreinte de
+l'étiquette exacte chez son auteur (`git ls-remote https://github.com/<auteur>/<action>
+refs/tags/vX.Y.Z`), jamais celle d'une branche. `test_workflows.py` refuse une action non
+épinglée, une empreinte sans sa version, et un workflow sans `permissions:` de premier
+niveau.
+
 **Avis de sécurité (ASSISTANTE-177).** La CI passe le verrou à `pip-audit`, et un avis
 la rend **rouge**. Deux réponses :
 
@@ -223,10 +233,9 @@ la rend **rouge**. Deux réponses :
    vérifiée dans le code. `test_audit_dependances.py` rougit dès que le paquet monte : le
    bloc est alors à revoir.
 
-Au 27/10/2026, trois blocs : `nltk` (aucun correctif publié), `pipecat-ai` (son runner de
-développement, que l'application n'importe pas) et `pillow` (13.0.0 est refusé par
-Pipecat 1.5, et le pipeline téléphonique ne lui donne aucune image). Les deux derniers
-partiront avec la montée de Pipecat à 1.6.
+Depuis le 27/10/2026 (ASSISTANTE-179), **aucune exception** : la montée de Pipecat en 1.14
+a emporté les trois blocs d'ASSISTANTE-177 (`nltk`, le runner de `pipecat-ai`, `pillow`
+12.3). Ils restent lisibles dans l'historique git du fichier.
 
 ## Sauvegardes
 
@@ -377,12 +386,25 @@ troisième annule celui qui attendait.
 
 Deux garde-fous de `scripts/deploy.sh` servent d'abord ce cas, où personne ne regarde :
 
-- **Pas pendant un appel.** La jauge `helmane_appels_en_cours` de `/metrics` est lue sur le
-  serveur (jeton `METRIQUES_TOKEN` de son `.env`), au début puis juste avant le lancement
-  (le téléchargement de l'image laisse le temps à un appel de commencer) ; un appel en
-  cours = refus. Une mesure impossible (jeton absent ou refusé, jauge absente) refuse
-  aussi. `DEPLOY_MALGRE_APPEL=1` passe outre, depuis le poste. Seule une API qui ne répond
-  pas du tout (production arrêtée) laisse passer : aucun appel n'y est en cours.
+- **Aucun appel coupé : la vidange (ASSISTANTE-159).** Juste avant le lancement, le script
+  pose un drapeau `vidange` dans le volume de données, à côté de la base (écrit par
+  `docker compose exec`, sans route ni secret). Tant qu'il est là, chaque NOUVEL appel est
+  servi comme pendant une panne : renvoyé au restaurant, ou au répondeur
+  (`app/renvoi.py`, motif `vidange`). Le script lit la jauge `helmane_appels_en_cours` de
+  `/metrics` (jeton `METRIQUES_TOKEN` du `.env` du serveur) toutes les 5 s, et lance la
+  nouvelle version dès qu'elle tombe à zéro. Au-delà de `VIDANGE_ATTENTE` (600 s par
+  défaut), il refuse. La nouvelle version efface le drapeau en démarrant, et la sortie du
+  script aussi, quoi qu'il arrive ; un drapeau oublié ne compte plus au bout de 15 min.
+  Une mesure impossible (jeton absent ou refusé, jauge absente) refuse ;
+  `DEPLOY_MALGRE_APPEL=1` passe outre, depuis le poste. Seule une API qui ne répond pas du
+  tout (production arrêtée) laisse passer. Les renvois de vidange comptent dans « Appels
+  passés en secours », en attention, jamais en panne : sinon la vérification d'après
+  lancement défaisait le déploiement. **Le premier déploiement de cette fonction** tourne
+  encore contre une version qui ignore le drapeau : il attend la fin des appels sans
+  détourner les nouveaux. Un appel accepté juste avant le drapeau n'est compté qu'à
+  l'ouverture de son flux : le script attend `VIDANGE_GRACE` (10 s) avant de mesurer.
+  **Le retour arrière automatique ne vidange pas** : les appels pris par la nouvelle version
+  pendant sa vérification (2 à 3 min) sont coupés si elle est défaite.
 - **Les journaux du conteneur** sont copiés dans `/opt/journaux` sur le serveur avant le
   lancement, lisibles par root seul, effacés à 14 jours par la sauvegarde de chaque nuit
   (`scripts/backup-db.sh`, synchronisée au déploiement) et par chaque déploiement

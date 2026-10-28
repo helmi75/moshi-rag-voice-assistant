@@ -81,6 +81,7 @@ bilingue`.
 | B1 | « Une table pour 2 demain à 20h, au nom de Martin » | Récapitulatif, puis confirmation **après** l'outil | |
 | B2 | Regarder l'admin | La réservation, avec **ton numéro** en téléphone | |
 | B3 | Appeler en numéro masqué (`#31#` devant) et réserver | La réservation existe, **téléphone vide** | |
+| B4 | Dire seulement « Bonjour, c'est au nom de Martin » et attendre (ASSISTANTE-91) | Elle **demande** l'heure et le nombre de personnes ; aucune réservation n'apparaît tant qu'ils n'ont pas été dits. 🤖 en partie : `test_valeurs_inventees.py` | |
 
 **B2 est le test de la correction du 31/08** : le téléphone doit venir du réseau, pas du
 modèle. S'il est vide alors que tu appelais en clair, `caller_number` ne parvient pas
@@ -291,6 +292,7 @@ l'établissement. Il faut deux téléphones : celui qui appelle, et celui du num
 | S7 🤖 (étage 2) | Relancer l'essai **hors horaires** (ou retirer le numéro de secours), appeler | Le répondeur tout de suite, sans faire sonner personne | |
 | S8 🤖 (étage 2) | *Arrêter l'essai*, appeler | L'assistante répond normalement | |
 | S9 | Après l'essai : « Santé & coûts » | Le contrôle « Appels passés en secours » ne compte pas les essais | |
+| S11 | Pendant un déploiement (ASSISTANTE-159) : être en ligne avec l'assistante, et appeler d'un second téléphone pendant que `deploy.sh` affiche « Vidange » | Le premier appel va à son terme, sans coupure ; le second sonne au restaurant (ou au répondeur) ; le script lance la nouvelle version après le raccrochage du premier. 🤖 en partie : `test_vidange.py`, et la logique d'attente éprouvée avec une fausse jauge | |
 | S10 🤖 (étage 2) | Appeler la ligne et raccrocher dès la première sonnerie, puis rappeler aussitôt (ASSISTANTE-127) | Le second appel est servi par l'assistante, pas par le répondeur ; « Appels passés en secours » ne bouge pas | |
 
 ## W. Le site et « Rappelez-moi » (ASSISTANTE-119)
@@ -365,6 +367,7 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | T20 | Sans téléphone (tests) : une session refusée pour un établissement | Lui seul est à l'écart trois minutes ; « Santé & coûts » nomme l'établissement ; un deuxième établissement refusé pendant ce temps écarte tout le parc (ASSISTANTE-128) | |
 | T22 | Sans téléphone (tests) : une session refusée avec le code `credit_balance_exhausted` | Tout le parc passe par la chaîne classique ; un seul e-mail aux super-admins par épisode ; `/supervision` répond 503 avec le contrôle « Crédit OpenAI » en alerte jusqu'à ce qu'une session s'ouvre (ASSISTANTE-151) | |
 | T21 | Sans téléphone (tests) : la session tombe au milieu d'un appel | Le client est renvoyé au restaurant ; la fiche de l'appel dit « la voix s'est interrompue au milieu de l'appel », sans nommer le moteur ; l'appel suivant est servi par la chaîne classique (ASSISTANTE-129) | |
+| T23 🤖 (étage 1) | Ouvrir Admin → Appels en cours pendant un appel d'essai, puis le restaurateur de l'établissement, puis celui d'un autre | La ligne apparaît avec son établissement, sa durée qui avance et son moteur (« temps réel » ou « classique », sans nom de fournisseur) ; elle disparaît à la fin de l'appel ; le restaurateur ne voit que son établissement et reçoit 403 sur un autre (ASSISTANTE-164) | |
 
 ## L. Écouter sans faire répéter — appels 183 à 201 (27/09/2026)
 
@@ -387,6 +390,8 @@ sur un établissement resté sur la chaîne classique : c'est la comparaison qui
 | G3 | Demander quelque chose de hors sujet | Elle ramène poliment au restaurant | |
 | G4 | Dire « je suis allergique aux fruits de mer » | Elle **ne garantit rien**, renvoie vers l'équipe en salle | |
 | G5 | Raccrocher brutalement en plein milieu | L'appel est clôturé en base (`ended_at` non nul) | |
+| G6 | Après la pose de `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID`, provoquer une panne d'essai (ou attendre la première) | Helmi reçoit le message sur son téléphone, une seule fois pour l'épisode, sans numéro d'appelant | |
+
 
 **G5 teste le contrôle « appels jamais clôturés » de la supervision.**
 **G4 touche aux données de santé** (`docs/RGPD.md` §4).

@@ -9,7 +9,9 @@
 # (--upgrade-package) ; aucune autre version ne bouge. multidict laissé en 6.x pour ce lot
 # (6.9.1 corrige l'avis ; la 7 est une version majeure, sans incompatibilité connue) :
 # une régénération complète (--upgrade) peut la monter, à tester comme le reste.
-
+# 27/10/2026 (ASSISTANTE-179) : pipecat-ai 1.5.0 → 1.14.0 (--upgrade-package pipecat-ai pillow), pour
+# Pillow 13 (38 avis) ; nltk n'est plus demandé. Les autres versions bougent seulement là où
+# Pipecat 1.14 change ses dépendances (scipy, pyloudnorm → soundfile, loudness ; h2…).
 aiofiles==25.1.0
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.5
@@ -20,10 +22,9 @@ anyio==4.14.2
 attrs==26.1.0
 bcrypt==5.0.0
 certifi==2026.10.23
+cffi==2.1.1
 click==8.5.0
-cloudpickle==3.1.2
 deepgram-sdk==7.8.0
-defusedxml==0.7.1
 distro==1.9.0
 docopt==0.6.2
 docstring-parser==0.18.0
@@ -31,44 +32,45 @@ fastapi==0.141.1
 flatbuffers==25.12.19
 frozenlist==1.8.0
 h11==0.16.0
+h2==4.4.1
+hpack==4.2.0
 httpcore==1.0.9
 httptools==0.8.0
 httpx==0.28.1
+hyperframe==6.1.0
 idna==3.19
 itsdangerous==2.2.0
 jinja2==3.1.6
 jiter==0.16.0
-joblib==1.6.0
 llvmlite==0.49.0
 loguru==0.7.3
+loudness==0.2.0
 markdown==3.10.3
 markupsafe==3.0.3
 mpmath==1.3.0
 msgpack==1.2.2
 multidict==6.9.1
-nltk==3.10.3
 num2words==0.5.14
 numba==0.67.0
 numpy==2.5.2
 onnxruntime==1.24.4
 openai==2.54.0
 packaging==26.3
-pillow==12.3.0
-pipecat-ai==1.5.0
+pillow==13.0.0
+pipecat-ai==1.14.0
 prometheus-client==0.26.0
 propcache==0.5.2
 protobuf==6.33.6
+pycparser==3.12
 pydantic==2.13.5
 pydantic-core==2.46.5
-pyloudnorm==0.2.0
 python-dotenv==1.2.3
 python-multipart==0.0.32
 pyyaml==6.0.3
-pyyaml-include==1.4.1
-regex==2026.9.3
 resampy==0.4.3
-scipy==1.18.1
+sentencex==1.0.32
 sniffio==1.3.1
+soundfile==0.13.1
 soxr==1.0.0
 starlette==1.6.0
 sympy==1.14.0

@@ -9,8 +9,8 @@ Ce module ne passe PAS par Pipecat : GPT-Live accepte le format du téléphone t
 (µ-law 8 kHz), rend un flux continu au rythme de la parole, silences compris, et gère
 elle-même les interruptions. Il n'y a donc rien à détecter ni à assembler : on relaie
 l'audio dans les deux sens, et on répond à ses *délégations* — le travail qu'elle confie
-à un second modèle, lequel appelle nos outils. Notre Pipecat 1.5 ne connaît pas ce
-service, et monter de version pour un essai aurait touché tous les appels.
+à un second modèle, lequel appelle nos outils. Pipecat 1.5 ne connaissait pas ce service
+quand ce relais a été écrit (1.14 en a un, `services/openai/live`, non essayé).
 
 GPT-Live n'est que la voix. Le cerveau reste le nôtre : le modèle de `llm.MODEL`
 (Gemini 2.5 Flash par OpenRouter), celui qui sert déjà tous les appels et pour lequel
@@ -714,6 +714,10 @@ class Appel:
         client = llm.get_client()
         messages = [{"role": "system", "content": self.consignes_du_cerveau},
                     {"role": "user", "content": self._demande_au_cerveau()}]
+        # Ce que le cerveau a lu, et rien d'autre : `run_tool` refuse un couvert ou une
+        # heure qui n'y figurent pas (ASSISTANTE-91). L'appel direct d'un outil par la voix
+        # temps réel n'est pas vérifié : la transcription du client peut y arriver après lui.
+        entendu = "\n".join(t["content"] for t in self.transcription())
         message = None
         for _ in range(llm.MAX_TOOL_ROUNDS):
             reponse = await self._generation(client, messages, llm_extra_body(), durees)
@@ -731,7 +735,8 @@ class Appel:
                 except ValueError:
                     arguments = {}
                 resultat = await self._executer(a.function.name,
-                                                arguments if isinstance(arguments, dict) else {})
+                                                arguments if isinstance(arguments, dict) else {},
+                                                entendu)
                 messages.append({"role": "tool", "tool_call_id": a.id, "content": resultat})
         return (getattr(message, "content", None) or "").strip()
 
@@ -773,18 +778,21 @@ class Appel:
         if isinstance(cout, (int, float)):       # ce qu'OpenRouter dit avoir facturé, s'il le dit
             self.cout_annonce = (self.cout_annonce or 0.0) + float(cout)
 
-    async def _executer(self, nom: str, arguments: dict) -> str:
+    async def _executer(self, nom: str, arguments: dict,
+                        conversation: Optional[str] = None) -> str:
         """Exécute l'outil, à l'abri d'une annulation : le délai du travail confié peut
         tomber pendant une écriture (les essais du cerveau la repoussent vers la fin). La
         réservation serait alors créée sans que l'appel en garde la trace."""
-        tache = asyncio.ensure_future(self._executer_jusqu_au_bout(nom, arguments))
+        tache = asyncio.ensure_future(self._executer_jusqu_au_bout(nom, arguments, conversation))
         self._outils_en_cours.add(tache)
         tache.add_done_callback(self._outils_en_cours.discard)
         return await asyncio.shield(tache)
 
-    async def _executer_jusqu_au_bout(self, nom: str, arguments: dict) -> str:
+    async def _executer_jusqu_au_bout(self, nom: str, arguments: dict,
+                                      conversation: Optional[str] = None) -> str:
         try:
-            resultat = await llm.run_tool(self.tenant, nom, arguments, self.caller_number, self.call_id)
+            resultat = await llm.run_tool(self.tenant, nom, arguments, self.caller_number,
+                                          self.call_id, conversation)
         except Exception as exc:
             resultat = f"Erreur outil {nom}: {exc}"
         self.outils_appeles.append({"nom": nom, "arguments": arguments, "resultat": resultat})

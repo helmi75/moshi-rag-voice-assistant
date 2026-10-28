@@ -82,7 +82,8 @@ class TestLeHandlerTransmetLeNumero:
     def test_le_numero_parvient_a_run_tool(self, monkeypatch):
         recu = {}
 
-        async def faux_run_tool(tenant, name, args, caller_number=None, call_id=None):
+        async def faux_run_tool(tenant, name, args, caller_number=None, call_id=None,
+                                conversation=None):
             recu["numero"] = caller_number
             recu["call_id"] = call_id
             return json.dumps({"status": "confirmed", "reservation_id": 7})

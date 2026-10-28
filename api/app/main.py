@@ -17,8 +17,8 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, W
 from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
-from . import (calls, db, llm, messages, metriques, notifications, rappel, renvoi,
-               supervision, taches, tenants, tournee, twilio_signature, users)
+from . import (calls, db, en_cours, llm, messages, metriques, notifications, rappel, renvoi,
+               supervision, taches, telegram, tenants, tournee, twilio_signature, users)
 from .voice import live
 
 
@@ -30,6 +30,9 @@ async def _cycle_de_vie(_app: FastAPI):
     l'ordre de déclaration dans le fichier, et rien ne garantissait que l'arrêt suive
     un démarrage qui aurait échoué à mi-chemin. Ici `finally` arrête les tâches de fond
     dans tous les cas."""
+    # Cette version reprend les appels que la précédente laissait au restaurant pendant
+    # qu'elle se vidait (ASSISTANTE-159).
+    renvoi.fin_de_vidange()
     await _partager_le_modele_de_fin_de_tour()
     await _prerender_greetings()
     await _demarrer_taches_de_fond()
@@ -348,10 +351,15 @@ async def voice_webhook(
     # Une panne vient d'être constatée sur un autre appel : celui-ci ne la revit pas, il
     # est renvoyé d'emblée (ASSISTANTE-118). Passé le délai, un appel retente l'assistante.
     panne = renvoi.panne_recente(tenant.id)
+    # Un déploiement attend la fin des appels en cours (ASSISTANTE-159) : un appel qui
+    # commencerait maintenant serait coupé au redémarrage. Il va au restaurant.
+    if not panne and renvoi.vidange_en_cours():
+        panne = renvoi.VIDANGE
     if panne:
         form = await request.form()
         return await _secours(tenant, CallSid, From, To, form.get("ForwardedFrom"),
-                              renvoi.ESSAI if panne == renvoi.ESSAI else renvoi.PANNE_RECENTE)
+                              panne if panne in (renvoi.ESSAI, renvoi.VIDANGE)
+                              else renvoi.PANNE_RECENTE)
     return _stream_twiml(request, To or "", CallSid or "", From or "")
 
 
@@ -362,6 +370,15 @@ async def _secours(tenant, call_sid: Optional[str], appelant: Optional[str],
     action, numero = renvoi.decision(tenant, appelant=appelant, transfere_depuis=transfere_depuis)
     logger.warning(f"[secours] appel {call_sid} (établissement {tenant.id}) : {motif} → "
                    f"{'renvoi vers le restaurant' if action == renvoi.RENVOI else 'répondeur'}")
+    # Un message par établissement et par motif, pas par appel (30 minutes d'épisode). Un
+    # essai de renvoi, ou la vidange d'un déploiement (ASSISTANTE-159), ne sont pas une
+    # panne : pas d'alerte.
+    if motif not in (renvoi.ESSAI, renvoi.VIDANGE):
+        telegram.alerter(
+            f"secours:{tenant.id}:{motif}",
+            f"Helmane : un appel est passé en secours ({motif}), {tenant.name}. "
+            f"Suite : {'renvoi vers le restaurant' if action == renvoi.RENVOI else 'répondeur'}.",
+            valable_secondes=1800)
     try:
         await db.hors_boucle(calls.ouvrir_secours, call_sid, tenant.id,
                              calls.numero_appelant(appelant), motif)
@@ -627,6 +644,7 @@ async def voice_stream(websocket: WebSocket):
     # la cause : c'est la jauge « appels en cours » des tableaux de bord.
     etablissement_mesure = tenant.id
     metriques.appel_ouvert(etablissement_mesure, call_sid)
+    en_cours.ouvrir(call_sid, tenant.id)
     try:
         # GPT-Live (app/voice/live.py) : seulement pour les établissements dont c'est le
         # moteur, seulement s'il n'est pas à l'écart après un échec, et seulement si la
@@ -635,10 +653,12 @@ async def voice_stream(websocket: WebSocket):
             tenant_live, prompt_live = await live.preparer(tenant, from_number, demonstration)
             session_live = await live.ouvrir(tenant_live, prompt_live, bool(from_number))
         if session_live is not None:
+            en_cours.moteur(call_sid, "temps_reel")
             await live.run_live(websocket, session_live, stream_sid, call_sid, tenant_live,
                                 caller_number=from_number, call_id=call_id,
                                 prompt_systeme=prompt_live)
         else:
+            en_cours.moteur(call_sid, "classique")
             await run_bot(websocket, stream_sid, call_sid, tenant,
                           caller_number=from_number, call_id=call_id,
                           demonstration=demonstration)
@@ -663,3 +683,4 @@ async def voice_stream(websocket: WebSocket):
             pass  # déjà fermée
     finally:
         metriques.appel_ferme(etablissement_mesure, call_sid)
+        en_cours.fermer(call_sid)

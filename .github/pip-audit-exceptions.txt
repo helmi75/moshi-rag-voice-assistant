@@ -6,57 +6,6 @@
 # api/tests/test_audit_dependances.py le signale. Puis un identifiant d'avis par ligne.
 # Ajouter un avis : vérifier qu'il ne touche pas ce que l'application fait du paquet,
 # l'écrire dans le bloc, et le dire dans le commit (docs/DEPLOY.md, « Dépendances figées »).
-
-# nltk==3.10.3 : API de fichiers de modèles NLTK avec un chemin fourni par l'appelant ;
-# l'application n'en passe jamais (nltk ne sert qu'au découpage des phrases de Pipecat).
-# Aucun correctif publié (relevé le 27/10/2026).
-PYSEC-2026-3740
-
-# pipecat-ai==1.5.0 : le « development runner » de Pipecat (pipecat.runner) expose des
-# routes qui créent des sessions ; l'application ne l'importe pas (vérifié le 27/10/2026 :
-# absent de sys.modules après l'import de main, bot et live). Corrigé en 1.6.0 : la montée
-# de Pipecat touche le chemin d'appel, elle aura son propre lot.
-CVE-2026-102682
-
-# pillow==12.3.0 : décodage de fichiers images forgés (TIFF, GIF, PDF, BMP, EPS, JPEG 2000…)
-# et dessin de texte. Pipecat charge Pillow pendant un appel, mais ne s'en sert que pour
-# des trames d'image (vidéo, image envoyée au modèle) : le pipeline téléphonique n'en
-# produit aucune, et l'application n'ouvre jamais d'image venue de l'extérieur. Corrigé en
-# 13.0.0, que pipecat-ai 1.5 refuse (pillow<13) : il partira avec la montée de Pipecat.
-CVE-2026-112390
-CVE-2026-112391
-CVE-2026-112392
-CVE-2026-112393
-CVE-2026-112395
-CVE-2026-112396
-CVE-2026-112397
-CVE-2026-112398
-CVE-2026-112399
-CVE-2026-112400
-CVE-2026-112401
-CVE-2026-112402
-CVE-2026-112404
-CVE-2026-112405
-CVE-2026-112406
-CVE-2026-112891
-CVE-2026-112892
-CVE-2026-112893
-CVE-2026-112894
-CVE-2026-112895
-CVE-2026-112896
-CVE-2026-112897
-CVE-2026-112899
-CVE-2026-112900
-CVE-2026-112901
-CVE-2026-114501
-CVE-2026-96636
-CVE-2026-96637
-CVE-2026-96638
-CVE-2026-96639
-CVE-2026-96640
-CVE-2026-96641
-CVE-2026-96642
-CVE-2026-96643
-CVE-2026-96644
-CVE-2026-96778
-GHSA-78g4-xqwv-q3g8
+#
+# Aucune exception depuis le 27/10/2026 (ASSISTANTE-179) : Pipecat 1.14 accepte Pillow 13 et ne
+# dépend plus de nltk. Les trois blocs précédents sont dans l'historique git de ce fichier.

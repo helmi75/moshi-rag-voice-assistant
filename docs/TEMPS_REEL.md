@@ -27,7 +27,8 @@ appel chez nous. Les prix bougent — les relire avant toute décision.
 ## Notre chaîne aujourd'hui
 
 Twilio → Deepgram nova-3 (transcription) → Gemini Flash via OpenRouter (modèle, outils) →
-Mistral Voxtral (voix), assemblés par Pipecat 1.5.
+Mistral Voxtral (voix), assemblés par Pipecat (1.5 à l'époque de cette étude, 1.14 depuis
+le 27/10/2026).
 
 | Mesure | Valeur | Source |
 |---|---|---|

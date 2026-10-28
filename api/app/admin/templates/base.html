@@ -77,9 +77,13 @@
       </a>
       {% endif %}
 
-      <a class="nav-item" href="/admin/calls" {% if shell_path.startswith('/admin/calls') %}aria-current="page"{% endif %}>
+      <a class="nav-item" href="/admin/calls" {% if shell_path.startswith('/admin/calls') and shell_path != '/admin/calls/live' %}aria-current="page"{% endif %}>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.6 10.8c1.2 2.4 3.2 4.4 5.6 5.6l1.9-1.9c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.5.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.3 21 3 13.7 3 4.6c0-.6.4-1 1-1h3.3c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.5.1.4 0 .8-.2 1L6.6 10.8Z"/></svg>
         <span>Appels</span>
+      </a>
+      <a class="nav-item" href="/admin/calls/live" {% if shell_path == '/admin/calls/live' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4"/></svg>
+        <span>Appels en cours</span>
       </a>
       <a class="nav-item" href="/admin/reservations" {% if shell_path.startswith('/admin/reservations') %}aria-current="page"{% endif %}>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v3M17 2v3M3.5 9h17M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>

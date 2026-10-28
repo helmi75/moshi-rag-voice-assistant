@@ -9,7 +9,7 @@ pydantic
 python-multipart
 # Pipeline vocal streaming : transport Twilio, Deepgram, LLM OpenAI-compatible (OpenRouter),
 # VAD Silero et smart-turn (onnxruntime inclus par l'extra silero).
-pipecat-ai[openai,deepgram,silero]~=1.5.0
+pipecat-ai[openai,deepgram,silero]~=1.14.0
 # Client websocket du serveur Rust moshi-server (voix Moshi 1.6B) : aucun modèle en local.
 websockets
 msgpack

@@ -52,7 +52,7 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Solde Twilio | Le solde du compte, relevé avec les alertes (un seul compte pour les deux régions, lu à l'API américaine). Sous `SUPERVISION_SOLDE_TWILIO_MIN` (5 $, décision du 23/10/2026) : attention, un e-mail aux super-admins une fois par épisode, et la recette automatique ne compose plus — elle refuse aussi un solde inconnu ou relevé il y a plus d'une heure. Le 12/10/2026, le solde s'est vidé sans prévenir et la ligne est restée morte onze jours | à zéro, ou compte suspendu |
 | Carnet resOS | Établissements dont les réservations vont dans resOS : clé API absente, ou resOS en échec (état écrit sur l'ardoise à chaque changement, il survit aux redémarrages). Pendant la panne, l'assistante prend des messages au lieu de réserver. Le bac à sable plafonne à « attention » : une panne simulée ne réveille pas l'alerte | oui si dernier échec < 1 h |
 | Voix Mistral | La voix de tous les établissements (Voxtral) : clé `MISTRAL_API_KEY` absente (voix de secours Moshi, réveil de GPU), ou synthèses échouées dans l'heure — chacune est une phrase que l'appelant n'a pas entendue. On ne sonde pas Mistral : chaque sonde serait facturée | oui si la clé manque |
-| Appels passés en secours | Des appels que l'assistante n'a pas pu servir (ASSISTANTE-118) : renvoyés au restaurant, passés au répondeur, ou repartis sans personne — une panne de fournisseur de dix minutes ne laisse rien d'autre dans la base. Attention aussi si un établissement n'a pas de numéro de secours. Les essais lancés depuis l'admin ne comptent pas | oui si un appel est passé en secours dans les 20 dernières minutes |
+| Appels passés en secours | Des appels que l'assistante n'a pas pu servir (ASSISTANTE-118) : renvoyés au restaurant, passés au répondeur, ou repartis sans personne — une panne de fournisseur de dix minutes ne laisse rien d'autre dans la base. Attention aussi si un établissement n'a pas de numéro de secours. Les essais lancés depuis l'admin ne comptent pas. Les renvois d'une vidange de déploiement (ASSISTANTE-159) comptent, mais en attention seulement | oui si un appel est passé en secours dans les 20 dernières minutes, hors vidange |
 | Crédit OpenAI | Un refus de session GPT-Live pour crédit épuisé (ASSISTANTE-151), vu depuis le démarrage : l'heure du premier refus, le nombre de refus, et la marche à suivre (recharger le crédit dans la console OpenAI ; la chaîne classique sert les appels en attendant). **Ce n'est pas une mesure du solde** — OpenAI ne le donne pas par son API : « OK » veut dire « aucun refus vu ». Revient au vert dès qu'une session s'ouvre. Un e-mail part aux super-admins au premier refus de l'épisode. Sans clé GPT-Live : OK, rien à surveiller. Mémoire du processus : un redéploiement l'efface | oui dès le premier refus Deux heures sans nouveau refus : l'alerte descend à « attention » (rien ne dit si le crédit est revenu), pour ne pas masquer les autres pannes ; elle ne s'efface qu'à la première session ouverte. |
 | Crédit OpenRouter | Le crédit qui paie le cerveau de la chaîne classique, aussi secours de GPT-Live (ASSISTANTE-172) : acheté moins consommé, lu à `/api/v1/credits` par la tournée quotidienne. Sous `SUPERVISION_CREDIT_OPENROUTER_MIN` (3 $, décision du 24/10/2026) : attention ; épuisé : panne. Relève ratée ou vieille de plus de 26 h : attention. Sans clé : OK, rien à surveiller | oui à 0 |
 | Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) ; message « rappelez dans quelques minutes » absent — si le GPU ne vient pas, l'appelant n'entendra que le silence | non |
@@ -186,7 +186,7 @@ réel. Écarter l'établissement d'essai partout (`etablissement!="essai"`).
 | L'application ne répond plus | `absent(helmane_supervision_niveau{controle="global"})` pendant 3 min | La relève échoue : machine, réseau ou Caddy. La panne qui compte le plus |
 | Supervision en panne | `helmane_supervision_niveau{controle="global"} == 2` pendant 2 min | Le même verdict que `/supervision`, en 1 min au lieu de 15 |
 | Appels muets | `sum by (etablissement) (increase(helmane_appels_termines_total{issue="muet"}[30m])) >= 2` | La panne du 30/07/2026, par client |
-| Appels en secours | `sum by (etablissement) (increase(helmane_secours_total[10m])) > 0` | Un client n'a pas été servi par l'assistante |
+| Appels en secours | `sum by (etablissement) (increase(helmane_secours_total{motif!="vidange"}[10m])) > 0` | Un client n'a pas été servi par l'assistante. Les renvois d'une vidange de déploiement (ASSISTANTE-159) sont voulus : exclus. **Si la règle existe déjà chez Grafana Cloud, la mettre à jour** |
 | Blanc qui dérive | `histogram_quantile(0.9, sum by (etablissement, le) (rate(helmane_blanc_secondes_bucket[30m]))) > 2.5` | Le seuil « attention » de la supervision, par client |
 | Un maillon qui perd des phrases | `sum by (etablissement, maillon) (increase(helmane_erreurs_maillon_total[15m])) >= 5` | Une voix qui perd une phrase sur dix ne renvoie aucun appel : seule cette série la voit |
 
@@ -204,6 +204,33 @@ réel. Écarter l'établissement d'essai partout (`etablissement!="essai"`).
   GPT-Live interrompu en route est clos **avant** que le renvoi soit demandé : son issue
   dit `servi` ou `muet`, c'est le compteur de secours qui fait foi. Même chose pour un
   pipeline Pipecat qui lève une exception : issue `echec`, et un secours compté.
+
+## Alertes Telegram
+
+`api/app/telegram.py` pousse un message sur le téléphone de Helmi dès que l'application
+constate une panne, sans attendre le cycle de 15 minutes du workflow GitHub (qui reste le
+filet si l'application elle-même est tombée). Mise en place : créer un bot avec
+@BotFather, écrire un message au bot, lire `result[0].message.chat.id` dans
+`https://api.telegram.org/bot<jeton>/getUpdates`, puis poser `TELEGRAM_BOT_TOKEN` et
+`TELEGRAM_CHAT_ID` dans le `.env` du serveur. Sans les deux, le module ne fait rien.
+
+| Message | Quand | Épisode |
+|---|---|---|
+| Panne constatée | `renvoi.signaler_panne` | un par motif et par établissement, refermé avec la mémoire de la panne (3 min) |
+| Appel passé en secours | `main._secours` | un par établissement et par motif, 30 min |
+| Contrôle en panne / rétabli | `supervision.etat`, à chaque recalcul | jusqu'au retour au vert |
+| Crédit OpenAI, solde Twilio | `notifications.py` | ceux de l'e-mail |
+
+Une même alerte ne repart pas avant **15 minutes** (`REPRISE_SECONDES`), même si son épisode
+s'est refermé : une panne qui dure, ou un contrôle qui oscille autour de son seuil, ne font
+pas une rafale. « Rétabli » ne part qu'au vert, jamais sur une attention ni sur un contrôle
+devenu impossible. Les essais de renvoi (bouton de l'admin, recette automatique) ne sonnent
+pas. Un même fait peut donner deux ou trois messages (un compte Twilio suspendu : le solde,
+puis les contrôles « Twilio » et « Solde Twilio ») : assumé, chacun dit sa source.
+
+L'envoi ne bloque jamais l'appelant et ne lève jamais. Le jeton est dans l'URL de l'API
+Telegram : un échec ne journalise que le nom de l'exception et le code HTTP. Les épisodes
+sont en mémoire : un redémarrage de l'application peut répéter une alerte de panne qui dure.
 
 ## Angles morts, assumés
 

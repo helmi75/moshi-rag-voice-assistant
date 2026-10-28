@@ -23,6 +23,30 @@ from ..tenants import Tenant
 from .rattrapage import PARDON, pardon
 
 
+def texte_de_la_conversation(context) -> Optional[str]:
+    """Ce que le client et l'assistante se sont dit, pour `llm.run_tool` (ASSISTANTE-91).
+
+    Ni le prompt système, qui cite les horaires et rendrait toute heure « dite », ni les
+    résultats d'outils, que le client n'a pas entendus. Un contexte illisible rend None :
+    la vérification saute plutôt que de bloquer une réservation."""
+    try:
+        morceaux = []
+        for message in context.get_messages():
+            # Un message propre à un fournisseur (`LLMSpecificMessage`) n'est pas un dict :
+            # on le saute, plutôt que de couper la vérification pour tout l'appel.
+            if not isinstance(message, dict) or message.get("role") not in ("user", "assistant"):
+                continue
+            contenu = message.get("content")
+            if isinstance(contenu, str):
+                morceaux.append(contenu)
+            elif isinstance(contenu, list):
+                morceaux += [p.get("text", "") for p in contenu
+                             if isinstance(p, dict) and p.get("type") == "text"]
+        return "\n".join(m for m in morceaux if m)
+    except Exception:
+        return None
+
+
 def make_tool_handler(
     tenant: Tenant,
     created_reservations: list[int | str] | None = None,
@@ -45,7 +69,8 @@ def make_tool_handler(
         args = dict(params.arguments or {})
         try:
             result = await llm.run_tool(tenant, params.function_name, args,
-                                        caller_number, call_id)
+                                        caller_number, call_id,
+                                        texte_de_la_conversation(getattr(params, "context", None)))
         except Exception as exc:
             result = f"Erreur outil {params.function_name}: {exc}"
         if created_reservations is not None and params.function_name == "create_reservation":
@@ -364,7 +389,7 @@ def une_seule_reponse_par_tour(aggregateur) -> bool:
     validation (`_maybe_emit_user_turn_stopped` pousse tout ce qui a été accumulé). Sur
     un tour franc, pressentiment et validation sont consécutifs : aucun délai ajouté.
 
-    Touche l'intérieur de Pipecat 1.5 : si sa forme change, on le signale et on garde le
+    Touche l'intérieur de Pipecat (vérifié sur 1.14) : si sa forme change, on le signale et on garde le
     comportement d'origine — un appel qui répond deux fois vaut mieux qu'un appel muet.
     Renvoie True si la correction est en place."""
     controleur = getattr(aggregateur, "_user_turn_controller", None)
@@ -375,7 +400,10 @@ def une_seule_reponse_par_tour(aggregateur) -> bool:
                        "comportement d'origine conservé")
         return False
 
-    async def _signal_seulement(_controleur, strategie):
+    # `*_reste` : Pipecat 1.14 passe aussi `speculation` (une inférence anticipée, qu'on ne
+    # lance pas plus que l'autre). Sans lui, une TypeError à chaque fin de tour (avalée et
+    # journalisée par Pipecat, mais le signal ne partait plus).
+    async def _signal_seulement(_controleur, strategie, *_reste):
         await aggregateur._call_event_handler("on_user_turn_inference_triggered", strategie)
 
     controleur.remove_event_handler("on_user_turn_inference_triggered", origine)
@@ -721,7 +749,7 @@ async def run_bot(
     context_aggregator = LLMContextAggregatorPair(
         context,
         # VAD Silero pour le début de tour ; fin de tour via smart-turn v3 (défaut
-        # Pipecat 1.5, modèle ONNX embarqué) -> barge-in et coupures naturelles.
+        # Pipecat, modèle ONNX embarqué) -> barge-in et coupures naturelles.
         user_params=LLMUserAggregatorParams(
             vad_analyzer=SileroVADAnalyzer(params=vad_params),
             # Émet on_user_turn_idle si le client est inactif ce délai APRÈS que le bot
@@ -731,6 +759,11 @@ async def run_bot(
             user_turn_stop_timeout=turn_stop_timeout,
             # Ce qui autorise le client à couper la parole (cf. interruption_strategies).
             user_turn_strategies=interruption_strategies(),
+            # Pipecat 1.14 relance le modèle, avec une consigne en anglais au rôle
+            # « developer », après un tour fini sans transcription pendant que l'assistante
+            # parlait. Pas en 1.5 : on garde ce comportement, celui qu'on a mesuré
+            # (relecture d'ASSISTANTE-179). Le « toujours là ? » a son propre filet.
+            empty_user_turn=None,
         ),
     )
 

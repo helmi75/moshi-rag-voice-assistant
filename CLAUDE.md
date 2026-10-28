@@ -85,7 +85,7 @@ le `.lock` ce qui est installé (régénération : `docs/DEPLOY.md`).
    (`depot_github.py fusionner`, jamais à la main).
 9. **Déploiement** : attendre la CI de `main` (tests, puis l'image publiée sur GHCR par le
    job `image`), lancer `scripts/deploy.sh`, qui télécharge l'image du commit (le serveur
-   ne construit rien), refuse pendant un appel en cours et sauvegarde les journaux du
+   ne construit rien), laisse finir les appels en cours (vidange : les nouveaux vont au restaurant) et sauvegarde les journaux du
    conteneur sur le serveur (`/opt/journaux`, 14 jours) ; vérifier dans le conteneur,
    recaler la branche de travail sur `main`.
 10. **Recette** sur un vrai appel (`docs/RECETTE.md`), puis ticket Jira à « Terminé ».
@@ -282,7 +282,7 @@ comportement attendu, en français. `test_vigie.py::TestAvecLeVraiPipeline` est 
 d'un test qui fait tourner un vrai pipeline Pipecat. Le faux resOS écrit son état sur
 disque : une fixture qui l'utilise efface son fichier en sortie.
 
-## Pièges connus (Pipecat 1.5)
+## Pièges connus (Pipecat 1.14)
 
 - Le sérialiseur Twilio **raccroche l'appel** (API REST) quand le pipeline s'arrête.
   Pour rendre la ligne sans raccrocher : `bot.serialiseur_twilio` et `garder_la_ligne`.
@@ -290,6 +290,8 @@ disque : une fixture qui l'utilise efface son fichier en sortie.
 - Ne pas arrêter le pipeline depuis un observateur (il s'attendrait lui-même) : passer
   par `taches.lancer`, comme `bot.passer_la_main`.
 - L'audio émis avant le démarrage du pipeline est jeté : attendre `on_pipeline_started`.
+- Un gestionnaire d'événement remplacé reçoit les arguments de Pipecat, qui changent d'une
+  version à l'autre (1.14 ajoute `speculation`) : l'éprouver par `_call_event_handler`.
 
 ## Règles permanentes
 
