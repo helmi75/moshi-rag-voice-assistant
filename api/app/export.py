@@ -12,7 +12,9 @@ import csv
 import io
 import json
 import os
+import re
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -27,13 +29,66 @@ _BOM = "﻿"
 _COMPTES = "SELECT email, role, created_at FROM users WHERE tenant_id = ? ORDER BY id"
 
 
+# Ce que l'admin cache au restaurateur ne sort pas non plus par l'archive (relecture) : le
+# journal technique (SCRUM-108), le détail des coûts par poste, le moteur et le fournisseur
+# de la voix — un restaurateur ne lit jamais le nom d'un fournisseur (décision du 09/10).
+_APPELS_MASQUES = {"journal", "voix_fournisseur", "cout_telephonie", "cout_transcription",
+                   "cout_comprehension", "cout_voix"}
+_FICHE_MASQUEE = {"moteur_voix"}
+
+# Un nom ou une note se dicte par un inconnu (téléphone, SMS) : « =HYPERLINK(…) » deviendrait
+# une formule à l'ouverture dans Excel. Un numéro (« +33 6… ») reste un numéro.
+_NOMBRE = re.compile(r"[+-][\d .]*")
+
+# Les archives vivent ici, le temps de l'envoi. Starlette ne lance pas la suppression quand
+# le client coupe en cours de route : chaque nouvel export fait le ménage des orphelins.
+_DOSSIER = Path(tempfile.gettempdir()) / "helmane-export"
+_ORPHELIN_SECONDES = 3600
+
+
+class DisquePlein(Exception):
+    """L'archive mangerait l'espace dont la base a besoin pour écrire les réservations."""
+
+
+def _cellule(valeur) -> str:
+    texte = "" if valeur is None else str(valeur)
+    if texte[:1] in ("=", "@", "\t", "\r") or (
+            texte[:1] in ("+", "-") and not _NOMBRE.fullmatch(texte)):
+        return "'" + texte
+    return texte
+
+
 def _csv(lignes: list[dict], colonnes: list[str]) -> bytes:
     tampon = io.StringIO()
     ecrivain = csv.writer(tampon, delimiter=";", lineterminator="\r\n")
     ecrivain.writerow(colonnes)
     for ligne in lignes:
-        ecrivain.writerow(["" if ligne[c] is None else ligne[c] for c in colonnes])
+        ecrivain.writerow([_cellule(ligne[c]) for c in colonnes])
     return (_BOM + tampon.getvalue()).encode("utf-8")
+
+
+def _menage() -> None:
+    limite = time.time() - _ORPHELIN_SECONDES
+    for vieux in _DOSSIER.glob("helmane-export-*.zip"):
+        try:
+            if vieux.stat().st_mtime < limite:
+                vieux.unlink()
+        except OSError:
+            pass
+
+
+def _verifier_la_place(tenant_id: int, appels: list[dict]) -> None:
+    """Le WAV 16 bits pèse le double du µ-law du disque. Ce qui reste après l'archive ne
+    descend pas sous le plancher de l'enregistreur : sous lui, SQLite cesserait d'écrire."""
+    octets = 0
+    for appel in appels:
+        for piste in enregistrement.PISTES:
+            chemin = enregistrement.chemin(tenant_id, appel["id"], piste)
+            if chemin.exists():
+                octets += chemin.stat().st_size
+    libre = enregistrement.espace_libre_mo(_DOSSIER)
+    if libre is not None and libre - (2 * octets) // 1_000_000 < enregistrement.disque_minimal_mo():
+        raise DisquePlein(f"{libre} Mo libres, archive estimée à {2 * octets // 1_000_000} Mo")
 
 
 def _table(conn, requete: str, tenant_id: int) -> tuple[list[dict], list[str]]:
@@ -66,7 +121,7 @@ def _lisez_moi(tenant: dict, nb_audio: int) -> str:
         "l'assistante sait, voix, réglages).",
         "- reservations.csv : les réservations de notre carnet, annulées comprises "
         "(colonne cancelled_at).",
-        "- appels.csv : tous les appels, avec le résumé, la transcription et le journal.",
+        "- appels.csv : tous les appels, avec leur résumé et leur transcription.",
         "- messages.csv : les messages laissés à l'équipe.",
         "- comptes.csv : les comptes de connexion (e-mail, rôle, date de création). "
         "Les mots de passe n'y sont pas.",
@@ -90,16 +145,20 @@ def construire(tenant_id: int) -> Path:
         fiche = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
         if fiche is None:
             raise LookupError(f"établissement {tenant_id} inconnu")
-        fiche = dict(fiche)
+        fiche = {k: v for k, v in dict(fiche).items() if k not in _FICHE_MASQUEE}
         resas, c_resas = _table(
             conn, "SELECT * FROM reservations WHERE tenant_id = ? ORDER BY id", tenant_id)
         appels, c_appels = _table(
             conn, "SELECT * FROM calls WHERE tenant_id = ? ORDER BY id", tenant_id)
+        c_appels = [c for c in c_appels if c not in _APPELS_MASQUES]
         msgs, c_msgs = _table(
             conn, "SELECT * FROM messages WHERE tenant_id = ? ORDER BY id", tenant_id)
         comptes, c_comptes = _table(conn, _COMPTES, tenant_id)
 
-    descripteur, nom = tempfile.mkstemp(prefix="helmane-export-", suffix=".zip")
+    _DOSSIER.mkdir(parents=True, exist_ok=True)
+    _menage()
+    _verifier_la_place(tenant_id, appels)
+    descripteur, nom = tempfile.mkstemp(prefix="helmane-export-", suffix=".zip", dir=_DOSSIER)
     os.close(descripteur)
     chemin = Path(nom)
     try:

@@ -192,7 +192,7 @@ class TestLAdminNeBloquePasLaBoucle:
                          f"/admin/tenants/{t}/knowledge", f"/admin/tenants/{t}/voice",
                          f"/admin/tenants/{t}/knowledge/fiches/nouvelle",
                          f"/admin/tenants/{t}/knowledge/fiches/0/modifier",
-                         f"/admin/tenants/{t}/users",
+                         f"/admin/tenants/{t}/users", f"/admin/tenants/{t}/export.zip",
                          f"/admin/tenants/{t}/reservations/{resa['id']}",
                          f"/admin/tenants/{t}/greeting/status"]:
                 assert client.get(page).status_code == 200, page

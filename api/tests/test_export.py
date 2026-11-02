@@ -182,3 +182,69 @@ class TestLaRoute:
             f"/admin/tenants/{a.id}/edit")
         assert f"/admin/tenants/{a.id}/export.zip" in page.text
         assert "Exporter toutes les données" in page.text
+
+
+class TestCeQueLArchiveTait:
+    """Relecture d'ASSISTANTE-155 : l'archive ne montre pas plus que l'admin."""
+
+    def test_ni_journal_ni_couts_par_poste_ni_fournisseur(self, deux_restaurants):
+        a = deux_restaurants["a"]
+        tenants.update_tenant(a.id, moteur_voix="gpt_live")
+        with db.get_conn() as conn:
+            conn.execute("UPDATE calls SET voix_fournisseur = 'gpt-live', journal = 'trace', "
+                         "cout_voix = 0.01 WHERE tenant_id = ?", (a.id,))
+        z = _archive(a.id)
+        colonnes = set(_lignes(z, "appels.csv")[0])
+        assert not colonnes & {"journal", "voix_fournisseur", "cout_telephonie",
+                               "cout_transcription", "cout_comprehension", "cout_voix"}
+        assert "estimated_cost" in colonnes
+        assert "moteur_voix" not in json.loads(z.read("etablissement.json"))
+        tout = b"".join(z.read(n) for n in z.namelist()).decode("utf-8", "replace").lower()
+        assert "gpt" not in tout and "openai" not in tout
+
+    def test_une_formule_dictee_ne_s_execute_pas_dans_excel(self, deux_restaurants):
+        a = deux_restaurants["a"]
+        reservations.create_reservation(a.id, '=HYPERLINK("http://x","clic")', "2026-09-04",
+                                        "20:00", 2, customer_phone="+33 6 12 34 56 78")
+        lignes = _lignes(_archive(a.id), "reservations.csv")
+        piege = next(r for r in lignes if "HYPERLINK" in r["customer_name"])
+        assert piege["customer_name"].startswith("'=")
+        assert piege["customer_phone"] == "+33 6 12 34 56 78"     # un numéro reste un numéro
+
+    @pytest.mark.parametrize("valeur,attendu", [
+        ("@SUM(A1)", "'@SUM(A1)"), ("-2+3", "'-2+3"), ("+cmd|' /C calc'!A0", "'+cmd|' /C calc'!A0"),
+        ("-12.5", "-12.5"), ("Dupont", "Dupont"), (None, "")])
+    def test_les_cellules_dangereuses_sont_neutralisees(self, valeur, attendu):
+        assert export._cellule(valeur) == attendu
+
+
+class TestFichiersTemporaires:
+    def test_un_orphelin_d_une_heure_est_supprime(self, deux_restaurants, tmp_path, monkeypatch):
+        monkeypatch.setattr(export, "_DOSSIER", tmp_path / "exports")
+        (tmp_path / "exports").mkdir()
+        vieux = tmp_path / "exports" / "helmane-export-vieux.zip"
+        recent = tmp_path / "exports" / "helmane-export-recent.zip"
+        vieux.write_bytes(b"x")
+        recent.write_bytes(b"x")
+        os.utime(vieux, (0, 0))
+        export.construire(deux_restaurants["a"].id).unlink()
+        assert not vieux.exists() and recent.exists()
+
+    def test_une_erreur_pendant_la_construction_ne_laisse_rien(self, deux_restaurants,
+                                                               tmp_path, monkeypatch):
+        monkeypatch.setattr(export, "_DOSSIER", tmp_path / "exports")
+
+        def panne(*_):
+            raise RuntimeError("panne")
+
+        monkeypatch.setattr(export, "_csv", panne)
+        with pytest.raises(RuntimeError):
+            export.construire(deux_restaurants["a"].id)
+        assert list((tmp_path / "exports").iterdir()) == []
+
+    def test_disque_trop_plein_l_export_est_refuse(self, deux_restaurants, tmp_path, monkeypatch):
+        monkeypatch.setattr(export, "_DOSSIER", tmp_path / "exports")
+        monkeypatch.setattr(enregistrement, "espace_libre_mo", lambda *_: 100)
+        reponse = _client().get(f"/admin/tenants/{deux_restaurants['a'].id}/export.zip")
+        assert reponse.status_code == 507
+        assert list((tmp_path / "exports").iterdir()) == []

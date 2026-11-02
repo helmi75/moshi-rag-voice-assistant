@@ -244,7 +244,12 @@ def tenant_export(tenant_id: int, user: User = Depends(deps.current_user)):
     audio) ne touche donc jamais la boucle des appels. Le fichier temporaire est supprimé
     une fois la réponse envoyée."""
     tenant = deps.resolve_tenant(tenant_id, user)
-    chemin = export.construire(tenant.id)
+    try:
+        chemin = export.construire(tenant.id)
+    except export.DisquePlein as exc:
+        logger.warning("export refusé, établissement {} : {}", tenant.id, exc)
+        raise HTTPException(status_code=507, detail="Pas assez de place sur le serveur pour "
+                            "préparer l'archive. Prévenez l'exploitant.") from exc
     # Ni nom ni e-mail : seulement qui a demandé l'export de quel établissement.
     logger.info("export des données : établissement {} par l'utilisateur {}", tenant.id, user.id)
     jour = horloge.maintenant().strftime("%Y%m%d")
