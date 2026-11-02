@@ -137,11 +137,17 @@ class TestUnServiceHorsDUsage:
         return service
 
     @pytest.mark.parametrize("famille,maillon", [
-        (TTSService, renvoi.VOIX), (LLMService, renvoi.MODELE),
-        (STTService, renvoi.TRANSCRIPTION)])
+        (TTSService, renvoi.VOIX), (STTService, renvoi.TRANSCRIPTION)])
     def test_il_rend_la_ligne_a_la_premiere_erreur(self, famille, maillon):
         service = self._hors_d_usage(famille)
         assert _jouer((_erreur(service), service))[1] == [maillon]
+
+    def test_le_modele_attend_toujours_la_seconde(self):
+        """Un seul 400 d'OpenRouter le dit hors d'usage, mais Pipecat lui redonne le tour
+        suivant : une requête refusée ne doit pas renvoyer l'appel (relecture)."""
+        modele = self._hors_d_usage(LLMService)
+        assert _jouer((_erreur(modele), modele))[1] == []
+        assert _jouer((_erreur(modele), modele), (_erreur(modele), modele))[1] == [renvoi.MODELE]
 
     def test_un_service_encore_utilisable_attend_la_seconde(self):
         service = _faux(STTService)

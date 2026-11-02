@@ -1055,7 +1055,7 @@ GARDE_FOUS = [
     GardeFou(
         nom="Vigie : un service hors d'usage rend la ligne sans attendre",
         fichier="api/app/voice/vigie.py",
-        avant='        if getattr(getattr(frame, "processor", None) or source, "is_usable", True) is False:',
+        avant="        if hors_d_usage and maillon != renvoi.MODELE:",
         apres="        if False:  # mutation",
         tests=["test_vigie.py"],
         k="HorsDUsage or deepgram_refuse",

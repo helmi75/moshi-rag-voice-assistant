@@ -14,8 +14,9 @@
   Pipecat 1.14, un refus à la connexion (clé révoquée, crédit épuisé) arrive en une seule
   erreur : le service se déclare hors d'usage et n'essaie plus. La vigie attendait une
   seconde erreur qui ne venait jamais, donc l'appel n'était pas renvoyé au restaurant. Une
-  erreur après laquelle le service se dit hors d'usage rend désormais la ligne tout de
-  suite, que ce soit la transcription, la voix ou le modèle. Prouvé sur un vrai pipeline
+  erreur après laquelle la transcription ou la voix se dit hors d'usage rend désormais la
+  ligne tout de suite. Pas le modèle : Pipecat le dit hors d'usage sur un simple refus
+  d'une requête, mais lui redonne le tour suivant ; il attend toujours deux erreurs. Prouvé sur un vrai pipeline
   avec le vrai service Deepgram, dont la connexion est refusée ; un garde-fou du contrôle
   par mutation le tient.
 

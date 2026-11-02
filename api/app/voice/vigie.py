@@ -101,11 +101,14 @@ class Vigie(BaseObserver):
             return
         if maillon is None:
             return
-        if getattr(getattr(frame, "processor", None) or source, "is_usable", True) is False:
-            # Pipecat 1.14 ne rend plus d'erreur « fatale » : un service dont la clé est
-            # refusée (Deepgram à la connexion, une voix en 401) se déclare hors d'usage
-            # avant d'émettre son erreur, puis n'essaie plus. Pas de seconde erreur à
-            # attendre : l'appelant parlerait dans le vide (ASSISTANTE-182).
+        hors_d_usage = getattr(getattr(frame, "processor", None) or source, "is_usable", True) is False
+        if hors_d_usage and maillon != renvoi.MODELE:
+            # Pipecat 1.14 ne rend plus d'erreur « fatale » : une transcription refusée
+            # (Deepgram, 4xx à la connexion) ou une voix muette trois phrases de suite se
+            # déclare hors d'usage avant d'émettre son erreur, puis n'essaie plus. Pas de
+            # seconde erreur à attendre : l'appelant parlerait dans le vide (ASSISTANTE-182).
+            # Pas le modèle : il se dit hors d'usage sur un simple 400 d'OpenRouter, mais
+            # Pipecat lui redonne quand même le tour suivant.
             self.alertee = maillon
             await self._alerter(maillon)
             return
