@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — une clé refusée rend la ligne tout de suite (02/11/2026, ASSISTANTE-182)
+
+### Corrigé
+- **Une transcription refusée par Deepgram laissait l'appelant parler dans le vide.** Depuis
+  Pipecat 1.14, un refus à la connexion (clé révoquée, crédit épuisé) arrive en une seule
+  erreur : le service se déclare hors d'usage et n'essaie plus. La vigie attendait une
+  seconde erreur qui ne venait jamais, donc l'appel n'était pas renvoyé au restaurant. Une
+  erreur après laquelle le service se dit hors d'usage rend désormais la ligne tout de
+  suite, que ce soit la transcription, la voix ou le modèle. Prouvé sur un vrai pipeline
+  avec le vrai service Deepgram, dont la connexion est refusée ; un garde-fou du contrôle
+  par mutation le tient.
+
 ## Non publiée — reconstruire le serveur, procédure écrite (27/10/2026, ASSISTANTE-160)
 
 ### Documentation

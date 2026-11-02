@@ -101,6 +101,14 @@ class Vigie(BaseObserver):
             return
         if maillon is None:
             return
+        if getattr(getattr(frame, "processor", None) or source, "is_usable", True) is False:
+            # Pipecat 1.14 ne rend plus d'erreur « fatale » : un service dont la clé est
+            # refusée (Deepgram à la connexion, une voix en 401) se déclare hors d'usage
+            # avant d'émettre son erreur, puis n'essaie plus. Pas de seconde erreur à
+            # attendre : l'appelant parlerait dans le vide (ASSISTANTE-182).
+            self.alertee = maillon
+            await self._alerter(maillon)
+            return
         self._de_suite[maillon] += 1
         if self._de_suite[maillon] >= ERREURS_DE_SUITE:
             self.alertee = maillon
