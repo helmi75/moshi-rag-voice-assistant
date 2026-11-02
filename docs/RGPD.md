@@ -151,7 +151,7 @@ supprimerait le transfert le plus volumineux (tout l'audio).
 
 | Droit | Ce qui existe aujourd'hui |
 |---|---|
-| Accès / portabilité | ⚠️ Manuel : requête SQL sur `calls` et `reservations` |
+| Accès / portabilité | ✅ Fiche de l'établissement → « Exporter toutes les données » (`/admin/tenants/{id}/export.zip`, ASSISTANTE-155) : ZIP avec fiche, réservations (annulées comprises), appels et transcriptions, messages, comptes sans mot de passe, enregistrements. Pour la demande d'un *appelant* (et non du restaurateur), la requête SQL manuelle reste nécessaire |
 | **Effacement** (art. 17) | ✅ `rgpd.effacer_appelant("+336…")` — anonymise les appels, supprime les réservations |
 | Effacement d'une demande de rappel | ✅ même fonction : `rgpd.effacer_appelant` efface aussi les lignes de `rappels` |
 | Rectification | ✅ Édition d'une réservation dans l'admin |

@@ -6,9 +6,11 @@ import sqlite3
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from loguru import logger
+from starlette.background import BackgroundTask
 
-from .. import connecteurs, db, plans, taches, tenants, users
+from .. import connecteurs, db, export, horloge, plans, taches, tenants, users
 from ..connecteurs import resos
 from ..users import User
 from ..voice import live
@@ -232,6 +234,23 @@ def tenant_edit(request: Request, tenant_id: int,
         request, "tenants/form.html",
         {"tenant": tenant, "error": None, "formules": plans.catalogue()},
     )
+
+
+@router.get("/admin/tenants/{tenant_id}/export.zip")
+def tenant_export(tenant_id: int, user: User = Depends(deps.current_user)):
+    """Toutes les données de l'établissement, en un ZIP (portabilité, départ d'un client).
+
+    `def` : FastAPI l'exécute dans son pool de fils, la construction (SQLite, décodage
+    audio) ne touche donc jamais la boucle des appels. Le fichier temporaire est supprimé
+    une fois la réponse envoyée."""
+    tenant = deps.resolve_tenant(tenant_id, user)
+    chemin = export.construire(tenant.id)
+    # Ni nom ni e-mail : seulement qui a demandé l'export de quel établissement.
+    logger.info("export des données : établissement {} par l'utilisateur {}", tenant.id, user.id)
+    jour = horloge.maintenant().strftime("%Y%m%d")
+    return FileResponse(chemin, media_type="application/zip",
+                        filename=f"helmane-export-{tenant.id}-{jour}.zip",
+                        background=BackgroundTask(chemin.unlink, missing_ok=True))
 
 
 @router.post("/admin/tenants/{tenant_id}", dependencies=[Depends(deps.verify_csrf)])
