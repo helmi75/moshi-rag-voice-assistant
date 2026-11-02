@@ -124,6 +124,41 @@ class TestUneErreurFatale:
         assert _jouer((_erreur(AUTRE, fatal=True), AUTRE))[1] == [renvoi.PIPELINE]
 
 
+class TestUnServiceHorsDUsage:
+    """Pipecat 1.14 ne rend plus d'erreur « fatale » : un service dont la clé est refusée
+    se déclare hors d'usage (`is_usable` faux) et n'essaie plus. Il n'y aura pas de
+    seconde erreur ; attendre, c'est laisser l'appelant parler dans le vide
+    (ASSISTANTE-182)."""
+
+    @staticmethod
+    def _hors_d_usage(famille):
+        service = _faux(famille)
+        service._is_usable = False
+        return service
+
+    @pytest.mark.parametrize("famille,maillon", [
+        (TTSService, renvoi.VOIX), (STTService, renvoi.TRANSCRIPTION)])
+    def test_il_rend_la_ligne_a_la_premiere_erreur(self, famille, maillon):
+        service = self._hors_d_usage(famille)
+        assert _jouer((_erreur(service), service))[1] == [maillon]
+
+    def test_le_modele_attend_toujours_la_seconde(self):
+        """Un seul 400 d'OpenRouter le dit hors d'usage, mais Pipecat lui redonne le tour
+        suivant : une requête refusée ne doit pas renvoyer l'appel (relecture)."""
+        modele = self._hors_d_usage(LLMService)
+        assert _jouer((_erreur(modele), modele))[1] == []
+        assert _jouer((_erreur(modele), modele), (_erreur(modele), modele))[1] == [renvoi.MODELE]
+
+    def test_un_service_encore_utilisable_attend_la_seconde(self):
+        service = _faux(STTService)
+        service._is_usable = True
+        assert _jouer((_erreur(service), service))[1] == []
+
+    def test_hors_d_usage_ailleurs_n_est_pas_une_panne_de_conversation(self):
+        autre = SimpleNamespace(is_usable=False)
+        assert _jouer((_erreur(autre), autre))[1] == []
+
+
 class TestLaLigneNEstPasRaccrochee:
     @pytest.fixture()
     def serialiseur(self, monkeypatch):
@@ -265,3 +300,44 @@ class TestAvecLeVraiPipeline:
         assert vues == []
         assert any(e.startswith("Voxtral") for e in erreurs)
         voxtral_tts.oublier_echecs()
+
+    def test_deepgram_refuse_la_connexion_l_appel_est_rendu(self, monkeypatch):
+        """Le vrai service Deepgram de Pipecat 1.14, dont la poignée de main est refusée
+        (401, une clé révoquée) : une seule erreur, puis plus rien. La ligne doit être
+        rendue sur cette erreur-là (ASSISTANTE-182)."""
+        from deepgram.core import ApiError
+        from pipecat.pipeline.pipeline import Pipeline
+        from pipecat.pipeline.runner import PipelineRunner
+        from pipecat.pipeline.task import PipelineParams, PipelineTask
+        from pipecat.services.deepgram.stt import DeepgramSTTService
+
+        class Refus:
+            async def __aenter__(self):
+                raise ApiError(status_code=401, body="INVALID_AUTH")
+
+            async def __aexit__(self, *exc):
+                return False
+
+        serialiseur = SimpleNamespace(garder_la_ligne=False)
+        vues = []
+
+        async def scenario():
+            oreille = DeepgramSTTService(api_key="cle-refusee")
+            monkeypatch.setattr(oreille._client.listen.v1, "connect", lambda **_: Refus())
+            contexte = {}
+
+            async def alerter(maillon):
+                vues.append(maillon)
+                bot.passer_la_main(maillon, call_sid="CAdeepgram", tenant_id=1,
+                                   serializer=serialiseur, task=contexte["task"])
+
+            contexte["task"] = PipelineTask(
+                Pipeline([oreille]), observers=[Vigie(alerter)],
+                params=PipelineParams(audio_in_sample_rate=8000))
+            # Rien ne termine cet appel, sinon la vigie.
+            await asyncio.wait_for(PipelineRunner(handle_sigint=False).run(contexte["task"]), 20)
+
+        asyncio.run(scenario())
+        assert vues == [renvoi.TRANSCRIPTION]
+        assert serialiseur.garder_la_ligne is True
+        assert renvoi.motif_a_la_fin_du_flux("CAdeepgram") == renvoi.TRANSCRIPTION

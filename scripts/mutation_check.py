@@ -1053,6 +1053,15 @@ GARDE_FOUS = [
         panne="une seule phrase de la voix perdue renvoie l'appel au restaurant",
     ),
     GardeFou(
+        nom="Vigie : un service hors d'usage rend la ligne sans attendre",
+        fichier="api/app/voice/vigie.py",
+        avant="        if hors_d_usage and maillon != renvoi.MODELE:",
+        apres="        if False:  # mutation",
+        tests=["test_vigie.py"],
+        k="HorsDUsage or deepgram_refuse",
+        panne="une clé Deepgram refusée laisse l'appelant parler dans le vide, sans renvoi au restaurant",
+    ),
+    GardeFou(
         nom="Réservation : un couvert ou une heure jamais dits sont refusés",
         fichier="api/app/llm.py",
         avant="    non_dit = _non_dit(tool_input, conversation)\n    if non_dit:",
