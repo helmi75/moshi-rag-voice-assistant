@@ -3,7 +3,7 @@
          hx-get="/admin/calls/live/_liste{% if tenant_id %}?tenant_id={{ tenant_id }}{% endif %}"
          hx-trigger="every 3s" hx-swap="outerHTML">
   {% if appels %}
-  <table>
+  <table class="appels-direct">
     <thead>
       <tr><th>Établissement</th><th>Début</th><th>Durée</th><th>Moteur</th></tr>
     </thead>
@@ -11,7 +11,7 @@
       {% for a in appels %}
       <tr>
         <td>{{ a.etablissement }}</td>
-        <td>{{ a.debut | heure_paris }}</td>
+        <td><span class="appels-telephone">depuis </span>{{ a.debut | heure_paris }}</td>
         <td>{{ a.duree }}</td>
         <td>{{ a.moteur }}</td>
       </tr>
