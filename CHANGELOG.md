@@ -15,6 +15,19 @@
   restaurant en tête, puis « depuis HH:MM », la durée et le moteur sur une ligne. Regardé en
   clair et en sombre, à 390 et 1280 px ; l'ordinateur garde son tableau.
 
+## Non publiée — une clé refusée rend la ligne tout de suite (02/11/2026, ASSISTANTE-182)
+
+### Corrigé
+- **Une transcription refusée par Deepgram laissait l'appelant parler dans le vide.** Depuis
+  Pipecat 1.14, un refus à la connexion (clé révoquée, crédit épuisé) arrive en une seule
+  erreur : le service se déclare hors d'usage et n'essaie plus. La vigie attendait une
+  seconde erreur qui ne venait jamais, donc l'appel n'était pas renvoyé au restaurant. Une
+  erreur après laquelle la transcription ou la voix se dit hors d'usage rend désormais la
+  ligne tout de suite. Pas le modèle : Pipecat le dit hors d'usage sur un simple refus
+  d'une requête, mais lui redonne le tour suivant ; il attend toujours deux erreurs. Prouvé sur un vrai pipeline
+  avec le vrai service Deepgram, dont la connexion est refusée ; un garde-fou du contrôle
+  par mutation le tient.
+
 ## Non publiée — reconstruire le serveur, procédure écrite (27/10/2026, ASSISTANTE-160)
 
 ### Documentation
