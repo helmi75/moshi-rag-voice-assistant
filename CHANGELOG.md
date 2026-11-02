@@ -7,6 +7,14 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — « Appels en cours » lisible sur téléphone (02/11/2026, ASSISTANTE-181)
+
+### Corrigé
+- **La colonne « Moteur » sortait de l'écran d'un téléphone** (« classiq », « temps »), sans
+  que rien n'indique que le tableau défilait. Sous 640 px, chaque appel devient un bloc : le
+  restaurant en tête, puis « depuis HH:MM », la durée et le moteur sur une ligne. Regardé en
+  clair et en sombre, à 390 et 1280 px ; l'ordinateur garde son tableau.
+
 ## Non publiée — une clé refusée rend la ligne tout de suite (02/11/2026, ASSISTANTE-182)
 
 ### Corrigé

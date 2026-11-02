@@ -753,6 +753,21 @@ h2.form-section:first-of-type { margin-top: 0; }
   .horaires-telephone { display: inline; font-size: .8rem; }
   .horaires-service .horaires-telephone { min-width: 4.4rem; }
 }
+/* « Appels en cours » : sous 640 px, chaque appel devient un bloc, le nom du restaurant en
+   tête, puis l'heure, la durée et le moteur sur une ligne. En tableau, la colonne « Moteur »
+   sortait de l'écran d'un téléphone (ASSISTANTE-181). */
+.appels-telephone { display: none; }
+@media (max-width: 640px) {
+  .appels-direct thead { display: none; }
+  .appels-direct, .appels-direct tbody { display: block; }
+  .appels-direct tbody tr { display: flex; flex-wrap: wrap; gap: .25rem 1rem; padding: .8rem 1rem;
+                            border-bottom: 1px solid var(--app-hairline); }
+  .appels-direct tbody tr:last-child { border-bottom: none; }
+  .appels-direct tbody td { display: block; padding: 0; border: none; background-color: transparent; }
+  .appels-direct tbody td:first-child { flex: 1 1 100%; font-weight: 600; }
+  .appels-direct tbody td + td { font-size: .85rem; color: var(--app-muted); }
+  .appels-telephone { display: inline; }
+}
 .kb-body { font-size: .84rem; color: var(--app-muted); line-height: 1.55; white-space: pre-line; margin: .6rem 0 0; }
 
 /* ---- Divers -------------------------------------------------------------- */
