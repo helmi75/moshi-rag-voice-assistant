@@ -7,6 +7,23 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Référencement naturel du site (06/11/2026, ASSISTANTE-184)
+
+### Ajouté
+- **Plan du site** (`/sitemap.xml`), annoncé dans `robots.txt`, et **adresse canonique** de
+  la page. Les deux viennent de `PUBLIC_URL`, jamais de l'en-tête Host : sinon, n'importe quel
+  domaine pointé sur le serveur pourrait se déclarer la bonne adresse.
+- **Image d'aperçu** (1200 × 630, servie par le site) : un lien partagé sur WhatsApp ou
+  LinkedIn s'affiche avec « Le téléphone sonne. Marie décroche. ».
+- **Données structurées** pour Google : l'entreprise, le service et ses prix hors taxes, tirés
+  de `plans.py`, et la FAQ, la même que celle de la page. C'est un bloc de données que le
+  navigateur n'exécute pas, et aucune valeur ne peut en fermer la balise.
+
+### Modifié
+- **Titre, description et intertitres** portent les mots que tapent les restaurateurs,
+  « standard téléphonique » et « restaurant » : la page ne parlait que de Marie, que personne
+  ne cherche.
+
 ## Non publiée — Une page d'accueil moins bavarde (06/11/2026, ASSISTANTE-183)
 
 ### Modifié

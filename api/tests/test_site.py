@@ -71,12 +71,16 @@ class TestLaPolitiqueDeSecurite:
         scripts = re.findall(r"<script\b([^>]*)>(.*?)</script>", page, flags=re.S)
         assert scripts, "la page n'a plus de script"
         for attributs, contenu in scripts:
+            if attributs.strip() == 'type="application/ld+json"':
+                continue  # des données (ASSISTANTE-184), que le navigateur n'exécute pas
             assert "src=" in attributs and not contenu.strip()
         assert not re.search(r"\son[a-z]+\s*=", page), "gestionnaire d'événement en ligne"
         assert "javascript:" not in page
 
     def test_aucune_ressource_d_un_autre_site(self, page):
-        externes = re.findall(r"""(?:src|href|action)\s*=\s*["'](https?:)?//[^"']+""", page)
+        # L'adresse canonique est absolue par définition : elle ne charge rien.
+        sans_canonique = re.sub(r'<link rel="canonical"[^>]*>', "", page)
+        externes = re.findall(r"""(?:src|href|action)\s*=\s*["'](https?:)?//[^"']+""", sans_canonique)
         assert externes == []
         feuille = (site.STATIC_DIR / "site.css").read_text(encoding="utf-8")
         assert "http://" not in feuille and "https://" not in feuille and "@import" not in feuille
@@ -94,7 +98,7 @@ class TestLaPolitiqueDeSecurite:
     def test_les_fichiers_statiques_sont_servis_avec_leur_empreinte(self, client, page):
         adresses = re.findall(r'(/site/static/[\w.-]+\?v=[0-9a-f]{10})', page)
         assert {a.split("?")[0].rsplit("/", 1)[1] for a in adresses} == {
-            "site.css", "site.js", "favicon.svg"}
+            "site.css", "site.js", "favicon.svg", "apercu.png"}
         for adresse in adresses:
             assert client.get(adresse).status_code == 200
         for police in re.findall(r'url\("([\w.-]+\.woff2)"\)',
@@ -358,3 +362,63 @@ class TestCeQueLaPagePromet:
         assert page.count('<form class="rappel"') == 2
         assert page.count('class="rappel__piege"') == 2
         assert page.count('type="tel"') == 2
+
+
+class TestLeReferencement:
+    """ASSISTANTE-184 : ce que lisent les moteurs de recherche et les aperçus de lien."""
+
+    @staticmethod
+    def _donnees(page) -> dict:
+        import json
+        bloc = re.search(r'<script type="application/ld\+json">(.*?)</script>', page, flags=re.S)
+        assert bloc, "plus de données structurées"
+        return json.loads(bloc.group(1))
+
+    def test_titre_et_description_portent_les_mots_des_restaurateurs(self, page):
+        titre = re.search(r"<title>(.*?)</title>", page).group(1)
+        assert "Standard téléphonique" in titre and "restaurant" in titre and len(titre) <= 65
+        description = re.search(r'<meta name="description" content="([^"]*)"', page).group(1)
+        assert "restaurant" in description and "réservations" in description
+        assert len(description.replace("&#39;", "'")) <= 160
+
+    def test_l_adresse_canonique_vient_de_public_url_pas_de_l_en_tete_host(self, client):
+        page = client.get("/", headers={"host": "domaine-pirate.example"}).text
+        assert '<link rel="canonical" href="http://testserver/">' in page
+        assert "domaine-pirate" not in page
+
+    def test_l_image_d_apercu_existe_et_fait_1200_sur_630(self, client, page):
+        adresse = re.search(r'<meta property="og:image" content="http://testserver(/site/static/apercu\.png\?v=\w+)"', page)
+        assert adresse
+        image = client.get(adresse.group(1)).content
+        assert image[:8] == b"\x89PNG\r\n\x1a\n"
+        assert int.from_bytes(image[16:20], "big") == 1200 and int.from_bytes(image[20:24], "big") == 630
+        assert 'name="twitter:card" content="summary_large_image"' in page
+
+    def test_les_donnees_structurees_reprennent_les_prix_de_la_grille(self, page):
+        graphe = {n["@type"]: n for n in self._donnees(page)["@graph"]}
+        offres = {o["name"]: o["priceSpecification"] for o in graphe["Service"]["offers"]}
+        for formule in plans.catalogue():
+            attendu = formule.minute_supp_eur if formule.sans_forfait else formule.prix_mensuel_eur
+            assert offres[formule.label]["price"] == attendu
+            assert offres[formule.label]["valueAddedTaxIncluded"] is False
+
+    def test_la_faq_structuree_est_mot_pour_mot_celle_de_la_page(self, page):
+        graphe = {n["@type"]: n for n in self._donnees(page)["@graph"]}
+        questions = [(q["name"], q["acceptedAnswer"]["text"]) for q in graphe["FAQPage"]["mainEntity"]]
+        assert questions == list(site.FAQ)
+        lisible = page.replace("&#39;", "'")
+        for question, reponse in site.FAQ:
+            assert f"<summary>{question}</summary>" in lisible and f"<p>{reponse}</p>" in lisible
+
+    def test_aucune_valeur_ne_peut_fermer_le_bloc_de_donnees(self):
+        import dataclasses
+        piege = dataclasses.replace(plans.catalogue()[0], argument="</script><script>alert(1)</script>")
+        texte = site.donnees_structurees("http://x", [piege])
+        assert "</script" not in texte and "<" not in texte
+
+    def test_plan_du_site_et_robots(self, client):
+        plan = client.get("/sitemap.xml")
+        assert plan.status_code == 200 and plan.headers["content-type"].startswith("application/xml")
+        assert "<loc>http://testserver/</loc>" in plan.text
+        assert "mentions-legales" not in plan.text  # pas publiées tant que l'éditeur manque
+        assert "Sitemap: http://testserver/sitemap.xml" in client.get("/robots.txt").text

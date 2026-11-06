@@ -3,12 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Helmane — Le standard qui décroche pendant le service</title>
-<meta name="description" content="L'assistante téléphonique des restaurants : Marie prend les réservations, les modifie et note les messages pendant que vous êtes en salle. Laissez votre numéro, elle vous rappelle.">
+<title>Standard téléphonique pour restaurants, 24 h/24 · Helmane</title>
+<meta name="description" content="Helmane décroche le téléphone de votre restaurant 24 h/24 : réservations, annulations et messages, inscrits dans votre carnet. Essayez : elle vous rappelle.">
+<link rel="canonical" href="{{ adresse }}/">
 <meta name="color-scheme" content="dark">
-<meta property="og:title" content="Helmane — Le téléphone sonne. Marie décroche.">
-<meta property="og:description" content="L'assistante téléphonique des restaurants. Elle prend les réservations, les modifie, note les messages.">
 <meta property="og:type" content="website">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:site_name" content="Helmane">
+<meta property="og:url" content="{{ adresse }}/">
+<meta property="og:title" content="Helmane — Le téléphone sonne. Marie décroche.">
+<meta property="og:description" content="Le standard téléphonique des restaurants : réservations et messages, 24 h sur 24.">
+<meta property="og:image" content="{{ adresse }}{{ statique('apercu.png') }}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Helmane : Le téléphone sonne. Marie décroche.">
+<meta name="twitter:card" content="summary_large_image">
+{# Données structurées pour les moteurs de recherche (ASSISTANTE-184) : un bloc de
+   données que le navigateur n'exécute pas, construit et échappé par site.donnees_structurees. #}
+<script type="application/ld+json">{{ donnees_structurees | safe }}</script>{# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag, python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe — JSON construit par le serveur depuis plans.py et site.FAQ, « < » échappé (test_aucune_valeur_ne_peut_fermer_le_bloc_de_donnees) ; échappé en HTML, le JSON serait illisible #}
 <link rel="icon" href="{{ statique('favicon.svg') }}" type="image/svg+xml">
 <link rel="preload" href="/site/static/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{ statique('site.css') }}">
@@ -91,9 +103,9 @@
   <!-- ============ HÉROS ============ -->
   <section class="heros">
     <div class="shell">
-      <span class="pill"><span class="dot" aria-hidden="true"></span>Ligne ouverte 24 h sur 24 · pour les restaurants</span>
+      <span class="pill"><span class="dot" aria-hidden="true"></span>Standard téléphonique des restaurants</span>
       <h1>Le téléphone sonne.<br><span class="accent">Marie décroche.</span></h1>
-      <p class="heros__sous">Elle prend les réservations et les messages. Vous restez en salle.</p>
+      <p class="heros__sous">Elle prend les réservations de votre restaurant au téléphone, et les messages. Vous restez en salle.</p>
 
       <div class="rappel-zone">
         <span class="perso perso--marie" aria-hidden="true"><svg><use href="#p-marie"/></svg></span>
@@ -187,7 +199,7 @@
     <div class="shell">
       <div class="tete tete--c">
         <p class="sur">Au téléphone</p>
-        <h2>Ce que Marie fait pour vous.</h2>
+        <h2>Ce que Marie fait au téléphone.</h2>
       </div>
       <div class="talents">
         <article class="talent">
@@ -357,22 +369,12 @@
         <h2>Avant de signer.</h2>
       </div>
       <div class="faq">
-        <details open>
-          <summary>Est-ce qu'on entend que c'est une machine ?</summary>
-          <p>Elle le dit elle-même dès le décroché. La voix est française et naturelle.</p>
+        {% for question, reponse in faq %}
+        <details{% if loop.first %} open{% endif %}>
+          <summary>{{ question }}</summary>
+          <p>{{ reponse }}</p>
         </details>
-        <details>
-          <summary>Je garde mon numéro ?</summary>
-          <p>Oui. Vous le renvoyez vers Marie, tout le temps ou seulement quand personne ne décroche.</p>
-        </details>
-        <details>
-          <summary>Et si elle ne comprend pas ?</summary>
-          <p>Elle fait répéter. Sinon, elle prend un message avec le numéro où rappeler.</p>
-        </details>
-        <details>
-          <summary>Les appels sont-ils enregistrés ?</summary>
-          <p>Oui, l'appelant en est prévenu. Vous les réécoutez dans votre espace, pendant une durée limitée.</p>
-        </details>
+        {% endfor %}
       </div>
     </div>
   </section>

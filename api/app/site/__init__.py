@@ -9,6 +9,7 @@ formule Maison à 249 € pour 1 200 appels, des semaines après que la grille l
 est passée des appels aux minutes, et la page a suivi sans qu'on y recopie un chiffre.
 """
 import hashlib
+from html import escape
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from .. import plans, rappel, rgpd
@@ -32,6 +33,19 @@ PHARE = "service"
 _CA_EXEMPLE = 7200
 # Une demande de rappel tient en cinquante octets.
 _CORPS_MAX = 2000
+
+# Les questions de la page. Elles nourrissent aussi les données structurées (FAQPage) :
+# Google exige que celles-ci reprennent mot pour mot ce que le visiteur lit (ASSISTANTE-184).
+FAQ = (
+    ("Est-ce qu'on entend que c'est une machine ?",
+     "Elle le dit elle-même dès le décroché. La voix est française et naturelle."),
+    ("Je garde mon numéro ?",
+     "Oui. Vous le renvoyez vers Marie, tout le temps ou seulement quand personne ne décroche."),
+    ("Et si elle ne comprend pas ?",
+     "Elle fait répéter. Sinon, elle prend un message avec le numéro où rappeler."),
+    ("Les appels sont-ils enregistrés ?",
+     "Oui, l'appelant en est prévenu. Vous les réécoutez dans votre espace, pendant une durée limitée."),
+)
 
 
 @lru_cache(maxsize=None)
@@ -64,10 +78,53 @@ def _duree(minutes: float) -> str:
     return f"{secondes // 60} min {secondes % 60:02d}" if secondes % 60 else f"{secondes // 60} min"
 
 
+def base(request: Request) -> str:
+    """L'adresse publique du site, sans « / » final : `PUBLIC_URL` (celle que Twilio et
+    les e-mails utilisent déjà), sinon celle de la requête. Une adresse canonique qui
+    suivrait l'en-tête Host laisserait n'importe quel domaine pointé sur le serveur se
+    déclarer la bonne adresse auprès de Google."""
+    return rappel._base_publique() or str(request.base_url).rstrip("/")
+
+
+def donnees_structurees(adresse: str, catalogue: list) -> str:
+    """Ce que Google lit de la page (schema.org, JSON-LD) : l'entreprise, le service et
+    ses prix — ceux de `plans.py`, jamais recopiés — et les questions de la page.
+    Un bloc de données, pas un script : le navigateur ne l'exécute pas, la politique de
+    sécurité (script-src 'self') ne le concerne pas. `<` est échappé pour qu'aucune
+    valeur ne puisse fermer la balise."""
+    offres = []
+    for f in catalogue:
+        if f.sans_forfait:
+            prix = {"@type": "UnitPriceSpecification", "price": f.minute_supp_eur,
+                    "priceCurrency": "EUR", "unitText": "minute", "valueAddedTaxIncluded": False}
+        else:
+            prix = {"@type": "UnitPriceSpecification", "price": f.prix_mensuel_eur,
+                    "priceCurrency": "EUR", "unitText": "mois", "valueAddedTaxIncluded": False}
+        offres.append({"@type": "Offer", "name": f.label, "description": f.argument,
+                       "priceSpecification": prix})
+    graphe = [
+        {"@type": "Organization", "@id": f"{adresse}/#helmane", "name": "Helmane",
+         "url": f"{adresse}/"},
+        {"@type": "Service", "name": "Standard téléphonique pour restaurants",
+         "serviceType": "Assistante téléphonique de réservation",
+         "description": ("Une assistante vocale décroche le téléphone du restaurant 24 h sur "
+                         "24 : réservations, modifications, annulations et messages."),
+         "provider": {"@id": f"{adresse}/#helmane"},
+         "areaServed": {"@type": "Country", "name": "France"},
+         "availableLanguage": "fr", "offers": offres},
+        {"@type": "FAQPage", "mainEntity": [
+            {"@type": "Question", "name": q,
+             "acceptedAnswer": {"@type": "Answer", "text": r}} for q, r in FAQ]},
+    ]
+    texte = json.dumps({"@context": "https://schema.org", "@graph": graphe}, ensure_ascii=False)
+    return texte.replace("<", "\\u003c")
+
+
 @router.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def accueil(request: Request):
     premiere = plans.defaut()
     catalogue = plans.catalogue()
+    adresse = base(request)
     return templates.TemplateResponse(request, "accueil.html", {
         # Les abonnements font les trois cartes ; ce qui se vend sans forfait a son
         # bandeau à part : ce n'est pas « une carte de plus » mais un autre choix.
@@ -80,6 +137,9 @@ def accueil(request: Request):
         "seuil": round(plans.SEUIL_ALERTE * 100),
         "net_exemple": _euros(_CA_EXEMPLE - premiere.prix_mensuel_eur),
         "mentions_publiees": mentions_publiees(),
+        "adresse": adresse,
+        "faq": FAQ,
+        "donnees_structurees": donnees_structurees(adresse, catalogue),
     })
 
 
@@ -129,8 +189,21 @@ def mentions_legales(request: Request):
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)
-def robots():
-    return "User-agent: *\nDisallow: /admin\n"
+def robots(request: Request):
+    return f"User-agent: *\nDisallow: /admin\n\nSitemap: {base(request)}/sitemap.xml\n"
+
+
+@router.get("/sitemap.xml")
+def plan_du_site(request: Request):
+    """Les pages publiques, pour les moteurs de recherche. Les mentions légales n'y sont
+    que publiées : une adresse en 404 dans un plan du site est signalée en erreur."""
+    adresse = base(request)
+    pages = [f"{adresse}/"] + ([f"{adresse}/mentions-legales"] if mentions_publiees() else [])
+    lignes = "".join(f"  <url><loc>{escape(p)}</loc></url>\n" for p in pages)
+    corps = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+             f"{lignes}</urlset>\n")
+    return Response(corps, media_type="application/xml")
 
 
 def _meme_origine(request: Request) -> bool:
