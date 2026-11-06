@@ -20,6 +20,7 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 
 | Date | Décision | Pourquoi | Source |
 |---|---|---|---|
+| 06/11/2026 | **Site : page d'accueil resserrée** (ASSISTANTE-183, déployée), **référencement** (ASSISTANTE-184) et **formulaire de contact** (ASSISTANTE-185, messages gardés en base et lus par le super-admin). Pas de publicité payante (SEA) tant que Twilio est suspendu. | Demandes de Helmi ; une publicité qui mène à un « Rappelez-moi » qui ne peut pas appeler est de l'argent perdu. | Session principale |
 | 02/11/2026 | **Compte Twilio : réactivé au retour de voyage de Helmi** (ASSISTANTE-180), pas avant. D'ici là la ligne ne prend aucun appel, et les essais d'appel d'ASSISTANTE-91, 134, 157, 159, 164 et 179 attendent. | Choix de Helmi. La suspension date d'avant le déploiement de 92f0069 : elle est déjà notée ici le 27/10. | Session principale |
 | 26/10/2026 | **Préproduction sans numéro** : ni numéro Twilio ni clé de fournisseur ; elle vérifie le démarrage, les migrations, l'admin, le site et la supervision. Les appels restent vérifiés en production. | Aucune dépense : un numéro se loue chaque mois, et chaque appel d'essai se paie. | Pop-up, session principale (ASSISTANTE-174) |
 | 24/10/2026 | **Livraison (CD)** : image construite en CI et publiée sur GHCR privé ; préproduction sur le même serveur, acceptée même si elle coûte un peu plus ; releases groupées, pas une par déploiement. Pour l'instant, Claude déploie la production quand Helmi le demande ; le bouton d'approbation GitHub viendra avec de vrais clients. | L'image de production doit être celle qui a été testée ; préparer le circuit complet sans le brancher trop tôt. | Conversation parallèle, puis chantier « livraison » (ASSISTANTE-167, 168) |
@@ -43,6 +44,7 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 
 | Posée le | Question | Ce qui en dépend |
 |---|---|---|
+| 06/11/2026 | Servir le site sur **helmane.fr** (aujourd'hui redirigé vers app.helmane.fr), et déclarer le site dans **Google Search Console** (compte Google de Helmi) ? | Le référencement : Google indexe aujourd'hui l'adresse de l'application, pas la marque. Touche Caddy et le DNS en production. |
 | 13/10/2026 | Afficher les **coûts fixes** (location des numéros, TVA) sur « Santé & coûts » ? Aujourd'hui seulement dans `docs/TARIFS.md`. | Un lot de page, sans urgence. |
 | 13/10/2026 | **Recharge automatique** du compte Twilio (montant, seuil) ? | Éviter une nouvelle suspension ; l'alerte de 5 $ existe déjà. |
 | 13/10/2026 | **Numéro de TVA** à déclarer chez Twilio ? | La TVA de 20 % facturée en septembre (1,57 $). |
