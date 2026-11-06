@@ -282,3 +282,14 @@ class TestLaPage:
         assert 'href="#contact"' in page
         assert "Vos coordonnées ne servent qu'à vous répondre." in page
         assert page.index('id="contact"') < page.index("<footer")
+
+
+def test_la_page_n_affiche_que_les_messages_les_plus_recents(monkeypatch):
+    """Revue d'ASSISTANTE-185 : 50 messages par jour pendant un an ne font pas une page de
+    18 000 lignes."""
+    monkeypatch.setattr(contact, "AFFICHES", 3)
+    for i in range(5):
+        contact.enregistrer({"nom": f"N{i}", "email": "a@b.fr", "telephone": "",
+                             "etablissement": "", "message": "un message assez long"})
+    noms = [c["nom"] for c in contact.lister()]
+    assert noms == ["N4", "N3", "N2"]

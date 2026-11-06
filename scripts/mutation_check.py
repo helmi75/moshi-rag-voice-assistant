@@ -1187,6 +1187,24 @@ GARDE_FOUS = [
         k="restaurateur",
         panne="un restaurateur lirait les noms, e-mails et messages des visiteurs du site",
     ),
+    GardeFou(
+        nom="Contact : « Marquer lu » est réservé au super-admin",
+        fichier="api/app/admin/routes_contacts.py",
+        avant="             dependencies=[Depends(deps.verify_csrf), Depends(deps.require_superadmin)])",
+        apres="             dependencies=[Depends(deps.verify_csrf)])  # mutation",
+        tests=["test_contact.py"],
+        k="ne_peut_pas_marquer_lu",
+        panne="un restaurateur effacerait la marque « à lire » des messages adressés à Helmane",
+    ),
+    GardeFou(
+        nom="Contact : du JSON seulement, qu'un formulaire d'un autre site ne peut pas envoyer",
+        fichier="api/app/site/__init__.py",
+        avant='    en_json = type_envoye == "application/json"',
+        apres="    en_json = True  # mutation",
+        tests=["test_contact.py"],
+        k="formulaire_classique",
+        panne="un formulaire posé sur un autre site ferait écrire ses visiteurs à Helmane sans contrôle préalable du navigateur",
+    ),
     # ---- GPT-Live : il ne sert que les établissements dont c'est le moteur ----------------
     GardeFou(
         nom="GPT-Live : un établissement sans choix ni essai ne passe jamais par OpenAI",

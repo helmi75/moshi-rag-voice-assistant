@@ -15,7 +15,7 @@ router = APIRouter()
 def _page(request: Request):
     deps.ensure_csrf(request)
     return deps.templates.TemplateResponse(
-        request, "contacts.html", {"contacts": contact.lister()})
+        request, "contacts.html", {"contacts": contact.lister(), "affiches": contact.AFFICHES})
 
 
 @router.get("/admin/contacts", dependencies=[Depends(deps.require_superadmin)])

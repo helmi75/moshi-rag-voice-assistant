@@ -108,11 +108,16 @@ def enregistrer(champs: dict) -> Optional[int]:
              champs["etablissement"] or None, champs["message"])).lastrowid
 
 
+# Une page lisible, même si quelqu'un remplit le formulaire 50 fois par jour pendant un
+# an : au-delà, la base garde les messages jusqu'à la purge, la page montre les derniers.
+AFFICHES = 200
+
+
 def lister() -> list[dict]:
-    """Du plus récent au plus ancien."""
+    """Les `AFFICHES` plus récents, du plus récent au plus ancien."""
     with db.get_conn() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT * FROM contacts ORDER BY created_at DESC, id DESC")]
+            "SELECT * FROM contacts ORDER BY created_at DESC, id DESC LIMIT ?", (AFFICHES,))]
 
 
 def marquer_lu(identifiant: int) -> None:
