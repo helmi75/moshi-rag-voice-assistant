@@ -7,6 +7,19 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Une page d'accueil moins bavarde (06/11/2026, ASSISTANTE-183)
+
+### Modifié
+- **La page d'accueil passe de 1 382 à 809 mots et de 11 à 9 sections** (mesuré sur le
+  rendu, texte visible seulement) : Helmi la trouvait trop verbeuse. Les « trois rôles »
+  redisaient les bulles du héros, « Ce qu'elle ne fera jamais » redisait la liste de « Un
+  appel » : les deux sections partent, leurs garanties tiennent en trois lignes sous « Un
+  appel ». Six cartes deviennent quatre, d'une ligne chacune (deux par rangée sur
+  téléphone) ; les deux qui redisaient l'espace client y deviennent des lignes. La FAQ
+  garde quatre questions, en une ou deux phrases. Rien ne change aux prix, à la démo de
+  conversation, au calcul ni aux formulaires de rappel. La page est plus courte d'un quart
+  sur ordinateur et sur téléphone.
+
 ## Non publiée — Export de toutes les données d'un établissement (02/11/2026, ASSISTANTE-155)
 
 ### Ajouté

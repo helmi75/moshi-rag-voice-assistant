@@ -322,6 +322,7 @@ répéter. Il faut un portable français de métropole.
 | W14 | Relire le haut de la page et le bas des formules | Plus de « 14 jours d'essai », de « sans engagement » sous les formules, ni de « tarif fondateur » ; « Sans engagement. » n'est écrit qu'une fois, sous le formulaire du haut | |
 | W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
 | W16 | Regarder l'onglet du navigateur et le haut de la page, sur le site puis dans l'espace client (ASSISTANTE-124) | Le logo est une **toque de chef** orange avec trois barres de voix dedans, plus un combiné de téléphone ; il reste net en tout petit dans l'onglet ; dans l'espace client, il est lisible en clair comme en sombre | |
+| W17 🤖 | Parcourir la page d'accueil sur ordinateur puis sur téléphone (ASSISTANTE-183) | Neuf sections, plus de « trois rôles » sous le héros ni de « Ce qu'elle ne fera jamais » ; quatre cartes d'une ligne (deux par rangée sur téléphone) ; quatre questions ; prix, hors taxes, décompte à la seconde et seuil d'alerte toujours sous les formules | |
 
 ## X. Les appels traités en Irlande (ASSISTANTE-123)
 
