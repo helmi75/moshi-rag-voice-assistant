@@ -159,5 +159,13 @@
     {% endif %}
   </form>
   {% endif %}
+  {% if tenant %}
+  <h2 class="form-section" style="margin-top: 1.4rem">Exporter les données</h2>
+  <p class="card-sub">Une archive ZIP avec la fiche de l'établissement, les réservations
+    (annulées comprises), les appels avec leur transcription, les messages, les comptes
+    (sans mot de passe) et les enregistrements des appels. Les tableaux s'ouvrent dans Excel.</p>
+  <a role="button" class="secondary" style="width: auto"
+     href="/admin/tenants/{{ tenant.id }}/export.zip">Exporter toutes les données</a>
+  {% endif %}
 </article>
 {% endblock %}

@@ -1298,6 +1298,16 @@ GARDE_FOUS = [
         k="credit_epuise or credit_openai or credit",
         panne="le crédit OpenAI s'épuiserait de nouveau sans que personne le sache (10/10/2026)",
     ),
+    GardeFou(
+        nom="L'export d'un établissement n'emporte que ses appels",
+        fichier="api/app/export.py",
+        avant='"SELECT * FROM calls WHERE tenant_id = ? ORDER BY id", tenant_id)',
+        apres='"SELECT * FROM calls WHERE ? IS NOT NULL ORDER BY id", tenant_id)  # mutation',
+        tests=["test_export.py"],
+        k="rien_d_un_autre_etablissement",
+        panne="l'archive remise à un restaurateur contiendrait les appels, transcriptions et "
+              "enregistrements des autres établissements",
+    ),
 ]
 
 

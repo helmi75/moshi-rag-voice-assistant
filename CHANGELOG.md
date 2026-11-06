@@ -7,6 +7,23 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Export de toutes les données d'un établissement (02/11/2026, ASSISTANTE-155)
+
+### Ajouté
+- **Bouton « Exporter toutes les données »** sur la fiche établissement : un ZIP avec la
+  fiche (JSON), les réservations annulées comprises, les appels avec leur transcription,
+  les messages, les comptes (jamais les mots de passe) en CSV pour Excel, et un WAV stéréo
+  par appel enregistré. Pour le départ d'un client et la portabilité RGPD. Un restaurateur
+  n'exporte que le sien (403 sinon) ; l'export est journalisé (identifiants seulement).
+- **L'archive ne montre pas plus que l'admin** : ni le journal technique, ni le détail des
+  coûts par poste, ni le moteur ou le fournisseur de la voix. Une cellule qui commence par
+  `=`, `@`, ou `+`/`-` suivi d'autre chose qu'un nombre est préfixée d'une apostrophe : un
+  nom dicté au téléphone ou par SMS ne devient pas une formule dans Excel.
+- **Le disque de la base est protégé** : l'export est refusé (507) si l'archive ferait
+  passer l'espace libre sous le plancher de l'enregistreur. Une archive restée orpheline,
+  quand le client coupe pendant le téléchargement, est supprimée par l'export suivant au
+  bout d'une heure.
+
 ## Non publiée — « Appels en cours » lisible sur téléphone (02/11/2026, ASSISTANTE-181)
 
 ### Corrigé
