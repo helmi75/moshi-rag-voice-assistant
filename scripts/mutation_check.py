@@ -1169,6 +1169,24 @@ GARDE_FOUS = [
         k="formulaire_classique",
         panne="un formulaire caché sur un autre site déclencherait des rappels sans permission",
     ),
+    GardeFou(
+        nom="Contact : un message venu d'un autre site est refusé",
+        fichier="api/app/site/__init__.py",
+        avant="    provenance_ok = _meme_origine(request)",
+        apres="    provenance_ok = True  # mutation",
+        tests=["test_contact.py"],
+        k="autre_site",
+        panne="une page tierce ferait écrire ses visiteurs à Helmane à leur insu et remplirait la boîte",
+    ),
+    GardeFou(
+        nom="Contact : la page des messages est réservée au super-admin",
+        fichier="api/app/admin/routes_contacts.py",
+        avant='@router.get("/admin/contacts", dependencies=[Depends(deps.require_superadmin)])',
+        apres='@router.get("/admin/contacts")  # mutation',
+        tests=["test_contact.py"],
+        k="restaurateur",
+        panne="un restaurateur lirait les noms, e-mails et messages des visiteurs du site",
+    ),
     # ---- GPT-Live : il ne sert que les établissements dont c'est le moteur ----------------
     GardeFou(
         nom="GPT-Live : un établissement sans choix ni essai ne passe jamais par OpenAI",

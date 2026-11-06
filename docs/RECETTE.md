@@ -323,6 +323,8 @@ répéter. Il faut un portable français de métropole.
 | W15 | Se faire rappeler | Marie présente « Le Bouchon Doré », avec la voix **Marie enthousiaste** ; elle ne cite ni le Fouquet's ni les Champs-Élysées | |
 | W16 | Regarder l'onglet du navigateur et le haut de la page, sur le site puis dans l'espace client (ASSISTANTE-124) | Le logo est une **toque de chef** orange avec trois barres de voix dedans, plus un combiné de téléphone ; il reste net en tout petit dans l'onglet ; dans l'espace client, il est lisible en clair comme en sombre | |
 | W17 🤖 | Parcourir la page d'accueil sur ordinateur puis sur téléphone (ASSISTANTE-183) | Neuf sections, plus de « trois rôles » sous le héros ni de « Ce qu'elle ne fera jamais » ; quatre cartes d'une ligne (deux par rangée sur téléphone) ; quatre questions ; prix, hors taxes, décompte à la seconde et seuil d'alerte toujours sous les formules | |
+| W18 🤖 | Écrire depuis « Nous écrire » sur la page d'accueil (ASSISTANTE-185) : un message valide, puis un e-mail faux, un message trop court, une demande venue d'un autre site, un quatrième envoi dans l'heure | Le message valide répond « Message envoyé. Nous vous répondons par e-mail. » ; les autres sont refusés avec une phrase par champ, 403 pour l'autre site, 429 au quatrième | |
+| W19 🤖 | Ouvrir « Messages du site » dans l'admin en super-admin, puis avec un compte restaurateur (ASSISTANTE-185) | Le super-admin voit le message du plus récent au plus ancien, un texte `<script>` s'affiche tel quel, « Marquer lu » le grise ; le restaurateur reçoit un 403 et n'a pas le lien dans le menu | |
 
 ## X. Les appels traités en Irlande (ASSISTANTE-123)
 

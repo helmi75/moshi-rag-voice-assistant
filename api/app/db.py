@@ -312,6 +312,22 @@ ALTER TABLE calls ADD COLUMN sortant INTEGER;
     """
 ALTER TABLE tenants ADD COLUMN moteur_voix TEXT;
 """,
+    # v20 — ASSISTANTE-185 : formulaire de contact du site. Le message est gardé en base
+    #  et lu dans l'admin (/admin/contacts) : l'e-mail n'est qu'une alerte, et le SMTP
+    #  peut ne pas être configuré. Aucune adresse IP n'y est stockée.
+    """
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    nom TEXT NOT NULL,
+    email TEXT NOT NULL,
+    telephone TEXT,
+    etablissement TEXT,
+    message TEXT NOT NULL,
+    lu_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_contacts_date ON contacts(created_at);
+""",
 ]
 
 

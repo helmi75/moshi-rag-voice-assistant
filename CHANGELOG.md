@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Formulaire de contact (06/11/2026, ASSISTANTE-185)
+
+### Ajouté
+- **Une section « Nous écrire » sur la page d'accueil** (nom, e-mail, téléphone et
+  établissement facultatifs, message). Le message est gardé en base (table `contacts`,
+  migration v20) et se lit dans l'admin, page « Messages du site » réservée au super-admin,
+  avec « Marquer lu » : l'e-mail n'est qu'une alerte (sujet fixe, rien du visiteur dans
+  les en-têtes) et son absence ne fait rien perdre. La route `POST /contact` suit celle de
+  « Rappelez-moi » : JSON seulement, notre page seulement, corps borné, champ piège.
+  Plafonds : 3 messages par adresse et par heure, 50 par jour pour tout le site. Aucune
+  adresse IP n'est stockée. Conservation : 365 jours (`RETENTION_CONTACT_JOURS`).
+
 ## Non publiée — Une page d'accueil moins bavarde (06/11/2026, ASSISTANTE-183)
 
 ### Modifié

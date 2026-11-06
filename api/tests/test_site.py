@@ -356,5 +356,8 @@ class TestCeQueLaPagePromet:
 
     def test_les_deux_formulaires_et_leur_champ_cache(self, page):
         assert page.count('<form class="rappel"') == 2
-        assert page.count('class="rappel__piege"') == 2
-        assert page.count('type="tel"') == 2
+        # Le formulaire « Nous écrire » (ASSISTANTE-185) a son propre champ caché, et un
+        # champ de téléphone facultatif : trois, dont deux seulement servent au rappel.
+        assert page.count('class="rappel__piege"') == 3
+        assert page.count('type="tel"') == 3
+        assert page.count('<form class="contact"') == 1

@@ -79,6 +79,7 @@
       <a class="lien" href="#talents">Ce qu'elle fait</a>
       <a class="lien" href="#formules">Formules</a>
       <a class="lien" href="#questions">Questions</a>
+      <a class="lien" href="#contact">Contact</a>
       <a class="lien" href="/admin/login">Espace client</a>
       <a class="btn btn--line btn--small btn--client" href="/admin/login">Espace client</a>
       <a class="btn btn--go btn--small" href="#haut" data-vers-rappel>Être rappelé</a>
@@ -403,6 +404,47 @@
           </div>
         </form>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ CONTACT ============ -->
+  <section class="bande" id="contact">
+    <div class="shell">
+      <h2>Nous écrire</h2>
+      <form class="contact" novalidate>
+        <div data-etat="saisie">
+          <div class="contact__grille">
+            <div class="contact__champ">
+              <label for="contact-nom">Votre nom</label>
+              <input type="text" id="contact-nom" name="nom" autocomplete="name" maxlength="100" required>
+            </div>
+            <div class="contact__champ">
+              <label for="contact-email">Votre e-mail</label>
+              <input type="email" id="contact-email" name="email" autocomplete="email" maxlength="254" required>
+            </div>
+            <div class="contact__champ">
+              <label for="contact-tel">Téléphone (facultatif)</label>
+              <input type="tel" id="contact-tel" name="telephone" autocomplete="tel" maxlength="30">
+            </div>
+            <div class="contact__champ">
+              <label for="contact-etab">Votre établissement (facultatif)</label>
+              <input type="text" id="contact-etab" name="etablissement" autocomplete="organization" maxlength="120">
+            </div>
+          </div>
+          <div class="contact__champ">
+            <label for="contact-message">Votre message</label>
+            <textarea id="contact-message" name="message" rows="5" minlength="10" maxlength="2000" required></textarea>
+          </div>
+          <input class="rappel__piege" type="text" name="site" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <p class="contact__erreur" role="alert" hidden></p>
+          <button class="btn btn--go" type="submit">Envoyer</button>
+          <p class="contact__aide">Vos coordonnées ne servent qu'à vous répondre.</p>
+          <noscript><p class="contact__erreur">Le formulaire a besoin de JavaScript : activez-le pour nous écrire.</p></noscript>
+        </div>
+        <div class="contact__fait" data-etat="fait" role="status" hidden>
+          <p data-message></p>
+        </div>
+      </form>
     </div>
   </section>
 </main>
