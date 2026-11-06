@@ -17,8 +17,8 @@
         <span class="row-title">{{ c.nom }}
           <span class="row-when">{{ c.created_at | jour_paris }} à {{ c.created_at | heure_paris }}</span>
         </span>
-        <span class="row-sub">{{ c.email }}{% if c.telephone %} · {{ c.telephone }}{% endif %}{% if c.etablissement %} · {{ c.etablissement }}{% endif %}</span>
-        <span class="row-sub" style="white-space: pre-wrap">{{ c.message }}</span>
+        <span class="row-sub" style="white-space: normal; overflow-wrap: anywhere">{{ c.email }}{% if c.telephone %} · {{ c.telephone }}{% endif %}{% if c.etablissement %} · {{ c.etablissement }}{% endif %}</span>
+        <span class="row-sub" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ c.message }}</span>
       </span>
       {% if c.lu_at %}
       <span class="chip">Lu</span>
