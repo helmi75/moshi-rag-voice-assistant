@@ -49,6 +49,9 @@ def _include_protected_routes() -> None:
     from . import routes_preferences
 
     admin_router.include_router(routes_preferences.router)
+    from . import routes_contacts
+
+    admin_router.include_router(routes_contacts.router)
 
 
 _include_protected_routes()

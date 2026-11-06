@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Messages du site{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Messages du site</h1>
+    <p class="lede">Ce que les visiteurs ont écrit depuis le formulaire « Nous écrire », du plus récent au plus ancien ({{ affiches }} au plus).</p>
+  </div>
+</div>
+
+<section class="card card-flush">
+  <div class="card-list">
+    {% for c in contacts %}
+    <div class="card-row">
+      <span class="dot {{ 'dot-good' if c.lu_at else 'dot-warn' }}" aria-hidden="true"></span>
+      <span class="row-main">
+        <span class="row-title">{{ c.nom }}
+          <span class="row-when">{{ c.created_at | jour_paris }} à {{ c.created_at | heure_paris }}</span>
+        </span>
+        <span class="row-sub" style="white-space: normal; overflow-wrap: anywhere">{{ c.email }}{% if c.telephone %} · {{ c.telephone }}{% endif %}{% if c.etablissement %} · {{ c.etablissement }}{% endif %}</span>
+        <span class="row-sub" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ c.message }}</span>
+      </span>
+      {% if c.lu_at %}
+      <span class="chip">Lu</span>
+      {% else %}
+      <form method="post" action="/admin/contacts/{{ c.id }}/lu">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+        <button type="submit" class="outline">Marquer lu</button>
+      </form>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="empty">Aucun message pour l'instant.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

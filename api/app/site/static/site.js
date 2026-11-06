@@ -75,6 +75,56 @@
     });
   });
 
+  /* ---- le contact : le message part à /contact, il est lu dans l'admin ---- */
+  document.querySelectorAll("form.contact").forEach(function (form) {
+    var champs = ["nom", "email", "telephone", "etablissement", "message"];
+    var piege = form.querySelector(".rappel__piege");
+    var bouton = form.querySelector('button[type="submit"]');
+    var erreur = form.querySelector(".contact__erreur");
+    var saisie = form.querySelector('[data-etat="saisie"]');
+    var fait = form.querySelector('[data-etat="fait"]');
+    var libelle = bouton.textContent;
+
+    function attendre(oui) {
+      bouton.disabled = oui;
+      bouton.textContent = oui ? "Un instant…" : libelle;
+    }
+    function refuser(message) {
+      erreur.textContent = message;
+      erreur.hidden = false;
+    }
+
+    form.addEventListener("input", function () { erreur.hidden = true; });
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (bouton.disabled) return;
+      var corps = { site: piege ? piege.value : "" };
+      champs.forEach(function (nom) { corps[nom] = form.elements[nom].value; });
+      erreur.hidden = true;
+      attendre(true);
+      fetch("/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corps)
+      }).then(function (reponse) {
+        return reponse.json().then(function (c) { return { ok: reponse.ok, corps: c }; });
+      }).then(function (resultat) {
+        attendre(false);
+        var message = (resultat.corps && resultat.corps.message) || "";
+        if (!resultat.ok) {
+          refuser(message || "Le message n'a pas pu partir. Réessayez dans un instant.");
+          return;
+        }
+        fait.querySelector("[data-message]").textContent = message;
+        saisie.hidden = true;
+        fait.hidden = false;
+      }).catch(function () {
+        attendre(false);
+        refuser("Le message n'a pas pu partir. Vérifiez votre connexion et réessayez.");
+      });
+    });
+  });
+
   /* tous les boutons « être rappelé » ramènent au champ du haut, prêt à écrire */
   document.querySelectorAll("[data-vers-rappel]").forEach(function (lien) {
     lien.addEventListener("click", function (event) {
