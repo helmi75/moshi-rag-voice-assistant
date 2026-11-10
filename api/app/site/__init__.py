@@ -11,6 +11,7 @@ est passée des appels aux minutes, et la page a suivi sans qu'on y recopie un c
 import hashlib
 from html import escape
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -82,11 +83,13 @@ def _duree(minutes: float) -> str:
 
 
 def base(request: Request) -> str:
-    """L'adresse publique du site, sans « / » final : `PUBLIC_URL` (celle que Twilio et
-    les e-mails utilisent déjà), sinon celle de la requête. Une adresse canonique qui
-    suivrait l'en-tête Host laisserait n'importe quel domaine pointé sur le serveur se
-    déclarer la bonne adresse auprès de Google."""
-    return rappel._base_publique() or str(request.base_url).rstrip("/")
+    """L'adresse publique du site, sans « / » final : `SITE_URL` quand le site a son propre
+    nom (helmane.fr, ASSISTANTE-186), sinon `PUBLIC_URL` (celle que Twilio et les e-mails
+    utilisent), sinon celle de la requête. Une adresse canonique qui suivrait l'en-tête Host
+    laisserait n'importe quel domaine pointé sur le serveur se déclarer la bonne adresse
+    auprès de Google."""
+    site = "".join(os.getenv("SITE_URL", "").split()).rstrip("/")
+    return site or rappel._base_publique() or str(request.base_url).rstrip("/")
 
 
 def donnees_structurees(adresse: str, catalogue: list) -> str:

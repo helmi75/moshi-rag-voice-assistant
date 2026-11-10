@@ -55,6 +55,23 @@
 	redir {$SITE_CANONICAL:http://localhost}{uri} permanent
 }
 
+# Le site vitrine sur le domaine de la marque (ASSISTANTE-186). VITRINE_ADDRESS (helmane.fr,
+# www.helmane.fr) par défaut ":83", un port non publié : bloc mort tant qu'il n'est pas posé.
+# Il ne sert QUE les pages publiques du site. Tout le reste (admin, webhooks Twilio, flux
+# des appels, supervision) part vers l'application, SITE_CANONICAL : Twilio signe ses
+# requêtes avec PUBLIC_URL, et la session de l'admin ne doit vivre que sur un seul nom.
+# Un nom posé ici ne doit plus figurer dans SITE_REDIRECTS : Caddy refuse un nom servi deux fois.
+{$VITRINE_ADDRESS::83} {
+	import securite
+	@site path / /sitemap.xml /robots.txt /mentions-legales /rappel /contact /site/static/*
+	handle @site {
+		reverse_proxy api:8000
+	}
+	handle {
+		redir {$SITE_CANONICAL:http://localhost}{uri} permanent
+	}
+}
+
 # La préproduction (ASSISTANTE-174, docker-compose.preprod.yml), servie par ce même Caddy.
 # PREPROD_ADDRESS par défaut ":82", un port non publié : bloc mort tant qu'il n'est pas posé.
 # `api_preprod`, jamais `api` : c'est le nom qui sépare les deux conteneurs sur le réseau.

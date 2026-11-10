@@ -461,6 +461,30 @@ a pu fuir avec la machine.
 | `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` | Le fournisseur du stockage objet. Il faut ces clés **avant** l'étape 6 : elles seules ouvrent la réplique |
 | `RESOS_API_KEYS` | Chaque restaurant les crée dans son resOS : à redemander (`docs/RESOS.md`) |
 
+## Le site sur helmane.fr (ASSISTANTE-186)
+
+Le site vitrine est servi sur le domaine de la marque, `helmane.fr` et `www.helmane.fr`.
+L'application reste sur `app.helmane.fr` : l'admin, les webhooks et le flux des appels Twilio,
+la supervision. Le bloc `VITRINE_ADDRESS` de `caddy/Caddyfile` ne laisse passer que les pages
+publiques (`/`, `/sitemap.xml`, `/robots.txt`, `/mentions-legales`, `/rappel`, `/contact`,
+`/site/static/*`). Tout le reste est redirigé (301) vers `SITE_CANONICAL`. Google lit
+l'adresse canonique dans `SITE_URL` ; `PUBLIC_URL`, que Twilio signe, ne change pas.
+
+Dans le `.env` de la production :
+
+```
+VITRINE_ADDRESS=helmane.fr, www.helmane.fr
+SITE_URL=https://helmane.fr
+SITE_REDIRECTS=                 # helmane.fr et www en sortent : Caddy refuse un nom servi deux fois
+```
+
+Puis, **hors appel en cours** : `cd /opt/moshi-rag-voice-assistant && docker compose up -d caddy api`
+(Caddy relit son environnement, l'API lit `SITE_URL`). Les certificats existent déjà : les
+deux noms étaient servis en redirection.
+
+**Retour arrière** : remettre `SITE_REDIRECTS=helmane.fr, www.helmane.fr`, retirer les deux
+autres lignes, relancer la même commande.
+
 ## Préproduction (ASSISTANTE-174)
 
 `https://preprod.helmane.fr` : la même image que la production, sur le même serveur, pour

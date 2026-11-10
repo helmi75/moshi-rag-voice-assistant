@@ -419,9 +419,50 @@ class TestLeReferencement:
         texte = site.donnees_structurees("http://x", [piege])
         assert "</script" not in texte and "<" not in texte
 
+    def test_site_url_donne_l_adresse_du_site_quand_il_a_son_propre_nom(self, client, monkeypatch):
+        """ASSISTANTE-186 : le site est sur helmane.fr, l'application (et PUBLIC_URL, que
+        Twilio signe) reste sur app.helmane.fr."""
+        monkeypatch.setenv("SITE_URL", "https://helmane.fr/")
+        page = client.get("/").text
+        assert '<link rel="canonical" href="https://helmane.fr/">' in page
+        assert 'content="https://helmane.fr/site/static/apercu.png?v=' in page
+        assert "<loc>https://helmane.fr/</loc>" in client.get("/sitemap.xml").text
+        assert "Sitemap: https://helmane.fr/sitemap.xml" in client.get("/robots.txt").text
+
     def test_plan_du_site_et_robots(self, client):
         plan = client.get("/sitemap.xml")
         assert plan.status_code == 200 and plan.headers["content-type"].startswith("application/xml")
         assert "<loc>http://testserver/</loc>" in plan.text
         assert "mentions-legales" not in plan.text  # pas publiées tant que l'éditeur manque
         assert "Sitemap: http://testserver/sitemap.xml" in client.get("/robots.txt").text
+
+
+class TestLeDomaineDuSite:
+    """ASSISTANTE-186 : helmane.fr sert le site, et rien d'autre."""
+
+    @staticmethod
+    def _bloc() -> str:
+        caddy = (RACINE / "caddy" / "Caddyfile").read_text(encoding="utf-8")
+        trouve = re.search(r"\{\$VITRINE_ADDRESS::83\} \{(.*?)\n\}", caddy, re.S)
+        assert trouve, "plus de bloc pour le site vitrine"
+        return trouve.group(1)
+
+    def test_seules_les_pages_publiques_passent_a_l_application(self):
+        bloc = self._bloc()
+        chemins = re.search(r"@site path ([^\n]*)", bloc).group(1).split()
+        assert set(chemins) == {"/", "/sitemap.xml", "/robots.txt", "/mentions-legales",
+                                "/rappel", "/contact", "/site/static/*"}
+        for prive in ("/admin", "/twilio", "/ws", "/supervision", "/health"):
+            assert not any(c.startswith(prive) for c in chemins), prive
+
+    def test_le_reste_part_vers_l_application_avec_les_en_tetes_de_securite(self):
+        bloc = self._bloc()
+        assert "import securite" in bloc
+        assert bloc.count("reverse_proxy") == 1
+        assert "redir {$SITE_CANONICAL:http://localhost}{uri} permanent" in bloc
+
+    def test_le_bloc_est_mort_tant_que_le_nom_n_est_pas_pose(self):
+        import yaml
+        compose = yaml.safe_load((RACINE / "docker-compose.yml").read_text(encoding="utf-8"))
+        assert compose["services"]["caddy"]["environment"]["VITRINE_ADDRESS"] == "${VITRINE_ADDRESS:-:83}"
+        assert "83:" not in str(compose["services"]["caddy"]["ports"])
