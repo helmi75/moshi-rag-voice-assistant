@@ -40,6 +40,9 @@ services:
       # de PUBLIC_WS_URL. TWILIO_SIGNATURE : enforce (défaut dès qu'un jeton existe),
       # log (observer 48 h après un déploiement : compte sans refuser), off (dev local).
       PUBLIC_URL: "${PUBLIC_URL:-}"
+      # L'adresse du site vitrine pour Google (canonique, sitemap, robots), quand il est
+      # servi sur un autre nom que l'application (https://helmane.fr). Vide = PUBLIC_URL.
+      SITE_URL: "${SITE_URL:-}"
       TWILIO_SIGNATURE: "${TWILIO_SIGNATURE:-}"
       DB_PATH: "/app/data/app.db"
       # Réplication continue (ASSISTANTE-158) : l'API ne répliquera rien elle-même, elle lit
@@ -283,6 +286,10 @@ services:
       # Le nom de la préproduction (preprod.helmane.fr) ; défaut ":82", port non publié,
       # donc bloc mort. Cf. docker-compose.preprod.yml et docs/DEPLOY.md, « Préproduction ».
       PREPROD_ADDRESS: "${PREPROD_ADDRESS:-:82}"
+      # Le site vitrine sur le domaine de la marque (helmane.fr, www.helmane.fr) ; défaut
+      # ":83", port non publié, donc bloc mort. Ces noms sortent alors de SITE_REDIRECTS.
+      # L'admin et Twilio restent sur SITE_ADDRESS. Cf. caddy/Caddyfile (ASSISTANTE-186).
+      VITRINE_ADDRESS: "${VITRINE_ADDRESS:-:83}"
     ports:
       - "80:80"
       - "443:443"

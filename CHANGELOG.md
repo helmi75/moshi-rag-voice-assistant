@@ -7,6 +7,16 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Le site sur helmane.fr (10/11/2026, ASSISTANTE-186)
+
+### Modifié
+- **Le site vitrine est servi sur helmane.fr** (et www) au lieu d'y rediriger vers
+  app.helmane.fr. Google indexait l'adresse de l'application, pas la marque. Le nouveau bloc
+  de Caddy ne laisse passer que les pages publiques ; l'admin, Twilio et la supervision
+  restent sur app.helmane.fr, et tout autre chemin y est redirigé. `SITE_URL` donne
+  l'adresse canonique, le sitemap et robots.txt ; `PUBLIC_URL`, que Twilio signe, ne change
+  pas. Inerte tant que le `.env` ne le pose pas (docs/DEPLOY.md, « Le site sur helmane.fr »).
+
 ## Non publiée — Référencement naturel du site (06/11/2026, ASSISTANTE-184)
 
 ### Ajouté

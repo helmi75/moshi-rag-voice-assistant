@@ -461,6 +461,45 @@ a pu fuir avec la machine.
 | `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` | Le fournisseur du stockage objet. Il faut ces clés **avant** l'étape 6 : elles seules ouvrent la réplique |
 | `RESOS_API_KEYS` | Chaque restaurant les crée dans son resOS : à redemander (`docs/RESOS.md`) |
 
+## Le site sur helmane.fr (ASSISTANTE-186)
+
+Le site vitrine est servi sur le domaine de la marque, `helmane.fr` et `www.helmane.fr`.
+L'application reste sur `app.helmane.fr` : l'admin, les webhooks et le flux des appels Twilio,
+la supervision. Le bloc `VITRINE_ADDRESS` de `caddy/Caddyfile` ne laisse passer que les pages
+publiques (`/`, `/sitemap.xml`, `/robots.txt`, `/mentions-legales`, `/rappel`, `/contact`,
+`/site/static/*`). Tout le reste est redirigé (301) vers `SITE_CANONICAL`. Google lit
+l'adresse canonique dans `SITE_URL` ; `PUBLIC_URL`, que Twilio signe, ne change pas.
+
+Dans le `.env` de la production :
+
+```
+VITRINE_ADDRESS=helmane.fr, www.helmane.fr
+SITE_URL=https://helmane.fr
+SITE_REDIRECTS=                 # helmane.fr et www en sortent : Caddy refuse un nom servi deux fois
+```
+
+Avant d'en sortir `helmane.fr` et `www`, lire ce que contient `SITE_REDIRECTS` : un autre nom
+qui s'y trouverait doit y rester.
+
+Puis, **valider avant de relancer**. Caddy sert aussi app.helmane.fr : s'il refuse sa
+configuration (un nom à la fois dans `VITRINE_ADDRESS` et `SITE_REDIRECTS`, une faute de
+frappe), la ligne téléphonique tombe avec lui.
+
+```
+cd /opt/moshi-rag-voice-assistant
+docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+« Valid configuration », et alors seulement, depuis un poste : `bash scripts/deploy.sh`. Il
+refuse pendant un appel, télécharge l'image sans rien construire, et recrée Caddy et l'API,
+dont l'environnement a changé. Les certificats existent déjà : les deux noms étaient servis
+en redirection.
+
+**Retour arrière** : remettre `SITE_REDIRECTS=helmane.fr, www.helmane.fr`, retirer les deux
+autres lignes, valider, `bash scripts/deploy.sh`. **Dans le même geste** qu'un `deploy.sh
+--version` vers un commit antérieur à ASSISTANTE-186 : l'ancien Caddyfile ignore
+`VITRINE_ADDRESS`, et avec un `SITE_REDIRECTS` vide plus aucun bloc ne servirait helmane.fr.
+
 ## Préproduction (ASSISTANTE-174)
 
 `https://preprod.helmane.fr` : la même image que la production, sur le même serveur, pour
