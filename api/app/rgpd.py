@@ -149,6 +149,12 @@ def jours_rappel() -> int:
     return _jours("RETENTION_RAPPEL_JOURS", 30)
 
 
+# Un message écrit depuis le site (app/contact.py) : nom, e-mail et texte libre d'un
+# visiteur, gardés le temps de lui répondre et de suivre la conversation.
+def jours_contact() -> int:
+    return _jours("RETENTION_CONTACT_JOURS", 365)
+
+
 @dataclass(frozen=True)
 class Purge:
     """Ce que la purge a RÉELLEMENT fait. Des compteurs, pas un « ok » : une purge qui
@@ -207,6 +213,9 @@ def purger() -> Purge:
     from . import rappel
 
     rappel.purger(jours_rappel())
+    from . import contact
+
+    contact.purger(jours_contact())
     resultat = Purge(
         transcripts=max(0, transcripts),
         numeros=max(0, numeros),
