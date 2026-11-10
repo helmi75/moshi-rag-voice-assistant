@@ -478,12 +478,27 @@ SITE_URL=https://helmane.fr
 SITE_REDIRECTS=                 # helmane.fr et www en sortent : Caddy refuse un nom servi deux fois
 ```
 
-Puis, **hors appel en cours** : `cd /opt/moshi-rag-voice-assistant && docker compose up -d caddy api`
-(Caddy relit son environnement, l'API lit `SITE_URL`). Les certificats existent déjà : les
-deux noms étaient servis en redirection.
+Avant d'en sortir `helmane.fr` et `www`, lire ce que contient `SITE_REDIRECTS` : un autre nom
+qui s'y trouverait doit y rester.
+
+Puis, **valider avant de relancer**. Caddy sert aussi app.helmane.fr : s'il refuse sa
+configuration (un nom à la fois dans `VITRINE_ADDRESS` et `SITE_REDIRECTS`, une faute de
+frappe), la ligne téléphonique tombe avec lui.
+
+```
+cd /opt/moshi-rag-voice-assistant
+docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+« Valid configuration », et alors seulement, depuis un poste : `bash scripts/deploy.sh`. Il
+refuse pendant un appel, télécharge l'image sans rien construire, et recrée Caddy et l'API,
+dont l'environnement a changé. Les certificats existent déjà : les deux noms étaient servis
+en redirection.
 
 **Retour arrière** : remettre `SITE_REDIRECTS=helmane.fr, www.helmane.fr`, retirer les deux
-autres lignes, relancer la même commande.
+autres lignes, valider, `bash scripts/deploy.sh`. **Dans le même geste** qu'un `deploy.sh
+--version` vers un commit antérieur à ASSISTANTE-186 : l'ancien Caddyfile ignore
+`VITRINE_ADDRESS`, et avec un `SITE_REDIRECTS` vide plus aucun bloc ne servirait helmane.fr.
 
 ## Préproduction (ASSISTANTE-174)
 
