@@ -1,0 +1,8 @@
+{# Fragment de suivi : se rafraîchit seul tant que le site est lu ; la route répond HX-Refresh
+   quand c'est fini. #}
+{% if en_cours %}
+<p class="muted" aria-busy="true"
+   hx-get="/admin/demos/{{ demo.id }}/suivi" hx-target="#demo-suivi" hx-trigger="every 3s" hx-swap="innerHTML">
+  Lecture du site en cours (quelques dizaines de secondes)…
+</p>
+{% endif %}

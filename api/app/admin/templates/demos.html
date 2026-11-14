@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Démonstrations{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Démonstrations</h1>
+    <p class="lede">Avant un rendez-vous : donnez le nom, la ville et le site du restaurant. Helmane lit ce site (lui seul), en extrait les informations avec leur source, vous les relisez, puis un établissement d'essai est créé. Tout est effacé au bout de 30 jours.</p>
+  </div>
+</div>
+{% if erreur %}<p role="alert">{{ erreur }}</p>{% endif %}
+
+<article class="card" style="max-width: 46rem">
+  <form method="post" action="/admin/demos">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <h2 class="form-section">Nouvelle démonstration</h2>
+    <div class="form-grid">
+      <label>Nom du restaurant
+        <input name="nom" required maxlength="100" value="{{ valeurs.nom or '' }}">
+      </label>
+      <label>Ville
+        <input name="ville" required maxlength="100" value="{{ valeurs.ville or '' }}">
+      </label>
+      <label>Adresse du site web
+        <input name="site_url" required maxlength="500" inputmode="url" autocapitalize="none"
+               placeholder="https://www.exemple.fr" value="{{ valeurs.site_url or '' }}">
+      </label>
+    </div>
+    <button type="submit">Lire le site</button>
+  </form>
+</article>
+
+<section class="card card-flush" style="margin-top: 1.5rem">
+  <div class="card-list">
+    {% for d in demos %}
+    <div class="card-row">
+      <span class="row-main">
+        <span class="row-title"><a href="/admin/demos/{{ d.id }}">{{ d.nom }}</a>
+          <span class="row-when">{{ d.ville }} · {{ d.created_at | jour_paris }}</span>
+        </span>
+        <span class="row-sub" style="white-space: normal; overflow-wrap: anywhere">{{ d.site_url }}</span>
+      </span>
+      {% if d.etat == 'prete' %}<span class="chip chip-good">Prête</span>
+      {% elif d.etat == 'effacee' %}<span class="chip">Effacée</span>
+      {% else %}<span class="chip chip-warn">À relire</span>{% endif %}
+    </div>
+    {% else %}
+    <p class="empty">Aucune démonstration pour l'instant.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

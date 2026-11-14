@@ -328,6 +328,26 @@ CREATE TABLE IF NOT EXISTS contacts (
 );
 CREATE INDEX IF NOT EXISTS idx_contacts_date ON contacts(created_at);
 """,
+    # v21 — ASSISTANTE-139 : démonstration personnalisée. Helmi prépare, avant un rendez-vous,
+    #  un établissement de démonstration au nom du restaurant démarché, à partir de son site.
+    #  `champs` (JSON) porte chaque information avec sa citation-source ; `tenant_id` est
+    #  l'établissement créé à la validation. Conservée 30 jours puis effacée (app/rgpd.py).
+    """
+CREATE TABLE IF NOT EXISTS demonstrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    nom TEXT NOT NULL,
+    ville TEXT NOT NULL,
+    site_url TEXT NOT NULL,
+    etat TEXT NOT NULL DEFAULT 'a_relire' CHECK (etat IN ('a_relire', 'prete', 'effacee')),
+    champs TEXT NOT NULL DEFAULT '{}',
+    tenant_id INTEGER,
+    validee_at TEXT,
+    cout_usd REAL,
+    jetons INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_demonstrations_date ON demonstrations(created_at);
+""",
 ]
 
 
