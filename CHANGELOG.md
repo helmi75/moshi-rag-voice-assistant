@@ -7,6 +7,14 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Les autres noms de la marque mènent au site (14/11/2026, ASSISTANTE-187)
+
+### Modifié
+- **helmane.com, www.helmane.com et www.helmane.fr redirigent vers https://helmane.fr.**
+  helmane.com menait à l'application, et www.helmane.fr servait une copie du site : une
+  seule adresse pour la marque. Nouveau bloc de Caddy, inerte tant que le `.env` ne le pose
+  pas.
+
 ## Non publiée — Le site sur helmane.fr (10/11/2026, ASSISTANTE-186)
 
 ### Modifié

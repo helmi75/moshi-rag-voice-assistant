@@ -500,6 +500,22 @@ autres lignes, valider, `bash scripts/deploy.sh`. **Dans le même geste** qu'un 
 --version` vers un commit antérieur à ASSISTANTE-186 : l'ancien Caddyfile ignore
 `VITRINE_ADDRESS`, et avec un `SITE_REDIRECTS` vide plus aucun bloc ne servirait helmane.fr.
 
+### Les autres noms de la marque (ASSISTANTE-187)
+
+`helmane.com`, `www.helmane.com` et `www.helmane.fr` redirigent (301) vers `https://helmane.fr`
+par le bloc `VITRINE_REDIRECTS` : une seule adresse pour Google et pour les visiteurs. Dans le
+`.env` :
+
+```
+VITRINE_ADDRESS=helmane.fr
+VITRINE_REDIRECTS="helmane.com, www.helmane.com, www.helmane.fr"
+VITRINE_CANONICAL=https://helmane.fr
+SITE_REDIRECTS=
+```
+
+Un espace après chaque virgule : Caddy refuse `a.fr,b.fr`. Puis la même séquence : valider,
+`bash scripts/deploy.sh`.
+
 ## Préproduction (ASSISTANTE-174)
 
 `https://preprod.helmane.fr` : la même image que la production, sur le même serveur, pour

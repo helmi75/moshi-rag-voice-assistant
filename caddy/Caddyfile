@@ -72,6 +72,14 @@
 	}
 }
 
+# Les autres noms de la marque (helmane.com, www) renvoient au site, pas à l'application
+# (ASSISTANTE-187) : une seule adresse pour Google et pour les visiteurs. VITRINE_REDIRECTS
+# par défaut ":84", un port non publié : bloc mort tant qu'il n'est pas posé.
+{$VITRINE_REDIRECTS::84} {
+	import securite
+	redir {$VITRINE_CANONICAL:http://localhost}{uri} permanent
+}
+
 # La préproduction (ASSISTANTE-174, docker-compose.preprod.yml), servie par ce même Caddy.
 # PREPROD_ADDRESS par défaut ":82", un port non publié : bloc mort tant qu'il n'est pas posé.
 # `api_preprod`, jamais `api` : c'est le nom qui sépare les deux conteneurs sur le réseau.
