@@ -209,6 +209,16 @@ class TestExtraction:
         modele(monkeypatch, {"horaires": {"valeur": {"semaine": {}}, "citation": citation}})
         assert asyncio.run(demos.extraire(TEXTE))["champs"]["horaires"]["trouve"] is False
 
+    def test_les_horaires_structures_refusent_une_citation_absente_du_site(self, monkeypatch):
+        """Le contrôle par mutation l'a montré (CI du 14/11) : sans citation trouvée, rien
+        ne rougissait, car la citation fausse du test ne fondait pas non plus les jours et
+        les heures. Ici, elle les fonde parfaitement, mais le site ne l'a jamais écrite."""
+        semaine = {"lundi": [["11:00", "15:00"]]}
+        citation = "Ouvert le lundi de 11h à 15h, et seulement ce jour-là."
+        assert demos._normaliser(citation) not in demos._normaliser(TEXTE)
+        modele(monkeypatch, {"horaires": {"valeur": {"semaine": semaine}, "citation": citation}})
+        assert asyncio.run(demos.extraire(TEXTE))["champs"]["horaires"]["trouve"] is False
+
     def test_une_valeur_sans_rapport_avec_sa_citation_est_refusee(self, monkeypatch):
         modele(monkeypatch, {
             "cuisine": {"valeur": "Cuisine japonaise", "citation": "Bistrot lyonnais, 12 rue des Halles, Lyon."},
