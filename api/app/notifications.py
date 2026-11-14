@@ -33,7 +33,7 @@ from typing import Optional
 
 from loguru import logger
 
-from . import db, horloge, taches, telegram, users
+from . import db, horloge, taches, telegram, tenants, users
 
 EVENEMENTS = ("reservation_creee", "reservation_modifiee", "reservation_annulee", "message_pris",
               "message_vocal", "annonce_sans_trace")
@@ -60,7 +60,13 @@ def actif() -> bool:
 def destinataires(tenant) -> list[str]:
     """Les comptes restaurateurs de l'établissement, puis l'adresse de notification
     éventuelle ; sans doublon, dans cet ordre. Le super-admin n'y est jamais : il
-    n'appartient à aucun établissement."""
+    n'appartient à aucun établissement.
+
+    Un établissement de démonstration (ASSISTANTE-139) ne prévient PERSONNE : on y fait
+    essayer des réservations à un restaurateur démarché, et son `notify_email` ne doit
+    jamais recevoir un essai comme s'il s'agissait d'un client."""
+    if tenants.est_demo(tenant):
+        return []
     adresses: list[str] = []
     for compte in users.list_users(tenant.id):
         if compte.email and compte.email not in adresses:

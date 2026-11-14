@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Démonstration · {{ demo.nom }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ demo.nom }}</h1>
+    <p class="lede">{{ demo.ville }} · <span style="overflow-wrap: anywhere">{{ demo.site_url }}</span>
+      · {% if demo.etat == 'prete' %}<span class="chip chip-good">Prête</span>
+      {% elif demo.etat == 'effacee' %}<span class="chip">Effacée</span>
+      {% else %}<span class="chip chip-warn">À relire</span>{% endif %}</p>
+  </div>
+  <a href="/admin/demos">Toutes les démonstrations</a>
+</div>
+
+{% if demo.etat == 'effacee' %}
+<p>Cette démonstration a été effacée : l'établissement d'essai et les informations lues n'existent plus.</p>
+{% else %}
+
+<div id="demo-suivi">
+  {% if en_cours %}
+  <p class="muted" aria-busy="true"
+     hx-get="/admin/demos/{{ demo.id }}/suivi" hx-target="#demo-suivi" hx-trigger="every 3s" hx-swap="innerHTML">
+    Lecture du site en cours (quelques dizaines de secondes)…
+  </p>
+  {% endif %}
+</div>
+
+{% if demo.message %}
+<div class="callout" style="background: var(--app-warn-soft)">
+  <p>{{ demo.message }}</p>
+</div>
+{% endif %}
+
+{% if not en_cours %}
+{% if demo.etat == 'prete' %}
+<div class="callout">
+  <p>L'établissement d'essai existe : <a href="/admin/tenants/{{ demo.tenant_id }}/edit">ouvrir sa fiche</a>.
+     Il n'a aucun numéro réel, aucun compte restaurateur, et aucune réservation d'essai ne prévient personne.
+     Effacement automatique au bout de 30 jours.</p>
+</div>
+{% endif %}
+
+<article class="card" style="max-width: 52rem">
+  <form method="post" action="/admin/demos/{{ demo.id }}/relecture">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <h2 class="form-section">Ce que le site dit</h2>
+    <p class="card-sub">Chaque information est suivie de la phrase du site qui la fonde. Une information « non trouvée » reste vide : rien n'est inventé. Corrigez ou complétez à la main, puis enregistrez.</p>
+    {% for nom, libelle in champs %}
+    {% set c = demo.champs[nom] %}
+    <div style="margin-block-end: 1.5rem">
+    <label>{{ libelle }}
+      {% if c.trouve %}<span class="chip chip-good">Trouvé sur le site</span>{% else %}<span class="chip chip-warn">Non trouvé</span>{% endif %}
+      <textarea name="valeur_{{ nom }}" rows="2" maxlength="1000" {% if demo.etat == 'prete' %}readonly{% endif %}>{{ c.valeur }}</textarea>
+    </label>
+    {% if c.trouve %}<p class="card-sub" style="overflow-wrap: anywhere; margin-block-start: -0.5rem">Source : « {{ c.citation }} »</p>{% endif %}
+    </div>
+    {% endfor %}
+
+    {% set h = demo.champs['horaires'] %}
+    <label>Horaires structurés (refusent les réservations hors service)
+      {% if h.trouve %}<span class="chip chip-good">Trouvé sur le site</span>{% else %}<span class="chip chip-warn">Non trouvé</span>{% endif %}
+      <textarea name="valeur_horaires" rows="3" {% if demo.etat == 'prete' %}readonly{% endif %}>{{ h.valeur }}</textarea>
+    </label>
+    <p class="card-sub">{% if h.trouve %}Source : « {{ h.citation }} ». Videz la case pour ne pas les appliquer ; ils ne se retapent pas ici (réglage ensuite dans la fiche de l'établissement).{% else %}Aucun horaire structuré : l'assistante ne refusera aucun créneau.{% endif %}</p>
+
+    {% if demo.etat == 'a_relire' %}
+    <button type="submit">Enregistrer la relecture</button>
+    {% endif %}
+  </form>
+
+  {% if demo.etat == 'a_relire' %}
+  <form method="post" action="/admin/demos/{{ demo.id }}/valider" style="margin-top: 1rem">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <button type="submit" class="secondary" {% if not demo.relu %}disabled{% endif %}>Créer l'établissement de démonstration</button>
+    {% if not demo.relu %}<p class="card-sub">Enregistrez d'abord la relecture.</p>{% endif %}
+  </form>
+  {% endif %}
+</article>
+
+{% if demo.jetons or demo.cout_usd is not none %}
+<p class="card-sub">Lecture par le modèle :
+  {% if demo.jetons %}{{ demo.jetons }} jetons{% endif %}{% if demo.cout_usd is not none %} · {{ demo.cout_usd | nombre }} $ (annoncé par le fournisseur){% endif %}.</p>
+{% endif %}
+{% endif %}
+
+<form method="post" action="/admin/demos/{{ demo.id }}/effacer" style="margin-top: 1.5rem"
+      hx-post="/admin/demos/{{ demo.id }}/effacer"
+      hx-confirm="Effacer cette démonstration, son établissement d'essai et les informations lues ?">
+  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+  <button type="submit" class="outline secondary">Effacer maintenant</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, llm, tenants
+from app import db, demos, llm, tenants
 from app.main import app
 
 DEMO_NUMBER = "+33100000000"
@@ -185,6 +185,8 @@ class TestLAdminNeBloquePasLaBoucle:
             from app import reservations
 
             resa = reservations.create_reservation(t, "Hors boucle", "2030-03-13", "20:00", 2)
+            monkeypatch.setenv("DEMOS_ACTIVES", "1")
+            demo = demos.creer("Hors boucle", "Lyon", "site.example")
             monkeypatch.setattr(db, "get_conn", get_conn)
             for page in ["/admin/", "/admin/health", "/admin/calls", "/admin/calls/live",
                          "/admin/calls/live/_liste", "/admin/reservations",
@@ -194,7 +196,8 @@ class TestLAdminNeBloquePasLaBoucle:
                          f"/admin/tenants/{t}/knowledge/fiches/0/modifier",
                          f"/admin/tenants/{t}/users", f"/admin/tenants/{t}/export.zip",
                          f"/admin/tenants/{t}/reservations/{resa['id']}",
-                         f"/admin/tenants/{t}/greeting/status", "/admin/contacts"]:
+                         f"/admin/tenants/{t}/greeting/status", "/admin/contacts",
+                         "/admin/demos", f"/admin/demos/{demo}", f"/admin/demos/{demo}/suivi"]:
                 assert client.get(page).status_code == 200, page
             jeton = client.get("/admin/").text.split('"X-CSRF-Token": "')[1].split('"')[0]
             entete = {"X-CSRF-Token": jeton}
@@ -207,4 +210,6 @@ class TestLAdminNeBloquePasLaBoucle:
             assert fautifs == [], "SQLite ouvert depuis la boucle :\n" + "\n".join(fautifs)
         finally:
             monkeypatch.undo()
+            with db.get_conn() as conn:
+                conn.execute("DELETE FROM demonstrations")
             tenants.delete_tenant(essai.id)

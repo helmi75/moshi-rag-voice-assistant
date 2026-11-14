@@ -155,6 +155,12 @@ def jours_contact() -> int:
     return _jours("RETENTION_CONTACT_JOURS", 365)
 
 
+# Une démonstration personnalisée (app/demos.py) : le nom d'un restaurant démarché et ce que
+# son site public dit de lui, gardés le temps de préparer et de tenir le rendez-vous.
+def jours_demo() -> int:
+    return _jours("RETENTION_DEMO_JOURS", 30)
+
+
 @dataclass(frozen=True)
 class Purge:
     """Ce que la purge a RÉELLEMENT fait. Des compteurs, pas un « ok » : une purge qui
@@ -216,6 +222,9 @@ def purger() -> Purge:
     from . import contact
 
     contact.purger(jours_contact())
+    from . import demos
+
+    demos.purger(jours_demo())
     resultat = Purge(
         transcripts=max(0, transcripts),
         numeros=max(0, numeros),

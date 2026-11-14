@@ -7,6 +7,30 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Démonstration personnalisée, premier lot (14/11/2026, ASSISTANTE-139)
+
+### Ajouté
+- **Préparer une démonstration au nom du restaurant démarché** (admin, super-admin,
+  « Démonstrations »). Helmi donne nom, ville et site web ; Helmane lit ce site (lui seul,
+  pas Google), le modèle en extrait adresse, téléphone, cuisine, horaires, carte, paiement,
+  accès et présentation, chacune avec la phrase du site qui la fonde. Une information dont la
+  citation n'est pas retrouvée mot pour mot dans le texte lu est écartée (« non trouvé »,
+  rien n'est inventé). Helmi relit et corrige ; la validation est refusée par le serveur tant
+  que la relecture n'a pas été enregistrée ; elle crée un établissement d'essai (« Bonjour,
+  <restaurant> »), sans numéro réel ni compte restaurateur. Table `demonstrations`
+  (migration v21).
+- **La lecture du site refuse tout ce qui n'est pas Internet** : http et https, ports 80 et
+  443, chaque adresse résolue doit être publique (ni privée, ni boucle locale, ni
+  lien-local), chaque redirection (trois au plus) est revérifiée, page limitée à 2 Mo et au
+  type HTML.
+- **Aucun essai ne prévient un vrai restaurateur** : un établissement de démonstration n'a
+  aucun destinataire d'e-mail et son carnet est toujours le nôtre, même si sa fiche
+  désignait resOS.
+- **Conservation 30 jours** (`RETENTION_DEMO_JOURS`) puis effacement automatique par la
+  purge ; effacement manuel à tout moment (efface l'établissement d'essai et ses données).
+- **Interrupteur `DEMOS_ACTIVES`** : vide par défaut, les routes répondent 404 et le lien de
+  menu n'existe pas. Pour la préproduction ; jamais en production.
+
 ## Non publiée — Les autres noms de la marque mènent au site (14/11/2026, ASSISTANTE-187)
 
 ### Modifié
