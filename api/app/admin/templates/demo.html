@@ -47,11 +47,13 @@
     <p class="card-sub">Chaque information est suivie de la phrase du site qui la fonde. Une information « non trouvée » reste vide : rien n'est inventé. Corrigez ou complétez à la main, puis enregistrez.</p>
     {% for nom, libelle in champs %}
     {% set c = demo.champs[nom] %}
+    <div style="margin-block-end: 1.5rem">
     <label>{{ libelle }}
       {% if c.trouve %}<span class="chip chip-good">Trouvé sur le site</span>{% else %}<span class="chip chip-warn">Non trouvé</span>{% endif %}
       <textarea name="valeur_{{ nom }}" rows="2" maxlength="1000" {% if demo.etat == 'prete' %}readonly{% endif %}>{{ c.valeur }}</textarea>
     </label>
-    {% if c.trouve %}<p class="card-sub" style="overflow-wrap: anywhere">Source : « {{ c.citation }} »</p>{% endif %}
+    {% if c.trouve %}<p class="card-sub" style="overflow-wrap: anywhere; margin-block-start: -0.5rem">Source : « {{ c.citation }} »</p>{% endif %}
+    </div>
     {% endfor %}
 
     {% set h = demo.champs['horaires'] %}
