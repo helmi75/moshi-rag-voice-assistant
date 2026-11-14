@@ -290,6 +290,10 @@ services:
       # ":83", port non publié, donc bloc mort. Ces noms sortent alors de SITE_REDIRECTS.
       # L'admin et Twilio restent sur SITE_ADDRESS. Cf. caddy/Caddyfile (ASSISTANTE-186).
       VITRINE_ADDRESS: "${VITRINE_ADDRESS:-:83}"
+      # Les autres noms de la marque (helmane.com, www…) redirigent (301) vers le site,
+      # VITRINE_CANONICAL. Défaut ":84", port non publié, donc bloc mort (ASSISTANTE-187).
+      VITRINE_REDIRECTS: "${VITRINE_REDIRECTS:-:84}"
+      VITRINE_CANONICAL: "${VITRINE_CANONICAL:-http://localhost}"
     ports:
       - "80:80"
       - "443:443"

@@ -327,6 +327,7 @@ répéter. Il faut un portable français de métropole.
 | W19 🤖 | Ouvrir « Messages du site » dans l'admin en super-admin, puis avec un compte restaurateur (ASSISTANTE-185) | Le super-admin voit le message du plus récent au plus ancien, un texte `<script>` s'affiche tel quel, « Marquer lu » le grise ; le restaurateur reçoit un 403 et n'a pas le lien dans le menu | |
 | W20 🤖 | Ouvrir `/sitemap.xml` et `/robots.txt`, puis tester l'adresse du site dans l'outil de test des résultats enrichis de Google et dans l'aperçu de lien d'une messagerie (ASSISTANTE-184) | Le plan du site liste la page d'accueil ; robots.txt l'indique ; Google lit l'organisation, le service avec ses quatre prix et la FAQ, sans erreur ; le lien partagé montre l'image « Le téléphone sonne. Marie décroche. » | |
 | W21 🤖 | Ouvrir https://helmane.fr, puis https://helmane.fr/admin et l'espace client depuis le site ; regarder l'adresse canonique de la page (ASSISTANTE-186) | La page d'accueil s'affiche sur helmane.fr ; /admin mène à app.helmane.fr ; la canonique et le sitemap disent https://helmane.fr/ ; « Rappelez-moi » et « Nous écrire » répondent depuis helmane.fr | |
+| W22 🤖 | Ouvrir helmane.com, www.helmane.com et www.helmane.fr, avec un chemin (`/mentions-legales`) (ASSISTANTE-187) | Chacun mène en une redirection permanente à la même page sur https://helmane.fr ; app.helmane.fr ne change pas | |
 
 ## X. Les appels traités en Irlande (ASSISTANTE-123)
 

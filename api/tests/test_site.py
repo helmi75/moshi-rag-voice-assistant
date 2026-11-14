@@ -466,3 +466,21 @@ class TestLeDomaineDuSite:
         compose = yaml.safe_load((RACINE / "docker-compose.yml").read_text(encoding="utf-8"))
         assert compose["services"]["caddy"]["environment"]["VITRINE_ADDRESS"] == "${VITRINE_ADDRESS:-:83}"
         assert "83:" not in str(compose["services"]["caddy"]["ports"])
+
+
+class TestLesAutresNomsDeLaMarque:
+    """ASSISTANTE-187 : helmane.com et les www renvoient au site, pas à l'application."""
+
+    def test_un_bloc_qui_ne_fait_que_rediriger_vers_le_site(self):
+        caddy = (RACINE / "caddy" / "Caddyfile").read_text(encoding="utf-8")
+        bloc = re.search(r"\{\$VITRINE_REDIRECTS::84\} \{(.*?)\n\}", caddy, re.S)
+        assert bloc, "plus de bloc de redirection vers le site"
+        assert "redir {$VITRINE_CANONICAL:http://localhost}{uri} permanent" in bloc.group(1)
+        assert "reverse_proxy" not in bloc.group(1) and "import securite" in bloc.group(1)
+
+    def test_le_bloc_est_mort_tant_que_les_noms_ne_sont_pas_poses(self):
+        import yaml
+        compose = yaml.safe_load((RACINE / "docker-compose.yml").read_text(encoding="utf-8"))
+        env = compose["services"]["caddy"]["environment"]
+        assert env["VITRINE_REDIRECTS"] == "${VITRINE_REDIRECTS:-:84}"
+        assert "84:" not in str(compose["services"]["caddy"]["ports"])
