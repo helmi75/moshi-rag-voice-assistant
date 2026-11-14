@@ -1269,6 +1269,24 @@ GARDE_FOUS = [
         k='sans_l_interrupteur',
         panne='la fonction, qui lit des sites et paie le modèle, serait ouverte en production',
     ),
+    GardeFou(
+        nom='Démonstration : une valeur sans rapport avec sa citation est écartée',
+        fichier='api/app/demos.py',
+        avant='    return sum(1 for m in pleins if m in c) * 2 >= len(pleins)',
+        apres='    return True  # mutation',
+        tests=["test_demos.py"],
+        k='sans_rapport_avec_sa_citation',
+        panne='une phrase vraie du site cautionnerait une valeur inventée (« Cuisine japonaise » sous « Lyon »)',
+    ),
+    GardeFou(
+        nom='Démonstration : un jour ouvert que la citation ne nomme pas fait écarter les horaires',
+        fichier='api/app/demos.py',
+        avant='        if plages and jour not in cites:',
+        apres='        if False:  # mutation',
+        tests=["test_demos.py"],
+        k='jour_ou_une_heure',
+        panne="l'assistante refuserait ou accepterait des réservations un jour où le site ne dit rien",
+    ),
     # ---- GPT-Live : il ne sert que les établissements dont c'est le moteur ----------------
     GardeFou(
         nom="GPT-Live : un établissement sans choix ni essai ne passe jamais par OpenAI",

@@ -38,6 +38,9 @@ from . import db, disponibilite, horloge, llm, tenants
 # --- Lecture du site -----------------------------------------------------------------
 
 DELAI_SECONDES = 10.0
+RESOLUTION_SECONDES = 5.0
+LECTURE_SECONDES = 30.0   # borne de TOUTE la lecture, redirections comprises
+MODELE_SECONDES = 60.0
 TAILLE_MAX = 2 * 1024 * 1024
 TEXTE_MAX = 30_000
 REDIRECTIONS_MAX = 3
@@ -58,6 +61,9 @@ class SiteRefuse(Exception):
     """Le site n'a pas été lu, et la phrase dit pourquoi (affichée telle quelle à Helmi)."""
 
 
+_NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+
+
 def _adresse_publique(texte: str) -> bool:
     """Vrai seulement pour une adresse d'Internet : ni privée, ni boucle locale, ni
     lien-local, ni multicast, ni réservée. `is_global` les refuse toutes ; une IPv6 qui
@@ -69,6 +75,10 @@ def _adresse_publique(texte: str) -> bool:
     emballee = getattr(adresse, "ipv4_mapped", None)
     if emballee is not None:
         adresse = emballee
+    # NAT64 : Python tient ces préfixes pour globaux, mais ils emballent une IPv4 (peut-être
+    # interne) que la passerelle du fournisseur traduirait.
+    if adresse.version == 6 and any(adresse in r for r in _NAT64):
+        return False
     return adresse.is_global
 
 
@@ -91,7 +101,11 @@ async def _verifier(url: str) -> tuple[str, str, int]:
         raise SiteRefuse("Seuls les ports 80 et 443 sont lus.")
     hote = morceaux.hostname
     try:
-        reponses = await asyncio.to_thread(socket.getaddrinfo, hote, port, type=socket.SOCK_STREAM)
+        reponses = await asyncio.wait_for(
+            asyncio.to_thread(socket.getaddrinfo, hote, port, type=socket.SOCK_STREAM),
+            RESOLUTION_SECONDES)
+    except asyncio.TimeoutError:
+        raise SiteRefuse("Le nom de ce site n'a pas été résolu à temps.") from None
     except OSError:
         raise SiteRefuse("Ce nom de site est introuvable.") from None
     adresses = [str(r[4][0]) for r in reponses]
@@ -104,8 +118,8 @@ async def _verifier(url: str) -> tuple[str, str, int]:
 
 
 class _Texte(HTMLParser):
-    """Le texte visible d'une page : ni script, ni style, ni gabarit, ni dessin."""
-    _IGNORES = {"script", "style", "noscript", "template", "svg", "head"}
+    """Le texte visible d'une page : ni script, ni style, ni gabarit, ni dessin (`<head>` n'est pas ignoré : une page sans `</head>` ne rendrait rien)."""
+    _IGNORES = {"script", "style", "noscript", "template", "svg"}
     _BLOCS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section",
               "article", "header", "footer", "ul", "ol", "table", "address", "td", "th"}
 
@@ -145,6 +159,14 @@ def _charset(type_contenu: str) -> str:
 
 
 async def lire_le_site(url: str) -> str:
+    """Le texte de la page, ou `SiteRefuse` ; toute la lecture tient en `LECTURE_SECONDES`."""
+    try:
+        return await asyncio.wait_for(_lire(url), LECTURE_SECONDES)
+    except asyncio.TimeoutError:
+        raise SiteRefuse("Le site a mis trop de temps à répondre : rien n'a été lu.") from None
+
+
+async def _lire(url: str) -> str:
     """Le texte de la page, ou `SiteRefuse`. Les redirections sont suivies à la main, trois
     au plus, et CHACUNE repasse par la vérification d'adresse : un site public qui renvoie
     vers 169.254.169.254 ne contourne rien. On se connecte à l'adresse vérifiée (pas au nom,
@@ -179,7 +201,11 @@ async def lire_le_site(url: str) -> str:
                 raise SiteRefuse("Le site n'a pas répondu à temps.") from None
             except httpx.HTTPError:
                 raise SiteRefuse("Le site n'a pas pu être joint.") from None
-            texte = html_en_texte(bytes(recu).decode(_charset(type_contenu), errors="replace"))
+            try:
+                brut = bytes(recu).decode(_charset(type_contenu), errors="replace")
+            except LookupError:   # charset inventé par le site
+                brut = bytes(recu).decode("utf-8", errors="replace")
+            texte = html_en_texte(brut)
             if not texte.strip():
                 raise SiteRefuse("Cette page ne contient aucun texte lisible.")
             return texte
@@ -227,14 +253,38 @@ def _normaliser(texte) -> str:
 def citation_trouvee(citation, texte_normalise: str) -> bool:
     """Garde anti-invention : la citation, normalisée, est-elle dans le texte du site ?"""
     c = _normaliser(citation)
-    return len(c) >= 3 and c in texte_normalise
+    return len(c) >= CITATION_MIN and c in texte_normalise
+
+
+def _nombres(texte) -> set[str]:
+    """Les nombres entiers d'un texte, sans zéros de tête (« 04 » = « 4 »)."""
+    return {n.lstrip("0") or "0" for n in re.findall(r"\d+", str(texte))}
+
+
+def _sans_accents(texte) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", _normaliser(texte))
+                   if not unicodedata.combining(c))
 
 
 def _nombres_fondes(valeur: str, citation: str) -> bool:
-    """Chaque nombre de la valeur (numéro, prix, heure) figure dans la citation : le modèle
-    ne peut pas citer une phrase vraie et y accrocher un chiffre de son cru."""
-    c = _normaliser(citation)
-    return all(n in c for n in re.findall(r"\d+", _normaliser(valeur)))
+    """Chaque nombre de la valeur (numéro, prix, heure) est un nombre de la citation — des
+    ensembles de nombres entiers, pas des sous-chaînes : « 1 » ne passe pas parce que la
+    citation contient « 12 »."""
+    return _nombres(valeur) <= _nombres(citation)
+
+
+def _valeur_fondee(valeur: str, citation: str) -> bool:
+    """La valeur dit ce que la citation dit : au moins la moitié de ses mots pleins (quatre
+    lettres ou plus) figurent dans la citation. Sans cela, une phrase vraie du site (« Lyon »)
+    pouvait cautionner n'importe quelle valeur (« Cuisine japonaise »)."""
+    pleins = set(re.findall(r"[^\W\d_]{4,}", _sans_accents(valeur)))
+    if not pleins:
+        return True   # que des nombres : _nombres_fondes les contrôle
+    c = _sans_accents(citation)
+    return sum(1 for m in pleins if m in c) * 2 >= len(pleins)
+
+
+CITATION_MIN = 10
 
 
 def _vide(trouve: bool = False) -> dict:
@@ -248,9 +298,46 @@ def _garder(brut, texte_normalise: str) -> dict:
     valeur = " ".join(str(brut.get("valeur") or "").split())
     citation = " ".join(str(brut.get("citation") or "").split())
     if not valeur or not citation_trouvee(citation, texte_normalise) \
-            or not _nombres_fondes(valeur, citation):
+            or not _nombres_fondes(valeur, citation) or not _valeur_fondee(valeur, citation):
         return _vide()
     return {"valeur": valeur, "citation": citation, "trouve": True}
+
+
+_SEPARATEUR_JOURS = r"\s*(?:au|à|a|-|–|—|jusqu'au|jusqu'à|jusqu'a)\s*"
+
+
+def _jours_cites(citation: str) -> set[str]:
+    """Les jours que la citation nomme, plus ceux qu'une plage couvre (« du mardi au samedi »,
+    « mardi-samedi », « mardi à samedi », en tournant sur la semaine)."""
+    c = _normaliser(citation)
+    jours = horloge.JOURS
+    cites = {j for j in jours if j in c}
+    motif = "(" + "|".join(jours) + ")" + _SEPARATEUR_JOURS + "(" + "|".join(jours) + ")"
+    for debut, fin in re.findall(motif, c):
+        i = jours.index(debut)
+        while True:
+            cites.add(jours[i])
+            if jours[i] == fin:
+                break
+            i = (i + 1) % 7
+    return cites
+
+
+def _horaires_fondes(charges: dict, citation: str) -> bool:
+    """Chaque jour ouvert est nommé (ou couvert par une plage de jours) dans la citation, et
+    chaque heure et minute non nulle des plages est un nombre de la citation : la structure ne
+    dit rien que la phrase du site ne dise."""
+    nombres = _nombres(citation)
+    cites = _jours_cites(citation)
+    for jour, plages in charges["semaine"].items():
+        if plages and jour not in cites:
+            return False
+        for debut, fin in plages:
+            for h in (debut, fin):
+                for valeur in (h.hour, h.minute):
+                    if valeur and str(valeur) not in nombres:
+                        return False
+    return True
 
 
 def _garder_horaires(brut, texte_normalise: str) -> dict:
@@ -264,6 +351,8 @@ def _garder_horaires(brut, texte_normalise: str) -> dict:
     texte_json = json.dumps(donnees, ensure_ascii=False)
     charges = disponibilite.charger(texte_json)
     if charges is None or disponibilite.toujours_ferme(charges):
+        return _vide()
+    if not _horaires_fondes(charges, str(brut["citation"])):
         return _vide()
     return {"valeur": texte_json, "citation": " ".join(str(brut["citation"]).split()),
             "trouve": True}
@@ -294,7 +383,8 @@ async def extraire(texte: str) -> dict:
     Lève si le modèle est injoignable ou ne rend pas de JSON : `preparer` en fait un message."""
     from . import resume
 
-    reponse = await llm.get_client().chat.completions.create(
+    reponse = await llm.get_client().with_options(
+        timeout=MODELE_SECONDES, max_retries=0).chat.completions.create(
         model=resume.MODELE,
         max_tokens=MAX_JETONS,
         temperature=0,
@@ -425,7 +515,26 @@ async def preparer(demo_id: int) -> None:
                        f"({type(exc).__name__}: {exc})")
         message = "Le modèle n'a pas pu lire ce site. Les champs sont à saisir à la main."
     contenu = {"champs": champs, "lecture": "terminee", "message": message, "relu": False}
-    await db.hors_boucle(_ecrire, demo_id, contenu, **colonnes)
+    await db.hors_boucle(_ecrire_lecture, demo_id, contenu, colonnes)
+
+
+def _ecrire_lecture(demo_id: int, contenu: dict, colonnes: dict) -> None:
+    """N'écrit le résultat que si la démonstration attend encore sa lecture : une démonstration
+    effacée, ou déjà relue par Helmi, n'est pas écrasée par une lecture qui finit tard."""
+    conn = db.get_conn()
+    try:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM demonstrations WHERE id = ?", (demo_id,)).fetchone()
+        courant = _vers_dict(row) if row else None
+        if courant and courant["etat"] == "a_relire" and not courant["relu"] \
+                and courant["lecture"] == "en_cours":
+            sets = ", ".join(["champs = ?"] + [f"{k} = ?" for k in colonnes])
+            conn.execute(f"UPDATE demonstrations SET {sets} WHERE id = ?",  # noqa: S608 — noms du code, valeurs liées
+                         (json.dumps(contenu, ensure_ascii=False), *colonnes.values(), demo_id))
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
 
 
 def lecture_en_cours(demo: dict) -> bool:
@@ -486,17 +595,35 @@ def valider(demo_id: int) -> tenants.Tenant:
         raise Refus("Cette démonstration n'est plus à valider.")
     if not demo["relu"]:
         raise PasRelue(demo_id)
-    tenant = tenants.create_tenant(
-        demo["nom"], f"{tenants.PREFIXE_DEMO}{demo_id}",
-        greeting=f"Bonjour, {demo['nom']}.",
-        knowledge_base=tenants.assembler_fiches(_fiches(demo)))
-    horaires = demo["champs"][HORAIRES]
-    if horaires["trouve"] and horaires["valeur"]:
-        tenants.update_tenant(tenant.id, opening_hours=horaires["valeur"])
+    # Prise de la démonstration par une écriture conditionnelle : un double clic (ou deux
+    # onglets) ne crée pas deux établissements, le second reçoit un refus.
     with db.get_conn() as conn:
-        conn.execute(
-            "UPDATE demonstrations SET etat = 'prete', tenant_id = ?, validee_at = ? WHERE id = ?",
-            (tenant.id, horloge.utc_iso(), demo_id))
+        pris = conn.execute(
+            "UPDATE demonstrations SET validee_at = ? "
+            "WHERE id = ? AND etat = 'a_relire' AND validee_at IS NULL",
+            (horloge.utc_iso(), demo_id)).rowcount
+    if not pris:
+        raise Refus("Cette démonstration est déjà en cours de validation ou validée.")
+    try:
+        tenant = tenants.create_tenant(
+            demo["nom"], f"{tenants.PREFIXE_DEMO}{demo_id}",
+            greeting=f"Bonjour, {demo['nom']}.",
+            knowledge_base=tenants.assembler_fiches(_fiches(demo)))
+        try:
+            horaires = demo["champs"][HORAIRES]
+            if horaires["trouve"] and horaires["valeur"]:
+                tenants.update_tenant(tenant.id, opening_hours=horaires["valeur"])
+            with db.get_conn() as conn:
+                conn.execute("UPDATE demonstrations SET etat = 'prete', tenant_id = ? WHERE id = ?",
+                             (tenant.id, demo_id))
+        except Exception:
+            tenants.delete_tenant(tenant.id)   # pas d'établissement orphelin
+            raise
+    except Exception:
+        with db.get_conn() as conn:
+            conn.execute("UPDATE demonstrations SET validee_at = NULL "
+                         "WHERE id = ? AND etat = 'a_relire'", (demo_id,))
+        raise
     return tenant
 
 

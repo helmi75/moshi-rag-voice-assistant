@@ -39,21 +39,23 @@ def reseau(monkeypatch):
     """Un faux Internet : `site.example` est public, les autres noms pointent où on le dit.
     Rend la liste des URL réellement demandées au transport."""
     demandees: list[str] = []
+    hotes: list = []
     monkeypatch.setattr(socket, "getaddrinfo", _resolution({
         "site.example": ["93.184.216.34"], "interne.example": ["10.0.0.5"],
         "double.example": ["93.184.216.34", "192.168.1.10"], "v6.example": ["2606:2800:220:1::1"],
         "rebond.example": ["169.254.169.254"], "127.0.0.1": ["127.0.0.1"], "10.1.2.3": ["10.1.2.3"],
-        "169.254.169.254": ["169.254.169.254"], "::1": ["::1"], "mappee.example": ["::ffff:127.0.0.1"],
+        "169.254.169.254": ["169.254.169.254"], "::1": ["::1"], "64:ff9b::7f00:1": ["64:ff9b::7f00:1"], "64:ff9b:1::a00:1": ["64:ff9b:1::a00:1"], "mappee.example": ["::ffff:127.0.0.1"],
     }))
     reponses: dict = {}
 
     def handler(requete: httpx.Request) -> httpx.Response:
         demandees.append(str(requete.url))
+        hotes.append(requete.headers.get("host"))
         return reponses.get(requete.headers.get("host"), httpx.Response(
             200, headers={"content-type": "text/html; charset=utf-8"}, content=PAGE.encode()))
 
     monkeypatch.setattr(demos, "_TRANSPORT", httpx.MockTransport(handler))
-    return SimpleNamespace(demandees=demandees, reponses=reponses)
+    return SimpleNamespace(demandees=demandees, hotes=hotes, reponses=reponses)
 
 
 def lire(url):
@@ -120,6 +122,33 @@ class TestLireLeSite:
         with pytest.raises(demos.SiteRefuse, match="HTML"):
             lire("https://site.example/")
 
+    @pytest.mark.parametrize("url", ["http://[64:ff9b::7f00:1]/", "http://[64:ff9b:1::a00:1]/"])
+    def test_les_adresses_nat64_sont_refusees(self, reseau, url):
+        with pytest.raises(demos.SiteRefuse, match="pas publique"):
+            lire(url)
+
+    def test_une_ipv6_publique_est_jointe_entre_crochets_avec_le_host_du_nom(self, reseau):
+        lire("https://v6.example/menu")
+        assert reseau.demandees == ["https://[2606:2800:220:1::1]/menu"]
+        assert reseau.hotes == ["v6.example"]
+
+    def test_une_page_sans_fin_de_head_donne_quand_meme_son_texte(self):
+        assert "Bonjour" in demos.html_en_texte("<html><head><title>T</title><body><p>Bonjour</p>")
+
+    def test_un_charset_inconnu_se_replie_sur_utf8(self, reseau):
+        reseau.reponses["site.example"] = httpx.Response(
+            200, headers={"content-type": "text/html; charset=inconnu-9"}, content="<p>Café ouvert</p>".encode())
+        assert "Café ouvert" in lire("https://site.example/")
+
+    def test_toute_la_lecture_est_bornee_dans_le_temps(self, reseau, monkeypatch):
+        monkeypatch.setattr(demos, "LECTURE_SECONDES", 0.05)
+
+        async def lent(url):
+            await asyncio.sleep(1)
+        monkeypatch.setattr(demos, "_lire", lent)
+        with pytest.raises(demos.SiteRefuse, match="trop de temps"):
+            lire("https://site.example/")
+
     def test_le_texte_est_borne(self, reseau, monkeypatch):
         monkeypatch.setattr(demos, "TEXTE_MAX", 50)
         assert len(lire("https://site.example/")) <= 50
@@ -130,6 +159,10 @@ class FauxModele:
         self.contenu = contenu
         self.usage = usage or SimpleNamespace(total_tokens=321, cost=0.0042)
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def with_options(self, **options):
+        self.options = options
+        return self
 
     async def _create(self, **kwargs):
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self.contenu))],
@@ -165,7 +198,7 @@ class TestExtraction:
 
     def test_les_horaires_structures_exigent_un_format_valide_et_une_citation(self, monkeypatch):
         semaine = {"mardi": [["12:00", "14:30"], ["19:00", "22:30"]]}
-        citation = "Ouvert du mardi au samedi, de 12h à 14h30"
+        citation = "Ouvert du mardi au samedi, de 12h à 14h30 et de 19h à 22h30."
         modele(monkeypatch, {"horaires": {"valeur": {"semaine": semaine}, "citation": citation}})
         h = asyncio.run(demos.extraire(TEXTE))["champs"]["horaires"]
         assert h["trouve"] and json.loads(h["valeur"])["semaine"]["mardi"][0] == ["12:00", "14:30"]
@@ -175,6 +208,37 @@ class TestExtraction:
         assert asyncio.run(demos.extraire(TEXTE))["champs"]["horaires"]["trouve"] is False
         modele(monkeypatch, {"horaires": {"valeur": {"semaine": {}}, "citation": citation}})
         assert asyncio.run(demos.extraire(TEXTE))["champs"]["horaires"]["trouve"] is False
+
+    def test_une_valeur_sans_rapport_avec_sa_citation_est_refusee(self, monkeypatch):
+        modele(monkeypatch, {
+            "cuisine": {"valeur": "Cuisine japonaise", "citation": "Bistrot lyonnais, 12 rue des Halles, Lyon."},
+            "presentation": {"valeur": "Bistrot lyonnais", "citation": "Bistrot lyonnais, 12 rue des Halles, Lyon."}})
+        champs = asyncio.run(demos.extraire(TEXTE))["champs"]
+        assert champs["cuisine"]["trouve"] is False
+        assert champs["presentation"]["trouve"] is True
+
+    def test_une_citation_trop_courte_est_refusee(self, monkeypatch):
+        modele(monkeypatch, {"adresse": {"valeur": "Lyon", "citation": "Lyon"}})
+        assert asyncio.run(demos.extraire(TEXTE))["champs"]["adresse"]["trouve"] is False
+
+    def test_les_nombres_se_comparent_comme_des_nombres(self):
+        assert demos._nombres_fondes("12 rue", "12 rue des Halles")
+        assert not demos._nombres_fondes("1 rue", "12 rue des Halles")
+        assert demos._nombres_fondes("tél 04 78", "04 78 00")
+
+    def test_les_horaires_dont_un_jour_ou_une_heure_n_est_pas_cite_sont_refuses(self, monkeypatch):
+        citation = "Ouvert du mardi au samedi, de 12h à 14h30 et de 19h à 22h30."
+
+        def horaires(semaine, cit=citation):
+            modele(monkeypatch, {"horaires": {"valeur": {"semaine": semaine}, "citation": cit}})
+            return asyncio.run(demos.extraire(TEXTE))["champs"]["horaires"]["trouve"]
+        assert horaires({"mardi": [["12:00", "14:30"]], "samedi": [["19:00", "22:30"]]})
+        assert not horaires({"lundi": [["12:00", "14:30"]]})            # lundi n'est pas cité
+        assert not horaires({"mardi": [["12:00", "15:30"]]})            # 15 h n'est pas cité
+        assert not horaires({"dimanche": [["12:00", "14:30"]]})
+        assert demos._jours_cites("mardi-samedi") >= {"mercredi", "vendredi"}
+        assert "jeudi" in demos._jours_cites("du mardi à samedi")
+        assert "lundi" not in demos._jours_cites("du mardi au samedi")
 
     def test_le_cout_n_est_jamais_estime(self, monkeypatch):
         monkeypatch.setattr(demos.llm, "get_client", lambda: FauxModele("{}", SimpleNamespace(total_tokens=10)))
@@ -240,6 +304,34 @@ class TestLeCycle:
         assert d["etat"] == "prete" and d["tenant_id"] == t.id and d["validee_at"]
         with pytest.raises(demos.Refus):
             demos.valider(identifiant)
+
+    def test_une_lecture_tardive_n_ecrase_pas_une_demonstration_deja_relue(self, actives, monkeypatch, reseau):
+        modele(monkeypatch, {"cuisine": {"valeur": "Bistrot lyonnais", "citation": "Bistrot lyonnais"}})
+        identifiant = demos.creer("Chez Marcel", "Lyon", "site.example")
+        demos.enregistrer_relecture(identifiant, {"cuisine": "Saisie à la main"})
+        asyncio.run(demos.preparer(identifiant))
+        assert demos.obtenir(identifiant)["champs"]["cuisine"]["valeur"] == "Saisie à la main"
+        effacee = demos.creer("Effacée", "Lyon", "site.example")
+        demos.effacer(effacee)
+        asyncio.run(demos.preparer(effacee))
+        assert demos.obtenir(effacee)["etat"] == "effacee"
+        assert demos.obtenir(effacee)["champs"]["cuisine"]["valeur"] == ""
+
+    def test_valider_deux_fois_ne_cree_qu_un_etablissement(self, actives, monkeypatch, reseau):
+        identifiant = _demo_lue(monkeypatch, reseau)
+        demos.enregistrer_relecture(identifiant, {})
+        premier = demos.valider(identifiant)
+        with pytest.raises(demos.Refus):
+            demos.valider(identifiant)
+        assert [t.id for t in tenants.list_all() if t.phone_number == f"demo-{identifiant}"] == [premier.id]
+        # une prise déjà faite (second onglet en vol) est refusée elle aussi
+        autre = _demo_lue(monkeypatch, reseau)
+        demos.enregistrer_relecture(autre, {})
+        with db.get_conn() as conn:
+            conn.execute("UPDATE demonstrations SET validee_at = '2026-11-14T10:00:00Z' WHERE id = ?", (autre,))
+        with pytest.raises(demos.Refus):
+            demos.valider(autre)
+        assert demos.obtenir(autre)["tenant_id"] is None
 
     def test_effacer_supprime_l_etablissement_et_vide_les_champs(self, actives, monkeypatch, reseau):
         identifiant = _demo_lue(monkeypatch, reseau)
@@ -374,6 +466,26 @@ class TestLesPages:
             assert client.post(f"/admin/demos/{identifiant}/valider", headers=entete).status_code == 403
             assert demos.obtenir(identifiant)["etat"] == "a_relire"
             assert 'href="/admin/demos"' not in client.get("/admin/").text
+        finally:
+            tenants.delete_tenant(t.id)
+
+    def test_la_fiche_d_une_demonstration_s_enregistre_sans_toucher_au_numero(self, client, actives):
+        t = tenants.create_tenant("Chez Demo Fiche", "demo-424244")
+        try:
+            entete = _connecter(client)
+            r = client.post(f"/admin/tenants/{t.id}", headers=entete, follow_redirects=False,
+                            data={"name": "Chez Demo Fiche", "business_type": "restaurant", "language": "fr-FR",
+                                  "phone_number": "+33612345678", "notify_email": "vrai@restaurant.fr",
+                                  "booking_provider": "resos"})
+            assert r.status_code == 303
+            apres = tenants.get_by_id(t.id)
+            assert apres.phone_number == "demo-424244" and tenants.est_demo(apres)
+            assert not apres.notify_email and apres.booking_provider in (None, "interne")
+            assert 'readonly' in client.get(f"/admin/tenants/{t.id}/edit").text
+            r = client.post(f"/admin/tenants/{t.id}", headers=entete, follow_redirects=False,
+                            data={"name": "Renommée", "business_type": "restaurant", "language": "fr-FR",
+                                  "phone_number": "demo-424244"})
+            assert r.status_code == 303 and tenants.get_by_id(t.id).name == "Renommée"
         finally:
             tenants.delete_tenant(t.id)
 
