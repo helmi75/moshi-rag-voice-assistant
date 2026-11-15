@@ -337,6 +337,7 @@ répéter. Il faut un portable français de métropole.
 | W29 🤖 | Chercher un nom de restaurant ambigu (plusieurs fiches), choisir une fiche, puis rejouer un double clic sur « Utiliser cette fiche » (ASSISTANTE-189) | L'écran de choix montre titre et adresse de chaque fiche ; le choix relance la lecture ; le second clic est refusé (409) | |
 | W30 🤖 | Arrêter gosom (`docker stop`), créer une démonstration avec nom, ville et site saisi (ASSISTANTE-189) | Message « Google Maps … injoignable », puis lecture du site saisi : la démonstration reste à relire ; sans site saisi, le message demande l'adresse du site | |
 | W31 🤖 | Après une démonstration par nom et ville, lire la table `demonstrations` de la préproduction et la liste des recherches de gosom (ASSISTANTE-189) | Aucun avis, nom d'auteur, propriétaire ni e-mail en base ; gosom ne garde aucune recherche (`GET /api/v1/jobs` vide) ; `docker inspect` montre `/gmapsdata` en tmpfs et aucun port publié | |
+| W32 🤖 | Ouvrir une démonstration relue par nom et ville, en clair et en sombre, sur téléphone (ASSISTANTE-190) | Le coût s'affiche au dix-millième (pas « 0,00 $ ») ; les horaires et leur source se lisent en toutes lettres, sans accolades ; décocher « Appliquer ces horaires » puis enregistrer les retire | ✅ 15/11, rendu local (Cuba Compagnie Café reconstitué) ; préprod après déploiement |
 
 ## X. Les appels traités en Irlande (ASSISTANTE-123)
 

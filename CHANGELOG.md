@@ -7,6 +7,17 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Démonstration personnalisée : une relecture lisible (15/11/2026, ASSISTANTE-190)
+
+### Corrigé
+- **Le coût d'une lecture ne s'affiche plus « 0,00 $ »** : une lecture coûte quelques dixièmes
+  de centime (0,0039 $ relevé à la recette du 15/11 sur Cuba Compagnie Café), affiché désormais
+  au dix-millième, et « moins de 0,0001 $ » en deçà.
+- **Les horaires structurés s'écrivent en toutes lettres** (« Du lundi au dimanche : 7h00-2h00. »),
+  comme l'assistante les dira, au lieu du JSON brut ; leur source Google Maps aussi, jour par
+  jour. Une case « Appliquer ces horaires », cochée par défaut, remplace la case de texte qu'il
+  fallait vider pour les retirer.
+
 ## Non publiée — Démonstration personnalisée, lot 2 : la fiche Google Maps (15/11/2026, ASSISTANTE-189 et 188)
 
 ### Ajouté

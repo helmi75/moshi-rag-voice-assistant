@@ -73,11 +73,18 @@
     {% endfor %}
 
     {% set h = demo.champs['horaires'] %}
-    <label>Horaires structurés (refusent les réservations hors service)
-      {% if h.trouve %}<span class="chip chip-good">{{ 'Google Maps' if h.source == 'Google Maps' else 'Site du restaurant' }}</span>{% else %}<span class="chip chip-warn">Non trouvé</span>{% endif %}
-      <textarea name="valeur_horaires" rows="3" {% if demo.etat == 'prete' %}readonly{% endif %}>{{ h.valeur }}</textarea>
-    </label>
-    <p class="card-sub">{% if h.trouve %}Source : « {{ h.citation }} ». Videz la case pour ne pas les appliquer ; ils ne se retapent pas ici (réglage ensuite dans la fiche de l'établissement).{% else %}Aucun horaire structuré : l'assistante ne refusera aucun créneau.{% endif %}</p>
+    <p style="margin-block-end: 0.5rem">Horaires structurés (refusent les réservations hors service)
+      {% if h.trouve %}<span class="chip chip-good">{{ 'Google Maps' if h.source == 'Google Maps' else 'Site du restaurant' }}</span>{% else %}<span class="chip chip-warn">Non trouvé</span>{% endif %}</p>
+    {% if h.trouve %}
+    <p style="white-space: pre-line; margin-block-end: 0.5rem"><strong>{{ horaires_lisibles }}</strong></p>
+    <p class="card-sub" style="overflow-wrap: anywhere">Source : « {{ citation_horaires }} ».</p>
+    {# Case cachée vide puis case cochée : la dernière valeur envoyée l'emporte, décocher retire les horaires #}
+    <input type="hidden" name="valeur_horaires" value="">
+    <label><input type="checkbox" name="valeur_horaires" value="garder" checked {% if demo.etat == 'prete' %}disabled{% endif %}>
+      Appliquer ces horaires (ils se règlent ensuite dans la fiche de l'établissement)</label>
+    {% else %}
+    <p class="card-sub">Aucun horaire structuré : l'assistante ne refusera aucun créneau.</p>
+    {% endif %}
 
     {% if demo.etat == 'a_relire' %}
     <button type="submit">Enregistrer la relecture</button>
@@ -95,7 +102,7 @@
 
 {% if demo.jetons or demo.cout_usd is not none %}
 <p class="card-sub">Lecture par le modèle :
-  {% if demo.jetons %}{{ demo.jetons }} jetons{% endif %}{% if demo.cout_usd is not none %} · {{ demo.cout_usd | nombre }} $ (annoncé par le fournisseur){% endif %}.</p>
+  {% if demo.jetons %}{{ demo.jetons }} jetons{% endif %}{% if cout %} · {{ cout }} (annoncé par le fournisseur){% endif %}.</p>
 {% endif %}
 {% endif %}
 

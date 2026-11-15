@@ -47,7 +47,9 @@ def _page(request: Request, demo_id: int):
         raise HTTPException(status_code=404)
     return deps.templates.TemplateResponse(
         request, "demo.html",
-        {"demo": demo, "champs": demos.CHAMPS, "en_cours": demos.lecture_en_cours(demo)})
+        {"demo": demo, "champs": demos.CHAMPS, "en_cours": demos.lecture_en_cours(demo),
+         "horaires_lisibles": demos.horaires_lisibles(demo),
+         "citation_horaires": demos.citation_horaires(demo), "cout": demos.cout_lisible(demo["cout_usd"])})
 
 
 def _suivi(request: Request, demo_id: int):

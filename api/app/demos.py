@@ -730,6 +730,39 @@ def enregistrer_relecture(demo_id: int, valeurs: dict) -> dict:
     return demo
 
 
+def horaires_lisibles(demo: dict) -> str:
+    """Les horaires structurés comme l'assistante les dira (« Du lundi au vendredi : … »).
+    La page de relecture montrait le JSON brut, illisible sur téléphone (ASSISTANTE-190)."""
+    h = demo["champs"][HORAIRES]
+    if not (h["trouve"] and h["valeur"]):
+        return ""
+    return disponibilite.en_toutes_lettres(disponibilite.charger(h["valeur"]))
+
+
+def citation_horaires(demo: dict) -> str:
+    """La source des horaires : la phrase du site telle quelle ; la fiche Google Maps,
+    elle, les rend en JSON ({"lundi": ["07:00–02:00"]}), écrit ici jour par jour."""
+    citation = str(demo["champs"][HORAIRES]["citation"] or "")
+    try:
+        brut = json.loads(citation)
+    except ValueError:
+        return citation
+    if not isinstance(brut, dict):
+        return citation
+    return " ; ".join(f"{jour} : {', '.join(map(str, plages)) if isinstance(plages, list) else plages}"
+                      for jour, plages in brut.items())
+
+
+def cout_lisible(cout_usd: Optional[float]) -> str:
+    """Le coût annoncé par le fournisseur, au dix-millième : une lecture coûte quelques
+    dixièmes de centime, que deux décimales affichaient « 0,00 $ » (ASSISTANTE-190)."""
+    if cout_usd is None:
+        return ""
+    if 0 < cout_usd < 0.0001:
+        return "moins de 0,0001 $"
+    return f"{cout_usd:.4f} $".replace(".", ",")
+
+
 def _fiches(demo: dict) -> list[dict]:
     c = {nom: demo["champs"][nom]["valeur"] for nom, _ in CHAMPS}
     resto = [f"{demo['nom']}, {demo['ville']}."]
