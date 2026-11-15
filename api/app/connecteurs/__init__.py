@@ -18,6 +18,8 @@ from typing import Optional, Protocol
 
 from loguru import logger
 
+from .. import tenants
+
 INTERNE = "interne"
 RESOS = "resos"
 # Le faux resOS de l'établissement, dans l'application (SCRUM-93) : pour tester au
@@ -69,6 +71,10 @@ class Connecteur(Protocol):
 def fournisseur(tenant) -> str:
     """Le carnet de l'établissement. Absent ou inconnu = le nôtre, comme avant SCRUM-83 :
     le parc existant n'a rien à configurer."""
+    # Une démonstration (ASSISTANTE-139) n'écrit jamais dans un vrai resOS, même si sa
+    # fiche en désignait un : son carnet est toujours le nôtre.
+    if tenants.est_demo(tenant):
+        return INTERNE
     valeur = (getattr(tenant, "booking_provider", None) or "").strip().lower()
     return valeur if valeur in FOURNISSEURS else INTERNE
 

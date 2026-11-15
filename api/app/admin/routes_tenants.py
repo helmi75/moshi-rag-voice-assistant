@@ -279,8 +279,9 @@ async def tenant_update(
     adresse, erreur = _email_de_notification(notify_email)
     # Le numéro n'est vérifié que s'il sera écrit : un restaurateur ne le modifie pas, et
     # un champ ignoré ne doit pas pouvoir faire échouer son enregistrement.
+    demo = tenants.est_demo(tenant)   # ASSISTANTE-139 : son « numéro » est sa marque, intouchable
     numero, erreur_numero = (_numero(phone_number)
-                             if user.is_superadmin and phone_number is not None
+                             if user.is_superadmin and phone_number is not None and not demo
                              else (None, None))
     # L'accueil et la base ne passent plus par cette fiche (SCRUM-111) : ils se règlent
     # dans « Voix & accueil » et « Ce que l'IA sait ». Ignorés s'ils arrivent quand même —
@@ -307,6 +308,9 @@ async def tenant_update(
         "language": language.strip(),
         "notify_email": adresse,
     }
+    if demo:
+        # Une démonstration ne prévient personne : aucune adresse n'y est enregistrée.
+        del fields["notify_email"]
     # Le numéro de secours est celui du restaurant : le restaurateur le règle lui-même.
     # Un formulaire qui ne l'envoie pas ne l'efface pas ; vide, il est retiré.
     if secours_envoye:
@@ -322,7 +326,7 @@ async def tenant_update(
         fields["plan"] = plan
     # Le carnet aussi : il décide où partent les réservations du restaurant. Une valeur
     # hors liste est ignorée, jamais écrite.
-    if user.is_superadmin and booking_provider in connecteurs.FOURNISSEURS:
+    if user.is_superadmin and not demo and booking_provider in connecteurs.FOURNISSEURS:
         fields["booking_provider"] = booking_provider
     # Le moteur de l'appel aussi : GPT-Live coûte le double à la minute et envoie la voix
     # des clients chez OpenAI. C'est une décision de l'exploitant, pas du restaurateur.

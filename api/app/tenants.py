@@ -34,6 +34,18 @@ Terrasse de 20 places aux beaux jours, sans réservation.
 """
 
 
+# Un établissement de démonstration (app/demos.py) n'a aucun vrai numéro : son « numéro »
+# commence par ce préfixe. C'est l'unique marque qui le distingue, lue par `est_demo`.
+PREFIXE_DEMO = "demo-"
+
+
+def est_demo(tenant) -> bool:
+    """Vrai pour un établissement de démonstration (ASSISTANTE-139). Il sert à faire essayer
+    l'assistante à un restaurateur démarché : rien de ce qui s'y passe ne doit atteindre un
+    vrai restaurateur, ni son carnet resOS ni sa boîte e-mail."""
+    return str(getattr(tenant, "phone_number", "") or "").startswith(PREFIXE_DEMO)
+
+
 @dataclass
 class Tenant:
     id: int

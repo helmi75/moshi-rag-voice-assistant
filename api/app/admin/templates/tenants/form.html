@@ -36,7 +36,8 @@
     <div class="form-grid">
       <label>Numéro Twilio (routage des appels)
         <input name="phone_number" required value="{{ tenant.phone_number if tenant else '' }}"
-               placeholder="+33612345678">
+               placeholder="+33612345678"{% if tenant and tenant.phone_number.startswith('demo-') %} readonly{% endif %}>
+        {% if tenant and tenant.phone_number.startswith('demo-') %}<small class="muted">Établissement de démonstration : aucun numéro réel, il ne se change pas.</small>{% endif %}
       </label>
       {# La formule décide du plafond et de la facture : elle se vend, elle ne se
          choisit pas soi-même. Réservée au super-admin, comme le numéro. #}
