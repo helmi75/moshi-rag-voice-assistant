@@ -91,6 +91,24 @@ async def demo_suivi(request: Request, demo_id: int = IdDemo):
     return await db.hors_boucle(_suivi, request, demo_id)
 
 
+@router.post("/admin/demos/{demo_id}/choisir", dependencies=_acces_post())
+async def demo_choisir(request: Request, demo_id: int = IdDemo):
+    """Plusieurs fiches Google Maps correspondaient : Helmi désigne la bonne."""
+    form = await request.form()
+    try:
+        indice = int(str(form.get("fiche") or ""))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Choisissez une fiche.") from None
+    try:
+        await db.hors_boucle(demos.choisir, demo_id, indice)
+    except demos.DemoIntrouvable:
+        raise HTTPException(status_code=404) from None
+    except demos.Refus as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    taches.lancer(demos.preparer_apres_choix(demo_id), nom=f"démonstration {demo_id} (fiche choisie)")
+    return RedirectResponse(f"/admin/demos/{demo_id}", status_code=303)
+
+
 @router.post("/admin/demos/{demo_id}/relecture", dependencies=_acces_post())
 async def demo_relecture(request: Request, demo_id: int = IdDemo):
     form = await request.form()

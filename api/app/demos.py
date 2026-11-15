@@ -1,11 +1,14 @@
 """Démonstration personnalisée (ASSISTANTE-139) : un établissement d'essai au nom du restaurant
 démarché, préparé avant un rendez-vous commercial.
 
-Helmi donne un nom, une ville et l'adresse du site du restaurant. Helmane LIT ce site (et lui
-seul : pas Google), le modèle en extrait les informations, Helmi les relit et les corrige, puis
-un établissement de démonstration est créé : l'assistante répond « Bonjour, <restaurant> ».
-Décisions du 14/11/2026 : source = le site du restaurant, rien d'inventé ; conservation 30 jours
-puis effacement automatique, effacement manuel possible à tout moment.
+Helmi donne un nom et une ville (l'adresse du site est facultative). Helmane cherche d'abord la
+fiche Google Maps du restaurant (`fiche_maps.py`, préproduction seulement : adresse, téléphone,
+horaires, catégorie…), puis LIT le site (celui de la fiche, sinon celui saisi) ; le modèle en
+extrait ce que Maps ne dit pas (carte, présentation, paiement). Chaque information porte sa
+source, Helmi relit et corrige, puis un établissement de démonstration est créé : l'assistante
+répond « Bonjour, <restaurant> ». Décisions du 14/11/2026 : rien d'inventé ; conservation 30
+jours puis effacement automatique, effacement manuel possible à tout moment. Décision du
+15/11/2026 : la fiche Maps vient de gosom, en préproduction seulement.
 
 Trois protections, qui sont le cœur du module :
   1. `lire_le_site` ne fait jamais lire à Helmane une adresse de son propre réseau : l'adresse
@@ -33,7 +36,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 from loguru import logger
 
-from . import db, disponibilite, horloge, llm, tenants
+from . import db, disponibilite, fiche_maps, horloge, llm, tenants
 
 # --- Lecture du site -----------------------------------------------------------------
 
@@ -225,7 +228,14 @@ CHAMPS = (
     ("presentation", "Présentation"),
 )
 HORAIRES = "horaires"   # les horaires structurés, au format de disponibilite.py
-MAX_JETONS = 2000
+# Relevé en préproduction (ASSISTANTE-188) : un modèle qui raisonne dépensait les 2000 jetons
+# en réflexion et rendait une réponse VIDE (finish_reason « length »), facturée quand même.
+# On borne donc le raisonnement (512 jetons, `max_tokens` : OpenRouter le traduit en effort pour
+# les modèles qui n'en connaissent qu'un) et on laisse de la place à la réponse JSON.
+MAX_JETONS = 3000
+RAISONNEMENT_MAX_JETONS = 512
+SOURCE_MAPS = "Google Maps"
+SOURCE_SITE = "site du restaurant"
 
 CONSIGNE = (
     "Tu lis le texte du site web d'un restaurant et tu en extrais des informations, SANS RIEN "
@@ -378,9 +388,26 @@ def _cout_de(usage) -> Optional[float]:
     return float(brut) if isinstance(brut, (int, float)) else None
 
 
+class ExtractionImpossible(Exception):
+    """Le modèle n'a rien rendu d'exploitable. La phrase dit pourquoi ; les jetons et le coût
+    sont ceux que le fournisseur a quand même facturés (ASSISTANTE-188)."""
+
+    def __init__(self, message: str, jetons: Optional[int] = None, cout_usd: Optional[float] = None):
+        super().__init__(message)
+        self.jetons, self.cout_usd = jetons, cout_usd
+
+
+def _jetons_de_raisonnement(usage) -> Optional[int]:
+    brut = getattr(usage, "reasoning_tokens", None)
+    if brut is None:
+        brut = getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None)
+    return brut if isinstance(brut, int) else None
+
+
 async def extraire(texte: str) -> dict:
     """{"champs": {nom: {valeur, citation, trouve}}, "jetons": int|None, "cout_usd": float|None}.
-    Lève si le modèle est injoignable ou ne rend pas de JSON : `preparer` en fait un message."""
+    Lève `ExtractionImpossible` (cause, jetons et coût) si le modèle ne rend pas de JSON, une
+    autre exception s'il est injoignable : `preparer` en fait un message."""
     from . import resume
 
     reponse = await llm.get_client().with_options(
@@ -390,16 +417,33 @@ async def extraire(texte: str) -> dict:
         temperature=0,
         messages=[{"role": "system", "content": CONSIGNE},
                   {"role": "user", "content": texte}],
-        extra_body={"usage": {"include": True}},
+        extra_body={"usage": {"include": True},
+                    "reasoning": {"max_tokens": RAISONNEMENT_MAX_JETONS}},
     )
-    brut = _json_de(reponse.choices[0].message.content or "")
+    usage = getattr(reponse, "usage", None)
+    jetons = getattr(usage, "total_tokens", None)
+    jetons = jetons if isinstance(jetons, int) else None
+    cout = _cout_de(usage)
+    choix = reponse.choices[0]
+    contenu = choix.message.content or ""
+    try:
+        brut = _json_de(contenu)
+    except ValueError as exc:
+        if getattr(choix, "finish_reason", None) == "length":
+            raisonne = _jetons_de_raisonnement(usage)
+            detail = f" ({raisonne} jetons de raisonnement)" if raisonne else ""
+            cause = f"Réponse du modèle coupée par la limite de jetons{detail}"
+        elif not contenu.strip():
+            cause = "Le modèle n'a rien répondu"
+        elif isinstance(exc, json.JSONDecodeError):
+            cause = "Réponse du modèle illisible (JSON invalide)"
+        else:
+            cause = "Réponse du modèle sans JSON"
+        raise ExtractionImpossible(cause, jetons, cout) from None
     normalise = _normaliser(texte)
     champs = {nom: _garder(brut.get(nom), normalise) for nom, _ in CHAMPS}
     champs[HORAIRES] = _garder_horaires(brut.get(HORAIRES), normalise)
-    usage = getattr(reponse, "usage", None)
-    jetons = getattr(usage, "total_tokens", None)
-    return {"champs": champs, "jetons": jetons if isinstance(jetons, int) else None,
-            "cout_usd": _cout_de(usage)}
+    return {"champs": champs, "jetons": jetons, "cout_usd": cout}
 
 
 # --- La démonstration ------------------------------------------------------------------
@@ -430,7 +474,10 @@ def _vers_dict(row) -> dict:
         contenu = json.loads(row["champs"] or "{}")
     except ValueError:
         contenu = {}
-    base = {"champs": _champs_vides(), "lecture": "terminee", "message": "", "relu": False}
+    # `choix` : les fiches Google Maps proposées à Helmi (lecture « choix »), puis la fiche
+    # retenue pendant la lecture du site ; `debut` : l'instant où la lecture en cours a commencé.
+    base = {"champs": _champs_vides(), "lecture": "terminee", "message": "", "relu": False,
+            "choix": [], "debut": ""}
     base.update({k: v for k, v in contenu.items() if k in base})
     base["champs"] = _champs_vides() | (base["champs"] or {})
     return {"id": row["id"], "created_at": row["created_at"], "nom": row["nom"],
@@ -447,7 +494,7 @@ def _ecrire(demo_id: int, contenu: dict, **colonnes) -> None:
 
 
 def _contenu(demo: dict) -> dict:
-    return {k: demo[k] for k in ("champs", "lecture", "message", "relu")}
+    return {k: demo[k] for k in ("champs", "lecture", "message", "relu", "choix", "debut")}
 
 
 def obtenir(demo_id: int) -> Optional[dict]:
@@ -482,10 +529,11 @@ def adresse_du_site(brute: str) -> str:
     return texte
 
 
-def creer(nom: str, ville: str, site_url: str) -> int:
+def creer(nom: str, ville: str, site_url: str = "") -> int:
+    """Le site est facultatif : vide, Helmane s'en remet à la fiche Google Maps (colonne vide)."""
     nom = _nettoyer(nom, "Nom du restaurant", 100)
     ville = _nettoyer(ville, "Ville", 100)
-    url = adresse_du_site(site_url)
+    url = adresse_du_site(site_url) if (site_url or "").strip() else ""
     contenu = {"champs": _champs_vides(), "lecture": "en_cours", "message": "", "relu": False}
     with db.get_conn() as conn:
         cur = conn.execute(
@@ -494,28 +542,137 @@ def creer(nom: str, ville: str, site_url: str) -> int:
         return cur.lastrowid
 
 
+def _champs_de_maps(fiche: dict) -> dict:
+    """Les champs que la fiche Google Maps renseigne, source « Google Maps » : la valeur brute
+    de la fiche est sa propre citation (aucune garde de citation, il n'y a pas de texte lu)."""
+    champs = _champs_vides()
+
+    def poser(nom: str, valeur, citation=None) -> None:
+        valeur = " ".join(str(valeur or "").split())
+        if valeur:
+            champs[nom] = {"valeur": valeur, "citation": " ".join(str(citation or valeur).split()),
+                           "trouve": True, "source": SOURCE_MAPS}
+    poser("adresse", fiche.get("adresse"))
+    poser("telephone", fiche.get("telephone"))
+    poser("cuisine", fiche.get("categorie"))
+    poser("presentation", fiche.get("description"))
+    poser("acces", fiche.get("acces"))
+    horaires = fiche.get("horaires") or ""
+    charges = disponibilite.charger(horaires) if horaires else None
+    if charges is not None:
+        poser(HORAIRES, horaires, fiche.get("horaires_brut"))
+        poser("horaires_texte", disponibilite.en_toutes_lettres(charges), fiche.get("horaires_brut"))
+    return champs
+
+
+def _completer(maps: dict, site: dict) -> dict:
+    """Un champ que Maps a trouvé n'est jamais écrasé par le site ; le site comble le reste."""
+    fusion = {}
+    for nom, champ in maps.items():
+        if champ["trouve"]:
+            fusion[nom] = champ
+        elif site[nom]["trouve"]:
+            fusion[nom] = site[nom] | {"source": SOURCE_SITE}
+        else:
+            fusion[nom] = champ
+    return fusion
+
+
+def _ajouter(message: str, phrase: str) -> str:
+    return f"{message} {phrase}" if message else phrase
+
+
 async def preparer(demo_id: int) -> None:
-    """Lit le site et en extrait les informations. Ne lève jamais : un échec laisse les champs
-    vides et un message, la démonstration reste à relire (Helmi peut tout saisir à la main)."""
+    """Cherche la fiche Google Maps, puis lit le site et en extrait le reste. Ne lève jamais :
+    un échec laisse les champs vides et un message, la démonstration reste à relire (Helmi peut
+    tout saisir à la main). Plusieurs fiches possibles : la démonstration attend le choix de
+    Helmi (`choisir`)."""
     demo = await db.hors_boucle(obtenir, demo_id)
     if demo is None:
         return
-    message, champs, colonnes = "", _champs_vides(), {}
-    try:
-        texte = await lire_le_site(demo["site_url"])
-        resultat = await extraire(texte)
-        champs = resultat["champs"]
-        colonnes = {"jetons": resultat["jetons"], "cout_usd": resultat["cout_usd"]}
-        if not any(c["trouve"] for c in champs.values()):
-            message = "Le site a été lu, mais rien n'a pu en être extrait avec certitude."
-    except SiteRefuse as exc:
-        message = str(exc)
-    except Exception as exc:
-        logger.warning(f"[demos] extraction impossible pour la démonstration {demo_id} "
-                       f"({type(exc).__name__}: {exc})")
-        message = "Le modèle n'a pas pu lire ce site. Les champs sont à saisir à la main."
-    contenu = {"champs": champs, "lecture": "terminee", "message": message, "relu": False}
+    fiches, message = [], ""
+    if fiche_maps.actif():
+        try:
+            fiches = await fiche_maps.chercher(demo["nom"], demo["ville"])
+            if not fiches:
+                message = "Aucune fiche Google Maps trouvée pour ce nom et cette ville."
+        except fiche_maps.MapsIndisponible as exc:
+            message = str(exc)
+        except Exception as exc:
+            logger.warning(f"[demos] recherche Maps impossible pour la démonstration {demo_id} "
+                           f"({type(exc).__name__})")
+            message = "La recherche Google Maps a échoué."
+    if len(fiches) > 1:
+        contenu = {"champs": _champs_vides(), "lecture": "choix", "relu": False, "debut": "",
+                   "message": "Plusieurs fiches Google Maps correspondent : choisissez la bonne.",
+                   "choix": fiches}
+        await db.hors_boucle(_ecrire_lecture, demo_id, contenu, {})
+        return
+    await _lire_et_ranger(demo_id, demo, fiches[0] if fiches else None, message)
+
+
+async def _lire_et_ranger(demo_id: int, demo: dict, fiche: Optional[dict], message: str) -> None:
+    """Les champs de la fiche (s'il y en a une), complétés par ce que le site dit : celui de la
+    fiche, sinon celui que Helmi a saisi."""
+    maps = _champs_de_maps(fiche) if fiche else _champs_vides()
+    champs, colonnes = maps, {}
+    site_url = (fiche or {}).get("site") or demo["site_url"]
+    if not site_url:
+        message = _ajouter(message, (
+            "La fiche Google Maps n'indique pas de site : carte et paiement sont à saisir à la main."
+            if fiche else
+            "Aucun site n'est connu : indiquez l'adresse du site du restaurant (nouvelle "
+            "démonstration) ou saisissez les champs à la main."))
+    else:
+        try:
+            texte = await lire_le_site(adresse_du_site(site_url))
+            resultat = await extraire(texte)
+            colonnes = {"jetons": resultat["jetons"], "cout_usd": resultat["cout_usd"]}
+            champs = _completer(maps, resultat["champs"])
+            if not any(c["trouve"] for c in champs.values()):
+                message = _ajouter(message, "Le site a été lu, mais rien n'a pu en être extrait avec certitude.")
+        except (SiteRefuse, Refus) as exc:
+            message = _ajouter(message, str(exc))
+        except ExtractionImpossible as exc:
+            colonnes = {"jetons": exc.jetons, "cout_usd": exc.cout_usd}
+            logger.warning(f"[demos] extraction sans résultat pour la démonstration {demo_id} : {exc}")
+            message = _ajouter(message, f"{exc}. Les champs du site sont à saisir à la main.")
+        except Exception as exc:
+            logger.warning(f"[demos] extraction impossible pour la démonstration {demo_id} "
+                           f"({type(exc).__name__}: {exc})")
+            message = _ajouter(message, "Le modèle n'a pas pu lire ce site. Les champs sont à saisir à la main.")
+    contenu = {"champs": champs, "lecture": "terminee", "message": message, "relu": False,
+               "choix": [], "debut": ""}
     await db.hors_boucle(_ecrire_lecture, demo_id, contenu, colonnes)
+
+
+def choisir(demo_id: int, indice: int) -> None:
+    """Helmi a choisi une des fiches Google Maps proposées : la démonstration repasse en lecture
+    (le site de cette fiche est lu en tâche de fond par `preparer_apres_choix`). Écriture
+    conditionnelle : un double clic ne lance pas deux lectures."""
+    demo = obtenir(demo_id)
+    if demo is None:
+        raise DemoIntrouvable(demo_id)
+    if demo["etat"] != "a_relire" or demo["lecture"] != "choix" or demo["relu"]:
+        raise Refus("Cette démonstration n'attend pas de choix de fiche.")
+    if not 0 <= indice < len(demo["choix"]):
+        raise Refus("Cette fiche ne fait pas partie de celles proposées.")
+    with db.get_conn() as conn:
+        avant = conn.execute("SELECT champs FROM demonstrations WHERE id = ?", (demo_id,)).fetchone()["champs"]
+        demo.update({"lecture": "en_cours", "choix": [demo["choix"][indice]], "message": "",
+                     "debut": horloge.utc_iso()})
+        pris = conn.execute(
+            "UPDATE demonstrations SET champs = ? WHERE id = ? AND etat = 'a_relire' AND champs = ?",
+            (json.dumps(_contenu(demo), ensure_ascii=False), demo_id, avant)).rowcount
+    if not pris:
+        raise Refus("Le choix a déjà été pris.")
+
+
+async def preparer_apres_choix(demo_id: int) -> None:
+    demo = await db.hors_boucle(obtenir, demo_id)
+    if demo is None or demo["lecture"] != "en_cours" or not demo["choix"]:
+        return
+    await _lire_et_ranger(demo_id, demo, demo["choix"][0], "")
 
 
 def _ecrire_lecture(demo_id: int, contenu: dict, colonnes: dict) -> None:
@@ -541,7 +698,8 @@ def lecture_en_cours(demo: dict) -> bool:
     """Vrai tant que la lecture tourne (et n'est pas périmée : un redémarrage la tue)."""
     if demo["lecture"] != "en_cours" or demo["etat"] != "a_relire":
         return False
-    return demo["created_at"] > horloge.il_y_a(LECTURE_PERIMEE_SECONDES / 86400)
+    # Après un choix de fiche, la lecture recommence : on compte depuis ce moment-là.
+    return (demo["debut"] or demo["created_at"]) > horloge.il_y_a(LECTURE_PERIMEE_SECONDES / 86400)
 
 
 def enregistrer_relecture(demo_id: int, valeurs: dict) -> dict:

@@ -1426,6 +1426,35 @@ GARDE_FOUS = [
         panne="l'archive remise à un restaurateur contiendrait les appels, transcriptions et "
               "enregistrements des autres établissements",
     ),
+    # ---- ASSISTANTE-189 : la fiche Google Maps de la démonstration -------------------------
+    GardeFou(
+        nom="Fiche Maps : seules les colonnes de la liste blanche sont lues (pas d'avis, de propriétaire)",
+        fichier="api/app/fiche_maps.py",
+        avant='COLONNES = ("title", "category", "address",',
+        apres='COLONNES = ("user_reviews", "owner", "emails", "title", "category", "address",  # mutation\n       ',
+        tests=["test_fiche_maps.py"],
+        k="donnee_de_personne",
+        panne="les avis, le nom de leurs auteurs, le propriétaire et les e-mails d'un restaurant démarché "
+              "seraient copiés puis gardés en base",
+    ),
+    GardeFou(
+        nom="Fiche Maps : la recherche est effacée chez gosom quoi qu'il arrive (finally)",
+        fichier="api/app/fiche_maps.py",
+        avant='                if suivi.get("id"):\n                    await _effacer(client, suivi["id"])',
+        apres='                if False:  # mutation\n                    await _effacer(client, suivi["id"])',
+        tests=["test_fiche_maps.py"],
+        k="effacee",
+        panne="chaque recherche d'un restaurant démarché resterait dans gosom, avec ses avis et ses e-mails",
+    ),
+    GardeFou(
+        nom="Fiche Maps : la production n'a ni gosom ni son adresse",
+        fichier="docker-compose.yml",
+        avant='      GOSOM_URL: "${GOSOM_URL:-}"',
+        apres='      GOSOM_URL: "${GOSOM_URL:-http://gosom:8080}"  # mutation',
+        tests=["test_preprod.py"],
+        k="absent_de_la_production",
+        panne="la production interrogerait Google Maps par un outil contraire à ses conditions, sur de vrais appels",
+    ),
 ]
 
 

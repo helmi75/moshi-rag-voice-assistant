@@ -235,6 +235,9 @@ services:
       RETENTION_CONTACT_JOURS: "${RETENTION_CONTACT_JOURS:-365}"
       # Démonstration personnalisée (ASSISTANTE-139) : vide = la fonction n'existe pas (production).
       DEMOS_ACTIVES: "${DEMOS_ACTIVES:-}"
+      # Adresse du service gosom (fiche Google Maps de la démonstration, ASSISTANTE-189) : posée
+      # par docker-compose.preprod.yml seulement ; vide ici, le service n'existe pas en production.
+      GOSOM_URL: "${GOSOM_URL:-}"
       RETENTION_DEMO_JOURS: "${RETENTION_DEMO_JOURS:-30}"
       COST_DEEPGRAM_PER_MIN:
       COST_MODAL_PER_MIN:

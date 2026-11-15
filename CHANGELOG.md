@@ -7,6 +7,27 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Démonstration personnalisée, lot 2 : la fiche Google Maps (15/11/2026, ASSISTANTE-189 et 188)
+
+### Ajouté
+- **Nom et ville suffisent** (le site devient facultatif). En préproduction, Helmane cherche la
+  fiche Google Maps du restaurant avec gosom (service à part, épinglé, sans port ni disque,
+  jamais en production) : adresse, téléphone, catégorie, horaires (convertis au format des
+  horaires structurés, ou laissés vides s'ils ne le permettent pas), description,
+  accessibilité. Plusieurs fiches : un écran de choix. Chaque champ montre sa source
+  (« Google Maps » ou « Site du restaurant ») ; un champ de Maps n'est jamais écrasé par le
+  site, que le modèle lit toujours (garde de citation inchangée) pour la carte, la
+  présentation et le paiement. gosom injoignable : repli sur le site saisi, avec un message.
+- **Aucune donnée de personne gardée** : avis, auteurs, propriétaire, e-mails ne sont jamais
+  lus (liste blanche de colonnes). La recherche est effacée chez gosom après lecture, même en
+  cas d'échec. Trois garde-fous du contrôle par mutation.
+
+### Corrigé
+- **Une réponse vide du modèle disait « n'a pas pu lire ce site »** (ASSISTANTE-188) : le
+  raisonnement consommait les jetons. Il est borné à 512 jetons, la limite de la réponse
+  passe à 3000, et le message dit la cause (réponse coupée, sans JSON) ; jetons et coût
+  facturés sont enregistrés même quand la réponse est inexploitable.
+
 ## Non publiée — Démonstration personnalisée, premier lot (14/11/2026, ASSISTANTE-139)
 
 ### Ajouté

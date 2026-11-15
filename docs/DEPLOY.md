@@ -558,6 +558,17 @@ préproduction qui ne démarre pas est ce qu'on voulait apprendre avant la produ
    `ADMIN_PASSWORD=…` à la main.
 4. `bash scripts/deploy_preprod.sh`.
 
+**Le service `gosom`** (ASSISTANTE-189, fiche Google Maps de la démonstration). Il est défini
+dans `docker-compose.preprod.yml` et **nulle part ailleurs** : jamais en production
+(`test_preprod.py` le vérifie, et un garde-fou de `scripts/mutation_check.py`). Image
+`gosom/google-maps-scraper` v1.18.1 épinglée par empreinte, aucun port publié, `/gmapsdata`
+en `tmpfs` (rien sur disque), 1 Go de mémoire, réseau `gosom` que seule `api_preprod`
+rejoint (`GOSOM_URL=http://gosom:8080`). Son usage est contraire aux conditions de Google :
+c'est un choix de Helmi (15/11/2026, `docs/DECISIONS.md`). Il casse quand Google change sa
+page : la démonstration se replie alors sur le site saisi, avec un message. Changer de
+version = changer l'empreinte (relever le condensat de la nouvelle étiquette, relire son
+journal des changements), jamais `latest`.
+
 Le déploiement automatique après chaque fusion viendra avec le workflow de déploiement
 (étape 5 du chantier « livraison »).
 
