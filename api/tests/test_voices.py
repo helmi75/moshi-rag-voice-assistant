@@ -113,6 +113,22 @@ class TestCatalogueVivant:
         assert voices.get("voxtral/fr_louise_neutral").label == "Louise · neutre"
         assert len(voices.catalogue()) == 1  # l'entrée illisible est écartée
 
+    def test_les_voix_de_voxtral_3_sont_ecartees(self, monkeypatch):
+        # Relevé le 15/11/2026 : depuis Voxtral 3 (20/10), Mistral liste 36 voix « pvc »
+        # (voice_3141…) que notre modèle refuse (HTTP 400 « voice is not supported for
+        # speech v1 », code 3051). Le client de la recette prenait Camille, et l'admin les
+        # proposait : un établissement qui en choisissait une n'avait plus de voix.
+        ancienne = {"id": "1" * 36, "slug": "fr_marie_neutral", "name": "Marie - Neutral",
+                    "languages": ["fr_fr"], "gender": "female", "kind": "ivc"}
+        nouvelle = {"id": "2" * 36, "slug": "voice_3141", "name": "Camille",
+                    "languages": ["fr"], "gender": "female", "kind": "pvc"}
+        inconnue = nouvelle | {"slug": "voice_9999", "kind": "PVC"}
+        self._mistral(monkeypatch, lambda r: httpx.Response(
+            200, json={"items": [ancienne, nouvelle, inconnue], "total_pages": 1}))
+        assert asyncio.run(voices.rafraichir_catalogue()) is True
+        assert [v.id for v in voices.catalogue()] == ["voxtral/fr_marie_neutral"]
+        assert voices.get("voxtral/voice_3141") is None
+
     def test_mistral_injoignable_garde_l_ancien_catalogue(self, monkeypatch):
         avant = voices.catalogue()
         self._mistral(monkeypatch, lambda r: httpx.Response(503))

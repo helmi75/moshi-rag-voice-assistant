@@ -7,6 +7,16 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Voix : les voix de Voxtral 3 écartées (15/11/2026, ASSISTANTE-191)
+
+### Corrigé
+- **Le catalogue ne propose plus de voix muettes.** Depuis Voxtral 3 (20/10), Mistral liste 36
+  voix « pvc » (Camille, Léa, Manon…) que notre modèle refuse (HTTP 400, code 3051). Relu chaque
+  heure, le catalogue les avait reprises : le client d'essai de la recette d'appels prenait
+  Camille et restait muet (19 scénarios rouges sur 22 le 15/11), et l'admin les proposait aux
+  restaurateurs. Marie n'était pas touchée (vérifié en production), et aucun établissement
+  n'avait choisi une de ces voix.
+
 ## Non publiée — Démonstration personnalisée : une relecture lisible (15/11/2026, ASSISTANTE-190)
 
 ### Corrigé
