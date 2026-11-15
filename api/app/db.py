@@ -348,6 +348,39 @@ CREATE TABLE IF NOT EXISTS demonstrations (
 );
 CREATE INDEX IF NOT EXISTS idx_demonstrations_date ON demonstrations(created_at);
 """,
+    # v22 — ASSISTANTE-192 : traces lisibles de la recette d'appels automatique. L'établissement
+    #  d'essai est purgé après chaque scénario ; sans cette archive, rien ne reste à relire.
+    #  `conversation` est une liste JSON de tours ; `audio` le nom (hexadécimal) du dossier copié
+    #  sous RECETTE_ARCHIVE_DIR. Client simulé, voix de synthèse : aucune donnée personnelle.
+    #  Conservée 30 jours puis effacée (app/rgpd.py).
+    """
+CREATE TABLE IF NOT EXISTS recettes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    version TEXT,
+    cout REAL NOT NULL DEFAULT 0,
+    scenarios INTEGER NOT NULL DEFAULT 0,
+    echecs INTEGER NOT NULL DEFAULT 0,
+    etage2 INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_recettes_date ON recettes(created_at);
+CREATE TABLE IF NOT EXISTS recette_scenarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recette_id INTEGER NOT NULL REFERENCES recettes(id) ON DELETE CASCADE,
+    rang INTEGER NOT NULL,
+    etage INTEGER,
+    moteur TEXT,
+    scenario TEXT,
+    recette TEXT,
+    titre TEXT,
+    etat TEXT,
+    preuve TEXT,
+    cout REAL NOT NULL DEFAULT 0,
+    conversation TEXT NOT NULL DEFAULT '[]',
+    audio TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_recette_scenarios_recette ON recette_scenarios(recette_id);
+""",
 ]
 
 

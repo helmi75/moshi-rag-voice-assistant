@@ -239,6 +239,9 @@ services:
       # par docker-compose.preprod.yml seulement ; vide ici, le service n'existe pas en production.
       GOSOM_URL: "${GOSOM_URL:-}"
       RETENTION_DEMO_JOURS: "${RETENTION_DEMO_JOURS:-30}"
+      # Traces de la recette d'appels automatique (ASSISTANTE-192)
+      RETENTION_RECETTE_JOURS: "${RETENTION_RECETTE_JOURS:-30}"
+      RECETTE_ARCHIVE_DIR: "${RECETTE_ARCHIVE_DIR:-/app/data/recette/archives}"
       COST_DEEPGRAM_PER_MIN:
       COST_MODAL_PER_MIN:
       COST_LLM_PER_CALL:

@@ -18,7 +18,7 @@ from xml.sax.saxutils import quoteattr  # nosemgrep: use-defused-xml — échapp
 
 import httpx
 
-from .. import calls, db, essai, messages, reservations, supervision, tenants, twilio_region
+from .. import calls, db, essai, messages, recettes_archive, reservations, supervision, tenants, twilio_region
 from . import appelant, budget, gardes, scenarios, secours, verdicts, voix
 from .tarifs import DUREE_MAX_SECONDES, borne
 
@@ -272,9 +272,15 @@ async def jouer(depense: float = 0.0, seulement: Optional[set[str]] = None) -> t
                                       + sum(n for _, n in rendues) * calls._COST_VOIX_PAR_CARACTERE, 6)
                 if not publie:
                     preuve += " ; prix Twilio pas encore publié : jambe appelante comptée au tarif"
-                ligne.update(etat=verdict, preuve=preuve, appel=appel)
+                ligne.update(etat=verdict, preuve=preuve, appel=appel,
+                             conversation=verdicts.conversation_complete(appel))
                 if verdict != verdicts.OK:
                     ligne["dit"] = verdicts.conversation(appel)
+                # L'audio est copié AVANT la purge qui suit : après, l'appel n'existe plus.
+                # Le répondeur passe aussi par ici ; son message vocal est chez Twilio, pas
+                # en pistes locales : sans piste, `garder_audio` rend None.
+                if appel:
+                    ligne["audio"] = await db.hors_boucle(recettes_archive.garder_audio, tenant.id, appel["id"])
                 # Chaque scénario repart d'un établissement vide : sinon le client suivant,
                 # qui appelle du même numéro, est reconnu (« au nom de Bernard, comme la
                 # dernière fois ? ») et son texte ne répond plus aux questions posées.

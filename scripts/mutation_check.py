@@ -1455,6 +1455,24 @@ GARDE_FOUS = [
         k="absent_de_la_production",
         panne="la production interrogerait Google Maps par un outil contraire à ses conditions, sur de vrais appels",
     ),
+    GardeFou(
+        nom="Recettes : les traces de la recette sont réservées au super-admin",
+        fichier="api/app/admin/routes_recettes.py",
+        avant="router = APIRouter(dependencies=[Depends(deps.require_superadmin)])",
+        apres="router = APIRouter()  # mutation",
+        tests=["test_recettes_archive.py"],
+        k="restaurateur_recoit_403",
+        panne="un restaurateur lirait les passages de recette et écouterait leurs enregistrements",
+    ),
+    GardeFou(
+        nom="Recettes : le nom d'une archive audio ne sort pas du dossier",
+        fichier="api/app/recettes_archive.py",
+        avant="    if not isinstance(nom, str) or not _NOM.fullmatch(nom):",
+        apres="    if not isinstance(nom, str):  # mutation",
+        tests=["test_recettes_archive.py"],
+        k="pas_hexadecimal",
+        panne="un nom d'archive lu en base pourrait désigner un fichier hors du dossier des archives",
+    ),
 ]
 
 

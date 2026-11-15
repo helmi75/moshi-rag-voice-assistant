@@ -70,6 +70,17 @@ def conversation(appel: Optional[dict], tours: int = 16) -> list[str]:
     return lignes
 
 
+def conversation_complete(appel: Optional[dict]) -> list[str]:
+    """Tous les tours, sans rien tronquer : c'est ce qu'on archive (ASSISTANTE-192) pour
+    relire un passage de la recette après la purge de l'établissement d'essai."""
+    lignes = []
+    for tour in _json((appel or {}).get("transcript"), []):
+        if isinstance(tour, dict) and tour.get("role") in ("user", "assistant"):
+            qui = "client" if tour["role"] == "user" else "elle"
+            lignes.append(f"{qui} : {' '.join(str(tour.get('content') or '').split())}")
+    return lignes
+
+
 # « C'est bien noté pour vendredi seize octobre » (vrai appel du 12/10/2026). Reconnu ici
 # seulement, où la table est déjà trouvée en base : pour l'alerte d'`annonce.py`, « c'est
 # noté » se dit aussi d'une allergie ou d'un message, et crierait au loup.

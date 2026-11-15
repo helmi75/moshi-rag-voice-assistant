@@ -161,6 +161,12 @@ def jours_demo() -> int:
     return _jours("RETENTION_DEMO_JOURS", 30)
 
 
+# Les traces de la recette d'appels automatique (app/recettes_archive.py) : conversation et
+# audio de l'établissement d'essai, un client simulé à voix de synthèse.
+def jours_recette() -> int:
+    return _jours("RETENTION_RECETTE_JOURS", 30)
+
+
 @dataclass(frozen=True)
 class Purge:
     """Ce que la purge a RÉELLEMENT fait. Des compteurs, pas un « ok » : une purge qui
@@ -225,6 +231,9 @@ def purger() -> Purge:
     from . import demos
 
     demos.purger(jours_demo())
+    from . import recettes_archive
+
+    recettes_archive.purger(jours_recette())
     resultat = Purge(
         transcripts=max(0, transcripts),
         numeros=max(0, numeros),

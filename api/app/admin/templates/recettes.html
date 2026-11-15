@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Recettes{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Recettes d'appels</h1>
+    <p class="lede">Ce que la recette automatique a joué : chaque scénario, ce qui s'est dit et, pour les vrais appels, l'audio. Le client est simulé et la voix de synthèse. Conservé 30 jours.</p>
+  </div>
+</div>
+
+<section class="card card-flush">
+  <div class="card-list">
+    {% for p in passages %}
+    <div class="card-row">
+      <span class="row-main">
+        <span class="row-title"><a href="/admin/recettes/{{ p.id }}">{{ p.created_at | jour_paris }} à {{ p.created_at | heure_paris }}</a>
+          <span class="row-when">{{ "vrais appels" if p.etage2 else "banc seulement" }}</span>
+        </span>
+        <span class="row-sub">Démarrage du conteneur {{ p.version or "inconnu" }} · coût {{ p.cout | nombre(4) }} $</span>
+      </span>
+      {% if p.echecs %}<span class="chip chip-bad">❌ {{ p.echecs }} en échec sur {{ p.scenarios }}</span>
+      {% elif p.scenarios %}<span class="chip chip-good">✅ {{ p.scenarios }} scénarios sans échec</span>
+      {% else %}<span class="chip chip-warn">⚠️ aucun scénario joué</span>{% endif %}
+    </div>
+    {% else %}
+    <p class="empty">Aucun passage archivé pour l'instant.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -22,6 +22,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 
 HOTE = os.getenv("DEPLOY_HOST", "root@187.77.172.87")
 CLE = os.path.expanduser(os.getenv("DEPLOY_KEY", "~/.ssh/moshi-vps-deploy"))
@@ -32,10 +33,12 @@ PERMISES = ("OPENAI_API_KEY", "OPENROUTER_", "MISTRAL_", "DEEPGRAM_", "LLM_", "G
             "VOXTRAL_", "USER_TURN_", "INTERRUPTION", "RECETTE_VOIX_", "RECETTE_PLAFOND_")
 
 
-def sur_le_serveur(commande: str, attente: int) -> str:
+def sur_le_serveur(commande: str, attente: int, entree: str = None) -> str:
+    """`entree` passe par l'entrée standard : un argument de commande est limité à 128 Ko sous
+    Linux, et le résultat de l'étage 1, avec ses conversations complètes, peut les dépasser."""
     fait = subprocess.run(["ssh", "-i", CLE, "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", HOTE,
                            f"cd {shlex.quote(CHEMIN)} && {commande}"],
-                          capture_output=True, text=True, timeout=attente)
+                          capture_output=True, text=True, timeout=attente, input=entree)
     return fait.stdout + fait.stderr
 
 
@@ -45,6 +48,22 @@ def resultat(sortie: str) -> dict:
         if ligne.startswith("RESULTAT "):
             return json.loads(ligne[len("RESULTAT "):])
     raise SystemExit("la commande n'a rien rendu :\n" + "\n".join(sortie.splitlines()[-15:]))
+
+
+def rapport_local(sortie: str, final: dict) -> str:
+    """Écrit la sortie complète, avec TOUTES les conversations, sous `local/recettes/` (dossier
+    ignoré par git) : l'écran n'en montre que les scénarios qui ne sont pas verts."""
+    racine = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dossier = os.path.join(racine, "local", "recettes")
+    os.makedirs(dossier, exist_ok=True)
+    chemin = os.path.join(dossier, time.strftime("recette-%Y-%m-%d-%H%M.txt"))
+    with open(chemin, "w", encoding="utf-8") as f:
+        f.write("\n".join(ligne for ligne in sortie.splitlines() if ligne.startswith("|")) + "\n")
+        for ligne in final["lignes"]:
+            f.write(f"\n{ligne.get('recette')} · {ligne.get('scenario')} ({ligne.get('moteur')}) "
+                    f"— {ligne.get('etat')} — {ligne.get('preuve')}\n")
+            f.write("\n".join(f"  {tour}" for tour in ligne.get("conversation") or []) + "\n")
+    return chemin
 
 
 def main() -> int:
@@ -75,8 +94,8 @@ def main() -> int:
     if choix.etage != "1" and not etat.get("active"):
         print("Étage 2 non joué : la recette automatique n'est pas activée sur le serveur "
               "(RECETTE_JETON et RECETTE_ETABLISSEMENT dans le .env).")
-    sortie = sur_le_serveur("docker compose exec -T api python -m app.recette etage2 --etage1 "
-                            + shlex.quote(json.dumps(avant, ensure_ascii=False)) + sans_appels + filtre, 3600)
+    sortie = sur_le_serveur("docker compose exec -T api python -m app.recette etage2 --etage1 -"
+                            + sans_appels + filtre, 3600, entree=json.dumps(avant, ensure_ascii=False))
     final = resultat(sortie)
     print("\n".join(ligne for ligne in sortie.splitlines() if ligne.startswith("|")))
     if final.get("refus_etage2") and not sans_appels:
@@ -91,6 +110,7 @@ def main() -> int:
     if final.get("purge"):
         print(f"Appels d'essai purgés : {json.dumps(final['purge'], ensure_ascii=False)}")
     print(f"Coût réel de ce passage : {final['cout']:.4f} $ ; ce mois : {final['du_mois']:.2f} $.")
+    print(f"Rapport complet : {rapport_local(sortie, final)}")
     echecs = [l for l in final["lignes"] if l.get("etat") == "echec"]
     return 1 if echecs else 0
 

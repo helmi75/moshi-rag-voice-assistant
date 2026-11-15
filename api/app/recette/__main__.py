@@ -12,6 +12,8 @@ import asyncio
 import json
 import sys
 
+from loguru import logger
+
 
 def _propre(lignes: list[dict]) -> list[dict]:
     return [{c: v for c, v in ligne.items() if c != "appel"} for ligne in lignes]
@@ -60,7 +62,7 @@ async def _etage1(seulement, moteurs) -> dict:
 
 
 async def _etage2(avant: dict, seulement, sans_appels: bool) -> dict:
-    from .. import essai, horloge
+    from .. import essai, horloge, recettes_archive
     from . import budget, etage2, gardes, verdicts
 
     lignes1 = avant.get("lignes") or []
@@ -82,6 +84,12 @@ async def _etage2(avant: dict, seulement, sans_appels: bool) -> dict:
         budget.noter({"le": horloge.maintenant().strftime("%Y-%m-%dT%H:%M"), "cout": total,
                       "demarrage": gardes.demarrage(), "etage2": bool(lignes2),
                       "scenarios": len(lignes), "echecs": sum(l.get("etat") == "echec" for l in lignes)})
+        # Les traces pour l'admin (ASSISTANTE-192) : après le carnet, et jamais au point de
+        # casser le passage ou de faire perdre ce qui vient d'être noté.
+        try:
+            recettes_archive.archiver(lignes, total, gardes.demarrage(), bool(lignes2))
+        except Exception as exc:
+            logger.warning(f"recette : passage non archivé : {type(exc).__name__} {exc}")
     cerveau = verdicts.cerveau([l["appel"] for l in lignes2 if l.get("appel")])
     return {"lignes": lignes, "refus_etage2": refus, "cout": total, "du_mois": budget.du_mois(),
             "cerveau": {"etage1": avant.get("cerveau"), "etage2": cerveau}, "purge": purge}
@@ -105,7 +113,7 @@ def main(arguments=None) -> int:
     analyse.add_argument("commande", choices=("etat", "etage1", "etage2", "preparer"))
     analyse.add_argument("--scenarios", default="", help="clés séparées par des virgules ; vide : tous")
     analyse.add_argument("--moteurs", default="", help="etage1 : gpt_live, classique, ou les deux (défaut)")
-    analyse.add_argument("--etage1", default="", help="le RESULTAT de l'étage 1, en JSON")
+    analyse.add_argument("--etage1", default="", help="le RESULTAT de l'étage 1, en JSON ; « - » le lit sur l'entrée standard")
     analyse.add_argument("--sans-appels", action="store_true", help="étage 2 : ne compose aucun numéro")
     analyse.add_argument("--oui", action="store_true", help="preparer : écrit dans la base")
     choix = analyse.parse_args(arguments)
@@ -123,7 +131,7 @@ def main(arguments=None) -> int:
         try:
             with budget.verrou():
                 budget.lire()                  # illisible : on refuse avant de dépenser
-                resultat = asyncio.run(_etage2(json.loads(choix.etage1 or "{}"), seulement, choix.sans_appels))
+                resultat = asyncio.run(_etage2(json.loads((sys.stdin.read() if choix.etage1 == "-" else choix.etage1) or "{}"), seulement, choix.sans_appels))
         except BlockingIOError:
             print("Un autre passage de recette est en cours : refus.")
             return 2
