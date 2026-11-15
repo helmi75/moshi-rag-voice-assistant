@@ -21,13 +21,35 @@ services:
     ports: !override
       # Boucle locale seulement, comme la production : Caddy passe par le réseau Docker.
       - "127.0.0.1:8001:8000"
+    environment:
+      # La fiche Google Maps de la démonstration (ASSISTANTE-189) : le service ci-dessous.
+      GOSOM_URL: http://gosom:8080
     networks:
       - production
+      - gosom
+
+  # gosom/google-maps-scraper (ASSISTANTE-189, MIT) : relève la fiche Google Maps d'un
+  # restaurant démarché pour la démonstration. Helmi l'a choisi le 15/11/2026 EN CONNAISSANCE
+  # de ce qu'il est contraire aux conditions de Google et fragile : il ne tourne donc qu'ici,
+  # jamais dans docker-compose.yml (test_preprod.py). Image épinglée par empreinte (v1.18.1) ;
+  # aucun port publié ; rien sur disque (tmpfs) ; un réseau à part que la production ne partage
+  # pas — seule l'API de préproduction le joint.
+  gosom:
+    image: gosom/google-maps-scraper@sha256:e205c02913c5a69c16fc2094b8e5b194a2f655166d2c1126d50548d216e6b1b2
+    command: ["-web", "-data-folder", "/gmapsdata"]
+    tmpfs:
+      - /gmapsdata
+    mem_limit: 1g
+    restart: unless-stopped
+    networks:
+      - gosom
 
 networks:
   production:
     external: true
     name: moshi-rag-voice-assistant_default
+  # Réseau propre à la préproduction : gosom n'est joignable que depuis api_preprod.
+  gosom: {}
 
 volumes:
   # helmane-preprod_api_data : jamais la base de la production.

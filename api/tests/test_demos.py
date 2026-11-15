@@ -155,8 +155,10 @@ class TestLireLeSite:
 
 
 class FauxModele:
-    def __init__(self, contenu: str, usage=None):
+    def __init__(self, contenu: str, usage=None, finish_reason="stop"):
         self.contenu = contenu
+        self.finish_reason = finish_reason
+        self.kwargs = {}
         self.usage = usage or SimpleNamespace(total_tokens=321, cost=0.0042)
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
@@ -165,7 +167,9 @@ class FauxModele:
         return self
 
     async def _create(self, **kwargs):
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self.contenu))],
+        self.kwargs = kwargs
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self.contenu),
+                                                        finish_reason=self.finish_reason)],
                                usage=self.usage)
 
 

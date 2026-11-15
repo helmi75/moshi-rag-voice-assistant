@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Démonstrations</h1>
-    <p class="lede">Avant un rendez-vous : donnez le nom, la ville et le site du restaurant. Helmane lit ce site (lui seul), en extrait les informations avec leur source, vous les relisez, puis un établissement d'essai est créé. Tout est effacé au bout de 30 jours.</p>
+    <p class="lede">Avant un rendez-vous : donnez le nom et la ville du restaurant. Helmane cherche sa fiche Google Maps, lit son site, en extrait les informations avec leur source, vous les relisez, puis un établissement d'essai est créé. Tout est effacé au bout de 30 jours.</p>
   </div>
 </div>
 {% if erreur %}<p role="alert">{{ erreur }}</p>{% endif %}
@@ -20,12 +20,14 @@
       <label>Ville
         <input name="ville" required maxlength="100" value="{{ valeurs.ville or '' }}">
       </label>
-      <label>Adresse du site web
-        <input name="site_url" required maxlength="500" inputmode="url" autocapitalize="none"
-               placeholder="https://www.exemple.fr" value="{{ valeurs.site_url or '' }}">
+      <label>Adresse du site web (facultatif)
+        <input name="site_url" maxlength="500" inputmode="url" autocapitalize="none"
+               placeholder="https://www.exemple.fr" value="{{ valeurs.site_url or '' }}"
+               aria-describedby="aide-site">
+        <small id="aide-site">Facultatif : Helmane cherche d'abord la fiche Google Maps. Le site saisi sert si la fiche n'en indique pas.</small>
       </label>
     </div>
-    <button type="submit">Lire le site</button>
+    <button type="submit">Préparer la démonstration</button>
   </form>
 </article>
 
@@ -37,7 +39,7 @@
         <span class="row-title"><a href="/admin/demos/{{ d.id }}">{{ d.nom }}</a>
           <span class="row-when">{{ d.ville }} · {{ d.created_at | jour_paris }}</span>
         </span>
-        <span class="row-sub" style="white-space: normal; overflow-wrap: anywhere">{{ d.site_url }}</span>
+        <span class="row-sub" style="white-space: normal; overflow-wrap: anywhere">{{ d.site_url or "Site non saisi" }}</span>
       </span>
       {% if d.etat == 'prete' %}<span class="chip chip-good">Prête</span>
       {% elif d.etat == 'effacee' %}<span class="chip">Effacée</span>

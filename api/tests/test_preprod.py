@@ -26,7 +26,7 @@ class TestLaPreproduction:
         # Sur le réseau partagé, un second `api` se partagerait le nom avec la production :
         # Caddy enverrait des appels réels en préproduction.
         services = _compose("docker-compose.preprod.yml")["services"]
-        assert list(services) == ["api_preprod"]
+        assert list(services) == ["api_preprod", "gosom"]
 
     def test_elle_a_sa_base_et_son_image(self):
         c = _compose("docker-compose.preprod.yml")
@@ -53,3 +53,36 @@ class TestLaPreproduction:
         assert "noindex" in bloc and "import securite" in bloc
         env = _compose("docker-compose.yml")["services"]["caddy"]["environment"]
         assert env["PREPROD_ADDRESS"] == "${PREPROD_ADDRESS:-:82}"
+
+
+class TestGosomResteEnPreproduction:
+    """ASSISTANTE-189 : le lecteur de fiches Google Maps est contraire aux conditions de Google
+    (Helmi l'a accepté le 15/11/2026 pour la préproduction SEULEMENT) : il ne doit jamais
+    entrer dans la production, ni être joignable d'ailleurs que de l'API de préproduction."""
+
+    def test_gosom_est_absent_de_la_production(self):
+        compose = (RACINE / "docker-compose.yml").read_text()
+        assert "gosom" not in _compose("docker-compose.yml")["services"]
+        assert "google-maps-scraper" not in compose
+        # seule la variable (vide) est déclarée, pour le câblage ; jamais d'adresse
+        assert 'GOSOM_URL: "${GOSOM_URL:-}"' in compose and "gosom:8080" not in compose
+
+    def test_gosom_ne_publie_aucun_port(self):
+        gosom = _compose("docker-compose.preprod.yml")["services"]["gosom"]
+        assert "ports" not in gosom
+
+    def test_son_image_est_epinglee_par_empreinte(self):
+        image = _compose("docker-compose.preprod.yml")["services"]["gosom"]["image"]
+        assert re.fullmatch(r"gosom/google-maps-scraper@sha256:[0-9a-f]{64}", image)
+
+    def test_il_n_ecrit_rien_sur_disque(self):
+        gosom = _compose("docker-compose.preprod.yml")["services"]["gosom"]
+        assert gosom["tmpfs"] == ["/gmapsdata"] and "volumes" not in gosom
+        assert gosom["command"] == ["-web", "-data-folder", "/gmapsdata"]
+
+    def test_il_a_son_reseau_que_la_production_ne_partage_pas(self):
+        c = _compose("docker-compose.preprod.yml")
+        assert c["services"]["gosom"]["networks"] == ["gosom"]
+        assert "gosom" in c["services"]["api_preprod"]["networks"]
+        assert c["networks"]["gosom"] in ({}, None)   # pas `external` : propre à la préproduction
+        assert c["services"]["api_preprod"]["environment"]["GOSOM_URL"] == "http://gosom:8080"
