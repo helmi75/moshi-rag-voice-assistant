@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -130,4 +131,33 @@ def purger(jours: int) -> int:
                 chemin_audio(nom, piste).unlink(missing_ok=True)
             except (OSError, ValueError) as exc:
                 logger.warning(f"recette : archive audio non effacée : {type(exc).__name__} {exc}")
+    _purger_orphelins(jours)
     return len(anciennes)
+
+
+_FICHIER = re.compile(r"^([0-9a-f]{32})-[a-z]+\.ulaw$")
+
+
+def _purger_orphelins(jours: int) -> int:
+    """Les copies qu'aucune ligne ne nomme, plus vieilles que la conservation : `garder_audio`
+    copie avant la purge de l'établissement d'essai, mais un passage qui casse avant
+    `archiver` (Ctrl-C, archive qui lève) les laisse sans ligne, donc hors de la purge
+    ci-dessus (relecture du 15/11/2026). Seuls nos noms sont touchés."""
+    if not dossier().is_dir():
+        return 0
+    with db.get_conn() as conn:
+        connus = {r["audio"] for r in conn.execute(
+            "SELECT audio FROM recette_scenarios WHERE audio IS NOT NULL")}
+    seuil = time.time() - float(jours) * 86400
+    effaces = 0
+    for fichier in dossier().iterdir():
+        trouve = _FICHIER.match(fichier.name)
+        if not trouve or trouve.group(1) in connus:
+            continue
+        try:
+            if fichier.stat().st_mtime < seuil:
+                fichier.unlink()
+                effaces += 1
+        except OSError as exc:
+            logger.warning(f"recette : archive orpheline non effacée : {type(exc).__name__} {exc}")
+    return effaces

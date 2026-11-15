@@ -16,7 +16,7 @@
         <span class="row-title"><a href="/admin/recettes/{{ p.id }}">{{ p.created_at | jour_paris }} à {{ p.created_at | heure_paris }}</a>
           <span class="row-when">{{ "vrais appels" if p.etage2 else "banc seulement" }}</span>
         </span>
-        <span class="row-sub">Version {{ p.version or "inconnue" }} · coût {{ p.cout | nombre(4) }} $</span>
+        <span class="row-sub">Démarrage du conteneur {{ p.version or "inconnu" }} · coût {{ p.cout | nombre(4) }} $</span>
       </span>
       {% if p.echecs %}<span class="chip chip-bad">❌ {{ p.echecs }} en échec sur {{ p.scenarios }}</span>
       {% elif p.scenarios %}<span class="chip chip-good">✅ {{ p.scenarios }} scénarios sans échec</span>

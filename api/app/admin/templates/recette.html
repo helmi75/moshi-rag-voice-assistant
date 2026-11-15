@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Recette du {{ recette.created_at | jour_paris }} à {{ recette.created_at | heure_paris }}</h1>
-    <p class="lede">Version {{ recette.version or "inconnue" }} · coût {{ recette.cout | nombre(4) }} $ · {{ recette.scenarios }} scénarios, {{ recette.echecs }} en échec.
+    <p class="lede">Démarrage du conteneur {{ recette.version or "inconnu" }} · coût {{ recette.cout | nombre(4) }} $ · {{ recette.scenarios }} scénarios, {{ recette.echecs }} en échec.
       <a href="/admin/recettes">Tous les passages</a></p>
   </div>
 </div>

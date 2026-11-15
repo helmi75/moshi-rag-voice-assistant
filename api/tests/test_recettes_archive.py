@@ -80,6 +80,25 @@ class TestL_archive:
             assert conn.execute("SELECT COUNT(*) FROM recette_scenarios WHERE recette_id = ?",
                                 (vieux,)).fetchone()[0] == 0
 
+    def test_la_purge_ramasse_l_audio_orphelin_ancien_et_garde_le_reste(self, archives):
+        # Relecture : une copie faite par garder_audio reste sans ligne en base si le passage
+        # casse avant `archiver` (Ctrl-C, archive qui lève) ; la purge par la base l'oublierait.
+        orphelin = recettes_archive.garder_audio(*self._appel(archives, call_id=6))
+        recent = recettes_archive.garder_audio(*self._appel(archives, call_id=7))
+        garde = recettes_archive.garder_audio(*self._appel(archives, call_id=8))
+        recettes_archive.archiver(_lignes(audio=garde), 0.1, "v", True)
+        ancien = (datetime.now(timezone.utc) - timedelta(days=31)).timestamp()
+        for nom in (orphelin, garde):
+            for piste in ("appelant", "assistante"):
+                os.utime(recettes_archive.chemin_audio(nom, piste), (ancien, ancien))
+        (recettes_archive.dossier() / "autre-chose.txt").write_text("x")
+        os.utime(recettes_archive.dossier() / "autre-chose.txt", (ancien, ancien))
+
+        recettes_archive.purger(30)
+        existe = lambda nom: recettes_archive.chemin_audio(nom, "appelant").exists()  # noqa: E731
+        assert not existe(orphelin) and existe(recent) and existe(garde)
+        assert (recettes_archive.dossier() / "autre-chose.txt").exists()   # rien d'autre n'est touché
+
     def test_la_purge_des_donnees_personnelles_purge_aussi_les_recettes(self, archives, monkeypatch):
         vu = []
         monkeypatch.setattr(recettes_archive, "purger", lambda jours: vu.append(jours) or 0)
