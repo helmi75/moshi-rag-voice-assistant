@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Recette du {{ recette.created_at | jour_paris }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Recette du {{ recette.created_at | jour_paris }} à {{ recette.created_at | heure_paris }}</h1>
+    <p class="lede">Version {{ recette.version or "inconnue" }} · coût {{ recette.cout | nombre(4) }} $ · {{ recette.scenarios }} scénarios, {{ recette.echecs }} en échec.
+      <a href="/admin/recettes">Tous les passages</a></p>
+  </div>
+</div>
+
+<section class="card card-flush">
+  <table>
+    <thead><tr><th>Scénario</th><th>État</th><th>Preuve</th><th>Coût</th></tr></thead>
+    <tbody>
+    {% for s in recette.lignes %}
+    <tr>
+      <td>{{ s.recette }} · {{ s.titre }} <small>({{ "vrai appel" if s.etage == 2 else "banc" }}, {{ s.moteur }})</small></td>
+      <td>{% if s.etat == 'ok' %}✅ réussi{% elif s.etat == 'echec' %}❌ échec{% elif s.etat == 'non_joue' %}⚪ non joué{% else %}⚠️ à regarder{% endif %}</td>
+      <td>{{ s.preuve }}</td>
+      <td>{{ s.cout | nombre(4) }} $</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<h2 class="form-section" style="margin-top: 1.5rem">Conversations</h2>
+{% for s in recette.lignes %}
+<details class="card">
+  <summary>{{ s.recette }} · {{ s.titre }} — {% if s.etat == 'ok' %}✅ réussi{% elif s.etat == 'echec' %}❌ échec{% elif s.etat == 'non_joue' %}⚪ non joué{% else %}⚠️ à regarder{% endif %}</summary>
+  {% if s.conversation %}
+  <ul>
+    {% for tour in s.conversation %}<li>{{ tour }}</li>{% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">Aucune conversation enregistrée pour ce scénario.</p>
+  {% endif %}
+  {% if s.audio %}
+  <audio controls preload="none" style="width: 100%" src="/admin/recettes/audio/{{ s.id }}.wav"></audio>
+  {% endif %}
+</details>
+{% endfor %}
+{% endblock %}

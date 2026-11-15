@@ -143,7 +143,8 @@ async def jouer(depense: float = 0.0, moteurs=MOTEURS, seulement: Optional[set[s
                         preuve += f" ; répliques dites sans l'avoir entendue : {forcees}"
                     ligne["cout"] = round(float((appel or {}).get("estimated_cost") or 0)
                                           + sum(n for _, n in rendues) * calls._COST_VOIX_PAR_CARACTERE, 6)
-                    ligne.update(etat=etat, preuve=preuve, appel=appel)
+                    ligne.update(etat=etat, preuve=preuve, appel=appel,
+                                 conversation=verdicts.conversation_complete(appel))
                     if etat != verdicts.OK:
                         ligne["dit"] = verdicts.conversation(appel)
                 except Exception as exc:      # un scénario qui casse ne fait pas taire les autres

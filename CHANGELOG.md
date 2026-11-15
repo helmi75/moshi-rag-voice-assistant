@@ -7,6 +7,19 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Recette automatique : des traces lisibles (15/11/2026, ASSISTANTE-192)
+
+### Ajouté
+- **La page Admin > Recettes** (super-admin seulement) garde chaque passage de la recette d'appels
+  automatique : le tableau des scénarios, la conversation complète de chacun, vert ou non, et
+  l'audio des vrais appels de l'étage 2. L'établissement d'essai est purgé après chaque scénario
+  (sans quoi le client suivant serait reconnu) : jusqu'ici, il ne restait rien à relire.
+- Migration v22 (`recettes`, `recette_scenarios`), module `recettes_archive.py`. Conservé 30 jours
+  (`RETENTION_RECETTE_JOURS`), puis effacé avec les fichiers audio (`RECETTE_ARCHIVE_DIR`).
+- `scripts/recette_appels.py` écrit aussi le rapport complet, conversations comprises, dans
+  `local/recettes/`, et passe le résultat de l'étage 1 par l'entrée standard (`--etage1 -`) : avec
+  les conversations complètes, il dépasserait la limite d'un argument de commande (128 Ko).
+
 ## Non publiée — Voix : les voix de Voxtral 3 écartées (15/11/2026, ASSISTANTE-191)
 
 ### Corrigé

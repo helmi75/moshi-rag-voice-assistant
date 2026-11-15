@@ -187,6 +187,9 @@ class TestLAdminNeBloquePasLaBoucle:
             resa = reservations.create_reservation(t, "Hors boucle", "2030-03-13", "20:00", 2)
             monkeypatch.setenv("DEMOS_ACTIVES", "1")
             demo = demos.creer("Hors boucle", "Lyon", "site.example")
+            from app import recettes_archive
+
+            recette = recettes_archive.archiver([{"etat": "ok", "conversation": ["client : x"]}], 0.0, "v", False)
             monkeypatch.setattr(db, "get_conn", get_conn)
             for page in ["/admin/", "/admin/health", "/admin/calls", "/admin/calls/live",
                          "/admin/calls/live/_liste", "/admin/reservations",
@@ -197,7 +200,8 @@ class TestLAdminNeBloquePasLaBoucle:
                          f"/admin/tenants/{t}/users", f"/admin/tenants/{t}/export.zip",
                          f"/admin/tenants/{t}/reservations/{resa['id']}",
                          f"/admin/tenants/{t}/greeting/status", "/admin/contacts",
-                         "/admin/demos", f"/admin/demos/{demo}", f"/admin/demos/{demo}/suivi"]:
+                         "/admin/demos", f"/admin/demos/{demo}", f"/admin/demos/{demo}/suivi",
+                         "/admin/recettes", f"/admin/recettes/{recette}"]:
                 assert client.get(page).status_code == 200, page
             jeton = client.get("/admin/").text.split('"X-CSRF-Token": "')[1].split('"')[0]
             entete = {"X-CSRF-Token": jeton}
@@ -212,4 +216,6 @@ class TestLAdminNeBloquePasLaBoucle:
             monkeypatch.undo()
             with db.get_conn() as conn:
                 conn.execute("DELETE FROM demonstrations")
+                conn.execute("DELETE FROM recette_scenarios")
+                conn.execute("DELETE FROM recettes")
             tenants.delete_tenant(essai.id)
