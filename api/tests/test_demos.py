@@ -508,3 +508,63 @@ class TestLesPages:
         assert client.get("/admin/demos/99999").status_code == 404
         assert client.post("/admin/demos/99999/effacer", headers=entete).status_code == 404
         assert client.post("/admin/demos/0/effacer", headers=entete).status_code == 422
+
+
+class TestLaPageSeLit:
+    """ASSISTANTE-190 : à la recette du 15/11 sur Cuba Compagnie Café, le coût annoncé
+    (0,0039 $) s'affichait « 0,00 $ » et les horaires structurés en JSON brut."""
+
+    SEMAINE = '{"semaine": {"mardi": [["12:00", "14:30"]], "samedi": [["19:00", "22:30"]]}}'
+
+    def _demo_avec_horaires(self, cout=0.0038944):
+        identifiant = demos.creer("Chez Marcel", "Lyon", "")
+        contenu = demos._contenu(demos.obtenir(identifiant))
+        contenu["lecture"] = "finie"
+        contenu["champs"]["horaires"] = {"valeur": self.SEMAINE,
+                                         "citation": '{"mardi": ["12:00–14:30"], "samedi": ["19:00–22:30"]}',
+                                         "trouve": True, "source": "Google Maps"}
+        demos._ecrire(identifiant, contenu, etat="a_relire", jetons=2590, cout_usd=cout)
+        return identifiant
+
+    def test_un_cout_de_quelques_dixiemes_de_centime_ne_s_affiche_pas_zero(self, client, actives):
+        _connecter(client)
+        page = client.get(f"/admin/demos/{self._demo_avec_horaires()}").text
+        assert "0,0039 $" in page and "0,00 $" not in page
+
+    def test_un_cout_infime_n_est_pas_arrondi_a_zero(self, client, actives):
+        _connecter(client)
+        page = client.get(f"/admin/demos/{self._demo_avec_horaires(cout=0.00002)}").text
+        assert "moins de 0,0001 $" in page
+
+    def test_les_horaires_structures_s_affichent_en_toutes_lettres(self, client, actives):
+        _connecter(client)
+        page = client.get(f"/admin/demos/{self._demo_avec_horaires()}").text
+        assert "Mardi" in page and "semaine" not in page.split("Horaires structurés")[1].split("</p>")[0]
+        assert "&#34;semaine&#34;" not in page and '{"semaine"' not in page
+        # la source venue de Google Maps est du JSON aussi : elle s'écrit jour par jour
+        assert "mardi : 12:00–14:30 ; samedi : 19:00–22:30" in page and "&#34;mardi&#34;" not in page
+
+    def test_la_case_cachee_vide_precede_la_case_cochee(self, client, actives):
+        # l'ordre fait tout : inversé, la valeur vide l'emporterait et retirerait les horaires
+        _connecter(client)
+        page = client.get(f"/admin/demos/{self._demo_avec_horaires()}").text
+        cachee = page.index('<input type="hidden" name="valeur_horaires" value="">')
+        assert cachee < page.index('name="valeur_horaires" value="garder" checked')
+
+    def test_une_citation_hostile_ne_fait_pas_tomber_la_page(self):
+        demo = {"champs": {"horaires": {"citation": "[" * 5000}}}
+        assert demos.citation_horaires(demo) == "[" * 5000
+
+    def test_une_citation_du_site_reste_telle_quelle(self):
+        demo = {"champs": {"horaires": {"citation": "Ouvert du mardi au samedi, 12h-14h30"}}}
+        assert demos.citation_horaires(demo) == "Ouvert du mardi au samedi, 12h-14h30"
+
+    def test_decocher_la_case_retire_les_horaires_et_la_cocher_les_garde(self, client, actives):
+        entete = _connecter(client)
+        identifiant = self._demo_avec_horaires()
+        # le formulaire envoie la case cachée vide, puis la case cochée : la dernière valeur l'emporte
+        r = client.post(f"/admin/demos/{identifiant}/relecture", headers=entete, follow_redirects=False,
+                        data={"valeur_horaires": ["", "garder"]})
+        assert r.status_code == 303 and demos.obtenir(identifiant)["champs"]["horaires"]["trouve"]
+        client.post(f"/admin/demos/{identifiant}/relecture", headers=entete, data={"valeur_horaires": ""})
+        assert demos.obtenir(identifiant)["champs"]["horaires"]["trouve"] is False
