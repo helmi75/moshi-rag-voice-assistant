@@ -483,7 +483,8 @@ def _vers_dict(row) -> dict:
     return {"id": row["id"], "created_at": row["created_at"], "nom": row["nom"],
             "ville": row["ville"], "site_url": row["site_url"], "etat": row["etat"],
             "tenant_id": row["tenant_id"], "validee_at": row["validee_at"],
-            "cout_usd": row["cout_usd"], "jetons": row["jetons"], **base}
+            "cout_usd": row["cout_usd"], "jetons": row["jetons"],
+            "champs_brut": row["champs"], **base}
 
 
 def _ecrire(demo_id: int, contenu: dict, **colonnes) -> None:
@@ -658,11 +659,13 @@ def choisir(demo_id: int, indice: int) -> None:
     if not 0 <= indice < len(demo["choix"]):
         raise Refus("Cette fiche ne fait pas partie de celles proposées.")
     with db.get_conn() as conn:
-        avant = conn.execute("SELECT champs FROM demonstrations WHERE id = ?", (demo_id,)).fetchone()["champs"]
+        # Comparé à l'état LU plus haut (celui sur lequel les contrôles ont porté), pas à une
+        # seconde lecture : deux POST quasi simultanés, un seul passe.
+        avant = demo["champs_brut"]
         demo.update({"lecture": "en_cours", "choix": [demo["choix"][indice]], "message": "",
                      "debut": horloge.utc_iso()})
         pris = conn.execute(
-            "UPDATE demonstrations SET champs = ? WHERE id = ? AND etat = 'a_relire' AND champs = ?",
+            "UPDATE demonstrations SET champs = ? WHERE id = ? AND etat = 'a_relire' AND champs IS ?",
             (json.dumps(_contenu(demo), ensure_ascii=False), demo_id, avant)).rowcount
     if not pris:
         raise Refus("Le choix a déjà été pris.")
@@ -710,6 +713,8 @@ def enregistrer_relecture(demo_id: int, valeurs: dict) -> dict:
         raise DemoIntrouvable(demo_id)
     if demo["etat"] != "a_relire":
         raise Refus("Cette démonstration n'est plus à relire.")
+    if demo["lecture"] == "choix":
+        raise Refus("Choisissez d'abord la fiche Google Maps : il n'y a encore rien à relire.")
     for nom in [n for n, _ in CHAMPS]:
         if nom in valeurs:
             valeur = " ".join(str(valeurs[nom] or "").split())[:1000]

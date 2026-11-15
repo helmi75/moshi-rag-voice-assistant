@@ -1,6 +1,7 @@
 """Un faux service gosom pour les tests (ASSISTANTE-189) : aucun réseau, un transport httpx
 simulé qui rejoue le CSV relevé sur un vrai service le 15/11/2026 (données de personnes
 remplacées par des chaînes fictives, que les tests cherchent partout)."""
+import json
 import pathlib
 from types import SimpleNamespace
 
@@ -14,17 +15,23 @@ INTERDITS = ("AVIS-FICTIF-NE-DOIT-JAMAIS-ETRE-GARDE", "PROPRIETAIRE-FICTIF",
 
 
 def faux_gosom(csv_texte: str | None = None, *, etats=("ok",), telechargement=200,
-               reponse_creation=None):
+               reponse_creation=None, jobs=()):
     """(transport, appels) : `appels` liste les « METHODE chemin » reçus, dans l'ordre.
-    `etats` : les états rendus successivement par le relevé (le dernier se répète)."""
+    `etats` : les états rendus successivement par le relevé (le dernier se répète) ;
+    `jobs` : les recherches déjà présentes chez gosom (`{"ID", "Date"}`), rendues par la liste.
+    `creations` : les corps JSON reçus à la création."""
     appels: list[str] = []
+    creations: list[dict] = []
     suite = list(etats)
     contenu = CSV.read_text(encoding="utf-8") if csv_texte is None else csv_texte
 
     def handler(requete: httpx.Request) -> httpx.Response:
         chemin = requete.url.path
         appels.append(f"{requete.method} {chemin}")
+        if requete.method == "GET" and chemin == "/api/v1/jobs":
+            return httpx.Response(200, json=list(jobs))
         if requete.method == "POST" and chemin == "/api/v1/jobs":
+            creations.append(json.loads(requete.content))
             return reponse_creation or httpx.Response(200, json={"id": "job-1"})
         if requete.method == "DELETE":
             return httpx.Response(200, json={})
@@ -33,4 +40,4 @@ def faux_gosom(csv_texte: str | None = None, *, etats=("ok",), telechargement=20
         etat = suite.pop(0) if len(suite) > 1 else suite[0]
         return httpx.Response(200, json={"ID": "job-1", "Status": etat})
 
-    return httpx.MockTransport(handler), SimpleNamespace(liste=appels)
+    return httpx.MockTransport(handler), SimpleNamespace(liste=appels, creations=creations)

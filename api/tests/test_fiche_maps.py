@@ -38,7 +38,7 @@ class TestLaFiche:
         assert fiche["telephone"] == "06 68 19 61 61"
         assert fiche["site"] == "https://www.cubacompagnie.com/"
         assert fiche["categorie"] == "Restaurant cubain"
-        assert appels.liste[0] == "POST /api/v1/jobs"
+        assert "POST /api/v1/jobs" in appels.liste
 
     def test_les_horaires_apres_minuit_sont_acceptes_par_disponibilite(self, gosom):
         gosom()
@@ -100,6 +100,11 @@ class TestLesHoraires:
         semaine = {j: ["12:00–14:30"] for j in disponibilite.JOURS} | {"mardi": ["Ouvert 24h/24"]}
         assert fiche_maps.horaires_de(json.dumps(semaine)) == ""
 
+    @pytest.mark.parametrize("plage", ["00:00–24:00", "00:00–00:00", "0h00–24h00"])
+    def test_une_journee_entiere_vaut_ouvert_24h_sur_24_et_laisse_vide(self, plage):
+        semaine = {j: ["12:00–14:30"] for j in disponibilite.JOURS} | {"samedi": [plage]}
+        assert fiche_maps.horaires_de(json.dumps(semaine)) == ""
+
     def test_une_fin_apres_6_h_avant_le_debut_est_une_faute_pas_un_service_de_nuit(self):
         semaine = {j: ["14:00–12:00"] for j in disponibilite.JOURS}
         assert fiche_maps.horaires_de(json.dumps(semaine)) == ""
@@ -156,3 +161,45 @@ class TestLeService:
         entete, ligne = texte.split("\n", 1)
         gosom(csv_texte=entete + "\n" + ligne.rstrip("\n") + "\n" + ligne.rstrip("\n") + "\n")
         assert len(chercher()) == 2
+
+
+def _il_y_a(secondes):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(seconds=secondes)).isoformat().replace("+00:00", "Z")
+
+
+class TestLesRecherchesOrphelines:
+    def test_gosom_recoit_un_delai_inferieur_a_notre_attente_totale(self, gosom):
+        appels = gosom()
+        chercher()
+        assert 0 < appels.creations[0]["max_time"] <= fiche_maps.DELAI_TOTAL_SECONDES
+
+    def test_les_recherches_anciennes_sont_effacees_pas_la_recente(self, gosom):
+        appels = gosom(jobs=[
+            {"ID": "vieille", "Date": _il_y_a(fiche_maps.DELAI_TOTAL_SECONDES + 60)},
+            {"ID": "tres-vieille", "Date": _il_y_a(86400)},
+            {"ID": "recente", "Date": _il_y_a(10)},
+            {"ID": "sans-date", "Date": "n'importe quoi"}])
+        chercher()
+        assert "DELETE /api/v1/jobs/vieille" in appels.liste
+        assert "DELETE /api/v1/jobs/tres-vieille" in appels.liste
+        assert "DELETE /api/v1/jobs/recente" not in appels.liste
+        assert "DELETE /api/v1/jobs/sans-date" not in appels.liste
+        assert appels.liste.index("DELETE /api/v1/jobs/vieille") < appels.liste.index("POST /api/v1/jobs")
+
+    def test_le_menage_ne_lit_jamais_un_csv(self, gosom):
+        appels = gosom(jobs=[{"ID": "vieille", "Date": _il_y_a(9999)}])
+        chercher()
+        assert appels.liste.count("GET /api/v1/jobs/vieille/download") == 0
+
+    def test_un_menage_qui_echoue_ne_fait_pas_echouer_la_recherche(self, gosom, monkeypatch):
+        import httpx
+        transport, appels = faux_gosom()
+        base = transport.handler
+
+        def handler(requete):
+            if requete.method == "GET" and requete.url.path == "/api/v1/jobs":
+                raise httpx.ConnectError("liste refusée")
+            return base(requete)
+        monkeypatch.setattr(fiche_maps, "_TRANSPORT", httpx.MockTransport(handler))
+        assert len(chercher()) == 1

@@ -161,6 +161,46 @@ class TestAvecLaFicheGoogleMaps:
         assert d["champs"]["adresse"]["valeur"] == "1 rue de la Roquette, 75011 Paris"
         assert "n'indique pas de site" in d["message"]   # la fiche choisie n'a pas de site
 
+    def test_deux_choix_partis_du_meme_etat_un_seul_passe(self, maps, monkeypatch, reseau):  # noqa: F811
+        """L'écriture est conditionnée à l'état LU par les contrôles, pas à une seconde lecture."""
+        import copy
+        maps(csv_texte=_deux_fiches())
+        modele(monkeypatch, {})
+        identifiant = demos.creer("Cuba Compagnie", "Paris")
+        asyncio.run(demos.preparer(identifiant))
+        lu = demos.obtenir(identifiant)
+        monkeypatch.setattr(demos, "obtenir", lambda _id: copy.deepcopy(lu))   # les deux POST ont lu pareil
+        demos.choisir(identifiant, 0)
+        with pytest.raises(demos.Refus, match="déjà été pris"):
+            demos.choisir(identifiant, 1)
+
+    def test_la_relecture_est_refusee_tant_que_la_fiche_n_est_pas_choisie(self, client, maps, monkeypatch, reseau):  # noqa: F811
+        maps(csv_texte=_deux_fiches())
+        modele(monkeypatch, {})
+        entete = _connecter(client)
+        identifiant = demos.creer("Cuba Compagnie", "Paris")
+        asyncio.run(demos.preparer(identifiant))
+        assert demos.obtenir(identifiant)["lecture"] == "choix"
+        with pytest.raises(demos.Refus):
+            demos.enregistrer_relecture(identifiant, {"adresse": "forgée"})
+        r = client.post(f"/admin/demos/{identifiant}/relecture", headers=entete,
+                        data={"valeur_adresse": "forgée"})
+        assert r.status_code == 409
+        d = demos.obtenir(identifiant)
+        assert d["lecture"] == "choix" and not d["relu"] and d["champs"]["adresse"]["valeur"] != "forgée"
+
+    def test_un_site_de_fiche_vers_les_metadonnees_du_nuage_n_est_jamais_lu(self, maps, monkeypatch, reseau):  # noqa: F811
+        entete, ligne = CSV.read_text(encoding="utf-8").split("\n", 1)
+        ligne = ligne.replace("https://www.cubacompagnie.com/", "http://169.254.169.254/")
+        assert "169.254.169.254" in ligne
+        maps(csv_texte=entete + "\n" + ligne)
+        modele(monkeypatch, {})
+        identifiant = demos.creer("Cuba Compagnie", "Paris")
+        asyncio.run(demos.preparer(identifiant))
+        d = demos.obtenir(identifiant)
+        assert d["message"] and "adresse" in d["message"].lower()
+        assert reseau.demandees == [] and d["champs"]["adresse"]["source"] == "Google Maps"
+
     def test_choisir_sans_choix_en_attente_est_refuse(self, actives):  # noqa: F811
         identifiant = demos.creer("A", "B", "site.example")
         with pytest.raises(demos.Refus):

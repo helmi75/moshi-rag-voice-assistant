@@ -21,6 +21,7 @@ import io
 import json
 import os
 import re
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -105,6 +106,8 @@ def horaires_de(brut: str) -> str:
             debut, fin = _hhmm(m[1], m[2]), _hhmm(m[3], m[4])
             if debut is None or fin is None:
                 return ""
+            if debut == fin == "00:00":
+                return ""   # « 00:00–24:00 » : ouvert toute la journée, comme « Ouvert 24h/24 »
             if fin < debut and disponibilite._heure(fin) > _FIN_DE_NUIT_MAX:
                 return ""
             plages.append([debut, fin])
@@ -195,6 +198,36 @@ async def _recherche(client: httpx.AsyncClient, nom: str, ville: str, suivi: dic
         await asyncio.sleep(PAS_SECONDES)
 
 
+def _age_secondes(date: str) -> Optional[float]:
+    """L'âge d'une recherche d'après sa date de création (RFC 3339, parfois à la nanoseconde)."""
+    try:
+        d = datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", str(date)).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - d).total_seconds()
+
+
+async def _menage(client: httpx.AsyncClient) -> None:
+    """Efface les recherches orphelines : gosom n'arrête pas une recherche en cours sur DELETE,
+    et une réponse de création perdue, ou une recherche finie après notre abandon, laisse un
+    restaurant démarché dans gosom. Est orpheline toute recherche plus vieille que notre délai
+    total (aucune des nôtres ne peut encore être attendue). Ne lit jamais un CSV et ne fait
+    jamais échouer la recherche : les erreurs sont avalées, le journal ne dit rien du contenu."""
+    try:
+        reponse = await asyncio.wait_for(client.get("/api/v1/jobs"), DELAI_REQUETE_SECONDES)
+        recherches = reponse.json() if reponse.status_code == 200 else []
+        for r in recherches if isinstance(recherches, list) else []:
+            if not isinstance(r, dict) or not isinstance(r.get("ID"), str):
+                continue
+            age = _age_secondes(r.get("Date"))
+            if age is not None and age > DELAI_TOTAL_SECONDES:
+                await _effacer(client, r["ID"])
+    except Exception as exc:   # noqa: BLE001 — le ménage ne doit jamais faire échouer la recherche
+        logger.warning(f"[fiche_maps] ménage impossible ({type(exc).__name__})")
+
+
 async def chercher(nom: str, ville: str) -> list[dict]:
     """Les fiches Google Maps du restaurant (au plus `FICHES_MAX`), ou `MapsIndisponible`.
     Liste vide : la recherche a abouti sans rien trouver. Inactif (`GOSOM_URL` vide) : vide."""
@@ -204,6 +237,7 @@ async def chercher(nom: str, ville: str) -> list[dict]:
     try:
         async with httpx.AsyncClient(base_url=adresse_du_service(), timeout=DELAI_REQUETE_SECONDES,
                                      transport=_TRANSPORT) as client:
+            await _menage(client)
             try:
                 contenu = await asyncio.wait_for(_recherche(client, nom, ville, suivi),
                                                  DELAI_TOTAL_SECONDES)
