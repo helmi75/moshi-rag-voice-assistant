@@ -122,8 +122,9 @@ class TestCatalogueVivant:
                     "languages": ["fr_fr"], "gender": "female", "kind": "ivc"}
         nouvelle = {"id": "2" * 36, "slug": "voice_3141", "name": "Camille",
                     "languages": ["fr"], "gender": "female", "kind": "pvc"}
+        inconnue = nouvelle | {"slug": "voice_9999", "kind": "PVC"}
         self._mistral(monkeypatch, lambda r: httpx.Response(
-            200, json={"items": [ancienne, nouvelle], "total_pages": 1}))
+            200, json={"items": [ancienne, nouvelle, inconnue], "total_pages": 1}))
         assert asyncio.run(voices.rafraichir_catalogue()) is True
         assert [v.id for v in voices.catalogue()] == ["voxtral/fr_marie_neutral"]
         assert voices.get("voxtral/voice_3141") is None

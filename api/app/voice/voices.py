@@ -134,10 +134,11 @@ _ANCIENS = {
 
 def _voix_mistral(brute: dict) -> Optional[Voice]:
     """Une voix telle que l'API de Mistral la décrit, en voix du catalogue."""
-    if brute.get("kind") == "pvc":
-        # Les voix de Voxtral 3 (20/10/2026) : notre modèle (voxtral-mini-tts-2603) les
-        # refuse, HTTP 400 « voice is not supported for speech v1 » (relevé le 15/11/2026).
-        # Ni `compatible_tts_models` (vide) ni le slug ne les distinguent mieux que `kind`.
+    if brute.get("kind") not in (None, "ivc"):
+        # Les voix de Voxtral 3 (20/10/2026, kind « pvc ») : notre modèle (voxtral-mini-tts-
+        # 2603) les refuse, HTTP 400 « voice is not supported for speech v1 » (relevé le
+        # 15/11/2026 : 30 voix « ivc » qui parlent, 36 « pvc » refusées). Liste fermée : un
+        # genre inconnu reste dehors. L'instantané du 28/09 n'a pas de `kind` (None).
         return None
     try:
         locuteur, _, ton = str(brute["name"]).partition(" - ")
