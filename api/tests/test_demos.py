@@ -544,6 +544,17 @@ class TestLaPageSeLit:
         # la source venue de Google Maps est du JSON aussi : elle s'écrit jour par jour
         assert "mardi : 12:00–14:30 ; samedi : 19:00–22:30" in page and "&#34;mardi&#34;" not in page
 
+    def test_la_case_cachee_vide_precede_la_case_cochee(self, client, actives):
+        # l'ordre fait tout : inversé, la valeur vide l'emporterait et retirerait les horaires
+        _connecter(client)
+        page = client.get(f"/admin/demos/{self._demo_avec_horaires()}").text
+        cachee = page.index('<input type="hidden" name="valeur_horaires" value="">')
+        assert cachee < page.index('name="valeur_horaires" value="garder" checked')
+
+    def test_une_citation_hostile_ne_fait_pas_tomber_la_page(self):
+        demo = {"champs": {"horaires": {"citation": "[" * 5000}}}
+        assert demos.citation_horaires(demo) == "[" * 5000
+
     def test_une_citation_du_site_reste_telle_quelle(self):
         demo = {"champs": {"horaires": {"citation": "Ouvert du mardi au samedi, 12h-14h30"}}}
         assert demos.citation_horaires(demo) == "Ouvert du mardi au samedi, 12h-14h30"

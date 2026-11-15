@@ -745,7 +745,7 @@ def citation_horaires(demo: dict) -> str:
     citation = str(demo["champs"][HORAIRES]["citation"] or "")
     try:
         brut = json.loads(citation)
-    except ValueError:
+    except (ValueError, RecursionError):   # mille crochets imbriqués : RecursionError, pas un 500
         return citation
     if not isinstance(brut, dict):
         return citation
