@@ -355,12 +355,17 @@ Depuis, trois choses, dont aucune ne repose sur une consigne :
   maintenant ; à la seconde fois, celle de dire que ça n'a pas pu se faire.
 - Le journal garde `delegations` : pour chaque travail confié, les outils appelés et le
   texte rendu.
+- `Appel._reprendre_une_annonce_sans_trace` (ASSISTANTE-193, recette du 16/11/2026) : la
+  voix qui annonce D'ELLE-MÊME un enregistrement, sans rien avoir confié, est reprise dès que
+  sa phrase est finie, client encore en ligne. Elle reçoit « Pardon, je l'enregistre
+  maintenant », puis confie le travail ; à la seconde fois, elle dit que ça n'a pas pu se
+  faire. Rien n'est repris pendant un travail confié (son résultat fait foi), et deux
+  reprises au plus par appel. Le journal les garde dans `reprises`.
 
-Ce qui reste ouvert : la voix qui annonce d'elle-même n'est constatée qu'après l'appel ;
-`_dementi` ne s'applique pas quand le cerveau est chez OpenAI (`GPT_LIVE_MODELE`), où seul
+Ce qui reste ouvert : `_dementi` ne s'applique pas quand le cerveau est chez OpenAI (`GPT_LIVE_MODELE`), où seul
 le constat de clôture joue ; une annonce dans une autre langue que le français n'est pas
 reconnue ; et personne n'a encore vu, sur un vrai appel, la voix reconfier le travail après
-un démenti.
+un démenti ou une reprise.
 
 ### Le cerveau qui ne répond pas (ASSISTANTE-148, 09/10/2026)
 

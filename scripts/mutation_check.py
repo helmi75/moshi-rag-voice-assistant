@@ -1320,6 +1320,16 @@ GARDE_FOUS = [
               "sans qu'aucune table soit au carnet (appel 265 du 08/10/2026)",
     ),
     GardeFou(
+        nom="GPT-Live : la voix qui annonce d'elle-même un enregistrement est reprise sur-le-champ",
+        fichier="api/app/voice/live.py",
+        avant="                await self._reprendre_une_annonce_sans_trace()",
+        apres="                pass  # mutation",
+        tests=["test_live.py"],
+        k="est_reprise or reprise_et_jamais_suivie",
+        panne="le client raccrocherait en croyant sa table réservée alors que rien n'est au carnet "
+              "(recette du 16/11/2026, ASSISTANTE-193)",
+    ),
+    GardeFou(
         nom="Une réservation réellement créée n'est jamais signalée comme annoncée à tort",
         fichier="api/app/annonce.py",
         avant="            return True",

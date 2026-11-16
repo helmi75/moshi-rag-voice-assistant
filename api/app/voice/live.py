@@ -439,6 +439,8 @@ class Appel:
         self._dernier_controle = 0.0
         self._debut = time.monotonic()
         self.accueil_relance = False
+        # Les annonces que la voix a faites d'elle-même, reprises sur-le-champ (ASSISTANTE-193).
+        self.reprises: list[dict] = []
         self._dernier_son = {"user": 0.0, "assistant": 0.0}
         self._tampons = {"appelant": bytearray(), "assistante": bytearray()}
         self._ecrits = {"appelant": 0, "assistante": 0}   # octets par piste, calage compris
@@ -502,6 +504,7 @@ class Appel:
                 self._enregistrer("assistante", charge)
             elif genre in ("session.input_transcript.delta", "session.output_transcript.delta"):
                 self._noter_fragment("user" if "input" in genre else "assistant", evt)
+                await self._reprendre_une_annonce_sans_trace()
             elif genre == "response.event":
                 await self._evenement_d_arriere_plan(evt)
             elif genre == "session.delegation.created":
@@ -675,6 +678,46 @@ class Appel:
                 "qu'elle est faite. Dis au client que tu l'enregistres maintenant, et confie de "
                 "nouveau ce travail.")
 
+    def _annonce_a_reprendre(self, tours: list[dict]) -> Optional[str]:
+        """La phrase FINIE par laquelle la voix vient d'annoncer un enregistrement que rien
+        n'explique, ou None. Seules les phrases closes comptent : « C'est bien enregistré »
+        peut encore devenir une question."""
+        if not tours or tours[-1]["role"] != "assistant" or annonce.expliquee(self.outils_appeles):
+            return None
+        dit = tours[-1]["content"]
+        fin = max(dit.rfind(signe) for signe in ".!?…")
+        return annonce.phrase_d_annonce(dit[:fin + 1]) if fin >= 0 else None
+
+    async def _reprendre_une_annonce_sans_trace(self) -> None:
+        """La voix dit « c'est enregistré » d'elle-même, sans rien avoir confié : le serveur
+        la reprend tout de suite, pendant que le client est encore en ligne. Le démenti
+        (`_dementi`) ne voit que ce que rend le cerveau, et `a_verifier` ne prévient le
+        restaurateur qu'une fois l'appel fini : le 16/11/2026 (recette, T17), le client
+        a raccroché en croyant sa table réservée (ASSISTANTE-193).
+
+        Pas pendant un travail confié : son résultat arrive, et c'est lui qui fait foi.
+        Deux reprises au plus par appel, une par phrase : on ne tourne pas en rond."""
+        if self._outils_en_cours or len(self.reprises) >= 2:
+            return
+        tours = self.transcription()
+        phrase = self._annonce_a_reprendre(tours)
+        if not phrase or any(r["tour"] == len(tours) - 1 for r in self.reprises):
+            return
+        self.reprises.append({"t_ms": int((time.monotonic() - self._debut) * 1000),
+                              "tour": len(tours) - 1, "phrase": phrase[:200]})
+        logger.warning(f"[gpt-live] appel {self.call_sid} : la voix annonce un enregistrement "
+                       "qu'aucun outil n'a fait, reprise")
+        if len(self.reprises) == 1 and not any(d["dementi"] for d in self.delegations):
+            texte = ("Correction du serveur : RIEN n'a été enregistré, la réservation n'existe pas "
+                     "encore. Dis tout de suite au client « Pardon, je l'enregistre maintenant. », "
+                     "puis confie ce travail.")
+        else:
+            texte = ("Correction du serveur : la réservation n'a pas pu être enregistrée. Dis-le "
+                     "simplement au client, sans inventer de raison, et propose-lui de rappeler "
+                     "dans quelques minutes.")
+        await self.session.send(_evenement("session.commentary.append", delegation_id=None,
+                                           content=texte))
+
     def a_verifier(self) -> Optional[dict]:
         """L'assistante a annoncé au client un enregistrement que rien n'explique dans ce
         que les outils ont fait : le restaurateur doit le savoir (`annonce.sans_trace`)."""
@@ -698,7 +741,7 @@ class Appel:
             for outil in self.outils_appeles:
                 lignes.append(f"- {outil['nom']}({json.dumps(outil['arguments'], ensure_ascii=False)}) "
                               f"→ {str(outil.get('resultat'))[:600]}")
-        if any(d["dementi"] for d in self.delegations):
+        if self.reprises or any(d["dementi"] for d in self.delegations):
             lignes.append("")
             lignes.append("Constat du serveur : RIEN n'est enregistré pour cet appel à cet instant. Si le "
                           "client a confirmé sa réservation, appelle create_reservation maintenant.")
@@ -925,6 +968,7 @@ class Appel:
             # Ce que le cerveau a rendu à la voix, travail par travail : le 08/10/2026, rien
             # ne permettait de dire lequel des deux modèles avait annoncé à tort.
             "delegations": self.delegations[-40:],
+            "reprises": self.reprises,
             **({"a_verifier": constat} if (constat := self.a_verifier()) else {}),
         }
 
