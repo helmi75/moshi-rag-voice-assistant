@@ -7,6 +7,14 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — GPT-Live : la voix française « brise » (16/11/2026, ASSISTANTE-194)
+
+### Modifié
+- Marie peut parler avec `brise`, l'une des deux voix françaises de gpt-live-1 (l'autre, `sillage`,
+  est masculine), au lieu de `marin`. C'est un réglage du `.env` (`GPT_LIVE_VOIX`), sans code : il
+  vaut pour tous les établissements sur GPT-Live. Essayé le 16/11 dans une session jetable :
+  OpenAI l'accepte. Posé en préproduction, puis en production le 16/11 après l'écoute de Helmi.
+
 ## Non publiée — Recette automatique : des traces lisibles (15/11/2026, ASSISTANTE-192)
 
 ### Ajouté
