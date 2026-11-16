@@ -776,8 +776,12 @@ class TestLeCerveauEstLeNotre:
             _appeler(client, "CA-live-cerveau-" + type(panne).__name__)
         rendu = session.de_type("session.commentary.append")[1]
         assert rendu["delegation_id"] == "del_9" and "n'a pas pu être fait" in rendu["content"]
-        # Redemandé avant d'abandonner (ASSISTANTE-148).
-        assert modele.chat.completions.create.await_count == 3
+        # Redemandé avant d'abandonner (ASSISTANTE-148). Seules comptent les requêtes du
+        # cerveau, qui portent ses outils : le résumé de fin d'appel (resume.resumer) passe
+        # par le même client, en tâche de fond, et sous charge il partait avant cette ligne
+        # (4 au lieu de 3, une fois sur huit environ — ASSISTANTE-196).
+        du_cerveau = [c for c in modele.chat.completions.create.await_args_list if "tools" in c.kwargs]
+        assert len(du_cerveau) == 3
         confie = json.loads(_ligne("CA-live-cerveau-" + type(panne).__name__)["journal"])["delegations"][0]
         assert confie["generations_ms"] == [None, None, None]
 
