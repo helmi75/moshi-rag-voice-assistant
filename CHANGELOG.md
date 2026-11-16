@@ -7,6 +7,18 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — GPT-Live : « c'est enregistré » sans réservation, repris sur-le-champ (16/11/2026, ASSISTANTE-193)
+
+### Corrigé
+- La voix GPT-Live disait parfois d'elle-même « C'est enregistré, on vous attend jeudi » après le
+  « oui » du récapitulatif, sans avoir confié l'enregistrement : aucune table au carnet, et un
+  client qui raccrochait content (recette du 16/11, T17 1 fois sur 3). L'appel était bien marqué
+  « À vérifier », mais seulement après coup. Désormais le serveur la reprend dès que sa phrase
+  est finie : elle dit « Pardon, un instant, je vérifie que c'est bien noté. », le serveur fait
+  enregistrer la table par le cerveau, puis elle dit « Voilà, c'est bien noté. », ou, si rien n'a
+  pu s'écrire, propose de rappeler. Ce qu'elle dit est décidé par ce que les outils ont fait. Deux
+  reprises au plus par appel, aucune pendant un travail en cours. Le journal les garde (`reprises`).
+
 ## Non publiée — GPT-Live : la voix française « brise » (16/11/2026, ASSISTANTE-194)
 
 ### Modifié

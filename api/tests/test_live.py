@@ -988,6 +988,111 @@ class TestUneReservationAnnonceeSansEtreEnregistree:
         admin.post("/admin/login", data={"email": "admin@test.local", "password": "test-admin-pass"})
         assert admin.get("/admin/calls?outcome=a_verifier").status_code == 200
 
+    def test_la_voix_qui_annonce_d_elle_meme_est_reprise_et_la_table_enregistree(self, client, monkeypatch):
+        """ASSISTANTE-193, recette du 16/11/2026 : après le « oui » du récapitulatif, la voix dit
+        « C'est enregistré, on vous attend jeudi » sans rien confier. Le serveur la fait
+        patienter, fait enregistrer la table par le cerveau, puis lui fait dire que c'est noté."""
+        jour = (date.today() + timedelta(days=3)).isoformat()
+        modele, creer = _notre_modele(
+            _generation(outil=("create_reservation", {"customer_name": "Petit", "date": jour,
+                                                      "time": "19:30", "party_size": 6})),
+            _generation("Réservation créée pour six personnes."))
+
+        def scenario(evt, session):
+            dits = session.de_type("session.commentary.append")
+            if evt["type"] == "session.commentary.append" and len(dits) == 1:
+                return [_fragment("user", " Six personnes à dix-neuf heures trente, au nom de Petit. Oui.", 0, 900),
+                        _fragment("assistant", " C'est enregistré, on vous attend jeudi.", 1000, 2500)]
+            if evt["type"] == "session.commentary.append" and len(dits) == 3:
+                return [_fragment("assistant", " Voilà, c'est bien noté. Au revoir.", 5000, 6000)]
+            return []
+
+        session = FausseSession(scenario)
+        _brancher(monkeypatch, session)
+        with patch.object(llm, "get_client", return_value=modele), \
+                patch("app.notifications.planifier") as planifier:
+            _appeler(client, "CA-live-193")
+        dits = session.de_type("session.commentary.append")
+        # Rien que des phrases pour le client : ce canal est lu mot pour mot.
+        assert [d["content"] for d in dits[1:]] == [live._PARDON_JE_VERIFIE, live._C_EST_BIEN_NOTE]
+        assert all(d["delegation_id"] is None for d in dits)
+        assert "RIEN n'est enregistré" in creer.await_args_list[0].kwargs["messages"][1]["content"]
+        ligne = _ligne("CA-live-193")
+        journal = json.loads(ligne["journal"])
+        assert "a_verifier" not in journal
+        assert ligne["reservation_id"] is not None
+        (reprise,) = journal["reprises"]
+        assert reprise["phrase"] == "C'est enregistré, on vous attend jeudi."
+        assert reprise["outils"] == ["create_reservation"]
+        assert [a.args[1] for a in planifier.call_args_list] == ["reservation_creee"]
+
+    def test_une_annonce_reprise_et_jamais_suivie_reste_a_verifier(self, client, monkeypatch):
+        """Le cerveau n'écrit rien : le client l'apprend, le restaurateur aussi. Une deuxième
+        fausse annonce est reprise, pas une troisième."""
+        modele, _ = _notre_modele(_generation("Il me manque l'heure."))
+
+        def scenario(evt, session):
+            dits = session.de_type("session.commentary.append")
+            if evt["type"] != "session.commentary.append":
+                return []
+            if len(dits) == 1:
+                return [_fragment("user", " Oui.", 0, 300),
+                        _fragment("assistant", " C'est enregistré.", 500, 1500)]
+            if len(dits) == 3:
+                return [_fragment("assistant", " Votre table est bien réservée.", 4000, 5000)]
+            if len(dits) == 4:
+                return [_fragment("assistant", " C'est réservé. Au revoir.", 7000, 8000)]
+            return []
+
+        session = FausseSession(scenario)
+        _brancher(monkeypatch, session)
+        with patch.object(llm, "get_client", return_value=modele), patch("app.notifications.planifier"):
+            _appeler(client, "CA-live-193-bis")
+        dits = [d["content"] for d in session.de_type("session.commentary.append")]
+        assert dits[1:] == [live._PARDON_JE_VERIFIE, live._PAS_PU_ENREGISTRER, live._PAS_PU_ENREGISTRER]
+        journal = json.loads(_ligne("CA-live-193-bis")["journal"])
+        assert len(journal["reprises"]) == 2
+        assert journal["reprises"][0]["outils"] == [] and journal["reprises"][0]["rendu"] == "Il me manque l'heure."
+        assert journal["a_verifier"]["phrase"] == "C'est enregistré."
+
+    def test_pendant_un_travail_en_cours_l_annonce_n_est_pas_reprise(self, tenant):
+        envoyes = []
+
+        class Session:
+            async def send(self, message):
+                envoyes.append(json.loads(message))
+
+        appel = live.Appel(None, Session(), "MZ", "CA", tenant, "+33612345678", None, "PROMPT")
+        appel.fragments.append({"role": "assistant", "texte": "C'est enregistré.", "debut": 0, "fin": 900})
+
+        async def jouer():
+            appel._outils_en_cours.add(asyncio.get_running_loop().create_future())
+            await appel._reprendre_une_annonce_sans_trace()
+
+        asyncio.run(jouer())
+        assert envoyes == [] and appel.reprises == []
+
+    def test_une_phrase_pas_encore_finie_ou_une_question_n_est_pas_reprise(self, tenant):
+        appel = live.Appel(None, None, "MZ", "CA", tenant, "+33612345678", None, "PROMPT")
+        assert appel._annonce_a_reprendre([{"role": "assistant", "content": "C'est bien enregistré"}]) is None
+        assert appel._annonce_a_reprendre([{"role": "assistant", "content": "C'est bien enregistré au nom de Petit ?"}]) is None
+        assert appel._annonce_a_reprendre([{"role": "assistant", "content": "C'est bien enregistré… au nom de"}]) is None
+        assert appel._annonce_a_reprendre([{"role": "user", "content": "C'est enregistré."}]) is None
+        assert appel._annonce_a_reprendre(
+            [{"role": "assistant", "content": "Très bien. C'est enregistré, on vous attend"}]) is None
+        assert appel._annonce_a_reprendre(
+            [{"role": "assistant", "content": "C'est enregistré, on vous attend jeudi."}]) == \
+            "C'est enregistré, on vous attend jeudi."
+        appel.outils_appeles.append({"nom": "create_reservation", "arguments": {},
+                                     "resultat": '{"status": "confirmed", "reservation_id": 7}'})
+        assert appel._annonce_a_reprendre([{"role": "assistant", "content": "C'est enregistré."}]) is None
+
+    def test_le_cerveau_sait_qu_une_annonce_de_la_voix_a_ete_reprise(self, tenant):
+        appel = live.Appel(None, None, "MZ", "CA", tenant, "+33612345678", None, "PROMPT")
+        appel.reprises.append({"t_ms": 0, "tour": 1, "phrase": "C'est enregistré.", "outils": []})
+        demande = appel._demande_au_cerveau()
+        assert "RIEN n'est enregistré" in demande and "find_reservation" in demande
+
     def test_au_second_dementi_on_ne_tourne_pas_en_rond(self, tenant):
         appel = live.Appel(None, None, "MZ", "CA", tenant, "+33612345678", None, "PROMPT")
         premier = appel._dementi("C'est enregistré.")

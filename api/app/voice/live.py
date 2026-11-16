@@ -74,6 +74,13 @@ _DELAI_DU_CERVEAU = 20.0
 # génération, pas pour les deux ou trois d'une réservation.
 _ESSAIS_PAR_GENERATION = 3
 # Ce qu'on dit au client quand un outil a écrit mais que le modèle n'a pas rendu sa phrase.
+# Ce que la voix dit, mot pour mot, quand elle a annoncé seule un enregistrement que rien
+# n'a fait (ASSISTANTE-193) : un propos hors d'un travail confié est lu tel quel.
+_PARDON_JE_VERIFIE = "Pardon, un instant, je vérifie que c'est bien noté."
+_C_EST_BIEN_NOTE = "Voilà, c'est bien noté."
+_PAS_PU_ENREGISTRER = ("Excusez-moi, je n'ai pas pu l'enregistrer. Pouvez-vous rappeler dans quelques "
+                       "minutes, s'il vous plaît ?")
+
 _FAIT = {"create_reservation": "la réservation est enregistrée",
          "modify_reservation": "la réservation est modifiée",
          "cancel_reservation": "la réservation est annulée",
@@ -439,6 +446,8 @@ class Appel:
         self._dernier_controle = 0.0
         self._debut = time.monotonic()
         self.accueil_relance = False
+        # Les annonces que la voix a faites d'elle-même, reprises sur-le-champ (ASSISTANTE-193).
+        self.reprises: list[dict] = []
         self._dernier_son = {"user": 0.0, "assistant": 0.0}
         self._tampons = {"appelant": bytearray(), "assistante": bytearray()}
         self._ecrits = {"appelant": 0, "assistante": 0}   # octets par piste, calage compris
@@ -502,6 +511,8 @@ class Appel:
                 self._enregistrer("assistante", charge)
             elif genre in ("session.input_transcript.delta", "session.output_transcript.delta"):
                 self._noter_fragment("user" if "input" in genre else "assistant", evt)
+                if genre == "session.output_transcript.delta":
+                    await self._reprendre_une_annonce_sans_trace()
             elif genre == "response.event":
                 await self._evenement_d_arriere_plan(evt)
             elif genre == "session.delegation.created":
@@ -675,6 +686,75 @@ class Appel:
                 "qu'elle est faite. Dis au client que tu l'enregistres maintenant, et confie de "
                 "nouveau ce travail.")
 
+    def _annonce_a_reprendre(self, tours: list[dict]) -> Optional[str]:
+        """La phrase FINIE par laquelle la voix vient d'annoncer un enregistrement que rien
+        n'explique, ou None. Seules les phrases closes par « . », « ! » ou « ? » comptent :
+        « C'est bien enregistré » ou « C'est bien enregistré… » peut encore devenir une
+        question."""
+        if not tours or tours[-1]["role"] != "assistant" or annonce.expliquee(self.outils_appeles):
+            return None
+        dit = tours[-1]["content"]
+        fin = max(dit.rfind(signe) for signe in ".!?")
+        return annonce.phrase_d_annonce(dit[:fin + 1]) if fin >= 0 else None
+
+    async def _reprendre_une_annonce_sans_trace(self) -> None:
+        """La voix dit « c'est enregistré » d'elle-même, sans rien avoir confié : le serveur
+        la reprend tout de suite, pendant que le client est encore en ligne. Le démenti
+        (`_dementi`) ne voit que ce que rend le cerveau, et `a_verifier` ne prévient le
+        restaurateur qu'une fois l'appel fini : le 16/11/2026 (recette, T17), le client
+        a raccroché en croyant sa table réservée (ASSISTANTE-193).
+
+        Ce qui part vers la voix hors d'un travail confié est un propos qu'elle dit MOT POUR
+        MOT (c'est ainsi que passe l'accueil) : on ne lui envoie donc que des phrases pour
+        le client, jamais une consigne. Le travail, c'est le serveur qui le fait faire au
+        cerveau (`_enregistrer_apres_reprise`), sans attendre qu'elle veuille le confier.
+
+        Pas pendant un travail en cours : son résultat arrive, et c'est lui qui fait foi.
+        Deux reprises au plus par appel, une par phrase : on ne tourne pas en rond."""
+        if self._outils_en_cours or len(self.reprises) >= 2:
+            return
+        tours = self.transcription()
+        phrase = self._annonce_a_reprendre(tours)
+        if not phrase or any(r["tour"] == len(tours) - 1 for r in self.reprises):
+            return
+        reprise = {"t_ms": int((time.monotonic() - self._debut) * 1000),
+                   "tour": len(tours) - 1, "phrase": phrase[:200], "outils": []}
+        self.reprises.append(reprise)
+        logger.warning(f"[gpt-live] appel {self.call_sid} : la voix annonce un enregistrement "
+                       "qu'aucun outil n'a fait, reprise")
+        if len(self.reprises) > 1 or any(d["dementi"] for d in self.delegations):
+            await self._dire(_PAS_PU_ENREGISTRER)
+            return
+        await self._dire(_PARDON_JE_VERIFIE)
+        tache = asyncio.create_task(self._enregistrer_apres_reprise(reprise))
+        self._outils_en_cours.add(tache)
+        tache.add_done_callback(self._outils_en_cours.discard)
+
+    async def _enregistrer_apres_reprise(self, reprise: dict) -> None:
+        """Le cerveau reprend la conversation, avec le constat que rien n'est écrit. Ce qui
+        est dit ensuite au client est décidé par ce que les outils ont FAIT, pas par le
+        texte du cerveau, qui serait lu tel quel."""
+        deja = len(self.outils_appeles)
+        texte = ""
+        try:
+            texte = await asyncio.wait_for(self._raisonner(), timeout=_DELAI_DU_CERVEAU)
+        except Exception as exc:
+            logger.warning(f"[gpt-live] après une reprise, le cerveau n'a pas rendu son travail "
+                           f"({type(exc).__name__})")
+        reprise["outils"] = [o["nom"] for o in self.outils_appeles[deja:]]
+        reprise["rendu"] = (texte or "")[:300]
+        # Le travail est fini : ce que la voix dira ensuite doit pouvoir être repris à
+        # son tour, sans attendre que la tâche soit retirée après coup.
+        self._outils_en_cours.discard(asyncio.current_task())
+        # `expliquee` couvre aussi la réservation RETROUVÉE : la voix parlait d'une table
+        # qui existait déjà, et c'est vrai.
+        await self._dire(_C_EST_BIEN_NOTE if annonce.expliquee(self.outils_appeles)
+                         else _PAS_PU_ENREGISTRER)
+
+    async def _dire(self, texte: str) -> None:
+        await self.session.send(_evenement("session.commentary.append", delegation_id=None,
+                                           content=texte))
+
     def a_verifier(self) -> Optional[dict]:
         """L'assistante a annoncé au client un enregistrement que rien n'explique dans ce
         que les outils ont fait : le restaurateur doit le savoir (`annonce.sans_trace`)."""
@@ -702,6 +782,14 @@ class Appel:
             lignes.append("")
             lignes.append("Constat du serveur : RIEN n'est enregistré pour cet appel à cet instant. Si le "
                           "client a confirmé sa réservation, appelle create_reservation maintenant.")
+        elif self.reprises and not annonce.expliquee(self.outils_appeles):
+            # La voix a annoncé seule : une table que le client vient de confirmer, ou une
+            # réservation qui existait déjà et dont il demandait des nouvelles.
+            lignes.append("")
+            lignes.append("Constat du serveur : l'assistante vient d'annoncer un enregistrement, mais RIEN "
+                          "n'est enregistré pour cet appel. Si le client a confirmé une nouvelle "
+                          "réservation, appelle create_reservation maintenant ; s'il parlait d'une "
+                          "réservation déjà faite, appelle find_reservation.")
         lignes.append("")
         lignes.append("L'assistante vocale te confie la suite : fais ce que le client vient de demander.")
         return "\n".join(lignes)
@@ -925,6 +1013,7 @@ class Appel:
             # Ce que le cerveau a rendu à la voix, travail par travail : le 08/10/2026, rien
             # ne permettait de dire lequel des deux modèles avait annoncé à tort.
             "delegations": self.delegations[-40:],
+            "reprises": self.reprises,
             **({"a_verifier": constat} if (constat := self.a_verifier()) else {}),
         }
 
