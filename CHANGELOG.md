@@ -13,7 +13,7 @@
 - Marie peut parler avec `brise`, l'une des deux voix françaises de gpt-live-1 (l'autre, `sillage`,
   est masculine), au lieu de `marin`. C'est un réglage du `.env` (`GPT_LIVE_VOIX`), sans code : il
   vaut pour tous les établissements sur GPT-Live. Essayé le 16/11 dans une session jetable :
-  OpenAI l'accepte. Posé en préproduction ; la production attend l'écoute de Helmi.
+  OpenAI l'accepte. Posé en préproduction, puis en production le 16/11 après l'écoute de Helmi.
 
 ## Non publiée — Recette automatique : des traces lisibles (15/11/2026, ASSISTANTE-192)
 
