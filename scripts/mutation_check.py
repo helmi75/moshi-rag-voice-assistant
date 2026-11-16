@@ -1322,12 +1322,22 @@ GARDE_FOUS = [
     GardeFou(
         nom="GPT-Live : la voix qui annonce d'elle-même un enregistrement est reprise sur-le-champ",
         fichier="api/app/voice/live.py",
-        avant="                await self._reprendre_une_annonce_sans_trace()",
-        apres="                pass  # mutation",
+        avant="                    await self._reprendre_une_annonce_sans_trace()",
+        apres="                    pass  # mutation",
         tests=["test_live.py"],
         k="est_reprise or reprise_et_jamais_suivie",
         panne="le client raccrocherait en croyant sa table réservée alors que rien n'est au carnet "
               "(recette du 16/11/2026, ASSISTANTE-193)",
+    ),
+    GardeFou(
+        nom="GPT-Live : pas de reprise pendant un travail en cours, et deux au plus par appel",
+        fichier="api/app/voice/live.py",
+        avant="        if self._outils_en_cours or len(self.reprises) >= 2:",
+        apres="        if False:  # mutation",
+        tests=["test_live.py"],
+        k="pendant_un_travail_en_cours or reprise_et_jamais_suivie",
+        panne="la voix serait interrompue pendant qu'une vraie réservation s'écrit, et une voix qui "
+              "s'obstine ferait tourner le client en rond",
     ),
     GardeFou(
         nom="Une réservation réellement créée n'est jamais signalée comme annoncée à tort",
