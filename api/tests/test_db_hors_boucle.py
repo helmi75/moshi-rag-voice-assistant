@@ -211,6 +211,9 @@ class TestLAdminNeBloquePasLaBoucle:
             assert client.post(f"/admin/tenants/{t}/voice", headers=entete,
                                follow_redirects=False,
                                data={"greeting": "Bonjour."}).status_code == 303
+            # Démo 5 : la page revient après le bouton (démonstration pas prête : 422, sans appel).
+            assert client.post(f"/admin/demos/{demo}/rappeler", headers=entete,
+                               data={"numero": "0612345678"}).status_code == 422
             assert fautifs == [], "SQLite ouvert depuis la boucle :\n" + "\n".join(fautifs)
         finally:
             monkeypatch.undo()

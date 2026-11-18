@@ -646,6 +646,8 @@ async def voice_stream(websocket: WebSocket):
         logger.warning(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
         await websocket.close(code=1008)  # policy violation
         return
+    # Recoupé côté serveur : seul un établissement d'essai est rappelé en rendez-vous.
+    rendez_vous = rendez_vous and tenants.est_demo(tenant)
 
     # Le flux de cet appel est arrivé jusqu'ici : s'il s'arrête sans rien demander,
     # `/twilio/suite` saura que c'était une fin normale et non une panne.

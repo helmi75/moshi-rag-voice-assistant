@@ -577,7 +577,8 @@ Twilio, présenté au gérant) et les clés de la voix (`DEEPGRAM_API_KEY`, `MIS
 `OPENAI_API_KEY` pour GPT-Live), plus `ENREGISTREMENT_APPELS=1` (appel enregistré et annoncé)
 et `RAPPEL_ACTIF=0` : le « Rappelez-moi » du site de préproduction ne doit jamais composer.
 Chaque copie se fait sur le serveur, empreintes comparées, avec l'accord de Helmi : c'est une
-exception à « préproduction sans clé ». Sans eux, la page dit ce qui manque.
+exception à « préproduction sans clé ». Sans eux, la page dit ce qui manque. L'appel est coupé
+au bout de `RAPPEL_DUREE_MAX_SECONDES` (240 s par défaut), comme le « Rappelez-moi » du site.
 
 Le déploiement automatique après chaque fusion viendra avec le workflow de déploiement
 (étape 5 du chantier « livraison »).

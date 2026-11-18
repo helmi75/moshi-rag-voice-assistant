@@ -18,7 +18,10 @@
   nouvelle route signée `/twilio/demo?d=<démonstration>`, qui ne sert qu'un établissement d'essai
   d'une démonstration prête et raccroche pour tout le reste. Plafond : `DEMO_RAPPELS_PAR_JOUR`
   (20 appels sur 24 h). Le numéro présenté est `DEMO_LIGNE` ; sans lui, ni identifiants Twilio,
-  la page dit ce qui manque au lieu d'un bouton.
+  la page dit ce qui manque au lieu d'un bouton. Un double clic ne fait pas sonner deux fois
+  (20 s entre deux appels d'une même démonstration), et un appel que Twilio refuse ne compte pas
+  dans le plafond. Comme le « Rappelez-moi » du site, l'appel est coupé au bout de
+  `RAPPEL_DUREE_MAX_SECONDES` (4 minutes par défaut).
 
 ## Non publiée — GPT-Live : « c'est enregistré » sans réservation, repris sur-le-champ (16/11/2026, ASSISTANTE-193)
 

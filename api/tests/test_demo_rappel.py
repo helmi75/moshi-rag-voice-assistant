@@ -89,6 +89,7 @@ class TestLeBouton:
 
     def test_le_plafond_du_jour_borne_la_facture(self, actives, composer, monkeypatch):
         monkeypatch.setenv("DEMO_RAPPELS_PAR_JOUR", "2")
+        monkeypatch.setattr(demos, "ENTRE_DEUX_RAPPELS_SECONDES", 0.0)
         d = _demo_prete()
         assert _faire_rappeler(d)[0] and _faire_rappeler(d)[0]
         parti, message = _faire_rappeler(d)
@@ -99,6 +100,22 @@ class TestLeBouton:
         composer.side_effect = RuntimeError("400 pour +33612345678")
         parti, message = _faire_rappeler(_demo_prete())
         assert not parti and "+33612345678" not in message
+
+    def test_un_appel_que_twilio_refuse_ne_compte_pas_dans_le_plafond(self, actives, composer, monkeypatch):
+        monkeypatch.setenv("DEMO_RAPPELS_PAR_JOUR", "1")
+        d = _demo_prete()
+        composer.side_effect = RuntimeError("503")
+        assert not _faire_rappeler(d)[0]
+        composer.side_effect = None
+        assert _faire_rappeler(d)[0]   # la place est rendue, et pas de délai après un échec
+
+    def test_un_double_clic_ne_fait_pas_sonner_deux_fois(self, actives, composer):
+        d = _demo_prete()
+        assert _faire_rappeler(d)[0]
+        parti, message = _faire_rappeler(d)
+        assert not parti and "vient de partir" in message
+        assert composer.await_count == 1
+        assert _faire_rappeler(_demo_prete("Autre"))[0]   # une autre démonstration, elle, part
 
 
 def _signer(url: str, data: dict) -> str:
@@ -130,6 +147,7 @@ class TestQuandLeGerantDecroche:
         """Une démonstration dont la ligne désignerait un établissement réel (base abîmée,
         reprise à la main) : l'appel raccroche, il n'écrit pas dans un vrai carnet."""
         d = _demo_prete()
+        essai = demos.obtenir(d)["tenant_id"]
         vrai = tenants.create_tenant("Vrai Restaurant", "+33111111188")
         try:
             with db.get_conn() as conn:
@@ -139,6 +157,7 @@ class TestQuandLeGerantDecroche:
             assert "<Hangup/>" in r.text and "<Stream" not in r.text
         finally:
             tenants.delete_tenant(vrai.id)
+            tenants.delete_tenant(essai)
 
     def test_une_demonstration_effacee_ou_inconnue_raccroche(self, client, actives):
         d = _demo_prete()
@@ -189,6 +208,29 @@ class TestQuandLeGerantDecroche:
         with db.get_conn() as conn:
             ligne = conn.execute("SELECT sortant, caller_number FROM calls WHERE call_sid = 'CA-rdv-1'").fetchone()
         assert ligne["sortant"] == 1 and ligne["caller_number"] == "+33612345678"
+
+    def test_rendez_vous_sur_un_vrai_numero_n_est_pas_cru(self, client, actives):
+        """Le paramètre ne vient que d'un TwiML signé ; le serveur le recoupe quand même."""
+        vrai = tenants.create_tenant("Vrai Restaurant", "+33111111187")
+        try:
+            custom = {"To": vrai.phone_number, "From": "+33612345678", "CallSid": "CA-rdv-2",
+                      "RendezVous": "1"}
+            run_bot = AsyncMock()
+            with patch("app.main._get_bot_runner", return_value=run_bot), \
+                    patch("app.voice.live.actif", return_value=False):
+                with client.websocket_connect("/ws/voice") as ws:
+                    ws.send_text(json.dumps({"event": "connected"}))
+                    ws.send_text(json.dumps({
+                        "event": "start", "streamSid": "MZ-rdv2",
+                        "start": {"streamSid": "MZ-rdv2", "callSid": "CA-rdv-2", "customParameters": custom}}))
+                    fin = time.monotonic() + 2.0
+                    while run_bot.await_count == 0 and time.monotonic() < fin:
+                        time.sleep(0.01)
+            with db.get_conn() as conn:
+                ligne = conn.execute("SELECT sortant FROM calls WHERE call_sid = 'CA-rdv-2'").fetchone()
+            assert ligne["sortant"] is None
+        finally:
+            tenants.delete_tenant(vrai.id)
 
 
 def _connecter(client, email=None, mdp=None):
