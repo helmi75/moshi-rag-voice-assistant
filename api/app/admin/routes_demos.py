@@ -40,7 +40,7 @@ def _liste(request: Request, erreur: str = "", valeurs: Optional[dict] = None):
         request, "demos.html", {"demos": demos.lister(), "erreur": erreur, "valeurs": valeurs or {}})
 
 
-def _page(request: Request, demo_id: int):
+def _page(request: Request, demo_id: int, rappel: Optional[dict] = None):
     deps.ensure_csrf(request)
     demo = demos.obtenir(demo_id)
     if demo is None:
@@ -49,7 +49,8 @@ def _page(request: Request, demo_id: int):
         request, "demo.html",
         {"demo": demo, "champs": demos.CHAMPS, "en_cours": demos.lecture_en_cours(demo),
          "horaires_lisibles": demos.horaires_lisibles(demo),
-         "citation_horaires": demos.citation_horaires(demo), "cout": demos.cout_lisible(demo["cout_usd"])})
+         "citation_horaires": demos.citation_horaires(demo), "cout": demos.cout_lisible(demo["cout_usd"]),
+         "rappel_indisponible": demos.rappel_indisponible(), "rappel": rappel or {}})
 
 
 def _suivi(request: Request, demo_id: int):
@@ -144,3 +145,18 @@ async def demo_effacer(request: Request, demo_id: int = IdDemo):
     if request.headers.get("HX-Request"):
         return Response(headers={"HX-Redirect": "/admin/demos"})   # la confirmation passe par htmx
     return RedirectResponse("/admin/demos", status_code=303)
+
+
+@router.post("/admin/demos/{demo_id}/rappeler", dependencies=_acces_post())
+async def demo_rappeler(request: Request, demo_id: int = IdDemo):
+    """Démo 5 (ASSISTANTE-145) : le portable du gérant sonne sur son restaurant d'essai. La
+    page revient avec le résultat ; le numéro saisi n'est gardé que dans le champ, pour
+    rappeler une seconde fois sans le retaper."""
+    form = await request.form()
+    numero = str(form.get("numero") or "")[:40]
+    parti, message = await demos.faire_rappeler(demo_id, numero)
+    reponse = await db.hors_boucle(_page, request, demo_id,
+                                   {"ok": parti, "message": message, "numero": numero})
+    if not parti:
+        reponse.status_code = 422
+    return reponse

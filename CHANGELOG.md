@@ -7,6 +7,19 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Démonstration : le gérant rappelé sur son propre restaurant (18/11/2026, ASSISTANTE-145)
+
+### Ajouté
+- En rendez-vous, sur la page d'une démonstration prête (préproduction), « Faire essayer le
+  gérant » : Helmi saisit son portable, le téléphone sonne en quelques secondes et l'assistante
+  décroche au nom de son restaurant, avec la mention que l'appel est enregistré. Il joue un client
+  et réserve ; la réservation d'essai et l'appel (noté sortant, chiffré comme tel) se montrent dans
+  l'admin de l'établissement d'essai, puis disparaissent avec la démonstration. Twilio lit la
+  nouvelle route signée `/twilio/demo?d=<démonstration>`, qui ne sert qu'un établissement d'essai
+  d'une démonstration prête et raccroche pour tout le reste. Plafond : `DEMO_RAPPELS_PAR_JOUR`
+  (20 appels sur 24 h). Le numéro présenté est `DEMO_LIGNE` ; sans lui, ni identifiants Twilio,
+  la page dit ce qui manque au lieu d'un bouton.
+
 ## Non publiée — GPT-Live : « c'est enregistré » sans réservation, repris sur-le-champ (16/11/2026, ASSISTANTE-193)
 
 ### Corrigé

@@ -279,9 +279,10 @@ def reinitialiser() -> None:
 
 # ---- L'appel --------------------------------------------------------------------------
 
-async def _composer(numero: str, ligne: str) -> str:
+async def _composer(numero: str, ligne: str, suite: str = "/twilio/rappel") -> str:
     """Demande à Twilio d'appeler `numero` en présentant `ligne`, et rend l'identifiant de
-    l'appel. Quand la personne décroche, Twilio vient lire `/twilio/rappel`.
+    l'appel. Quand la personne décroche, Twilio vient lire `suite` : `/twilio/rappel` pour
+    le site, `/twilio/demo?d=…` pour la démonstration d'un rendez-vous (app/demos.py).
 
     L'appel est traité dans la région à laquelle on le demande (app/twilio_region.py) :
     c'est elle qui ouvrira le flux média, donc elle qui fait la latence de la démonstration."""
@@ -290,7 +291,7 @@ async def _composer(numero: str, ligne: str) -> str:
         reponse = await client.post(
             f"{twilio_region.hote()}/2010-04-01/Accounts/{sid}/Calls.json",
             data={"To": numero, "From": ligne, "Method": "POST",
-                  "Url": _base_publique() + "/twilio/rappel",
+                  "Url": _base_publique() + suite,
                   "Timeout": str(SONNERIE_SECONDES), "TimeLimit": str(duree_max())})
         reponse.raise_for_status()
         return str(reponse.json().get("sid") or "")
