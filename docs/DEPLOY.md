@@ -571,13 +571,15 @@ journal des changements), jamais `latest`.
 
 **Rappeler le gérant en rendez-vous** (Démo 5, ASSISTANTE-145, décision du 18/11/2026). Le
 bouton de la page d'une démonstration ne s'affiche qu'avec, dans le `.env` de la préproduction :
-les identifiants Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_AUTH_TOKEN_IE`,
+les identifiants Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_AUTH_TOKEN_IE1`,
 `TWILIO_REGION`), `PUBLIC_URL=https://preprod.helmane.fr`, `DEMO_LIGNE` (un numéro du compte
 Twilio, présenté au gérant) et les clés de la voix (`DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`,
-`OPENAI_API_KEY` pour GPT-Live), plus `ENREGISTREMENT_APPELS=1` (appel enregistré et annoncé)
+`OPENAI_API_KEY` pour GPT-Live, écrite `OPENAI_APIkEY` dans le `.env` de production, que le
+compose lit aussi), plus `ENREGISTREMENT_APPELS=1` (appel enregistré et annoncé)
 et `RAPPEL_ACTIF=0` : le « Rappelez-moi » du site de préproduction ne doit jamais composer.
 Chaque copie se fait sur le serveur, empreintes comparées, avec l'accord de Helmi : c'est une
-exception à « préproduction sans clé ». Sans eux, la page dit ce qui manque. L'appel est coupé
+exception à « préproduction sans clé ». Faite le 19/11/2026 (sauvegarde `.env.avant-145`), avec
+`DEMO_LIGNE` sur le numéro français de la production. Sans eux, la page dit ce qui manque. L'appel est coupé
 au bout de `RAPPEL_DUREE_MAX_SECONDES` (240 s par défaut), comme le « Rappelez-moi » du site.
 
 Le déploiement automatique après chaque fusion viendra avec le workflow de déploiement

@@ -381,6 +381,15 @@ CREATE TABLE IF NOT EXISTS recette_scenarios (
 );
 CREATE INDEX IF NOT EXISTS idx_recette_scenarios_recette ON recette_scenarios(recette_id);
 """,
+    # v23 — ASSISTANTE-197 : une démonstration ne garde que l'établissement qui porte son numéro
+    # (`demo-<id>`). Un identifiant libéré par le parc avait été rendu à l'établissement d'une
+    # autre démonstration (préproduction, 19/11/2026). La démonstration revient « à relire ».
+    """
+UPDATE demonstrations SET tenant_id = NULL, etat = 'a_relire', validee_at = NULL
+WHERE tenant_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM tenants t WHERE t.id = demonstrations.tenant_id
+                              AND t.phone_number = 'demo-' || demonstrations.id);
+""",
 ]
 
 
