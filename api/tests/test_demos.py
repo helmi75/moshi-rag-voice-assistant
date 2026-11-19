@@ -568,3 +568,75 @@ class TestLaPageSeLit:
         assert r.status_code == 303 and demos.obtenir(identifiant)["champs"]["horaires"]["trouve"]
         client.post(f"/admin/demos/{identifiant}/relecture", headers=entete, data={"valeur_horaires": ""})
         assert demos.obtenir(identifiant)["champs"]["horaires"]["trouve"] is False
+
+
+class TestUneDemonstrationNeToucheQueSonEtablissement:
+    """ASSISTANTE-197 : `tenants` n'a pas d'AUTOINCREMENT. Le dernier établissement supprimé
+    depuis le parc rend son identifiant au suivant, et `demonstrations.tenant_id` n'est pas une
+    clé étrangère. Constaté le 19/11/2026 en préproduction : la démonstration n° 4 visait
+    l'établissement de la n° 8. « Effacer » l'aurait supprimé, appels et enregistrements
+    compris, et la purge RGPD aurait pu emporter un vrai restaurant."""
+
+    def _prete(self, monkeypatch, reseau, nom="Chez Marcel") -> tuple[int, tenants.Tenant]:
+        identifiant = _demo_lue(monkeypatch, reseau)
+        demos.enregistrer_relecture(identifiant, {})
+        return identifiant, demos.valider(identifiant)
+
+    def _viser(self, demo_id: int, tenant_id: int) -> None:
+        with db.get_conn() as conn:
+            conn.execute("UPDATE demonstrations SET tenant_id = ? WHERE id = ?", (tenant_id, demo_id))
+
+    def test_effacer_ne_supprime_pas_l_etablissement_d_une_autre_demonstration(
+            self, actives, monkeypatch, reseau):
+        a, _ = self._prete(monkeypatch, reseau)
+        b, tb = self._prete(monkeypatch, reseau)
+        reservations.create_reservation(tb.id, "Essai", "2030-03-13", "20:00", 2)
+        self._viser(a, tb.id)
+        assert demos.obtenir(a)["tenant_id"] is None     # la page ne montre pas l'autre
+        assert demos.etablissement_a_rappeler(a) is None
+        demos.effacer(a)
+        assert tenants.get_by_id(tb.id) is not None
+        assert demos.etablissement_a_rappeler(b).id == tb.id
+
+    def test_effacer_et_purger_ne_suppriment_jamais_un_vrai_restaurant(self, actives, monkeypatch, reseau):
+        vrai = tenants.create_tenant("Vrai restaurant", "+33100000197")
+        try:
+            a, _ = self._prete(monkeypatch, reseau)
+            self._viser(a, vrai.id)
+            demos.effacer(a)
+            assert tenants.get_by_id(vrai.id) is not None
+            v, _ = self._prete(monkeypatch, reseau)
+            self._viser(v, vrai.id)
+            with db.get_conn() as conn:
+                conn.execute("UPDATE demonstrations SET created_at = ? WHERE id = ?",
+                             (rgpd.horloge.il_y_a(31), v))
+            rgpd.purger()
+            assert tenants.get_by_id(vrai.id) is not None
+        finally:
+            tenants.delete_tenant(vrai.id)
+
+    def test_supprimer_l_etablissement_depuis_le_parc_libere_la_demonstration(
+            self, actives, monkeypatch, reseau):
+        a, ta = self._prete(monkeypatch, reseau)
+        tenants.delete_tenant(ta.id)
+        d = demos.obtenir(a)
+        # la relecture est gardée : la démonstration peut être revalidée
+        assert d["tenant_id"] is None and d["etat"] == "a_relire" and d["relu"]
+        b, tb = self._prete(monkeypatch, reseau)
+        assert demos.obtenir(a)["tenant_id"] is None
+        ta2 = demos.valider(a)   # revalidée : un nouvel établissement, le sien
+        assert ta2.phone_number == f"demo-{a}" and ta2.id != tb.id
+        assert tenants.get_by_id(tb.id).phone_number == f"demo-{b}"
+
+    def test_la_migration_libere_une_demonstration_qui_vise_un_autre_etablissement(
+            self, actives, monkeypatch, reseau):
+        a, _ = self._prete(monkeypatch, reseau)
+        b, tb = self._prete(monkeypatch, reseau)
+        self._viser(a, tb.id)
+        migration = next(m for m in db._MIGRATIONS if "ASSISTANTE-197" in m or "'demo-' ||" in m)
+        with db.get_conn() as conn:
+            conn.executescript(migration)
+            ligne_a = conn.execute("SELECT tenant_id, etat FROM demonstrations WHERE id = ?", (a,)).fetchone()
+            ligne_b = conn.execute("SELECT tenant_id, etat FROM demonstrations WHERE id = ?", (b,)).fetchone()
+        assert tuple(ligne_a) == (None, "a_relire")
+        assert tuple(ligne_b) == (tb.id, "prete")

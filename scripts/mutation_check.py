@@ -1243,13 +1243,14 @@ GARDE_FOUS = [
         panne="un clic créerait un établissement à partir d'informations jamais relues par Helmi",
     ),
     GardeFou(
-        nom='Démo 5 : le gérant rappelé n\'est servi que par un établissement d\'essai',
+        nom='Démonstration : elle n\'agit que sur l\'établissement qui porte son numéro demo-<id>',
         fichier='api/app/demos.py',
-        avant='    if tenant is None or not tenants.est_demo(tenant):',
+        avant="    if tenant is None or tenant.phone_number != f\"{tenants.PREFIXE_DEMO}{demo['id']}\":",
         apres='    if tenant is None:  # mutation',
-        tests=['test_demo_rappel.py'],
-        k='un_vrai_etablissement_n_est_jamais_servi',
-        panne="un appel de démonstration servirait un vrai restaurant et écrirait dans son carnet",
+        tests=['test_demo_rappel.py', 'test_demos.py'],
+        k='vrai_etablissement_n_est_jamais_servi or ne_supprime_pas_l_etablissement_d_une_autre',
+        panne="effacer une démonstration supprimerait l'établissement d'une autre, voire un vrai "
+              "restaurant ; un appel de démonstration écrirait dans un vrai carnet",
     ),
     GardeFou(
         nom='Démo 5 : la route lue par Twilio raccroche quand les démonstrations sont éteintes',

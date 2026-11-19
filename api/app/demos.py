@@ -504,7 +504,26 @@ def _contenu(demo: dict) -> dict:
 def obtenir(demo_id: int) -> Optional[dict]:
     with db.get_conn() as conn:
         row = conn.execute("SELECT * FROM demonstrations WHERE id = ?", (demo_id,)).fetchone()
-    return _vers_dict(row) if row else None
+    if not row:
+        return None
+    demo = _vers_dict(row)
+    if demo["tenant_id"] and etablissement_de(demo) is None:
+        demo["tenant_id"] = None   # un identifiant repris par un autre : la page ne le montre pas
+    return demo
+
+
+def etablissement_de(demo: dict) -> Optional[tenants.Tenant]:
+    """L'établissement d'essai de CETTE démonstration, ou None. `tenants` n'a pas
+    d'AUTOINCREMENT : un identifiant libéré par le parc est rendu au prochain établissement
+    créé (ASSISTANTE-197 : la démonstration n° 4 de la préproduction visait celui de la n° 8).
+    Le numéro `demo-<id>` que `valider` lui a donné est la seule preuve qui tienne : sans lui,
+    effacer ou purger supprimerait un autre établissement, voire un vrai restaurant."""
+    if not demo or not demo.get("tenant_id"):
+        return None
+    tenant = tenants.get_by_id(demo["tenant_id"])
+    if tenant is None or tenant.phone_number != f"{tenants.PREFIXE_DEMO}{demo['id']}":
+        return None
+    return tenant
 
 
 def lister() -> list[dict]:
@@ -832,8 +851,9 @@ def effacer(demo_id: int) -> bool:
     demo = obtenir(demo_id)
     if demo is None:
         return False
-    if demo["tenant_id"]:
-        tenants.delete_tenant(demo["tenant_id"])
+    tenant = etablissement_de(demo)
+    if tenant is not None:
+        tenants.delete_tenant(tenant.id)
     with db.get_conn() as conn:
         conn.execute("UPDATE demonstrations SET etat = 'effacee', champs = '{}', tenant_id = NULL "
                      "WHERE id = ?", (demo_id,))
@@ -914,12 +934,9 @@ def etablissement_a_rappeler(demo_id: int) -> Optional[tenants.Tenant]:
     if not actives():
         return None
     demo = obtenir(demo_id)
-    if demo is None or demo["etat"] != "prete" or not demo["tenant_id"]:
+    if demo is None or demo["etat"] != "prete":
         return None
-    tenant = tenants.get_by_id(demo["tenant_id"])
-    if tenant is None or not tenants.est_demo(tenant):
-        return None
-    return tenant
+    return etablissement_de(demo)   # son numéro `demo-<id>` en fait toujours un établissement d'essai
 
 
 def _compter_un_rappel(demo_id: int) -> str:

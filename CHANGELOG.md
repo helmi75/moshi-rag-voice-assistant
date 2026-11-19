@@ -7,6 +7,17 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Démonstration : effacer une démonstration ne touche plus l'établissement d'une autre (19/11/2026, ASSISTANTE-197)
+
+### Corrigé
+- Un établissement supprimé depuis le parc rendait son identifiant au suivant créé, et la
+  démonstration qui le visait le gardait : en préproduction, la démonstration n° 4 visait
+  l'établissement de la n° 8. « Effacer » l'aurait supprimé avec ses réservations, ses appels et
+  ses enregistrements, et la purge RGPD aurait pu emporter un vrai restaurant. Une démonstration
+  n'agit plus que sur l'établissement qui porte son numéro `demo-<id>` ; supprimer un
+  établissement depuis le parc renvoie sa démonstration « à relire », relecture gardée, et une
+  migration fait de même pour celles qui visent déjà un autre établissement.
+
 ## Non publiée — Démonstration : le gérant rappelé sur son propre restaurant (18/11/2026, ASSISTANTE-145)
 
 ### Ajouté

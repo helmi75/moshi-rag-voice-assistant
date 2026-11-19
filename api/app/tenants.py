@@ -222,6 +222,10 @@ def delete_tenant(tenant_id: int) -> None:
         conn.execute("DELETE FROM messages WHERE tenant_id = ?", (tenant_id,))
         conn.execute("DELETE FROM users WHERE tenant_id = ?", (tenant_id,))
         conn.execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
+        # Une démonstration qui le visait le perd (ASSISTANTE-197) : son identifiant sera rendu
+        # au prochain établissement créé. Elle revient « à relire », sa relecture gardée.
+        conn.execute("UPDATE demonstrations SET tenant_id = NULL, etat = 'a_relire', validee_at = NULL "
+                     "WHERE tenant_id = ? AND etat = 'prete'", (tenant_id,))
     shutil.rmtree(enregistrement.dossier() / f"tenant{int(tenant_id)}", ignore_errors=True)
 
 
