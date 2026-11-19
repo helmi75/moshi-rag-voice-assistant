@@ -235,6 +235,10 @@ services:
       RETENTION_CONTACT_JOURS: "${RETENTION_CONTACT_JOURS:-365}"
       # Démonstration personnalisée (ASSISTANTE-139) : vide = la fonction n'existe pas (production).
       DEMOS_ACTIVES: "${DEMOS_ACTIVES:-}"
+      # Démo 5 (ASSISTANTE-145) : le numéro Twilio présenté quand le gérant est rappelé en
+      # rendez-vous (vide = bouton indisponible), et le plafond de ces appels sur 24 h.
+      DEMO_LIGNE: "${DEMO_LIGNE:-}"
+      DEMO_RAPPELS_PAR_JOUR: "${DEMO_RAPPELS_PAR_JOUR:-20}"
       # Adresse du service gosom (fiche Google Maps de la démonstration, ASSISTANTE-189) : posée
       # par docker-compose.preprod.yml seulement ; vide ici, le service n'existe pas en production.
       GOSOM_URL: "${GOSOM_URL:-}"

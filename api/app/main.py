@@ -13,11 +13,11 @@ from contextlib import asynccontextmanager
 from typing import Optional
 from xml.sax.saxutils import escape  # nosemgrep: use-defused-xml — échappe le TwiML qu'on écrit, ne lit aucun XML
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, Response
 from loguru import logger
 
-from . import (calls, db, en_cours, erreurs, llm, messages, metriques, notifications, rappel, renvoi,
+from . import (calls, db, demos, en_cours, erreurs, llm, messages, metriques, notifications, rappel, renvoi,
                supervision, taches, telegram, tenants, tournee, twilio_signature, users)
 from .voice import live
 
@@ -210,12 +210,14 @@ def _stream_ws_url(request: Request) -> str:
 
 
 def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "",
-                  demonstration: bool = False) -> Response:
+                  demonstration: bool = False, rendez_vous: bool = False) -> Response:
     """Le TwiML qui branche l'appel sur le pipeline.
 
     `demonstration` : un rappel demandé sur le site (app/rappel.py). Le flux le saura
     par un paramètre, et l'appel n'est PAS renvoyé vers le restaurant s'il s'arrête : la
-    personne rappelée n'a pas demandé à parler à la salle."""
+    personne rappelée n'a pas demandé à parler à la salle.
+    `rendez_vous` : le gérant rappelé pendant un rendez-vous (app/demos.py). Appel sortant,
+    sans renvoi non plus, mais l'assistante décroche comme son restaurant : il joue un client."""
     ws_url = _stream_ws_url(request)
     # Log explicite : si Twilio ne joint pas cette URL (mauvais tunnel ngrok, http
     # au lieu de wss...), le flux média ne se connecte jamais et l'appel raccroche.
@@ -232,10 +234,11 @@ def _stream_twiml(request: Request, to: str, call_sid: str, from_number: str = "
         f'            <Parameter name="From" value="{escape(from_number)}"/>\n'
         f'            <Parameter name="CallSid" value="{escape(call_sid)}"/>\n'
         + ('            <Parameter name="Rappel" value="1"/>\n' if demonstration else "")
+        + ('            <Parameter name="RendezVous" value="1"/>\n' if rendez_vous else "")
         + "        </Stream>\n"
         "    </Connect>\n"
     )
-    if demonstration:
+    if demonstration or rendez_vous:
         return _twiml(flux + "    <Hangup/>")
     return _twiml(
         flux
@@ -502,6 +505,25 @@ async def rappel_decroche(
                          demonstration=True)
 
 
+@app.post("/twilio/demo", dependencies=[Depends(twilio_signature.exiger)])
+async def demo_decroche(
+    request: Request,
+    CallSid: Optional[str] = Form(None),
+    To: Optional[str] = Form(None),
+    d: int = Query(0, ge=0, le=10**12),
+):
+    """Le gérant rappelé pendant un rendez-vous vient de décrocher (app/demos.py, Démo 5).
+    `d` est la démonstration : il vient de l'adresse que nous avons donnée à Twilio, et la
+    signature couvre l'adresse entière, paramètres compris — personne ne le change.
+    L'établissement ne peut être qu'un établissement d'essai : `etablissement_a_rappeler`
+    refuse tout le reste, et l'appel raccroche."""
+    tenant = await db.hors_boucle(demos.etablissement_a_rappeler, d)
+    if tenant is None:
+        return _twiml("    <Hangup/>")
+    return _stream_twiml(request, tenant.phone_number, CallSid or "", To or "",
+                         rendez_vous=True)
+
+
 @app.post("/twilio/sms", dependencies=[Depends(twilio_signature.exiger)])
 async def sms_webhook(
     Body: str = Form(...),
@@ -615,12 +637,17 @@ async def voice_stream(websocket: WebSocket):
     from_number = calls.numero_appelant(custom.get("From"))
     # Posé par `/twilio/rappel`, une route signée : un appelant ne peut pas le forger.
     demonstration = custom.get("Rappel") == "1"
+    # Posé par `/twilio/demo`, signée aussi : le gérant rappelé en rendez-vous. L'appel est
+    # sortant (chiffré comme tel), mais l'assistante décroche comme son restaurant.
+    rendez_vous = custom.get("RendezVous") == "1"
 
     tenant = await db.hors_boucle(tenants.get_by_phone, to_number)
     if tenant is None or not stream_sid:
         logger.warning(f"Stream refusé: tenant inconnu ou streamSid manquant (To={to_number})")
         await websocket.close(code=1008)  # policy violation
         return
+    # Recoupé côté serveur : seul un établissement d'essai est rappelé en rendez-vous.
+    rendez_vous = rendez_vous and tenants.est_demo(tenant)
 
     # Le flux de cet appel est arrivé jusqu'ici : s'il s'arrête sans rien demander,
     # `/twilio/suite` saura que c'était une fin normale et non une panne.
@@ -632,7 +659,7 @@ async def voice_stream(websocket: WebSocket):
     call_id = None
     try:
         call_id = await db.hors_boucle(calls.start_call, call_sid, tenant.id, from_number,
-                                       demonstration)
+                                       demonstration or rendez_vous)
         if demonstration:
             await db.hors_boucle(rappel.noter_decroche, call_sid)
     except Exception as exc:

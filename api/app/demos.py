@@ -28,7 +28,10 @@ import json
 import os
 import re
 import socket
+import threading
+import time
 import unicodedata
+from collections import deque
 from html.parser import HTMLParser
 from typing import Optional
 from urllib.parse import urljoin, urlsplit
@@ -850,3 +853,140 @@ def purger(jours: int) -> int:
     with db.get_conn() as conn:
         conn.execute("DELETE FROM demonstrations WHERE etat = 'effacee' AND created_at < ?", (limite,))
     return len(anciennes)
+
+
+# --- Démo 5 : faire rappeler le gérant (ASSISTANTE-145) -----------------------------------
+#
+# En rendez-vous, Helmi saisit le portable du gérant et clique : Twilio compose le numéro, et
+# quand le gérant décroche il entend « Bonjour, <son restaurant> », puis la mention que l'appel
+# est enregistré (décision du 18/11/2026 : enregistré et annoncé, par `ENREGISTREMENT_APPELS`
+# comme tout appel). Il joue un client et réserve ; la réservation d'essai reste dans
+# l'établissement de démonstration, qui ne prévient personne (protection 3 ci-dessus).
+#
+# Ce que l'appel ne doit JAMAIS faire : servir un vrai établissement. `/twilio/demo` reçoit
+# l'identifiant d'une démonstration dans son adresse (signée par Twilio), et
+# `etablissement_a_rappeler` ne rend qu'un établissement d'essai d'une démonstration prête.
+
+_verrou_rappels = threading.Lock()
+_rappels_lances: deque = deque()
+_dernier_rappel: dict[int, float] = {}
+# Un double clic (ou un rechargement de la page qui renvoie le formulaire) ne fait pas sonner
+# le gérant deux fois : une même démonstration ne rappelle pas avant ce délai.
+ENTRE_DEUX_RAPPELS_SECONDES = 20.0
+
+
+def rappels_par_jour() -> int:
+    """Le plafond des appels de démonstration sur 24 h glissantes : c'est lui qui borne la
+    facture si un bouton est cliqué en boucle. En mémoire du processus (un seul worker) :
+    seul le super-admin y a accès, un redémarrage qui le remet à zéro ne coûte qu'un
+    plafond de plus."""
+    try:
+        return max(0, int(os.getenv("DEMO_RAPPELS_PAR_JOUR", "").strip() or 20))
+    except ValueError:
+        return 20
+
+
+def ligne_presentee() -> Optional[str]:
+    """Le numéro Twilio qui s'affiche chez le gérant (`DEMO_LIGNE`), au format international,
+    ou None. Il doit appartenir au compte Twilio : c'est lui qui appelle."""
+    brut = "".join(os.getenv("DEMO_LIGNE", "").split())
+    return brut if re.fullmatch(r"\+\d{8,15}", brut) else None
+
+
+def rappel_indisponible() -> str:
+    """Pourquoi le bouton ne peut pas appeler (texte affiché sur la page), ou "" s'il peut."""
+    from . import rappel, twilio_region
+
+    manque = []
+    if not twilio_region.identifiants():
+        manque.append("les identifiants Twilio")
+    if not rappel._base_publique():
+        manque.append("PUBLIC_URL")
+    if ligne_presentee() is None:
+        manque.append("DEMO_LIGNE (le numéro Twilio présenté)")
+    return ("Rappel impossible : il manque " + ", ".join(manque) + " dans le .env.") if manque else ""
+
+
+def etablissement_a_rappeler(demo_id: int) -> Optional[tenants.Tenant]:
+    """L'établissement d'essai d'une démonstration PRÊTE, ou None. Seul chemin par lequel un
+    appel de démonstration trouve son établissement : jamais un vrai restaurant, même si
+    l'identifiant d'une démonstration désignait un jour un établissement réel."""
+    if not actives():
+        return None
+    demo = obtenir(demo_id)
+    if demo is None or demo["etat"] != "prete" or not demo["tenant_id"]:
+        return None
+    tenant = tenants.get_by_id(demo["tenant_id"])
+    if tenant is None or not tenants.est_demo(tenant):
+        return None
+    return tenant
+
+
+def _compter_un_rappel(demo_id: int) -> str:
+    """Inscrit un appel s'il reste de la place sous le plafond du jour et que cette
+    démonstration n'a pas rappelé à l'instant. Rend "" si l'appel peut partir, sinon le refus."""
+    maintenant = time.monotonic()
+    with _verrou_rappels:
+        while _rappels_lances and maintenant - _rappels_lances[0] > 86400:
+            _rappels_lances.popleft()
+        if len(_rappels_lances) >= rappels_par_jour():
+            return (f"Plafond atteint : {rappels_par_jour()} appels de démonstration en 24 heures "
+                    "(DEMO_RAPPELS_PAR_JOUR).")
+        precedent = _dernier_rappel.get(demo_id)
+        if precedent is not None and maintenant - precedent < ENTRE_DEUX_RAPPELS_SECONDES:
+            return "Un appel vient de partir pour cette démonstration : attendez qu'il sonne."
+        _rappels_lances.append(maintenant)
+        _dernier_rappel[demo_id] = maintenant
+        return ""
+
+
+def _rendre_un_rappel(demo_id: int) -> None:
+    """Twilio n'a pas composé : aucun appel n'a eu lieu, la place est rendue."""
+    with _verrou_rappels:
+        if _rappels_lances:
+            _rappels_lances.pop()
+        _dernier_rappel.pop(demo_id, None)
+
+
+def oublier_les_rappels() -> None:
+    """Remet le plafond à zéro — réservé aux tests."""
+    with _verrou_rappels:
+        _rappels_lances.clear()
+        _dernier_rappel.clear()
+
+
+async def faire_rappeler(demo_id: int, brut) -> tuple[bool, str]:
+    """Fait sonner le portable du gérant sur l'établissement d'essai de la démonstration.
+    Rend (parti, phrase à afficher). Ne lève jamais : la page est montrée en rendez-vous."""
+    from . import rappel
+
+    if not actives():
+        return False, "Les démonstrations ne sont pas actives ici."
+    indisponible = rappel_indisponible()
+    if indisponible:
+        return False, indisponible
+    numero = rappel.normaliser(brut)
+    if numero is None:
+        return False, "Ce numéro n'est pas un numéro français de métropole. Exemple : 06 12 34 56 78."
+    tenant = await db.hors_boucle(etablissement_a_rappeler, demo_id)
+    if tenant is None:
+        return False, "Créez d'abord l'établissement de démonstration."
+    refus = _compter_un_rappel(demo_id)
+    if refus:
+        return False, refus
+    try:
+        # L'accueil pré-rendu : sans lui, le premier appel de la démonstration commence par
+        # un blanc, le temps de synthétiser « Bonjour, <restaurant> ».
+        from .voice import greeting as greeting_mod
+        await asyncio.wait_for(greeting_mod.ensure_greeting_wav(tenant), timeout=20)
+    except Exception as exc:
+        logger.warning(f"[demo] accueil non pré-rendu, il sera dit en direct ({type(exc).__name__})")
+    try:
+        call_sid = await rappel._composer(numero, ligne_presentee(), f"/twilio/demo?d={int(demo_id)}")
+    except Exception as exc:
+        # Le type seulement : le message d'une erreur HTTP porte le numéro composé.
+        logger.warning(f"[demo] Twilio n'a pas composé le numéro ({type(exc).__name__})")
+        _rendre_un_rappel(demo_id)
+        return False, "L'appel n'a pas pu partir. Réessayez dans un instant."
+    logger.info(f"[demo] démonstration {demo_id} : appel d'un numéro en …{numero[-2:]} ({call_sid})")
+    return True, f"Le téléphone du {rappel.lisible(numero)} va sonner dans quelques secondes."

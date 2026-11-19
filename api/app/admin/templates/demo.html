@@ -54,6 +54,29 @@
      Il n'a aucun numéro réel, aucun compte restaurateur, et aucune réservation d'essai ne prévient personne.
      Effacement automatique au bout de 30 jours.</p>
 </div>
+
+<article class="card" id="rappel" style="max-width: 52rem">
+  <h2 class="form-section">Faire essayer le gérant</h2>
+  <p class="card-sub">Son portable sonne : l'assistante décroche au nom de {{ demo.nom }} et annonce que l'appel est enregistré. Il joue un client et réserve ; la réservation d'essai apparaît ensuite ici, dans
+    <a href="/admin/reservations?tenant_id={{ demo.tenant_id }}">les réservations</a> et
+    <a href="/admin/calls?tenant_id={{ demo.tenant_id }}">les appels</a> de l'établissement d'essai.</p>
+  {% if rappel.message %}
+  <p role="status">{% if rappel.ok %}<span class="chip chip-good">Appel lancé</span>{% else %}<span class="chip chip-warn">Pas d'appel</span>{% endif %}
+    {{ rappel.message }}</p>
+  {% endif %}
+  {% if rappel_indisponible %}
+  <p><span class="chip chip-warn">Indisponible</span> {{ rappel_indisponible }}</p>
+  {% else %}
+  <form method="post" action="/admin/demos/{{ demo.id }}/rappeler">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
+    <label>Portable du gérant
+      <input type="tel" name="numero" required maxlength="40" autocomplete="off" inputmode="tel"
+             placeholder="06 12 34 56 78" value="{{ rappel.numero or '' }}">
+    </label>
+    <button type="submit">Le faire rappeler</button>
+  </form>
+  {% endif %}
+</article>
 {% endif %}
 
 <article class="card" style="max-width: 52rem">
