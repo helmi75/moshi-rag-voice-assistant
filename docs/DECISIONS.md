@@ -72,6 +72,7 @@ session principale (`CLAUDE.md`, « Qui décide quoi »).
 | Vue le | Remarque | Suite |
 |---|---|---|
 | 19/11/2026 | Après le déploiement de 127bf42, la supervision de production signale « Appels muets : 1 appel sans réponse sur 13 ». Ce n'est pas lié au lot (Démo 5), et l'appel n'a pas été examiné. | À examiner : lire son journal en base. |
+| 19/11/2026 | Recette sans téléphone de ba86e29 : C9 (« lundi » sans date) n'a pas de scénario dans la recette d'appels automatique, malgré son 🤖 ; et la page d'accueil compte 10 `<section>` quand W17 en attend neuf. | C9 : ajouter le scénario. W17 : vérifier si la dixième est le pied de page. |
 | 13/10/2026 | Un appel qui tombe en panne en cours de route a eu un flux audio que son chiffrage de secours (`conclure_secours`) ne compte pas : 0,0044 $ par minute, cas rare. | Aucune ; écrit dans le code et au `CHANGELOG.md`. |
 | 13/10/2026 | Le tarif américain (0,0085 $ la minute) n'est pas distingué : le numéro américain ne sert plus qu'au Banc d'essai. | Aucune tant que c'est vrai. |
 | 24/10/2026 | « Rappelez-moi » n'est pas freiné par le solde Twilio. Avec un compte suspendu, Twilio refuse de toute façon. | À décider. |
