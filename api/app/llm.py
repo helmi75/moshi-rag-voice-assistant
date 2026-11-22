@@ -19,7 +19,8 @@ from openai import AsyncOpenAI
 
 from loguru import logger
 
-from . import connecteurs, db, disponibilite, horloge, messages, notifications, reservations
+from . import (connecteurs, db, disponibilite, essai, horloge, messages, notifications,
+               reservations, sms, tenants as fiches)
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
@@ -40,12 +41,13 @@ def maintenant() -> datetime:
 
 _date_en_toutes_lettres = horloge.en_toutes_lettres
 
-# ⚠️ Le prompt affirme que l'assistante n'envoie ni SMS ni e-mail AU CLIENT. C'est vrai, et
-# c'est un fait sur notre propre produit, pas une politique du restaurant — d'où l'exception
-# à la règle « n'invente pas ce que le restaurant ne fait pas ». Les e-mails qui partent
-# vers le RESTAURATEUR (notifications.py, depuis le 19/09/2026) n'y changent rien : le
-# client, lui, ne reçoit toujours rien. Le jour où #34 livre les SMS de confirmation, cette
-# phrase devient un mensonge : la changer fait partie de ce lot-là.
+# ⚠️ Le prompt ne promet un SMS AU CLIENT que si le résultat de `create_reservation` dit
+# `sms_confirmation: true` (ASSISTANTE-154, app/sms.py). C'est un fait sur notre propre
+# produit, pas une politique du restaurant — d'où l'exception à la règle « n'invente pas
+# ce que le restaurant ne fait pas ». L'envoi est éteint par défaut, absent pour un fixe,
+# un numéro masqué, une démonstration : promettre un SMS sans ce signal serait un
+# mensonge. Les e-mails vers le RESTAURATEUR (notifications.py) n'y changent rien. Jamais
+# d'e-mail au client.
 # Le numéro de rappel DICTÉ (appel 192, 27/09/2026) : sur un appel masqué, c'est le seul
 # moyen pour l'équipe de rappeler. Il n'identifie personne et n'ouvre aucune réservation.
 _RAPPEL_DICTE = (
@@ -391,11 +393,10 @@ quinze août, c'est bien ça ? ».
 - Vaut AUSSI pour ce que le restaurant NE FAIT PAS : jamais « pas d'animaux » ni « pas
   de terrasse » si ce n'est pas écrit ci-dessous. Dis « je ne sais pas, l'équipe vous le
   confirmera ». Une politique inventée engage autant qu'un prix inventé.
-- EXCEPTION, parce que ça te concerne TOI : tu n'envoies ni SMS ni e-mail, ne les
-  promets jamais. Si on
-  demande une confirmation écrite, dis que la confirmation est orale et que la
-  réservation est bien enregistrée. Jamais « je ne sais pas » sur ton propre
-  fonctionnement.
+- EXCEPTION, ça te concerne TOI : jamais d'e-mail, ne le promets jamais. Un SMS
+  seulement si l'outil dit `sms_confirmation: true` : annonce alors qu'un SMS de
+  confirmation va arriver. Sinon la confirmation est orale, la réservation bien
+  enregistrée. Jamais « je ne sais pas » sur ton propre fonctionnement.
 - Jamais de garantie sur les allergènes ni sur un régime : renvoie vers l'équipe en
   salle, qui vérifiera en cuisine.
 - N'invente aucun incident ni aucune raison : ni « difficulté technique », ni
@@ -954,8 +955,17 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
             {"status": "pending_restaurant_approval", "reservation_id": reservation["id"],
              "jour": _jour_en_clair(jour),
              "consigne": CONSIGNE_A_VALIDER}, ensure_ascii=False)
+    # Le SMS de confirmation (app/sms.py) : seulement pour une table CONFIRMÉE, et seulement
+    # si l'établissement l'a allumé. Le résultat dit au modèle s'il part, parce que c'est
+    # la seule chose qui l'autorise à le promettre au client.
+    numero_sms, nom_sms = sms.destinataire(caller_number), sms.expediteur(tenant)
+    envoi = bool(tenant.sms_actif and not fiches.est_demo(tenant)
+                 and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms)
+    if envoi:
+        sms.planifier(tenant, reservation, call_id, numero_sms, nom_sms)
     return json.dumps({"status": "confirmed", "reservation_id": reservation["id"],
-                       "jour": _jour_en_clair(jour)}, ensure_ascii=False)
+                       "jour": _jour_en_clair(jour), "sms_confirmation": envoi},
+                      ensure_ascii=False)
 
 
 async def respond(tenant: Tenant, history: list, user_text: str,

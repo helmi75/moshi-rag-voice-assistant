@@ -33,8 +33,8 @@ _COMPTES = "SELECT email, role, created_at FROM users WHERE tenant_id = ? ORDER 
 # journal technique (SCRUM-108), le détail des coûts par poste, le moteur et le fournisseur
 # de la voix — un restaurateur ne lit jamais le nom d'un fournisseur (décision du 09/10).
 _APPELS_MASQUES = {"journal", "voix_fournisseur", "cout_telephonie", "cout_transcription",
-                   "cout_comprehension", "cout_voix"}
-_FICHE_MASQUEE = {"moteur_voix"}
+                   "cout_comprehension", "cout_voix", "cout_sms"}
+_FICHE_MASQUEE = {"moteur_voix", "sms_actif", "sms_expediteur"}
 
 # Un nom ou une note se dicte par un inconnu (téléphone, SMS) : « =HYPERLINK(…) » deviendrait
 # une formule à l'ouverture dans Excel. Un numéro (« +33 6… ») reste un numéro.

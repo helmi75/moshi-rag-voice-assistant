@@ -101,6 +101,29 @@
         manque, tous les appels passent par la chaîne classique.</small>
       {% endif %}
     </label>
+    {# SMS de confirmation au client après sa réservation (app/sms.py). Réservé au super-admin :
+       chaque SMS se paie, et part sous le nom du restaurant. Le marqueur `sms_present` dit à
+       la route que la case figurait dans le formulaire : une case décochée n'envoie rien. #}
+    {% if tenant %}
+    {% set sms = apercu_sms(tenant) %}
+    <h2 class="form-section" id="sms">SMS de confirmation</h2>
+    <input type="hidden" name="sms_present" value="1">
+    <label>
+      <input type="checkbox" name="sms_actif" value="1" {% if sms.actif %}checked{% endif %}>
+      SMS de confirmation au client
+    </label>
+    <small class="muted">Après une table confirmée, le client qui appelle d'un portable
+      français reçoit un SMS. Jamais pour une démonstration, ni pour une demande que le
+      restaurant doit encore valider.</small>
+    <label>Nom d'expéditeur SMS
+      <input name="sms_expediteur" maxlength="40" placeholder="vide = le nom du restaurant"
+             value="{{ sms.pose }}">
+      <small class="muted">11 caractères au plus, lettres et chiffres, sans espace ni accent.
+        {% if sms.nom %}Le SMS partira sous le nom <strong>{{ sms.nom }}</strong>.
+        {% else %}Ce nom ne donne aucune lettre : <strong>aucun SMS ne partira</strong>.{% endif %}
+        L'aperçu suit l'enregistrement.</small>
+    </label>
+    {% endif %}
     {% endif %}
     <h2 class="form-section">Notifications</h2>
     <label>E-mail de notification
