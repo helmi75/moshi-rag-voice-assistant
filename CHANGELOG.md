@@ -15,7 +15,7 @@
   modifier ou annuler. Il est signé du nom du restaurant (expéditeur alphanumérique, 11
   caractères au plus) ; le 05 ne peut pas envoyer de SMS. Texte en GSM-7, 160 caractères au
   plus : un seul segment, 0,0798 $ (API de tarifs Twilio, 22/11/2026, `COST_SMS_PAR_SEGMENT`).
-- **Éteint par défaut** : `tenants.sms_actif` vaut 0 (migration v21), rien ne change en
+- **Éteint par défaut** : `tenants.sms_actif` vaut 0 (migration v24), rien ne change en
   production tant que le super-admin n'a pas coché « SMS de confirmation au client » dans la
   fiche de l'établissement (avec, au choix, un « Nom d'expéditeur SMS » et l'aperçu du nom qui
   partira). Jamais pour une démonstration, l'établissement d'essai, une demande resOS à valider,

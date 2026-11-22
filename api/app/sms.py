@@ -117,7 +117,10 @@ def corps(tenant, reservation: dict) -> str:
     tronqué s'il le faut (c'est lui qui varie), puis la phrase finale est abandonnée en
     dernier recours."""
     resto = _gsm7(getattr(tenant, "name", ""))[:30].strip() or "Restaurant"
-    nom = _gsm7(reservation.get("customer_name"))
+    # Le nom est DICTÉ par l'appelant et part sous la marque du restaurant : seulement des
+    # lettres, et 30 au plus. Ni numéro surtaxé ni adresse de site glissés dans un « nom ».
+    nom = " ".join(re.sub(r"[^A-Za-zàéèùìòÉÇ' -]", " ",
+                          _gsm7(reservation.get("customer_name"))).split())[:30].strip()
     jour = str(reservation.get("date") or "")[:10]
     try:
         aaaa, mm, jj = jour.split("-")
@@ -147,8 +150,13 @@ def _masque(numero: str) -> str:
 
 def _ajouter_cout(call_id: int, montant: float) -> None:
     with db.get_conn() as conn:
-        conn.execute("UPDATE calls SET cout_sms = COALESCE(cout_sms, 0) + ? WHERE id = ?",
-                     (round(montant, 6), call_id))
+        # `estimated_cost` aussi quand l'appel est déjà clos : raccrochage juste après la
+        # création, Twilio lent, et le SMS arrive après `finish_call`. Sans cela, la
+        # répartition de « Santé & coûts » ne tomberait plus sur le total.
+        conn.execute("UPDATE calls SET cout_sms = COALESCE(cout_sms, 0) + ?, "
+                     "estimated_cost = CASE WHEN estimated_cost IS NULL THEN NULL "
+                     "ELSE estimated_cost + ? END WHERE id = ?",
+                     (round(montant, 6), round(montant, 6), call_id))
 
 
 async def envoyer(tenant, reservation: dict, call_id: Optional[int], numero: str,

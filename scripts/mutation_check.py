@@ -1543,11 +1543,20 @@ GARDE_FOUS = [
     GardeFou(
         nom="SMS : jamais pour l'établissement d'essai",
         fichier="api/app/llm.py",
-        avant="                 and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms)",
-        apres="                 and numero_sms and nom_sms)  # mutation",
+        avant="                 and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms\n",
+        apres="                 and numero_sms and nom_sms  # mutation\n",
         tests=["test_sms.py"],
         k="etablissement_d_essai",
         panne="la recette automatique enverrait de vrais SMS, payés à chaque passage",
+    ),
+    GardeFou(
+        nom="SMS : jamais pendant un rappel de démonstration",
+        fichier="api/app/rappel.py",
+        avant="    return replace(tenant, greeting=ACCUEIL.format(nom=tenant.name), sms_actif=0)",
+        apres="    return replace(tenant, greeting=ACCUEIL.format(nom=tenant.name))  # mutation",
+        tests=["test_sms.py"],
+        k="rappel_de_demonstration",
+        panne="un visiteur du site qui essaie « Rappelez-moi » recevrait un vrai SMS payé, signé d'un restaurant",
     ),
     GardeFou(
         nom="SMS : le réglage est réservé au super-admin",

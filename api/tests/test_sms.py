@@ -45,11 +45,16 @@ def planifies():
         yield partis
 
 
-def _creer(tenant, numero=MOBILE) -> dict:
+# Un identifiant d'appel quelconque : le SMS ne part que pour une réservation prise au
+# téléphone (le canal SMS répond déjà par écrit, et son coût n'aurait pas d'appel où se noter).
+APPEL = 987654
+
+
+def _creer(tenant, numero=MOBILE, call_id=APPEL) -> dict:
     return json.loads(asyncio.run(llm.run_tool(
         tenant, "create_reservation",
         {"customer_name": "Martin", "date": _demain(), "time": "20:00", "party_size": 2},
-        numero)))
+        numero, call_id)))
 
 
 class TestExpediteur:
@@ -106,6 +111,15 @@ class TestCorps:
         finally:
             tenants.delete_tenant(longue.id)
 
+    def test_le_nom_dicte_ne_porte_ni_chiffre_ni_lien(self, resto):
+        """Le nom vient de l'appelant et part sous la marque du restaurant : pas de quoi y
+        glisser un numéro surtaxé ou une adresse de site."""
+        texte = self._lignes(resto, "Martin appelez le 08 99 12 34 56 www.x.fr")
+        nom = texte.split("au nom de ")[1].split(". Pour")[0]
+        assert not any(c.isdigit() for c in nom)
+        assert "." not in nom and "www.x" not in texte
+        assert len(nom) <= 30
+
     def test_un_nom_et_un_restaurant_de_cent_caracteres(self, resto):
         enorme = tenants.create_tenant("R" * 100, "+33199000883")
         try:
@@ -145,6 +159,19 @@ class TestLaCreationPlanifieLeSms:
     @pytest.mark.parametrize("numero", ["+33412345678", "", None, "anonymous", "+14155550123"])
     def test_numero_sans_sms(self, resto, planifies, numero):
         resultat = _creer(resto, numero)
+        assert resultat["status"] == "confirmed"
+        assert resultat["sms_confirmation"] is False and planifies == []
+
+    def test_canal_sms_sans_appel(self, resto, planifies):
+        resultat = _creer(resto, call_id=None)
+        assert resultat["status"] == "confirmed"
+        assert resultat["sms_confirmation"] is False and planifies == []
+
+    def test_rappel_de_demonstration(self, resto, planifies):
+        """« Rappelez-moi » du site : Marie appelle un inconnu depuis un VRAI établissement.
+        Le visiteur qui essaie une réservation ne reçoit pas un SMS payé."""
+        from app import rappel
+        resultat = _creer(rappel.pour_la_demonstration(resto))
         assert resultat["status"] == "confirmed"
         assert resultat["sms_confirmation"] is False and planifies == []
 
@@ -307,6 +334,20 @@ class TestLeCoutEntreDansLAppel:
         hors_sms = (ligne["cout_telephonie"] + ligne["cout_transcription"]
                     + ligne["cout_comprehension"] + ligne["cout_voix"])
         assert ligne["estimated_cost"] == pytest.approx(hors_sms + 0.0798)
+
+    def test_un_sms_accepte_apres_la_cloture_entre_dans_le_total(self, resto, appel, twilio):
+        """Raccrochage juste après la création, Twilio lent : le SMS arrive après
+        `finish_call`. Sans cela, « Santé & coûts » ne tomberait plus sur le total."""
+        calls.finish_call("CA-sms-test")
+        with db.get_conn() as conn:
+            avant = conn.execute("SELECT estimated_cost FROM calls WHERE id = ?",
+                                 (appel,)).fetchone()[0]
+        twilio.reponse = httpx.Response(201, json={"sid": "SM1", "num_segments": "1"})
+        assert asyncio.run(sms.envoyer(resto, RESERVATION, appel, MOBILE, "LeBouchonDo"))
+        with db.get_conn() as conn:
+            apres = conn.execute("SELECT estimated_cost FROM calls WHERE id = ?",
+                                 (appel,)).fetchone()[0]
+        assert apres == pytest.approx(avant + sms.cout_par_segment())
 
     def test_la_repartition_a_un_poste_sms_et_reste_une_somme_exacte(self, resto, appel):
         with db.get_conn() as conn:

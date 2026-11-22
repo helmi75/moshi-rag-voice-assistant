@@ -959,8 +959,11 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     # si l'établissement l'a allumé. Le résultat dit au modèle s'il part, parce que c'est
     # la seule chose qui l'autorise à le promettre au client.
     numero_sms, nom_sms = sms.destinataire(caller_number), sms.expediteur(tenant)
+    # `call_id` : seulement au téléphone. Le canal SMS répond déjà par écrit, et le coût
+    # d'un envoi sans appel ne serait noté nulle part.
     envoi = bool(tenant.sms_actif and not fiches.est_demo(tenant)
-                 and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms)
+                 and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms
+                 and call_id)
     if envoi:
         sms.planifier(tenant, reservation, call_id, numero_sms, nom_sms)
     return json.dumps({"status": "confirmed", "reservation_id": reservation["id"],
