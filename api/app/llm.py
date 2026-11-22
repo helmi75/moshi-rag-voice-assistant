@@ -963,7 +963,7 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     # d'un envoi sans appel ne serait noté nulle part.
     envoi = bool(tenant.sms_actif and not fiches.est_demo(tenant)
                  and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms
-                 and call_id)
+                 and call_id and sms.couverts(reservation))
     if envoi:
         sms.planifier(tenant, reservation, call_id, numero_sms, nom_sms)
     return json.dumps({"status": "confirmed", "reservation_id": reservation["id"],

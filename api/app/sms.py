@@ -112,6 +112,19 @@ def _numero_lisible(numero) -> Optional[str]:
     return " ".join(chiffres[i:i + 2] for i in range(0, 10, 2))
 
 
+def couverts(reservation: dict) -> Optional[int]:
+    """Le nombre de couverts s'il en est un (1 à 999), sinon None et aucun SMS : le modèle
+    peut rendre une chaîne pour un entier, et ce texte viendrait de l'appelant."""
+    brut = reservation.get("party_size")
+    if isinstance(brut, bool):
+        return None
+    try:
+        n = int(str(brut).strip())
+    except (TypeError, ValueError):
+        return None
+    return n if 1 <= n <= 999 else None
+
+
 def corps(tenant, reservation: dict) -> str:
     """Le texte du SMS : GSM-7 seulement, 160 caractères au plus. Le nom du client est
     tronqué s'il le faut (c'est lui qui varie), puis la phrase finale est abandonnée en
@@ -128,12 +141,12 @@ def corps(tenant, reservation: dict) -> str:
     except ValueError:
         quand = jour
     heure = str(reservation.get("time") or "")[:5].replace(":", "h")
-    couverts = reservation.get("party_size")
+    nombre = couverts(reservation)
     numero = _numero_lisible(getattr(tenant, "phone_number", None))
     suite = f" Pour modifier ou annuler, appelez le {numero}." if numero else ""
 
     def construire(nom_court: str, avec_suite: bool) -> str:
-        return (f"{resto} : table pour {couverts} le {quand} à {heure} au nom de {nom_court}."
+        return (f"{resto} : table pour {nombre} le {quand} à {heure} au nom de {nom_court}."
                 + (suite if avec_suite else ""))
 
     for avec_suite in (True, False):

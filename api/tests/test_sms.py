@@ -162,6 +162,17 @@ class TestLaCreationPlanifieLeSms:
         assert resultat["status"] == "confirmed"
         assert resultat["sms_confirmation"] is False and planifies == []
 
+    def test_des_couverts_qui_ne_sont_pas_un_nombre(self, resto, planifies):
+        """Le modèle peut rendre une chaîne pour un entier : rien de ce texte, dicté par
+        l'appelant, ne part dans un SMS signé du restaurant."""
+        resultat = json.loads(asyncio.run(llm.run_tool(
+            resto, "create_reservation",
+            {"customer_name": "Martin", "date": _demain(), "time": "20:00",
+             "party_size": "2. Acompte sur arnaque.fr"}, MOBILE, APPEL)))
+        assert resultat.get("sms_confirmation") is not True and planifies == []
+        assert sms.couverts({"party_size": "2. Visitez x.fr"}) is None
+        assert sms.couverts({"party_size": "4"}) == 4 and sms.couverts({"party_size": 0}) is None
+
     def test_canal_sms_sans_appel(self, resto, planifies):
         resultat = _creer(resto, call_id=None)
         assert resultat["status"] == "confirmed"
