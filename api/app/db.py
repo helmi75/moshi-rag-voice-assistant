@@ -390,6 +390,15 @@ WHERE tenant_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM tenants t WHERE t.id = demonstrations.tenant_id
                               AND t.phone_number = 'demo-' || demonstrations.id);
 """,
+    # v24 — ASSISTANTE-154 : SMS de confirmation au client après sa réservation. Éteint
+    #  partout (DEFAULT 0) : rien ne change en production tant que le super-admin n'a pas
+    #  allumé l'établissement. `sms_expediteur` vide = nom dérivé de celui du restaurant.
+    #  `cout_sms` : ce que Twilio a facturé pour cet appel (segments × tarif).
+    """
+ALTER TABLE tenants ADD COLUMN sms_actif INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tenants ADD COLUMN sms_expediteur TEXT;
+ALTER TABLE calls ADD COLUMN cout_sms REAL;
+""",
 ]
 
 

@@ -260,8 +260,8 @@ def finish_call(
     transcript_json = json.dumps(transcript, ensure_ascii=False) if transcript else None
     with db.get_conn() as conn:
         row = conn.execute(
-            "SELECT id, tenant_id, started_at, sortant, caller_number, secours_motif "
-            "FROM calls WHERE call_sid = ?",
+            "SELECT id, tenant_id, started_at, sortant, caller_number, secours_motif, "
+            "cout_sms FROM calls WHERE call_sid = ?",
             (call_sid,)
         ).fetchone()
         if row is None:
@@ -294,7 +294,9 @@ def finish_call(
                 transcript_json,
                 reservation_id,
                 externe,
-                sum(couts[p] for p in POSTES),
+                # Le SMS de confirmation part PENDANT l'appel (app/sms.py) : son coût est
+                # déjà posé, la clôture l'ajoute sans l'écraser.
+                sum(couts[p] for p in POSTES) + (row["cout_sms"] or 0.0),
                 json.dumps(turn_latencies) if turn_latencies else None,
                 _journal_borne(journal),
                 recording_bytes,
@@ -372,7 +374,7 @@ def conclure_secours(call_sid: Optional[str], statut: str, *,
     with db.get_conn() as conn:
         row = conn.execute(
             """SELECT id, started_at, secours_secondes, cout_transcription,
-                      cout_comprehension, cout_voix FROM calls WHERE call_sid = ?""",
+                      cout_comprehension, cout_voix, cout_sms FROM calls WHERE call_sid = ?""",
             (call_sid,)).fetchone()
         if row is None:
             return None
@@ -389,7 +391,8 @@ def conclure_secours(call_sid: Optional[str], statut: str, *,
                    cout_telephonie = ?, cout_transcription = ?, cout_comprehension = ?,
                    cout_voix = ?, estimated_cost = ?
                WHERE id = ?""",
-            (statut, renvoi, duree, telephonie, *autres, telephonie + sum(autres), row["id"]),
+            (statut, renvoi, duree, telephonie, *autres,
+             telephonie + sum(autres) + (row["cout_sms"] or 0.0), row["id"]),
         )
     return row["id"]
 
@@ -720,6 +723,7 @@ def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict
             f"""SELECT COALESCE(SUM(cout_telephonie), 0) AS telephonie,
                        COALESCE(SUM(cout_transcription), 0) AS transcription,
                        COALESCE(SUM(cout_comprehension), 0) AS comprehension,
+                       COALESCE(SUM(cout_sms), 0) AS sms,
                        COALESCE(SUM(CASE WHEN voix_fournisseur = 'moshi' THEN cout_voix END), 0)
                            AS voix_moshi,
                        COALESCE(SUM(CASE WHEN voix_fournisseur = 'gpt-live' THEN cout_voix END), 0)
@@ -736,6 +740,8 @@ def cost_breakdown(tenant_id: Optional[int] = None, days: int = 30) -> list[dict
         ("Compréhension (Gemini)", r["comprehension"]),
         ("Voix Mistral (Voxtral)", r["voix_mistral"]),
     ]
+    if r["sms"]:
+        rows.append(("SMS de confirmation (Twilio)", r["sms"]))
     if r["voix_gpt_live"]:
         rows.append(("Voix GPT-Live (OpenAI)", r["voix_gpt_live"]))
     if r["voix_moshi"]:

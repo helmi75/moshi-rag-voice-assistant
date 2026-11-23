@@ -76,6 +76,10 @@ class Tenant:
     # secours) ou « classique » (Deepgram, Gemini, voix Mistral). Réglé par le super-admin
     # seulement ; c'est voice/live.py:moteur qui tranche. None = aucun choix enregistré.
     moteur_voix: Optional[str] = None
+    # SMS de confirmation au client (app/sms.py) : éteint par défaut, allumé par le
+    # super-admin seulement. `sms_expediteur` vide = nom dérivé de celui du restaurant.
+    sms_actif: bool = False
+    sms_expediteur: Optional[str] = None
 
 
 def _row_to_tenant(row) -> Tenant:
@@ -94,6 +98,8 @@ def _row_to_tenant(row) -> Tenant:
         booking_provider=row["booking_provider"],
         numero_secours=row["numero_secours"],
         moteur_voix=row["moteur_voix"],
+        sms_actif=bool(row["sms_actif"]),
+        sms_expediteur=row["sms_expediteur"],
     )
 
 
@@ -190,7 +196,8 @@ def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     conflit."""
     allowed = {"name", "business_type", "phone_number", "language", "greeting",
                "knowledge_base", "greeting_customized", "voice", "plan", "opening_hours",
-               "notify_email", "booking_provider", "numero_secours", "moteur_voix"}
+               "notify_email", "booking_provider", "numero_secours", "moteur_voix",
+               "sms_actif", "sms_expediteur"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_by_id(tenant_id)

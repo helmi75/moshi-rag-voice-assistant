@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from loguru import logger
 from starlette.background import BackgroundTask
 
-from .. import connecteurs, db, export, horloge, plans, taches, tenants, users
+from .. import connecteurs, db, export, horloge, plans, sms, taches, tenants, users
 from ..connecteurs import resos
 from ..users import User
 from ..voice import live
@@ -79,6 +79,17 @@ def _moteur_appel(tenant) -> dict:
 
 
 deps.templates.env.globals["moteur_appel"] = _moteur_appel
+
+
+def _apercu_sms(tenant) -> dict:
+    """Ce que la fiche montre du SMS de confirmation : le nom qui partira (None = rien ne
+    part, le nom ne donne aucune lettre) et si l'envoi est allumé."""
+    return {"actif": bool(tenant and tenant.sms_actif),
+            "pose": (tenant.sms_expediteur or "") if tenant else "",
+            "nom": sms.expediteur(tenant) if tenant else None}
+
+
+deps.templates.env.globals["apercu_sms"] = _apercu_sms
 
 
 def _numero(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -296,7 +307,24 @@ async def tenant_update(
     secours, erreur_secours = _numero_de_secours(
         str(formulaire.get("numero_secours") or ""), numero or tenant.phone_number)
     del numero_secours
-    erreur = erreur_numero or erreur or erreur_secours
+    # SMS de confirmation (ASSISTANTE-154) : réservé au super-admin, comme le moteur — il
+    # coûte à chaque réservation et écrit à un client sous le nom du restaurant. Une case
+    # décochée n'envoie rien : le marqueur `sms_present` dit que la case était dans le
+    # formulaire, sans quoi un enregistrement qui ne la porte pas l'éteindrait.
+    sms_fields: dict = {}
+    erreur_sms = None
+    if user.is_superadmin and "sms_present" in formulaire:
+        sms_fields["sms_actif"] = 1 if formulaire.get("sms_actif") else 0
+        saisi = str(formulaire.get("sms_expediteur") or "").strip()
+        if saisi:
+            valide = sms.nom_expediteur(saisi)
+            if valide is None:
+                erreur_sms = ("Nom d'expéditeur SMS refusé : il faut au moins une lettre "
+                              "(lettres et chiffres seulement, 11 caractères au plus).")
+            sms_fields["sms_expediteur"] = valide
+        else:
+            sms_fields["sms_expediteur"] = None
+    erreur = erreur_numero or erreur or erreur_secours or erreur_sms
     if erreur:
         return deps.templates.TemplateResponse(
             request, "tenants/form.html",
@@ -332,6 +360,7 @@ async def tenant_update(
     # des clients chez OpenAI. C'est une décision de l'exploitant, pas du restaurateur.
     if user.is_superadmin and moteur_voix in live.MOTEURS:
         fields["moteur_voix"] = moteur_voix
+    fields.update(sms_fields)
     try:
         await db.hors_boucle(tenants.update_tenant, tenant.id, **fields)
     except sqlite3.IntegrityError:

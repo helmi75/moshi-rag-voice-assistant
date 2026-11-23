@@ -7,6 +7,29 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — SMS de confirmation au client après sa réservation (22/11/2026, ASSISTANTE-154)
+
+### Ajouté
+- Après une table **confirmée**, le client qui appelle d'un portable français (`+336`/`+337`)
+  reçoit un SMS : nombre de couverts, jour, heure, nom, et le numéro de l'établissement pour
+  modifier ou annuler. Il est signé du nom du restaurant (expéditeur alphanumérique, 11
+  caractères au plus) ; le 05 ne peut pas envoyer de SMS. Texte en GSM-7, 160 caractères au
+  plus : un seul segment, 0,0798 $ (API de tarifs Twilio, 22/11/2026, `COST_SMS_PAR_SEGMENT`).
+- **Éteint par défaut** : `tenants.sms_actif` vaut 0 (migration v24), rien ne change en
+  production tant que le super-admin n'a pas coché « SMS de confirmation au client » dans la
+  fiche de l'établissement (avec, au choix, un « Nom d'expéditeur SMS » et l'aperçu du nom qui
+  partira). Jamais pour une démonstration, l'établissement d'essai, une demande resOS à valider,
+  un fixe, un numéro masqué ou étranger.
+- Le coût est noté dans `calls.cout_sms`, compris dans le coût de l'appel ; « Santé & coûts »
+  affiche un poste « SMS de confirmation (Twilio) » quand il y en a.
+
+### Modifié
+- Le prompt ne promet un SMS que si l'outil répond `sms_confirmation: true` ; sinon la
+  confirmation reste orale. L'envoi passe par une tâche de fond : il ne retarde pas l'appel et
+  une erreur de Twilio ne fait pas échouer la réservation.
+- Pas de SMS pour la modification ni l'annulation (lot suivant). Quatre garde-fous du contrôle
+  par mutation (SMS éteint, démonstration, essai, réglage réservé au super-admin).
+
 ## Non publiée — Démonstration : effacer une démonstration ne touche plus l'établissement d'une autre (19/11/2026, ASSISTANTE-197)
 
 ### Corrigé

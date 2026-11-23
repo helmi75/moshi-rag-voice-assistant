@@ -1521,6 +1521,52 @@ GARDE_FOUS = [
         k="pas_hexadecimal",
         panne="un nom d'archive lu en base pourrait désigner un fichier hors du dossier des archives",
     ),
+    # --- SMS de confirmation au client (ASSISTANTE-154) -------------------------------
+    GardeFou(
+        nom="SMS : éteint tant que l'établissement n'est pas allumé",
+        fichier="api/app/llm.py",
+        avant="    envoi = bool(tenant.sms_actif and not fiches.est_demo(tenant)",
+        apres="    envoi = bool(True and not fiches.est_demo(tenant)  # mutation",
+        tests=["test_sms.py"],
+        k="etablissement_eteint",
+        panne="chaque réservation de chaque établissement enverrait un SMS payant, sans que personne l'ait décidé",
+    ),
+    GardeFou(
+        nom="SMS : jamais pour une démonstration",
+        fichier="api/app/llm.py",
+        avant="and not fiches.est_demo(tenant)\n",
+        apres="\n",
+        tests=["test_sms.py"],
+        k="demonstration",
+        panne="un restaurateur démarché qui essaie la démonstration enverrait de vrais SMS",
+    ),
+    GardeFou(
+        nom="SMS : jamais pour l'établissement d'essai",
+        fichier="api/app/llm.py",
+        avant="                 and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms\n",
+        apres="                 and numero_sms and nom_sms  # mutation\n",
+        tests=["test_sms.py"],
+        k="etablissement_d_essai",
+        panne="la recette automatique enverrait de vrais SMS, payés à chaque passage",
+    ),
+    GardeFou(
+        nom="SMS : jamais pendant un rappel de démonstration",
+        fichier="api/app/rappel.py",
+        avant="    return replace(tenant, greeting=ACCUEIL.format(nom=tenant.name), sms_actif=0)",
+        apres="    return replace(tenant, greeting=ACCUEIL.format(nom=tenant.name))  # mutation",
+        tests=["test_sms.py"],
+        k="rappel_de_demonstration",
+        panne="un visiteur du site qui essaie « Rappelez-moi » recevrait un vrai SMS payé, signé d'un restaurant",
+    ),
+    GardeFou(
+        nom="SMS : le réglage est réservé au super-admin",
+        fichier="api/app/admin/routes_tenants.py",
+        avant='    if user.is_superadmin and "sms_present" in formulaire:',
+        apres='    if "sms_present" in formulaire:  # mutation',
+        tests=["test_sms.py"],
+        k="restaurateur_ne_peut_pas",
+        panne="un restaurateur allumerait les SMS, que l'exploitant paie, et choisirait le nom sous lequel ils partent",
+    ),
 ]
 
 

@@ -19,8 +19,8 @@ en plus, `tenants.notify_email` si le gérant veut une boîte partagée (salle@�
 SMTP générique (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`,
 `SMTP_SSL`) : aucun fournisseur imposé. Sans `SMTP_HOST`, rien ne part et rien ne casse.
 
-Le prompt continue de dire au CLIENT que l'assistante n'envoie ni SMS ni e-mail : c'est
-vrai — ceux-ci vont au restaurateur.
+Le prompt dit au CLIENT que l'assistante n'envoie jamais d'e-mail : c'est vrai — ceux-ci
+vont au restaurateur. Le SMS de confirmation au client, lui, est décrit dans app/sms.py.
 """
 import asyncio
 import os
