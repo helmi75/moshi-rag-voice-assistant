@@ -10,8 +10,9 @@ Le client qui réserve au téléphone ne garde aucune trace écrite. Décisions 
 Quatre règles, dans l'ordre où elles comptent :
 
 1. **Éteint par défaut** : `tenants.sms_actif` vaut 0 tant que le super-admin n'a pas allumé
-   l'établissement. Jamais pour une démonstration ni pour l'établissement d'essai : on y
-   fait essayer des réservations, le numéro saisi n'est pas celui d'un vrai client.
+   l'établissement. Jamais pour l'établissement d'essai ni pour le « Rappelez-moi » du
+   site : le numéro n'est pas celui d'un vrai client. Une démonstration personnalisée, elle,
+   envoie toujours (ASSISTANTE-199) : son seul appelant est le gérant rappelé en rendez-vous.
 2. **Jamais sur le chemin de l'appel** : `planifier` confie l'envoi au registre de tâches
    (app/taches.py) et rend la main, comme les e-mails du restaurateur.
 3. **Jamais d'exception vers l'appel** : un refus de Twilio (21614 : numéro qui ne reçoit
@@ -215,7 +216,7 @@ async def envoyer(tenant, reservation: dict, call_id: Optional[int], numero: str
 def planifier(tenant, reservation: dict, call_id: Optional[int], numero: str,
               expediteur_sms: str) -> asyncio.Task:
     """Ce que `llm.run_tool` appelle : lance l'envoi en tâche de fond et rend la main tout
-    de suite. Les conditions (SMS allumé, pas de démonstration, mobile valide) sont
+    de suite. Les conditions (SMS allumé ou démonstration, mobile valide) sont
     vérifiées par l'appelant."""
     return taches.lancer(envoyer(tenant, reservation, call_id, numero, expediteur_sms),
                          nom=f"sms confirmation → {tenant.name}")
