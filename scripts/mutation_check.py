@@ -1552,8 +1552,8 @@ GARDE_FOUS = [
     GardeFou(
         nom="SMS : jamais pendant un rappel de démonstration",
         fichier="api/app/rappel.py",
-        avant="    return replace(tenant, greeting=ACCUEIL.format(nom=tenant.name), sms_actif=0)",
-        apres="    return replace(tenant, greeting=ACCUEIL.format(nom=tenant.name))  # mutation",
+        avant="sms_actif=0,\n                   rappel_du_site=True)",
+        apres=")  # mutation",
         tests=["test_sms.py"],
         k="rappel_de_demonstration",
         panne="un visiteur du site qui essaie « Rappelez-moi » recevrait un vrai SMS payé, signé d'un restaurant",
