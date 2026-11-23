@@ -142,14 +142,34 @@ class TestLaCreationPlanifieLeSms:
         resultat = _creer(tenants.get_by_id(resto.id))
         assert resultat["sms_confirmation"] is False and planifies == []
 
-    def test_demonstration(self, planifies):
-        demo = tenants.create_tenant("Démo", "demo-sms-1")
-        tenants.update_tenant(demo.id, sms_actif=1)
+    def test_demonstration_envoie_sans_case_cochee(self, planifies):
+        """ASSISTANTE-199 : pendant une démonstration, le gérant rappelé reçoit le SMS que
+        recevront ses clients. Une démonstration n'est joignable que par `/twilio/demo`
+        (route signée) : son seul appelant est le numéro que l'admin a fait rappeler."""
+        demo = tenants.create_tenant("Le Procope", "demo-sms-1")
         try:
             resultat = _creer(tenants.get_by_id(demo.id))
+            assert resultat["sms_confirmation"] is True and len(planifies) == 1
+        finally:
+            tenants.delete_tenant(demo.id)
+
+    def test_demonstration_sans_mobile(self, planifies):
+        demo = tenants.create_tenant("Le Procope", "demo-sms-2")
+        try:
+            resultat = _creer(tenants.get_by_id(demo.id), "+33412345678")
             assert resultat["sms_confirmation"] is False and planifies == []
         finally:
             tenants.delete_tenant(demo.id)
+
+    def test_demonstration_ne_donne_pas_un_numero_qui_n_existe_pas(self):
+        """Le numéro d'une démonstration (`demo-…`) n'est pas un numéro : le SMS n'invite
+        pas à rappeler un numéro inventé."""
+        demo = tenants.Tenant(id=1, name="Le Procope", business_type="restaurant",
+                              phone_number="demo-3", language="fr", greeting="",
+                              knowledge_base="")
+        texte = sms.corps(demo, {"date": _demain(), "time": "20:00", "party_size": 2,
+                                 "customer_name": "Martin"})
+        assert "appelez" not in texte and "demo" not in texte
 
     def test_etablissement_d_essai(self, resto, planifies, monkeypatch):
         monkeypatch.setenv("RECETTE_ETABLISSEMENT", str(resto.id))

@@ -7,6 +7,15 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — SMS de confirmation pendant les démonstrations (23/11/2026, ASSISTANTE-199)
+
+### Modifié
+- Une démonstration personnalisée envoie le SMS de confirmation **sans case cochée** : le
+  gérant rappelé en rendez-vous reçoit ce que recevront ses clients, signé du nom de son
+  restaurant. Son seul appelant possible est le numéro que l'admin a fait rappeler
+  (`/twilio/demo`, signée). Le « Rappelez-moi » du site et l'établissement d'essai restent
+  sans SMS. Le SMS d'une démonstration n'invite pas à rappeler (elle n'a pas de vrai numéro).
+
 ## Non publiée — SMS de confirmation au client après sa réservation (22/11/2026, ASSISTANTE-154)
 
 ### Ajouté

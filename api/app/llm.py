@@ -961,7 +961,12 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
     numero_sms, nom_sms = sms.destinataire(caller_number), sms.expediteur(tenant)
     # `call_id` : seulement au téléphone. Le canal SMS répond déjà par écrit, et le coût
     # d'un envoi sans appel ne serait noté nulle part.
-    envoi = bool(tenant.sms_actif and not fiches.est_demo(tenant)
+    # Une démonstration envoie sans case cochée (ASSISTANTE-199) : le gérant démarché voit
+    # en rendez-vous ce que recevront ses clients. Son numéro (`demo-…`) n'existe pas sur le
+    # réseau : son seul appelant est celui que l'admin a fait rappeler (`/twilio/demo`,
+    # signée). Le « Rappelez-moi » du site, lui, tourne sur un VRAI établissement que
+    # `rappel.pour_la_demonstration` éteint : un inconnu ne reçoit rien.
+    envoi = bool((tenant.sms_actif or fiches.est_demo(tenant))
                  and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms
                  and call_id and sms.couverts(reservation))
     if envoi:
