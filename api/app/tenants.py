@@ -80,6 +80,9 @@ class Tenant:
     # super-admin seulement. `sms_expediteur` vide = nom dérivé de celui du restaurant.
     sms_actif: bool = False
     sms_expediteur: Optional[str] = None
+    # Jamais en base : posé par `rappel.pour_la_demonstration` pour l'appel du « Rappelez-moi »
+    # du site, où la personne au bout du fil est un inconnu (ASSISTANTE-199).
+    rappel_du_site: bool = False
 
 
 def _row_to_tenant(row) -> Tenant:

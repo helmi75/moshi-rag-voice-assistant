@@ -12,8 +12,9 @@
 ### Modifié
 - Une démonstration personnalisée envoie le SMS de confirmation **sans case cochée** : le
   gérant rappelé en rendez-vous reçoit ce que recevront ses clients, signé du nom de son
-  restaurant. Son seul appelant possible est le numéro que l'admin a fait rappeler
-  (`/twilio/demo`, signée). Le « Rappelez-moi » du site et l'établissement d'essai restent
+  restaurant. Une démonstration n'a pas de vrai numéro : on la joint par le rappel de
+  l'admin (`/twilio/demo`, signée). Le « Rappelez-moi » du site (`rappel_du_site`, même si
+  `RAPPEL_ETABLISSEMENT` désignait une démonstration) et l'établissement d'essai restent
   sans SMS. Le SMS d'une démonstration n'invite pas à rappeler (elle n'a pas de vrai numéro).
 
 ## Non publiée — SMS de confirmation au client après sa réservation (22/11/2026, ASSISTANTE-154)

@@ -193,8 +193,11 @@ def pour_la_demonstration(tenant: tenants.Tenant) -> tenants.Tenant:
     """Le même établissement, avec l'accueil du rappel. L'accueil d'un restaurant
     (« Bonjour, Le Bouchon Doré ») n'a pas de sens quand c'est Marie qui appelle.
     Sans SMS de confirmation (ASSISTANTE-154) : le visiteur essaie une réservation chez un
-    vrai établissement, il ne reçoit pas un SMS payé, signé d'un restaurant où il n'ira pas."""
-    return replace(tenant, greeting=ACCUEIL.format(nom=tenant.name), sms_actif=0)
+    vrai établissement, il ne reçoit pas un SMS payé, signé d'un restaurant où il n'ira pas.
+    `rappel_du_site` le dit aussi quand `RAPPEL_ETABLISSEMENT` désigne une démonstration,
+    qui enverrait sans case cochée (ASSISTANTE-199)."""
+    return replace(tenant, greeting=ACCUEIL.format(nom=tenant.name), sms_actif=0,
+                   rappel_du_site=True)
 
 
 # ---- Les plafonds ---------------------------------------------------------------------

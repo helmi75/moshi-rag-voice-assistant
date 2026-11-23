@@ -153,6 +153,18 @@ class TestLaCreationPlanifieLeSms:
         finally:
             tenants.delete_tenant(demo.id)
 
+    def test_rappel_du_site_sur_une_demonstration(self, planifies):
+        """Constat de relecture : si `RAPPEL_ETABLISSEMENT` désigne une démonstration, le
+        visiteur du site (un inconnu, peut-être avec le numéro d'un autre) ne reçoit rien."""
+        from app import rappel
+        demo = tenants.create_tenant("Le Procope", "demo-sms-4")
+        try:
+            resultat = _creer(rappel.pour_la_demonstration(tenants.get_by_id(demo.id)))
+            assert resultat["status"] == "confirmed"
+            assert resultat["sms_confirmation"] is False and planifies == []
+        finally:
+            tenants.delete_tenant(demo.id)
+
     def test_demonstration_sans_mobile(self, planifies):
         demo = tenants.create_tenant("Le Procope", "demo-sms-2")
         try:

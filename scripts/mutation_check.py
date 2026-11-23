@@ -1532,13 +1532,13 @@ GARDE_FOUS = [
         panne="chaque réservation de chaque établissement enverrait un SMS payant, sans que personne l'ait décidé",
     ),
     GardeFou(
-        nom="SMS : seule une démonstration envoie sans case cochée",
+        nom="SMS : jamais au « Rappelez-moi » du site, même sur une démonstration",
         fichier="api/app/llm.py",
-        avant="or fiches.est_demo(tenant))",
-        apres="or True)  # mutation",
+        avant='                 and not getattr(tenant, "rappel_du_site", False)\n',
+        apres="\n",
         tests=["test_sms.py"],
-        k="etablissement_eteint",
-        panne="tout établissement enverrait des SMS payants sans que personne les ait allumés",
+        k="rappel_du_site_sur_une_demonstration",
+        panne="un inconnu qui essaie « Rappelez-moi » recevrait un SMS payé, signé du restaurant démarché",
     ),
     GardeFou(
         nom="SMS : jamais pour l'établissement d'essai",
