@@ -9,8 +9,9 @@ Le client qui réserve au téléphone ne garde aucune trace écrite. Décisions 
 
 Quatre règles, dans l'ordre où elles comptent :
 
-1. **Éteint par défaut** : `tenants.sms_actif` vaut 0 tant que le super-admin n'a pas allumé
-   l'établissement. Jamais pour l'établissement d'essai ni pour le « Rappelez-moi » du
+1. **Éteint par défaut** : `tenants.sms_actif` vaut 0 tant que le restaurateur (ou le
+   super-admin) ne l'a pas allumé ; il les paie 0,20 € HT pièce et peut fixer un plafond
+   mensuel (ASSISTANTE-198, `quotas.sms`). Jamais pour l'établissement d'essai ni pour le « Rappelez-moi » du
    site : le numéro n'est pas celui d'un vrai client. Une démonstration personnalisée, elle,
    envoie toujours (ASSISTANTE-199) : son seul appelant est le gérant rappelé en rendez-vous.
 2. **Jamais sur le chemin de l'appel** : `planifier` confie l'envoi au registre de tâches
@@ -167,7 +168,10 @@ def _ajouter_cout(call_id: int, montant: float) -> None:
         # `estimated_cost` aussi quand l'appel est déjà clos : raccrochage juste après la
         # création, Twilio lent, et le SMS arrive après `finish_call`. Sans cela, la
         # répartition de « Santé & coûts » ne tomberait plus sur le total.
+        # `sms_envoyes` : ce que le restaurateur paie (ASSISTANTE-198), un par SMS accepté,
+        # quel que soit le nombre de segments.
         conn.execute("UPDATE calls SET cout_sms = COALESCE(cout_sms, 0) + ?, "
+                     "sms_envoyes = COALESCE(sms_envoyes, 0) + 1, "
                      "estimated_cost = CASE WHEN estimated_cost IS NULL THEN NULL "
                      "ELSE estimated_cost + ? END WHERE id = ?",
                      (round(montant, 6), round(montant, 6), call_id))

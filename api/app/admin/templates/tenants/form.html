@@ -101,20 +101,33 @@
         manque, tous les appels passent par la chaîne classique.</small>
       {% endif %}
     </label>
-    {# SMS de confirmation au client après sa réservation (app/sms.py). Réservé au super-admin :
-       chaque SMS se paie, et part sous le nom du restaurant. Le marqueur `sms_present` dit à
-       la route que la case figurait dans le formulaire : une case décochée n'envoie rien. #}
-    {% if tenant %}
+    {% endif %}
+    {# SMS de confirmation au client après sa réservation (app/sms.py). Le restaurateur les
+       allume et fixe son plafond : il les paie (ASSISTANTE-198). Le NOM d'expéditeur reste au
+       super-admin. Le marqueur `sms_present` dit à la route que la case figurait dans le
+       formulaire : une case décochée n'envoie rien. #}
+    {# Une démonstration envoie toujours (ASSISTANTE-199) : seul le super-admin y voit la
+       section, pour le nom d'expéditeur. #}
+    {% if tenant and (request.state.user.is_superadmin or not tenant.phone_number.startswith('demo-')) %}
     {% set sms = apercu_sms(tenant) %}
     <h2 class="form-section" id="sms">SMS de confirmation</h2>
     <input type="hidden" name="sms_present" value="1">
     <label>
       <input type="checkbox" name="sms_actif" value="1" {% if sms.actif %}checked{% endif %}>
-      SMS de confirmation au client
+      SMS de confirmation au client · {{ sms.prix | nombre }} € HT le SMS
     </label>
     <small class="muted">Après une table confirmée, le client qui appelle d'un portable
-      français reçoit un SMS. Jamais pour une démonstration, ni pour une demande que le
-      restaurant doit encore valider.</small>
+      français reçoit un SMS avec la date, l'heure et le nombre de couverts. Facturé
+      {{ sms.prix | nombre }} € HT le SMS, en plus des minutes, quelle que soit la formule.
+      Jamais pour une demande que le restaurant doit encore valider.</small>
+    <label>Plafond mensuel de SMS <small class="muted">(facultatif)</small>
+      <input name="sms_plafond" type="number" min="1" step="1" inputmode="numeric"
+             placeholder="vide = aucun plafond" value="{{ sms.plafond if sms.plafond else '' }}">
+      <small class="muted">Plafond atteint : plus de SMS jusqu'au mois suivant, mais les appels
+        continuent et l'assistante confirme la réservation à l'oral. Vous êtes prévenu à
+        80 %.</small>
+    </label>
+    {% if request.state.user.is_superadmin %}
     <label>Nom d'expéditeur SMS
       <input name="sms_expediteur" maxlength="40" placeholder="vide = le nom du restaurant"
              value="{{ sms.pose }}">

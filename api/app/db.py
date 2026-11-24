@@ -399,6 +399,15 @@ ALTER TABLE tenants ADD COLUMN sms_actif INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tenants ADD COLUMN sms_expediteur TEXT;
 ALTER TABLE calls ADD COLUMN cout_sms REAL;
 """,
+    # v25 — ASSISTANTE-198 : le restaurateur paie ses SMS (0,20 € HT le SMS). Il lui faut un
+    #  COMPTE, pas un coût : `cout_sms` est en dollars et suit les segments, la facture suit
+    #  les SMS. `sms_plafond` : son plafond mensuel, NULL = aucun. Les SMS déjà partis avant
+    #  cette version (un par appel chiffré, envoyés depuis le 23/11) sont repris au compte.
+    """
+ALTER TABLE tenants ADD COLUMN sms_plafond INTEGER;
+ALTER TABLE calls ADD COLUMN sms_envoyes INTEGER;
+UPDATE calls SET sms_envoyes = 1 WHERE cout_sms > 0;
+""",
 ]
 
 

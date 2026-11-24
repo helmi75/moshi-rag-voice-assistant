@@ -1559,13 +1559,31 @@ GARDE_FOUS = [
         panne="un visiteur du site qui essaie « Rappelez-moi » recevrait un vrai SMS payé, signé d'un restaurant",
     ),
     GardeFou(
-        nom="SMS : le réglage est réservé au super-admin",
+        nom="SMS : le nom d'expéditeur est réservé au super-admin",
         fichier="api/app/admin/routes_tenants.py",
         avant='    if user.is_superadmin and "sms_present" in formulaire:',
         apres='    if "sms_present" in formulaire:  # mutation',
         tests=["test_sms.py"],
         k="restaurateur_ne_peut_pas",
-        panne="un restaurateur allumerait les SMS, que l'exploitant paie, et choisirait le nom sous lequel ils partent",
+        panne="un restaurateur ferait partir des SMS sous le nom de son choix (« MaBanque »), sans que personne l'ait vérifié",
+    ),
+    GardeFou(
+        nom="SMS : plus de SMS au-delà du plafond que le restaurateur s'est fixé",
+        fichier="api/app/llm.py",
+        avant="        envoi = not await db.hors_boucle(quotas.sms_plafond_atteint, tenant)",
+        apres="        pass  # mutation",
+        tests=["test_sms_facturation.py"],
+        k="plafond_atteint",
+        panne="le restaurateur paierait des SMS au-delà du plafond qu'il a choisi",
+    ),
+    GardeFou(
+        nom="SMS : chaque SMS accepté est compté pour la facture",
+        fichier="api/app/sms.py",
+        avant='                     "sms_envoyes = COALESCE(sms_envoyes, 0) + 1, "',
+        apres='                     "sms_envoyes = COALESCE(sms_envoyes, 0), "  # mutation',
+        tests=["test_sms_facturation.py"],
+        k="compte",
+        panne="des SMS partiraient sans être facturés, et aucun plafond ne s'atteindrait jamais",
     ),
 ]
 

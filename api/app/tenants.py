@@ -77,9 +77,12 @@ class Tenant:
     # seulement ; c'est voice/live.py:moteur qui tranche. None = aucun choix enregistré.
     moteur_voix: Optional[str] = None
     # SMS de confirmation au client (app/sms.py) : éteint par défaut, allumé par le
-    # super-admin seulement. `sms_expediteur` vide = nom dérivé de celui du restaurant.
+    # restaurateur, qui les paie (ASSISTANTE-198). `sms_expediteur`, réglé par le super-admin
+    # seulement : vide = nom dérivé de celui du restaurant.
     sms_actif: bool = False
     sms_expediteur: Optional[str] = None
+    # Plafond mensuel de SMS que le restaurateur s'est fixé (ASSISTANTE-198) ; None = aucun.
+    sms_plafond: Optional[int] = None
     # Jamais en base : posé par `rappel.pour_la_demonstration` pour l'appel du « Rappelez-moi »
     # du site, où la personne au bout du fil est un inconnu (ASSISTANTE-199).
     rappel_du_site: bool = False
@@ -103,6 +106,7 @@ def _row_to_tenant(row) -> Tenant:
         moteur_voix=row["moteur_voix"],
         sms_actif=bool(row["sms_actif"]),
         sms_expediteur=row["sms_expediteur"],
+        sms_plafond=row["sms_plafond"],
     )
 
 
@@ -200,7 +204,7 @@ def update_tenant(tenant_id: int, **fields) -> Optional[Tenant]:
     allowed = {"name", "business_type", "phone_number", "language", "greeting",
                "knowledge_base", "greeting_customized", "voice", "plan", "opening_hours",
                "notify_email", "booking_provider", "numero_secours", "moteur_voix",
-               "sms_actif", "sms_expediteur"}
+               "sms_actif", "sms_expediteur", "sms_plafond"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_by_id(tenant_id)

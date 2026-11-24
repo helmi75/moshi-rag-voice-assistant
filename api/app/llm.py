@@ -20,7 +20,7 @@ from openai import AsyncOpenAI
 from loguru import logger
 
 from . import (connecteurs, db, disponibilite, essai, horloge, messages, notifications,
-               reservations, sms, tenants as fiches)
+               quotas, reservations, sms, tenants as fiches)
 from .tenants import Tenant
 
 MODEL = os.getenv("LLM_MODEL", "openrouter/free")
@@ -970,6 +970,17 @@ async def _outil_du_carnet(carnet, tenant: Tenant, name: str, tool_input: dict,
                  and not getattr(tenant, "rappel_du_site", False)
                  and not essai.est_d_essai(tenant.id) and numero_sms and nom_sms
                  and call_id and sms.couverts(reservation))
+    # Le plafond mensuel que le restaurateur s'est fixé (ASSISTANTE-198) : atteint, plus de
+    # SMS, mais la réservation est prise et Marie confirme à l'oral. Lu seulement quand un
+    # SMS partirait : sans plafond, aucune requête de plus sur le chemin de l'appel.
+    # La réservation est déjà écrite : une base occupée ne doit pas faire croire à un échec
+    # (le client redemanderait, doublon) — dans le doute, pas de SMS.
+    if envoi and tenant.sms_plafond:
+        try:
+            envoi = not await db.hors_boucle(quotas.sms_plafond_atteint, tenant)
+        except Exception as exc:   # noqa: BLE001 — jamais d'exception vers l'appel
+            logger.warning(f"[sms] plafond illisible, aucun SMS : {type(exc).__name__}")
+            envoi = False
     if envoi:
         sms.planifier(tenant, reservation, call_id, numero_sms, nom_sms)
     return json.dumps({"status": "confirmed", "reservation_id": reservation["id"],

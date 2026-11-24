@@ -85,11 +85,30 @@ def _apercu_sms(tenant) -> dict:
     """Ce que la fiche montre du SMS de confirmation : le nom qui partira (None = rien ne
     part, le nom ne donne aucune lettre) et si l'envoi est allumé."""
     return {"actif": bool(tenant and tenant.sms_actif),
+            "plafond": tenant.sms_plafond if tenant else None,
+            "prix": plans.SMS_PRIX_EUR,
             "pose": (tenant.sms_expediteur or "") if tenant else "",
             "nom": sms.expediteur(tenant) if tenant else None}
 
 
 deps.templates.env.globals["apercu_sms"] = _apercu_sms
+
+
+# Un plafond se tape à la main : au-delà, c'est une faute de frappe, pas un choix.
+PLAFOND_SMS_MAX = 100_000
+
+
+def _plafond_sms(saisie: str) -> tuple[Optional[int], Optional[str]]:
+    """(plafond, message d'erreur ou None). Vide = aucun plafond."""
+    saisie = saisie.strip()
+    if not saisie:
+        return None, None
+    # `isdigit` accepte « ² » : un plafond est fait de chiffres ASCII.
+    if saisie.isascii() and saisie.isdigit() and 1 <= int(saisie) <= PLAFOND_SMS_MAX:
+        return int(saisie), None
+    return None, (f"Plafond de SMS refusé : un nombre entier entre 1 et "
+                  f"{PLAFOND_SMS_MAX:_}".replace("_", " ") + ", ou vide pour aucun plafond. "
+                  "Pour n'en envoyer aucun, décochez la case.")
 
 
 def _numero(saisie: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -307,14 +326,19 @@ async def tenant_update(
     secours, erreur_secours = _numero_de_secours(
         str(formulaire.get("numero_secours") or ""), numero or tenant.phone_number)
     del numero_secours
-    # SMS de confirmation (ASSISTANTE-154) : réservé au super-admin, comme le moteur — il
-    # coûte à chaque réservation et écrit à un client sous le nom du restaurant. Une case
-    # décochée n'envoie rien : le marqueur `sms_present` dit que la case était dans le
-    # formulaire, sans quoi un enregistrement qui ne la porte pas l'éteindrait.
+    # SMS de confirmation : le restaurateur les allume et fixe son plafond lui-même, il les
+    # paie (ASSISTANTE-198, décision du 23/11). Une case décochée n'envoie rien : le
+    # marqueur `sms_present` dit que la case était dans le formulaire, sans quoi un
+    # enregistrement qui ne la porte pas l'éteindrait.
     sms_fields: dict = {}
     erreur_sms = None
-    if user.is_superadmin and "sms_present" in formulaire:
+    if "sms_present" in formulaire:
         sms_fields["sms_actif"] = 1 if formulaire.get("sms_actif") else 0
+        sms_fields["sms_plafond"], erreur_sms = _plafond_sms(
+            str(formulaire.get("sms_plafond") or ""))
+    # Le NOM sous lequel le SMS part reste au super-admin (ASSISTANTE-154) : un expéditeur
+    # alphanumérique n'est vérifié par personne, et « MaBanque » écrirait à un client.
+    if user.is_superadmin and "sms_present" in formulaire:
         saisi = str(formulaire.get("sms_expediteur") or "").strip()
         if saisi:
             valide = sms.nom_expediteur(saisi)
