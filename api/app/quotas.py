@@ -261,11 +261,12 @@ class SmsDuMois:
 def _sms_compte(tenant_id: int) -> int:
     if essai.est_d_essai(tenant_id):
         return 0
+    mois = horloge.debut_du_mois()
     with db.get_conn() as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(sms_envoyes), 0) FROM calls "  # noqa: S608 — fragments du code, valeurs liées par ?
             f"WHERE tenant_id = ? AND {_SMS_DU_MOIS}",
-            (tenant_id, horloge.debut_du_mois()),
+            (tenant_id, mois),
         ).fetchone()
     return int(row[0])
 
