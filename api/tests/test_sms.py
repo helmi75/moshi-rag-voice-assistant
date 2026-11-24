@@ -438,18 +438,21 @@ def _poster(client, tenant, **champs):
 
 
 class TestAdmin:
-    def test_un_restaurateur_ne_peut_pas_allumer_les_sms(self, client, resto):
+    def test_un_restaurateur_ne_peut_pas_choisir_le_nom_d_expediteur(self, client, resto):
+        """ASSISTANTE-198 : il allume ses SMS (il les paie), mais le nom sous lequel ils
+        partent reste au super-admin — personne ne vérifie un expéditeur alphanumérique."""
         tenants.update_tenant(resto.id, sms_actif=0)
         _restaurateur(client, resto)
         reponse = _poster(client, resto, sms_present="1", sms_actif="1", sms_expediteur="Pirate")
         assert reponse.status_code == 303
         apres = tenants.get_by_id(resto.id)
-        assert apres.sms_actif is False and apres.sms_expediteur is None
+        assert apres.sms_actif is True and apres.sms_expediteur is None
 
-    def test_un_restaurateur_ne_peut_pas_non_plus_les_eteindre(self, client, resto):
+    def test_un_restaurateur_ne_peut_pas_effacer_le_nom_pose(self, client, resto):
+        tenants.update_tenant(resto.id, sms_expediteur="Bouchon")
         _restaurateur(client, resto)
-        _poster(client, resto, sms_present="1")
-        assert tenants.get_by_id(resto.id).sms_actif is True
+        _poster(client, resto, sms_present="1", sms_actif="1", sms_expediteur="")
+        assert tenants.get_by_id(resto.id).sms_expediteur == "Bouchon"
 
     def test_le_super_admin_allume_et_eteint(self, client, resto):
         tenants.update_tenant(resto.id, sms_actif=0)
@@ -494,6 +497,7 @@ class TestAdmin:
         assert 'name="sms_actif"' in page and "checked" in page[page.index('name="sms_actif"'):][:80]
         assert "LeBouchonDo" in page
 
-    def test_la_fiche_d_un_restaurateur_n_a_pas_la_case(self, client, resto):
+    def test_la_fiche_d_un_restaurateur_n_a_pas_le_nom_d_expediteur(self, client, resto):
         _restaurateur(client, resto)
-        assert 'name="sms_actif"' not in client.get(f"/admin/tenants/{resto.id}/edit").text
+        page = client.get(f"/admin/tenants/{resto.id}/edit").text
+        assert 'name="sms_actif"' in page and 'name="sms_expediteur"' not in page

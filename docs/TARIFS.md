@@ -63,7 +63,7 @@ Jusqu'au 02/10/2026 la grille vendait des appels (150, 400, 750). Deux raisons d
 | Deepgram nova-3 en flux, `multi` | 0,0092 $/min | [deepgram.com/pricing](https://deepgram.com/pricing), vérifié le 30/08/2026 |
 | Voix Mistral (Voxtral) | 0,016 $ pour 1 000 caractères, ~320 caractères par minute d'appel | mistral.ai ; mesuré sur les appels 202 à 204 |
 | Modèle de langage (via OpenRouter) | compté par appel, en jetons | **à mesurer** sur un mois d'appels réels ; 0,35 c$ par appel retenu faute de mieux |
-| SMS de confirmation au client (ASSISTANTE-154), vers un portable français | 0,0798 $ par segment ; un SMS en GSM-7 de 160 caractères au plus en fait un | API de tarifs Twilio, relevé le 22/11/2026 ; noté dans `calls.cout_sms`. Décidé le 23/11/2026 : refacturé au restaurateur 0,20 € HT le SMS, hors décompte des minutes (ASSISTANTE-198, pas encore codé) |
+| SMS de confirmation au client (ASSISTANTE-154), vers un portable français | 0,0798 $ par segment ; un SMS en GSM-7 de 160 caractères au plus en fait un | API de tarifs Twilio, relevé le 22/11/2026 ; noté dans `calls.cout_sms`. Refacturé au restaurateur 0,20 € HT le SMS (`plans.SMS_PRIX_EUR`), hors décompte des minutes, toutes formules (décision du 23/11/2026, ASSISTANTE-198) ; il l'allume lui-même et peut fixer un plafond mensuel. Marge ≈ 63 % au taux de 1,08 $ du 28/09 |
 | Numéro français | 1,35 $/mois | console Twilio ; facture de septembre 2026 |
 
 **Ce que la facture de septembre 2026 a appris (13/10/2026).** Le flux audio est une ligne

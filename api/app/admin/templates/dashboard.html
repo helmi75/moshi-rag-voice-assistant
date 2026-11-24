@@ -65,6 +65,36 @@
 </section>
 {% endif %}
 
+{% if sms_mois %}
+{# SMS de confirmation (ASSISTANTE-198) : même maille que le forfait, le mois calendaire,
+   mais une carte à part — ils se paient en plus des minutes, à l'unité. #}
+{% set etat_sms = {'ok':      {'classe': '',                  'chip': 'chip-good', 'mot': 'Sous le plafond'},
+                   'alerte':  {'classe': 'meter-alerte',      'chip': 'chip-warn', 'mot': 'Bientôt au plafond'},
+                   'atteint': {'classe': 'meter-depassement', 'chip': 'chip-bad',  'mot': 'Plafond atteint'}}[sms_mois.niveau] %}
+<section class="card" style="margin-bottom: .9rem">
+  <div class="card-head">
+    <div>
+      <h2>SMS de confirmation
+        {% if sms_mois.plafond %}<span class="chip {{ etat_sms.chip }}">{{ etat_sms.mot }}</span>{% endif %}</h2>
+      <p class="card-sub">{{ sms_mois.nombre }} SMS ce mois-ci{% if sms_mois.plafond %} sur un
+        plafond de {{ sms_mois.plafond }}{% endif %}, soit {{ sms_mois.montant_eur | nombre }} €
+        HT à facturer ({{ sms_prix | nombre }} € le SMS, en plus des minutes).
+        {% if sms_mois.niveau == 'atteint' %}
+        Plus aucun SMS ne part jusqu'au mois prochain : l'assistante confirme les réservations
+        à l'oral, et les appels continuent.
+        {% endif %}
+        <a href="/admin/tenants/{{ tenant_id }}/edit#sms">Régler</a></p>
+    </div>
+  </div>
+  {% if sms_mois.plafond %}
+  <div class="meter {{ etat_sms.classe }}" role="img"
+       aria-label="{{ sms_mois.nombre }} SMS sur un plafond de {{ sms_mois.plafond }}">
+    <i style="width: {{ sms_mois.part_affichable }}%"></i>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if tenant_id and not horaires_ok %}
 <div class="callout" style="background: var(--app-warn-soft)">
   <b>Horaires d'ouverture non renseignés</b>

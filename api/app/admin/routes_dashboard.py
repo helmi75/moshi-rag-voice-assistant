@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
 
-from .. import (calls, connecteurs, db, disponibilite, horloge, quotas, reservations,
+from .. import (calls, connecteurs, db, disponibilite, horloge, plans, quotas, reservations,
                 supervision, tenants)
 from ..users import User
 from ..voice import greeting as greeting_mod
@@ -233,6 +233,11 @@ def _control_room(request: Request, tenant_id: Optional[int]):
     # douter de la facture.
     tenant = tenants.get_by_id(tenant_id) if tenant_id else None
     conso = quotas.etat(tenant) if tenant else None
+    # Ses SMS de confirmation (ASSISTANTE-198) : payés à l'unité, hors minutes. Affichés dès
+    # qu'ils sont allumés, ou qu'il en est parti ce mois-ci (éteints en cours de mois).
+    sms_mois = quotas.sms(tenant) if tenant else None
+    if sms_mois is not None and not (tenant.sms_actif or sms_mois.nombre):
+        sms_mois = None
     return deps.templates.TemplateResponse(
         request, "dashboard.html",
         {
@@ -249,6 +254,8 @@ def _control_room(request: Request, tenant_id: Optional[int]):
             "upcoming": upcoming,
             "slots_chart": slots_chart,
             "quota": conso,
+            "sms_mois": sms_mois,
+            "sms_prix": plans.SMS_PRIX_EUR,
             "tenant_id": tenant_id,
             "horaires_ok": tenant is None or disponibilite.est_configure(
                 disponibilite.charger(tenant.opening_hours)),

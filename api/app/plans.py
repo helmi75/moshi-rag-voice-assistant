@@ -141,6 +141,18 @@ def resolve(tenant=None) -> Formule:
     return get(choisie) or defaut()
 
 
+# SMS de confirmation au client (ASSISTANTE-198, décision du 23/11/2026) : refacturé au
+# restaurateur À L'UNITÉ, le même prix pour toutes les formules, hors décompte des minutes.
+# Un SMS nous coûte 0,0798 $ (≈ 7,4 c€ au taux de 1,08 $ du 28/09) : offert, il mangeait
+# presque le coût d'un appel moyen. Marge et taux : docs/TARIFS.md.
+SMS_PRIX_EUR = 0.20
+
+
+def cout_sms_eur(nombre: int) -> float:
+    """Ce que le restaurateur paie pour `nombre` SMS de confirmation."""
+    return round(max(0, nombre) * SMS_PRIX_EUR, 2)
+
+
 def cout_depassement_eur(formule: Formule, minutes_hors_forfait: float) -> float:
     """Montant facturé pour les minutes au-delà du forfait, au tarif de la formule.
     Jamais négatif : un établissement sous son forfait ne génère pas d'avoir."""

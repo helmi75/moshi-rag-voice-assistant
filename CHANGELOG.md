@@ -7,6 +7,21 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — SMS de confirmation facturés au restaurateur (24/11/2026, ASSISTANTE-198)
+
+### Ajouté
+- Le restaurateur allume lui-même les SMS de confirmation dans sa fiche, **0,20 € HT le
+  SMS** (`plans.SMS_PRIX_EUR`), le même prix pour toutes les formules, en plus des minutes.
+- Un **plafond mensuel facultatif**, fixé par lui : atteint, plus de SMS jusqu'au mois
+  suivant, mais la réservation est prise et l'assistante confirme à l'oral. Alerte du parc
+  à 80 % et au plafond, comme pour les minutes.
+- Son tableau de bord montre les SMS du mois et leur montant (mois du restaurant).
+- Migration v25 : `calls.sms_envoyes` (un par SMS accepté par Twilio, quel que soit le
+  nombre de segments) et `tenants.sms_plafond`. Les SMS déjà envoyés sont repris au compte.
+
+### Modifié
+- Le nom d'expéditeur reste réglé par le super-admin seulement.
+
 ## Non publiée — SMS de confirmation pendant les démonstrations (23/11/2026, ASSISTANTE-199)
 
 ### Modifié

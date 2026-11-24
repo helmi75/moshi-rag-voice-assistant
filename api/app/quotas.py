@@ -20,12 +20,14 @@ le mois du RESTAURANT (horloge.debut_du_mois) : à 00 h 30 le 1er, heure de Pari
 en UTC croyait encore au mois précédent, et l'appel changeait de facture.
 """
 from dataclasses import dataclass
+from typing import Optional
 
 from . import calls, db, essai, horloge, plans
 
 OK = "ok"
 ALERTE = "alerte"
 DEPASSEMENT = "depassement"
+PLAFOND_ATTEINT = "atteint"   # SMS seulement : plus de SMS ce mois-ci, l'appel continue
 
 # Ce qui se décompte : les appels du mois que l'assistante a servis. Un appel qu'elle a
 # rendu parce qu'elle était en panne (`secours_motif`, ASSISTANTE-118) dure le temps que
@@ -170,6 +172,7 @@ def alertes(tenants_liste) -> list[dict]:
     facture. D'où le seuil à 80 %, franchi avant que l'argent ne soit engagé.
     """
     etats = etat_par_tenant(tenants_liste)
+    etats_sms = sms_par_tenant(tenants_liste)
     resultat = []
     for tenant in tenants_liste:
         c = etats[tenant.id]
@@ -190,7 +193,108 @@ def alertes(tenants_liste) -> list[dict]:
                           f"formule {c.formule.label}. Au-delà, chaque minute sera "
                           f"facturée {_euros(c.formule.minute_supp_eur)} €.",
             })
+        s = etats_sms[tenant.id]
+        if s.niveau == PLAFOND_ATTEINT:
+            resultat.append({
+                "level": "warn",
+                "title": f"{tenant.name} · plafond de SMS atteint ({s.plafond})",
+                "detail": f"{s.nombre} SMS de confirmation ce mois-ci, soit "
+                          f"{_euros(s.montant_eur)} € à facturer. Plus aucun SMS ne part "
+                          "jusqu'au mois prochain : l'assistante confirme à l'oral, les "
+                          "appels continuent.",
+            })
+        elif s.niveau == ALERTE:
+            resultat.append({
+                "level": "info",
+                "title": f"{tenant.name} · {s.part_affichable} % du plafond de SMS",
+                "detail": f"{s.nombre} SMS sur {s.plafond} ce mois-ci, soit "
+                          f"{_euros(s.montant_eur)} € à facturer.",
+            })
     return resultat
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SMS de confirmation (ASSISTANTE-198, décision du 23/11/2026)
+#
+# Le restaurateur paie ses SMS à l'unité (plans.SMS_PRIX_EUR) et fixe, s'il le veut, un
+# plafond mensuel. Le plafond atteint arrête les SMS, JAMAIS l'appel : `llm.run_tool`
+# lit `sms_plafond_atteint` et Marie confirme à l'oral. Rien ici ne refuse un appel.
+#
+# Ce qui se compte : les SMS que Twilio a ACCEPTÉS (`calls.sms_envoyes`, posé par
+# sms.envoyer), sur le mois du restaurant. Un appel rendu pendant une panne compte quand
+# même : le SMS, lui, est parti. Le compte monte quand Twilio répond, pas quand l'envoi
+# est décidé : deux réservations à la même seconde, au dernier SMS du plafond, peuvent en
+# faire partir un de plus. Un SMS au-delà, payé, plutôt qu'un verrou sur le chemin d'appel.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Le banc d'essai est à nous ; l'établissement d'essai est écarté par `essai`.
+_SMS_DU_MOIS = ("started_at >= ? AND COALESCE(sms_envoyes, 0) > 0"
+                f" AND COALESCE(call_sid, '') NOT LIKE '{calls.PREFIXE_BANC}%'")
+
+
+@dataclass(frozen=True)
+class SmsDuMois:
+    nombre: int
+    plafond: Optional[int]   # None = pas de plafond
+
+    @property
+    def montant_eur(self) -> float:
+        return plans.cout_sms_eur(self.nombre)
+
+    @property
+    def part(self) -> float:
+        return self.nombre / self.plafond if self.plafond else 0.0
+
+    @property
+    def part_affichable(self) -> int:
+        return min(100, round(100 * self.part))
+
+    @property
+    def niveau(self) -> str:
+        if not self.plafond:
+            return OK
+        if self.nombre >= self.plafond:
+            return PLAFOND_ATTEINT
+        return ALERTE if self.part >= plans.SEUIL_ALERTE else OK
+
+
+def _sms_compte(tenant_id: int) -> int:
+    if essai.est_d_essai(tenant_id):
+        return 0
+    with db.get_conn() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(sms_envoyes), 0) FROM calls "  # noqa: S608 — fragments du code, valeurs liées par ?
+            f"WHERE tenant_id = ? AND {_SMS_DU_MOIS}",
+            (tenant_id, horloge.debut_du_mois()),
+        ).fetchone()
+    return int(row[0])
+
+
+def sms(tenant) -> SmsDuMois:
+    """Les SMS de confirmation du mois en cours de cet établissement."""
+    return SmsDuMois(_sms_compte(tenant.id), getattr(tenant, "sms_plafond", None))
+
+
+def sms_par_tenant(tenants_liste) -> dict[int, SmsDuMois]:
+    """Les SMS du mois de tout le parc, en UNE requête (comme `etat_par_tenant`)."""
+    hors, hors_params = calls._hors_essai(None)
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT tenant_id, SUM(sms_envoyes) AS n "  # noqa: S608 — fragments du code, valeurs liées par ?
+            f"FROM calls WHERE {_SMS_DU_MOIS}{hors} GROUP BY tenant_id",
+            (horloge.debut_du_mois(), *hors_params),
+        ).fetchall()
+    par_id = {row["tenant_id"]: int(row["n"]) for row in rows}
+    return {t.id: SmsDuMois(par_id.get(t.id, 0), getattr(t, "sms_plafond", None))
+            for t in tenants_liste}
+
+
+def sms_plafond_atteint(tenant) -> bool:
+    """Vrai quand le restaurateur a un plafond et qu'il est atteint ce mois-ci. Ce que
+    `llm.run_tool` lit avant d'envoyer — et rien d'autre ne s'arrête."""
+    if not getattr(tenant, "sms_plafond", None):
+        return False
+    return sms(tenant).niveau == PLAFOND_ATTEINT
 
 
 # ─────────────────────────────────────────────────────────────────────────────
