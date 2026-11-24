@@ -106,7 +106,9 @@
        allume et fixe son plafond : il les paie (ASSISTANTE-198). Le NOM d'expéditeur reste au
        super-admin. Le marqueur `sms_present` dit à la route que la case figurait dans le
        formulaire : une case décochée n'envoie rien. #}
-    {% if tenant and not tenant.phone_number.startswith('demo-') %}
+    {# Une démonstration envoie toujours (ASSISTANTE-199) : seul le super-admin y voit la
+       section, pour le nom d'expéditeur. #}
+    {% if tenant and (request.state.user.is_superadmin or not tenant.phone_number.startswith('demo-')) %}
     {% set sms = apercu_sms(tenant) %}
     <h2 class="form-section" id="sms">SMS de confirmation</h2>
     <input type="hidden" name="sms_present" value="1">

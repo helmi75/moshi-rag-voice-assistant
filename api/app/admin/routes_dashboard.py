@@ -236,7 +236,9 @@ def _control_room(request: Request, tenant_id: Optional[int]):
     # Ses SMS de confirmation (ASSISTANTE-198) : payés à l'unité, hors minutes. Affichés dès
     # qu'ils sont allumés, ou qu'il en est parti ce mois-ci (éteints en cours de mois).
     sms_mois = quotas.sms(tenant) if tenant else None
-    if sms_mois is not None and not (tenant.sms_actif or sms_mois.nombre):
+    # Les SMS d'une démonstration sont à notre charge (ASSISTANTE-199) : rien à facturer.
+    if sms_mois is not None and (tenants.est_demo(tenant)
+                                 or not (tenant.sms_actif or sms_mois.nombre)):
         sms_mois = None
     return deps.templates.TemplateResponse(
         request, "dashboard.html",

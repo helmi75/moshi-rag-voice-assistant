@@ -231,6 +231,14 @@ class TestLeRestaurateurDecide:
         assert "0,20 €" in page and 'value="40"' in page
         assert 'name="sms_expediteur"' not in page
 
+    def test_une_base_occupee_ne_fait_pas_echouer_la_reservation(self, resto, planifies):
+        tenants.update_tenant(resto.id, sms_plafond=3)
+        with patch.object(llm.quotas, "sms_plafond_atteint",
+                          side_effect=__import__("sqlite3").OperationalError("database is locked")):
+            resultat = _creer(tenants.get_by_id(resto.id), _appel(resto, sms_envoyes=0))
+        assert resultat["status"] == "confirmed" and resultat["sms_confirmation"] is False
+        assert planifies == []
+
     def test_son_tableau_de_bord_montre_les_sms_du_mois(self, client, resto):
         tenants.update_tenant(resto.id, sms_plafond=10)
         _appel(resto, sms_envoyes=3)
