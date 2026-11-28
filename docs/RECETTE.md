@@ -58,13 +58,12 @@ ssh root@187.77.172.87 "docker compose -f /opt/moshi-rag-voice-assistant/docker-
 |---|---|---|---|
 | A1 | Appeler le numéro | Ça décroche | |
 | A2 | Écouter le tout début | L'accueil du restaurant, **puis** « Je suis l'assistante vocale, cet appel est enregistré. », puis « Je vous écoute. » : ~5 s en tout, sans « un instant s'il vous plaît » (SCRUM-107) | |
-| A3 | Chronométrer le blanc avant la 1ʳᵉ réponse | < 2 s si le GPU est chaud ; ≈ 46 s au tout premier appel de la journée, couvert par la musique d'attente | |
+| A3 | Chronométrer le blanc avant la 1ʳᵉ réponse | < 2 s, y compris au premier appel de la journée : plus de GPU à réveiller depuis le retrait de Moshi (ASSISTANTE-103) | |
 | A4 | Vérifier le journal | `POST /twilio/webhook` puis `WebSocket /ws/voice [accepted]` | |
 | A5 | **Commencer en français**, échanger deux phrases, **puis passer à l'anglais** | Elle répond en anglais. Elle peut manquer UN tour le temps de rouvrir l'oreille — pas plus, et surtout pas jusqu'à la fin de l'appel | |
 | A6 | Dans le même appel, revenir au français | Elle suit, sans qu'on ait à répéter trois fois | |
 | A7 | Relire la transcription dans l'admin | L'accueil apparaît **une seule fois** ; un nom déjà connu est écrit « Helmi », pas « HELMI » | |
 | A8 | Liste des appels, quelques minutes après | Une phrase de résumé (« Réservation pour deux… »), pas « Bonjour, restaurant… » | |
-| A9 | GPU introuvable : `MOSHI_HOLD_MAX_SECONDS=5` dans le `.env`, redémarrer, attendre 3 min sans appel (GPU éteint), appeler — **remettre la variable ensuite** | Accueil, 5 s de musique, puis « Toutes nos excuses… merci de nous rappeler dans quelques minutes. Au revoir. » et l'appel raccroche — jamais de silence | |
 
 **A2 est le test de #22.** Si la mention manque, la migration n'est pas passée ou
 `RGPD_MENTION` est à 0.
@@ -195,7 +194,6 @@ Maintenant il dit lequel des quatre maillons l'a produit.
 | N3 | Modifier puis annuler (C1, C3) | Deux e-mails : modifiée, annulée | |
 | N4 | Après quelques jours d'appels : chercher « tentative » et « non envoyée » dans le journal du conteneur | Des e-mails partis « à la tentative 2 » ; aucun « non envoyée » pour une poignée de main refusée | |
 | P1 | Rappeler du même numéro après B1 et demander une table | Elle **propose** « au nom de Martin ? » au lieu de le demander ; un autre nom donné est celui retenu | |
-| K1 | `python scripts/test_moshi_server.py --url "$MOSHI_TTS_URL" --api-key public_token` | **Refusé** ; avec la vraie clé, accepté ; sonde « Jeton du serveur de voix » verte | |
 | R1 | Lancer `/opt/backups/backup-db.sh` à la main | Finit par « copie distante ok » ; `rclone ls` montre l'archive ; sonde « Sauvegarde » verte | |
 | C7 | Admin → Réservations → vue Jour → « Annuler » | Carte **barrée**, toujours là : l'admin n'efface plus | |
 
@@ -351,6 +349,7 @@ répéter. Il faut un portable français de métropole.
 | W34 🤖 | Après une recette d'appels, ouvrir Admin > Recettes (ASSISTANTE-192) | Le passage figure dans la liste (date, démarrage du conteneur, coût, ✅/❌ par compte) ; son détail montre chaque scénario avec sa conversation complète, et un lecteur audio pour les vrais appels de l'étage 2 ; un restaurateur reçoit 403 ; le rapport complet est aussi écrit dans `local/recettes/` | |
 | W38 🤖 | Préproduction, démonstration prête : ouvrir sa page en super-admin, d'abord sans `DEMO_LIGNE`, puis avec ; poster `/twilio/demo?d=<n>` sans signature (ASSISTANTE-145) | Sans `DEMO_LIGNE` : « Indisponible » et ce qui manque, pas de bouton ; avec : le formulaire « Le faire rappeler ». La route non signée répond 403 (signature en `enforce`) | ✅ 19/11, préprod 127bf42 : `/twilio/demo` non signée répond 403 (prod et préprod) ; `DEMO_LIGNE` posée, plus rien ne manque au bouton ; « Indisponible » couvert par `test_demo_rappel.py` |
 | W39 | En rendez-vous (ou pour soi) : sur une démonstration prête, saisir son portable et cliquer « Le faire rappeler », décrocher, réserver une table (ASSISTANTE-145) | Le téléphone sonne en quelques secondes ; on entend « Bonjour, <restaurant> » puis que l'appel est enregistré ; la réservation d'essai apparaît dans les réservations de l'établissement d'essai, l'appel dans ses appels (noté sortant, avec son enregistrement) ; aucun e-mail n'est parti ; « Effacer maintenant » fait tout disparaître | ✅ 19/11 : Helmi rappelé 4 fois (Le Procope, Café Panis, les deux moteurs) ; en base, 4 appels sortants, chacun avec sa réservation d'essai et son enregistrement ; 0,19 à 0,26 $ l'appel. « Effacer maintenant » pas essayé |
+| W40 🤖 | Retrait de Moshi (ASSISTANTE-103) : suite de tests (`test_voxtral.py`, `test_voices.py`, `test_greeting.py`, `test_supervision.py`) ; puis, après le déploiement, appeler un établissement dont la voix enregistrée était une voix Moshi | Une ancienne voix Moshi enregistrée est servie par Marie ; `MOSHI_TTS_URL` posée n'a aucun effet ; aucune connexion à `moshi-server` ; le contrôle « Jeton du serveur de voix » n'existe plus (21 contrôles) | |
 | W40 🤖 | Préproduction, après le déploiement d'ASSISTANTE-197 : lire `demonstrations` (identifiant, état, établissement) et les numéros des établissements | Chaque démonstration « prête » vise l'établissement `demo-<son id>` ; la n° 4, qui visait celui de la n° 8, est revenue « à relire », sans établissement ; Le Procope est intact | ✅ 19/11, préprod ba86e29 : base en v23, la démonstration 4 est « à relire » sans établissement, et les 8 et 10 visent demo-8 et demo-10 |
 
 ## X. Les appels traités en Irlande (ASSISTANTE-123)

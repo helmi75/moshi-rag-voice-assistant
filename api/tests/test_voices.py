@@ -1,12 +1,11 @@
 """Catalogue de voix et choix de la voix par établissement.
 
 Depuis le 28/09/2026, toutes les voix viennent de Mistral (Voxtral) : le catalogue est
-celui de l'API, relu toutes les heures, avec une copie dans le dépôt. Les voix Moshi ne
-se choisissent plus ; elles restent le secours si la clé Mistral manque.
+celui de l'API, relu toutes les heures, avec une copie dans le dépôt. Les voix Moshi ont
+été retirées (ASSISTANTE-103) : une ancienne voix enregistrée passe sur la voix par défaut.
 
 La règle de fond ne change pas : jamais un identifiant hors catalogue. Une voix inconnue
-serait refusée par Mistral (phrase muette) ou, côté Moshi, remplacée EN SILENCE par la
-voix de repli du serveur.
+serait refusée par Mistral (phrase muette).
 """
 import asyncio
 import functools
@@ -27,7 +26,6 @@ def _tenant(voice=None):
 def _cle(monkeypatch):
     monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
     monkeypatch.delenv("VOIX_PAR_DEFAUT", raising=False)
-    monkeypatch.delenv("MOSHI_TTS_VOICE", raising=False)
     avant = voices._catalogue_mistral
     yield
     voices._catalogue_mistral = avant
@@ -54,13 +52,6 @@ class TestCatalogue:
     def test_la_voix_par_defaut_est_au_catalogue(self):
         assert voices.get(voices.VOIX_PAR_DEFAUT).label == "Marie · enthousiaste"
 
-    def test_les_voix_moshi_de_secours_viennent_d_un_dossier_embarque(self):
-        """Élargir EMBEDDED_FOLDERS suppose d'élargir VOICE_FOLDERS dans
-        deploy/modal_moshi_server.py ET de redéployer."""
-        for voice in voices.voix_moshi():
-            assert voice.id.startswith(voices.EMBEDDED_FOLDERS), voice.id
-
-
 class TestResolve:
     def test_sans_choix_la_voix_par_defaut_du_parc(self):
         assert voices.resolve() == voices.resolve(None) == voices.VOIX_PAR_DEFAUT
@@ -72,7 +63,7 @@ class TestResolve:
         assert voices.resolve(_tenant("voxtral/inventee")) == voices.VOIX_PAR_DEFAUT
 
     def test_une_ancienne_voix_moshi_passe_sur_mistral(self):
-        assert voices.resolve(_tenant(voices.DEFAULT_VOICE)) == voices.VOIX_PAR_DEFAUT
+        assert voices.resolve(_tenant("unmute-prod-website/developpeuse-3.wav")) == voices.VOIX_PAR_DEFAUT
 
     def test_les_identifiants_du_matin_restent_valides(self):
         assert voices.resolve(_tenant("voxtral/marie-enthousiaste")) == "voxtral/fr_marie_excited"
@@ -85,17 +76,14 @@ class TestResolve:
 
 
 class TestSansCle:
-    """Clé Mistral absente : une voix connue plutôt que le silence."""
+    """Clé Mistral absente : la voix résolue reste celle du catalogue (la supervision
+    signale la panne, la vigie rend la ligne) — plus de voix de secours."""
 
-    def test_le_secours_moshi(self, monkeypatch):
+    def test_plus_de_secours_moshi(self, monkeypatch):
         monkeypatch.delenv("MISTRAL_API_KEY")
-        assert voices.resolve(_tenant(_autre().id)) == voices.DEFAULT_VOICE
-        assert "secours Moshi" in voices.label_for(_tenant())
-
-    def test_une_faute_de_frappe_ne_contamine_pas_le_secours(self, monkeypatch):
-        monkeypatch.delenv("MISTRAL_API_KEY")
-        monkeypatch.setenv("MOSHI_TTS_VOICE", "unmute-prod-website/faute-de-frappe.wav")
-        assert voices.resolve() == voices.DEFAULT_VOICE
+        assert voices.resolve(_tenant(_autre().id)) == _autre().id
+        assert voices.label_for(_tenant()) == "Marie · enthousiaste"
+        assert voices.voxtral_disponible() is False
 
 
 class TestCatalogueVivant:
@@ -148,13 +136,14 @@ class TestPlomberieTTS:
         tts = build_tts(_tenant(_autre().id))
         assert isinstance(tts, VoxtralTTSService) and tts._voix_id == _autre().voxtral_id
 
-    def test_sans_cle_build_tts_prend_le_secours_moshi(self, monkeypatch):
+    def test_sans_cle_build_tts_refuse_au_lieu_de_chercher_un_gpu(self, monkeypatch):
         pytest.importorskip("pipecat")
         from app.voice.bot import build_tts
 
         monkeypatch.delenv("MISTRAL_API_KEY")
         monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
-        assert build_tts(_tenant(_autre().id))._voice == voices.DEFAULT_VOICE
+        with pytest.raises(ValueError, match="MISTRAL_API_KEY"):
+            build_tts(_tenant(_autre().id))
 
     def test_accueil_et_voix_en_appel_choisissent_la_meme_voix(self):
         pytest.importorskip("pipecat")

@@ -1,8 +1,7 @@
 """Pipeline vocal streaming : Twilio Media Streams + Pipecat.
 
 Un seul assemblage : Deepgram (nova-3, décroché bilingue) pour entendre, le LLM via
-OpenRouter pour comprendre et agir (llm.py), la voix Moshi servie par moshi-server sur
-Modal pour parler. Les moteurs locaux — Pocket TTS, Kyutai TTS/STT en PyTorch, Cartesia —
+OpenRouter pour comprendre et agir (llm.py), la voix Voxtral de Mistral (son API) pour parler. Les moteurs locaux — Pocket TTS, Kyutai TTS/STT en PyTorch, Cartesia —
 ont été retirés le 18/09/2026 (tag `archive/moteurs-locaux`) : trois moteurs à maintenir
 pour un seul en production, et `torch` dans l'image par défaut. Le cerveau métier
 (llm.py, tenants.py) ignore toujours le transport.
@@ -90,28 +89,26 @@ def make_tool_handler(
 
 
 def build_tts(tenant: Optional[Tenant] = None):
-    """Le service TTS de la voix de l'établissement : Moshi 1.6B via moshi-server (notre
-    GPU sur Modal, websocket), ou Marie via l'API Voxtral de Mistral (HTTPS en flux).
+    """Le service TTS de la voix de l'établissement : Marie et ses sœurs, via l'API Voxtral
+    de Mistral (HTTPS en flux).
 
     `tenant` choisit la voix (voices.resolve — la même décision que l'accueil pré-rendu,
-    sinon un appel mélangerait deux voix). Pour Moshi, sans MOSHI_TTS_URL on refuse de
-    construire le pipeline : une erreur franche vaut mieux qu'un appel muet, et la
-    supervision annonce déjà cette absence (_configuration_requise)."""
+    sinon un appel mélangerait deux voix). Une ancienne voix Moshi enregistrée est servie
+    par la voix par défaut. Sans clé Mistral on refuse de construire le pipeline : une
+    erreur franche vaut mieux qu'un appel muet, et la supervision annonce déjà cette
+    absence."""
     from . import voices
+    from .voxtral_tts import VoxtralTTSService
 
-    voice = voices.resolve(tenant)
-    voix = voices.get(voice)
-    if voix is not None and voix.fournisseur == voices.VOXTRAL:
-        from .voxtral_tts import VoxtralTTSService
-
-        logger.info(f"Voix Voxtral : {voix.label}")
-        return VoxtralTTSService(voix_id=voix.voxtral_id)
-    if not os.getenv("MOSHI_TTS_URL", "").strip():
-        raise ValueError("MOSHI_TTS_URL manquante : aucun serveur de voix à joindre")
-    from .moshi_server_tts import MoshiServerTTSService
-
-    logger.info(f"Voix moshi-server : {voice}")
-    return MoshiServerTTSService(voice=voice)
+    if not voices.voxtral_disponible():
+        raise ValueError("MISTRAL_API_KEY manquante : aucune voix à joindre")
+    voix = voices.get(voices.resolve(tenant))
+    if voix is None:
+        # Catalogue relu chez Mistral sans la voix par défaut, ou illisible : avant le
+        # retrait de Moshi, ce cas partait vers lui. Une erreur qui dit la cause.
+        raise ValueError("voix par défaut absente du catalogue Mistral")
+    logger.info(f"Voix Voxtral : {voix.label}")
+    return VoxtralTTSService(voix_id=voix.voxtral_id)
 
 
 def detection_de_langue() -> bool:
@@ -154,7 +151,7 @@ def langue_de_depart(language: str) -> str:
 def build_stt(tenant: Tenant, language: str):
     """Le service STT : Deepgram nova-3 en flux, avec le vocabulaire de l'établissement.
 
-    Kyutai STT (module ASR de moshi-server) a été essayé puis abandonné pour le
+    Kyutai STT a été essayé puis abandonné pour le
     téléphone — dérive vers l'anglais sur du µ-law 8 kHz bruité — et retiré le
     18/09/2026 (tag `archive/moteurs-locaux`)."""
     from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
@@ -336,7 +333,7 @@ def promesse_en_suspens(messages) -> bool:
 
 
 def phrases_du_pipeline() -> frozenset[str]:
-    """Tout ce que l'assistante dit SANS le modèle : la reprise après l'attente et les
+    """Tout ce que l'assistante dit SANS le modèle : la reprise après l'accueil et les
     relances d'un silence.
 
     La supervision s'en sert pour distinguer un appel où l'assistante a vraiment
@@ -345,25 +342,11 @@ def phrases_du_pipeline() -> frozenset[str]:
     from . import greeting
 
     return frozenset({
-        greeting.texte_de_reprise(True),
-        greeting.texte_de_reprise(False),
-        greeting.texte_indisponible(),
+        greeting.texte_de_reprise(),
+        *greeting.REPRISES_HISTORIQUES,
         *(texte for textes in _RELANCES.values() for texte in textes),
         *PARDON.values(),
     })
-
-
-def message_de_fin_d_intro(intro_task) -> str | None:
-    """Ce que l'intro a dit, sans le modèle, avant de raccrocher faute de GPU — à
-    inscrire dans la transcription. Sans lui, le restaurateur lirait un appelant qui
-    raccroche sans un mot, alors que l'assistante lui a demandé de rappeler."""
-    from . import greeting
-
-    if not intro_task.done() or intro_task.cancelled() or intro_task.exception() is not None:
-        return None
-    if intro_task.result() == greeting.INDISPONIBLE:
-        return greeting.texte_indisponible()
-    return None
 
 
 def relance(n: int, langue: str | None) -> tuple[str, bool]:
@@ -592,7 +575,7 @@ async def run_bot(
         ),
     )
 
-    # STT interchangeable (deepgram par défaut, kyutai = module ASR de moshi-server).
+    # Le STT : Deepgram.
     stt = build_stt(tenant, language)
 
     # Langue de l'appel (voice/langue.py) : décroché bilingue, puis fixée. Le journal de
@@ -710,15 +693,6 @@ async def run_bot(
     messages = [{"role": "system", "content": prompt_systeme}]
     from . import greeting as greeting_mod
 
-    chaud = False
-    if greeting_mod.voix_sans_gpu(tenant):
-        chaud = True  # Voxtral : rien à réveiller, « Je vous écoute. » tout de suite
-    elif greeting_mod.is_moshi_server():
-        from .moshi_server_tts import gpu_chaud
-
-        # Décidé UNE fois ici et transmis à l'intro : la phrase de reprise dépend de
-        # l'état du GPU, et la voix doit dire ce que le contexte contient.
-        chaud = gpu_chaud()
     messages += amorce_assistante(tenant)
     context = LLMContext(
         messages=messages,
@@ -753,7 +727,7 @@ async def run_bot(
         user_params=LLMUserAggregatorParams(
             vad_analyzer=SileroVADAnalyzer(params=vad_params),
             # Émet on_user_turn_idle si le client est inactif ce délai APRÈS que le bot
-            # a fini de parler (donc jamais pendant la musique d'attente).
+            # a fini de parler (donc jamais pendant l'accueil).
             user_idle_timeout=idle_timeout,
             # Filet de fin de tour quand smart-turn v3 n'est pas sûr (2 s au lieu de 5).
             user_turn_stop_timeout=turn_stop_timeout,
@@ -840,8 +814,8 @@ async def run_bot(
 
         taches.lancer(_verifier(), nom=f"annonce sans outil {call_sid}")
 
-    # Réf. sur le transport de sortie : le flux « standardiste » y injecte l'accueil et
-    # la musique via send_audio() (DIRECT vers Twilio), sans traverser STT/VAD.
+    # Réf. sur le transport de sortie : le flux « standardiste » y injecte l'accueil
+    # via send_audio() (DIRECT vers Twilio), sans traverser STT/VAD.
     output_transport = transport.output()
 
     # --- Enregistrement des deux pistes (#88) --------------------------------
@@ -947,16 +921,16 @@ async def run_bot(
     # les messages Twilio "connected"/"start" ont déjà été consommés par le webhook).
     logger.info(f"Démarrage du pipeline vocal (tenant {tenant.id}, {call_sid}).")
 
-    # Phase 3 — flux « standardiste » : accueil pré-rendu (latence 0) → musique d'attente
-    # pendant le réveil du GPU (décorrélée du barge-in) → reprise proactive. Lancé en
+    # Phase 3 — flux « standardiste » : accueil pré-rendu (latence 0) → reprise
+    # proactive (« Je vous écoute. »). Lancé en
     # tâche de fond, en parallèle du pipeline, pour injecter les frames au fil de l'eau.
     # Le transport de sortie jette l'audio reçu avant le StartFrame : l'intro attend ce
     # signal avant d'émettre l'accueil (sinon il part dans le vide).
     #
     # UN SEUL gestionnaire pour cet événement, enregistré INCONDITIONNELLEMENT : le
     # démarrage de l'enregistrement ne dépend pas du fournisseur de TTS. Le placer dans
-    # la branche `moshi_server` aurait fait qu'aucun appel ne serait enregistré sur les
-    # autres pipelines — une panne silencieuse, invisible aux tests qui n'y passent pas.
+    # une branche propre à un fournisseur aurait fait qu'aucun appel ne serait enregistré
+    # sur les autres pipelines — une panne silencieuse, invisible aux tests qui n'y passent pas.
     pipeline_ready = asyncio.Event()
 
     @task.event_handler("on_pipeline_started")
@@ -972,16 +946,11 @@ async def run_bot(
                 logger.warning(f"enregistrement : démarrage KO ({exc}) — appel non enregistré")
 
     intro_task = asyncio.create_task(
-        greeting_mod.run_switchboard_intro(task, output_transport, tenant, pipeline_ready,
-                                           chaud=chaud)
+        greeting_mod.run_switchboard_intro(task, output_transport, tenant, pipeline_ready)
     )
     # Pré-rendu de secours si le WAV d'accueil n'est pas encore en cache (le flux
     # retombe alors sur du TTS live ; ceci le rend instantané dès l'appel suivant).
-    # Même rattrapage pour le message d'indisponibilité, que le démarrage n'a pas pu
-    # rendre si le GPU manquait à ce moment-là — mais GPU chaud seulement : pendant un
-    # réveil, ce serait une connexion de plus vers un GPU peut-être introuvable.
-    if greeting_mod.cached_greeting_path(tenant) is None or (
-            chaud and greeting_mod.cached_indisponible_path(tenant) is None):
+    if greeting_mod.cached_greeting_path(tenant) is None:
         taches.lancer(greeting_mod.ensure_greeting_wav(tenant),
                       nom=f"accueil de l'établissement {tenant.id}")
 
@@ -993,9 +962,6 @@ async def run_bot(
         status = "failed"
         raise
     finally:
-        message_final = message_de_fin_d_intro(intro_task)
-        if message_final:
-            context.add_message({"role": "assistant", "content": message_final})
         intro_task.cancel()
         # Fermeture de l'enregistrement AVANT la clôture en base : `etat()` doit refléter
         # ce qui a réellement été écrit, y compris les tranches perdues. Son propre

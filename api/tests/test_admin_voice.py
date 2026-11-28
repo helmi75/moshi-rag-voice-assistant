@@ -1,4 +1,4 @@
-"""Config voix admin : aperçu greeting, statut, upload musique d'attente."""
+"""Config voix admin : aperçu greeting, statut, choix de la voix."""
 import io
 import wave
 
@@ -19,7 +19,6 @@ def client():
 
 @pytest.fixture()
 def resto(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOLD_MUSIC_DIR", str(tmp_path / "hold"))
     monkeypatch.setenv("GREETING_CACHE_DIR", str(tmp_path / "greet"))
     tenant = tenants.create_tenant("Voix Test", f"+3362{id(object()) % 10_000_000:07d}")
     yield tenant
@@ -60,7 +59,6 @@ class TestVoiceSettings:
         _login(client)
         resp = client.get(f"/admin/tenants/{resto.id}/voice")
         assert resp.status_code == 200
-        assert "Musique d'attente" in resp.text
 
     def test_greeting_wav_404_when_not_rendered(self, client, resto):
         _login(client)
@@ -119,8 +117,8 @@ class TestVoiceSettings:
 
 class TestChoixDeVoix:
     """Le sélecteur de voix : ce qu'il propose, ce qu'il accepte d'enregistrer, et
-    surtout ce qu'il refuse — une voix hors catalogue serait servie sans erreur par
-    moshi-server, avec sa voix de repli, sans que rien ne le signale."""
+    surtout ce qu'il refuse — une voix hors catalogue serait servie sans erreur par la
+    voix par défaut, sans que rien ne le signale."""
 
     @pytest.fixture(autouse=True)
     def _mistral(self, monkeypatch):
@@ -148,9 +146,8 @@ class TestChoixDeVoix:
         for voice in voices.catalogue():
             assert voice.label in page.text
         # Un restaurateur doit lire un nom, jamais un chemin de fichier.
-        assert voices.DEFAULT_VOICE not in page.text.replace(
-            f'value="{voices.DEFAULT_VOICE}"', ""
-        )
+        assert "unmute-prod-website" not in page.text and ".wav" not in page.text.replace(
+            "/extrait.wav", "")
 
     def test_enregistre_une_voix_du_catalogue(self, client, resto):
         _login(client)
@@ -233,46 +230,13 @@ class TestUnEtablissementSurLaVoixAVoix:
         assert 'name="voice"' in page and "Marie — voix par défaut" not in page
 
 
-class TestHoldMusicUpload:
-    def test_upload_stereo_44k_converted_to_mono_8k(self, client, resto):
+class TestMusiqueDAttenteRetiree:
+    def test_les_routes_d_envoi_n_existent_plus(self, client, resto):
+        """Retrait de Moshi (ASSISTANTE-103) : plus de GPU à réveiller, donc plus de musique."""
         _login(client)
         token = _csrf(client)
-        resp = client.post(
-            f"/admin/tenants/{resto.id}/hold-music",
-            files={"file": ("musique.wav", _wav_bytes(44100, 2), "audio/wav")},
-            headers={"X-CSRF-Token": token},
-            follow_redirects=False,
-        )
-        assert resp.status_code == 303
-        dest = greeting_mod.hold_music_dir() / f"tenant{resto.id}.wav"
-        with wave.open(str(dest), "rb") as w:
-            assert w.getframerate() == 8000
-            assert w.getnchannels() == 1
-        # La résolution par tenant préfère désormais ce fichier.
-        assert greeting_mod.hold_music_path(resto.id) == str(dest)
-
-    def test_upload_garbage_rejected(self, client, resto):
-        _login(client)
-        token = _csrf(client)
-        resp = client.post(
-            f"/admin/tenants/{resto.id}/hold-music",
-            files={"file": ("fake.wav", b"pas un wav du tout", "audio/wav")},
-            headers={"X-CSRF-Token": token},
-        )
-        assert resp.status_code == 422
-
-    def test_delete_returns_to_default(self, client, resto):
-        _login(client)
-        token = _csrf(client)
-        client.post(
-            f"/admin/tenants/{resto.id}/hold-music",
-            files={"file": ("m.wav", _wav_bytes(8000, 1), "audio/wav")},
-            headers={"X-CSRF-Token": token},
-        )
-        resp = client.post(
-            f"/admin/tenants/{resto.id}/hold-music/delete",
-            headers={"X-CSRF-Token": token},
-            follow_redirects=False,
-        )
-        assert resp.status_code == 303
-        assert greeting_mod.hold_music_path(resto.id) == greeting_mod.hold_music_path(None)
+        for chemin in ("hold-music", "hold-music/delete"):
+            resp = client.post(f"/admin/tenants/{resto.id}/{chemin}",
+                               headers={"X-CSRF-Token": token}, follow_redirects=False)
+            assert resp.status_code in (404, 405)
+        assert "Musique d'attente" not in client.get(f"/admin/tenants/{resto.id}/voice").text

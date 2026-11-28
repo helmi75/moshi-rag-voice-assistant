@@ -291,8 +291,8 @@ def _health(request: Request):
         {"name": "Voix de synthèse (TTS)",
          "detail": (f"Mistral Voxtral · {len(voices.voix_voxtral())} voix au catalogue"
                     if voices.voxtral_disponible()
-                    else "Clé Mistral absente : voix de secours Moshi"),
-         "metric": modele_voxtral() if voices.voxtral_disponible() else "secours"},
+                    else "Clé Mistral absente : aucune voix"),
+         "metric": modele_voxtral() if voices.voxtral_disponible() else "absente"},
         {"name": "Téléphonie", "detail": "Twilio Media Streams",
          "metric": f"{len(rows)} numéro(s) routé(s)"},
     ]

@@ -7,6 +7,31 @@
 > pas réécrits** : les déplacer casserait toute référence existante pour un gain
 > cosmétique. `v1.0.0` marque la reprise sur une numérotation cohérente.
 
+## Non publiée — Retrait de Moshi (28/11/2026, ASSISTANTE-103)
+
+### Retiré
+- Le client `moshi_server_tts.py`, le serveur `deploy/modal_moshi_server.py` (GPU Modal), ses
+  scripts d'essai, la musique d'attente (fichier, envoi par établissement dans l'admin), le
+  réveil du GPU, le keep-warm, le message pré-rendu « rappelez dans quelques minutes » et le
+  catalogue des voix Moshi.
+- Le contrôle de supervision « Jeton du serveur de voix » (21 contrôles au lieu de 22).
+- Les variables `MOSHI_*`, `MODAL_*`, `HOLD_MUSIC_DIR` et `COST_MODAL_PER_MIN` (`docker-compose.yml`,
+  `env.example`) ; la dépendance `msgpack` (`requirements.txt`, `.lock`).
+
+### Modifié
+- Une voix enregistrée qui n'est plus au catalogue (ancienne voix Moshi, voix inconnue) est
+  servie par la voix par défaut, Marie : résolu à la lecture (`voices.resolve_id`), la base
+  n'est pas réécrite. `MOSHI_TTS_URL` posée n'a plus aucun effet.
+- **Sans clé Mistral**, il n'y a plus de voix de secours : `build_tts` refuse de monter le
+  pipeline, l'appel est rendu au restaurant (renvoi) et la supervision est en panne (« Voix Mistral »,
+  « Configuration »). Rien de nouveau n'a été inventé : c'est le chemin de panne existant.
+- Les appels d'avant (voix Moshi) gardent leur étiquette, leur coût et leur transcription ;
+  « Merci d'avoir patienté, je vous écoute. » reste reconnue comme du décor.
+- `docs/MODAL.md` est archivé.
+
+### À faire à la main (pas dans ce lot)
+- `modal app stop moshi-server` : c'est ce qui arrête la facture du GPU.
+
 ## Non publiée — GPT-Live par défaut (28/11/2026)
 
 ### Modifié

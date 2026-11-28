@@ -187,9 +187,9 @@ class TestMentionDInformation:
         texte = rgpd.accueil(hello)
         assert texte == "Bonjour, hello resto. Je suis l'assistante vocale, cet appel est enregistré."
         assert len(texte) <= 90  # ~5 s au lieu de ~9
-        # Avec la voix de secours (GPU à réveiller), la formule d'attente reste utile.
+        # Plus de voix de secours à réveiller : la formule est retirée même sans clé.
         monkeypatch.delenv("MISTRAL_API_KEY")
-        assert "un instant" in rgpd.accueil(hello)
+        assert "un instant" not in rgpd.accueil(hello)
 
     def test_desactivable_mais_par_decision_explicite(self, monkeypatch):
         monkeypatch.setenv("RGPD_MENTION", "0")

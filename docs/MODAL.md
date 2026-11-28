@@ -1,3 +1,7 @@
+> **Archivé le 28/11/2026 (ASSISTANTE-103).** Moshi et son GPU Modal sont retirés : le code
+> (`moshi_server_tts.py`, `deploy/modal_moshi_server.py`) est supprimé, la voix est Voxtral
+> (`docs/VOXTRAL.md`). Ce document ne décrit plus rien qui tourne ; il reste pour l'histoire.
+
 # Le serveur de voix sur Modal — `moshi-server` (voix Moshi 1.6B, celle d'unmute.sh)
 
 Seul le **serveur de voix** tourne sur Modal (GPU L4, région EU, scale-to-zero). L'application

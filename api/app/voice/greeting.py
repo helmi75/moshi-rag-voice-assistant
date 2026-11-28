@@ -1,80 +1,56 @@
-"""Accueil pré-rendu + warmup moshi-server (Phase 3).
+"""Accueil pré-rendu (Voxtral).
 
-Au décroché, le client doit entendre du son IMMÉDIATEMENT. Si le message d'accueil
-passait par le TTS live alors que le GPU Modal a scale-to-zero, le client subirait
-le blanc du cold start (≈ 46 s). On rend donc l'accueil UNE fois, hors du chemin
-d'appel, dans la voix « Développeuse », on le met en cache sur le volume persistant
-(/app/data), et on le rejoue en frames audio brutes (latence 0). En parallèle un
-ping de warmup réveille le serveur, pour que la 1re réponse live tombe sur un GPU
-déjà (en cours d')allumé.
+Au décroché, le client doit entendre du son IMMÉDIATEMENT. On rend donc l'accueil UNE
+fois, hors du chemin d'appel, dans la voix de l'établissement, on le met en cache sur
+le volume persistant (/app/data), et on le rejoue en frames audio brutes (latence 0).
 
 Le cache est indexé par (voix + texte du greeting) : si l'un change, un nouveau
 fichier est rendu et l'ancien est ignoré — pas de resynchronisation manuelle.
+
+Depuis le retrait de Moshi (ASSISTANTE-103), il n'y a plus de GPU à réveiller, de
+musique d'attente ni de message « rappelez dans quelques minutes » pré-rendu : sans clé
+Mistral, l'appel est rendu au restaurant (renvoi).
 """
 import asyncio
 import hashlib
 import os
-import re
 import time
 import wave
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote
 
 import numpy as np
 from loguru import logger
 
-from .. import horloge
 from ..tenants import Tenant
 from . import voices
-from .moshi_server_tts import _DEFAULT_HOLD_MUSIC, _NATIVE_RATE, _ws_base, gpu_chaud, noter_son
 
-# Phrase de reprise après l'attente (vrai standard téléphonique). Surchargeable.
-_RESUME_TEXT = "Merci d'avoir patienté, je vous écoute."
-# GPU chaud : il n'y a pas eu d'attente, donc rien dont remercier.
-_RESUME_TEXT_CHAUD = "Je vous écoute."
+# Débit de la synthèse Voxtral (PCM flottant) avant conversion pour Twilio.
+_NATIVE_RATE = 24000
 
-# GPU introuvable au bout de l'attente (Modal sans capacité L4 en Europe : 23/09, 24/09
-# et 25/09/2026). La reprise partait alors vers un serveur absent et l'appelant
-# n'entendait plus RIEN après la musique : appels 158 et 159 raccrochés dans le silence.
-# Ce message est pré-rendu comme l'accueil — par définition, le serveur de voix ne
-# répond pas au moment où il faut le dire.
-_INDISPONIBLE_TEXT = ("Toutes nos excuses, nous rencontrons un petit souci technique. "
-                      "Merci de nous rappeler dans quelques minutes. Au revoir.")
+# Ce que dit l'assistante, sans le modèle, après l'accueil. Les appels d'avant le retrait
+# de Moshi portent aussi « Merci d'avoir patienté… » (après la musique d'attente) : la
+# supervision doit continuer à les reconnaître comme du décor.
+_REPRISE = "Je vous écoute."
+REPRISES_HISTORIQUES = ("Merci d'avoir patienté, je vous écoute.",
+                        "Toutes nos excuses, nous rencontrons un petit souci technique. "
+                        "Merci de nous rappeler dans quelques minutes. Au revoir.")
 
-# Ce que rend `run_switchboard_intro` quand elle a raccroché faute de GPU.
-INDISPONIBLE = "indisponible"
-
-# Avance de la reprise sur la fin de l'accueil, GPU chaud : le temps que la synthèse
-# rende sa première syllabe (≈ 610 ms mesurés, journal de bord de l'appel 39). Lancée
-# plus tard, elle laisserait un blanc ; plus tôt, elle chevaucherait l'accueil.
+# Avance de la reprise sur la fin de l'accueil : le temps que la synthèse rende sa
+# première syllabe (≈ 610 ms mesurés, journal de bord de l'appel 39). Lancée plus tard,
+# elle laisserait un blanc ; plus tôt, elle chevaucherait l'accueil.
 _AVANCE_REPRISE = 0.6
 
 
-def texte_de_reprise(chaud: bool) -> str:
-    """Ce que dit l'assistante pour passer la main. Une seule source, lue aussi par le
-    pipeline pour le contexte du modèle : la voix et le contexte ne divergent jamais."""
-    if chaud:
-        return os.getenv("MOSHI_RESUME_TEXT_CHAUD", _RESUME_TEXT_CHAUD)
-    return os.getenv("MOSHI_RESUME_TEXT", _RESUME_TEXT)
+def texte_de_reprise() -> str:
+    """Ce que dit l'assistante pour passer la main. Une seule source, lue aussi par la
+    supervision : la voix et le décor reconnu ne divergent jamais."""
+    return _REPRISE
 
-
-def texte_indisponible() -> str:
-    """Ce que l'appelant entend quand le GPU n'est pas venu. Une seule source : le WAV en
-    cache, la transcription et la supervision lisent le même texte."""
-    return os.getenv("MOSHI_INDISPONIBLE_TEXT", _INDISPONIBLE_TEXT)
 
 # Débit du WAV mis en cache : celui de Twilio (8 kHz), pour être rejoué tel quel
 # par le transport sortant sans rééchantillonnage.
 TWILIO_RATE = 8000
-
-
-def is_moshi_server() -> bool:
-    """Un serveur de voix est-il configuré ? C'est la garde de tout ce qui parle : accueil
-    pré-rendu, réveil du GPU, musique d'attente. Depuis le 18/09/2026 il n'y a plus qu'un
-    moteur, donc plus de TTS_PROVIDER : l'URL suffit, et son absence est une panne que la
-    supervision signale (_configuration_requise)."""
-    return bool(os.getenv("MOSHI_TTS_URL", "").strip())
 
 
 def _texte(tenant: Tenant) -> str:
@@ -85,25 +61,15 @@ def _texte(tenant: Tenant) -> str:
     return accueil(tenant)
 
 
-def voix_sans_gpu(tenant: Optional[Tenant] = None) -> bool:
-    """La voix de cet établissement est-elle servie sans notre GPU (Voxtral) ? Alors ni
-    réveil ni musique d'attente : il n'y a rien à réveiller."""
-    return voices.est_voxtral(_voice(tenant))
-
-
 def pre_rendu_possible(tenant: Optional[Tenant] = None) -> bool:
-    """Peut-on rendre l'accueil de cet établissement ? Voxtral (clé posée, sinon
-    `resolve` ne l'aurait pas choisie) ou un serveur moshi configuré."""
-    return voix_sans_gpu(tenant) or is_moshi_server()
+    """Peut-on rendre l'accueil de cet établissement ? Seulement si la clé Mistral est
+    posée : sans elle, rien ne se dit (la supervision le signale en panne)."""
+    return voices.voxtral_disponible()
 
 
 def _voice(tenant: Optional[Tenant] = None) -> str:
     """Voix de cet établissement (voix par défaut du parc si rien n'est choisi)."""
     return voices.resolve(tenant)
-
-
-def _api_key() -> str:
-    return os.getenv("MOSHI_TTS_API_KEY", "public_token")
 
 
 def _cache_dir() -> Path:
@@ -118,15 +84,10 @@ def _cache_path(tenant: Tenant) -> Path:
     return _chemin_en_cache(tenant, _texte(tenant))
 
 
-def _chemin_indisponible(tenant: Tenant) -> Path:
-    """Même règle que l'accueil : un changement de voix ou de texte rend un nouveau WAV."""
-    return _chemin_en_cache(tenant, texte_indisponible(), "_indisponible")
-
-
-def _chemin_en_cache(tenant: Tenant, texte: str, etiquette: str = "") -> Path:
+def _chemin_en_cache(tenant: Tenant, texte: str) -> Path:
     key = f"{_voice(tenant)}|{texte}".encode("utf-8")
     digest = hashlib.sha1(key, usedforsecurity=False).hexdigest()[:12]  # nosemgrep: insecure-hash-algorithm-sha1 — empreinte de cache, pas de sécurité
-    return _cache_dir() / f"tenant{tenant.id}{etiquette}_{digest}.wav"
+    return _cache_dir() / f"tenant{tenant.id}_{digest}.wav"
 
 
 def _si_valide(path: Path) -> Path | None:
@@ -142,56 +103,16 @@ def cached_greeting_path(tenant: Tenant) -> Path | None:
     return _si_valide(_cache_path(tenant))
 
 
-def cached_indisponible_path(tenant: Tenant) -> Path | None:
-    """Le WAV « rappelez dans quelques minutes » déjà en cache, ou None. NE rend RIEN."""
-    return _si_valide(_chemin_indisponible(tenant))
-
-
 async def _render_pcm(text: str, voice: Optional[str] = None) -> np.ndarray | None:
-    """Rend `text` → float32 mono @24 kHz (None si rendu vide), chez le fournisseur de la
-    voix : Voxtral (Mistral) ou moshi-server. Les deux rendent du 24 kHz : la suite
-    (conversion Twilio, cache) ne sait pas d'où vient l'audio."""
-    if voices.est_voxtral(voice):
-        from .voxtral_tts import rendre_pcm
+    """Rend `text` → float32 mono @24 kHz (None si rendu vide) par Voxtral (Mistral). La
+    voix passée est toujours résolue par `voices.resolve` : une ancienne voix Moshi y
+    devient la voix par défaut."""
+    from .voxtral_tts import rendre_pcm
 
-        return await rendre_pcm(text, voices.get(voice).voxtral_id)
-    import msgpack
-    import websockets
-
-    uri = (
-        f"{_ws_base()}/api/tts_streaming"
-        f"?voice={quote(voice or _voice())}&format=PcmMessagePack"
-    )
-    headers = {"kyutai-api-key": _api_key()}
-    chunks: list[np.ndarray] = []
-    async with websockets.connect(
-        uri,
-        additional_headers=headers,
-        max_size=None,
-        # Large : le 1er accès réveille la box GPU + recharge le modèle (cold start).
-        open_timeout=float(os.getenv("MOSHI_TTS_OPEN_TIMEOUT", "90")),
-    ) as ws:
-
-        async def _send():
-            for word in text.split():
-                await ws.send(msgpack.packb({"type": "Text", "text": word}))
-            await ws.send(msgpack.packb({"type": "Eos"}))
-
-        send_task = asyncio.create_task(_send())
-        try:
-            async for message_bytes in ws:
-                msg = msgpack.unpackb(message_bytes)
-                if msg.get("type") != "Audio":
-                    continue
-                pcm = np.clip(np.array(msg["pcm"], dtype=np.float32), -1.0, 1.0)
-                if pcm.size:
-                    chunks.append(pcm)
-        finally:
-            send_task.cancel()
-
-    if chunks:
-        noter_son()
-    return np.concatenate(chunks) if chunks else None
+    voix = voices.get(voices.resolve_id(voice))
+    if voix is None:
+        raise ValueError("voix par défaut absente du catalogue Mistral")
+    return await rendre_pcm(text, voix.voxtral_id)
 
 
 async def _to_twilio_int16(pcm_f32_24k: np.ndarray) -> bytes:
@@ -216,19 +137,12 @@ def _write_wav(path: Path, pcm_int16: bytes) -> None:
 
 
 async def ensure_greeting_wav(tenant: Tenant) -> Path | None:
-    """Rend et met en cache le WAV d'accueil s'il manque, puis le message
-    d'indisponibilité. Idempotent. Rend le chemin de l'ACCUEIL, None si échec
-    (l'appelant retombe alors sur le TTS live)."""
+    """Rend et met en cache le WAV d'accueil s'il manque. Idempotent. Rend son chemin,
+    None si échec (l'appelant retombe alors sur le TTS live)."""
     if not pre_rendu_possible(tenant):
         return None
-    accueil = cached_greeting_path(tenant) or await _rendre_en_cache(
+    return cached_greeting_path(tenant) or await _rendre_en_cache(
         tenant, _texte(tenant), _cache_path(tenant), "accueil")
-    # Ce message ne se rend que GPU joignable : on profite de chaque passage ici. Sans
-    # accueil, le GPU vient de ne pas répondre — inutile de lui laisser 90 s de plus.
-    if accueil is not None and cached_indisponible_path(tenant) is None:
-        await _rendre_en_cache(tenant, texte_indisponible(), _chemin_indisponible(tenant),
-                               "message d'indisponibilité")
-    return accueil
 
 
 async def _rendre_en_cache(tenant: Tenant, texte: str, chemin: Path, quoi: str) -> Path | None:
@@ -268,100 +182,29 @@ def load_greeting_frames(path: Path, chunk_ms: int = 20) -> list:
     return frames
 
 
-async def warmup_moshi_server() -> bool:
-    """Réveille (ou garde chaud) le serveur moshi : mini-requête TTS. Non bloquant,
-    erreurs avalées — c'est un préchauffage best-effort, jamais un point de panne.
-    Rend True si le serveur a répondu : l'intro en déduit s'il faut s'excuser."""
-    if not is_moshi_server():
-        return False
-    try:
-        t0 = time.monotonic()
-        await _render_pcm(os.getenv("MOSHI_WARMUP_TEXT", "Bonjour."))
-        logger.info(f"warmup moshi-server : OK en {time.monotonic() - t0:.1f}s")
-        return True
-    except Exception as exc:
-        logger.warning(f"warmup moshi-server échoué (sans conséquence): {exc}")
-        return False
-
-
-def hold_music_dir() -> Path:
-    """Dossier des musiques d'attente PAR TENANT (uploads admin, volume persistant)."""
-    return Path(os.getenv("HOLD_MUSIC_DIR", "/app/data/hold_music"))
-
-
-def hold_music_path(tenant_id: Optional[int] = None) -> str:
-    """Musique d'attente à jouer : celle du tenant si uploadée, sinon la globale."""
-    if tenant_id is not None:
-        per_tenant = hold_music_dir() / f"tenant{tenant_id}.wav"
-        if per_tenant.exists() and per_tenant.stat().st_size > 44:
-            return str(per_tenant)
-    return os.getenv("MOSHI_HOLD_MUSIC_PATH", _DEFAULT_HOLD_MUSIC)
-
-
-def load_hold_music_chunks(
-    chunk_ms: int = 20, tenant_id: Optional[int] = None
-) -> tuple[int, list[bytes]]:
-    """Charge la musique d'attente en morceaux de chunk_ms. (rate, [bytes]). ([]) si absente."""
-    path = hold_music_path(tenant_id)
-    try:
-        with wave.open(path, "rb") as w:
-            rate = w.getframerate()
-            raw = w.readframes(w.getnframes())
-    except Exception as exc:
-        logger.warning(f"musique d'attente non chargée: {exc}")
-        return 8000, []
-    step = int(rate * chunk_ms / 1000) * 2  # 2 octets/échantillon (int16 mono)
-    return rate, [raw[i : i + step] for i in range(0, len(raw), step) if raw[i : i + step]]
-
-
 async def run_switchboard_intro(
     task, output_transport, tenant: Tenant, pipeline_ready: Optional[asyncio.Event] = None,
-    chaud: Optional[bool] = None,
-) -> Optional[str]:
-    """Flux « standardiste » (Phase 3) : accueil pré-rendu → musique d'attente pendant
-    le réveil du GPU → reprise proactive. Lancé en tâche de fond parallèle au pipeline.
-    Rend `INDISPONIBLE` si l'appel a été raccroché faute de GPU, None sinon.
+) -> None:
+    """Flux « standardiste » : accueil pré-rendu, puis « Je vous écoute. » par le pipeline.
+    Lancé en tâche de fond parallèle au pipeline.
 
     ⚠️ `pipeline_ready` : le transport de sortie JETTE l'audio reçu avant le StartFrame.
     Sans cette attente, l'accueil (4 s envoyées d'un bloc à t=0) part dans le vide et
-    le client n'entend que la musique (bug constaté en appel réel : accueil envoyé à
-    t+0,71 s, pipeline prêt à t+0,99 s).
+    le client n'entend rien (bug constaté en appel réel : accueil envoyé à t+0,71 s,
+    pipeline prêt à t+0,99 s).
 
-    L'accueil et la musique sont injectés via output_transport.send_audio() : ils vont
-    DIRECTEMENT à Twilio sans traverser STT/VAD. Sinon (injectés en tête de pipeline),
-    ces AudioRawFrame empoisonnaient Deepgram ET engorgeaient le VAD, bloquant l'audio
-    entrant réel après la reprise (« no audio received while speaking »).
+    L'accueil est injecté via output_transport.send_audio() : il va DIRECTEMENT à Twilio
+    sans traverser STT/VAD. Sinon (injecté en tête de pipeline), ces AudioRawFrame
+    empoisonnaient Deepgram ET engorgeaient le VAD, bloquant l'audio entrant réel après
+    la reprise (« no audio received while speaking »).
 
-    Séquence : « Bonjour … un instant s'il vous plaît » (WAV, latence 0) → 🎻 musique
-    (bouclée) tant que le warmup n'a pas rendu le GPU chaud → « Merci d'avoir patienté,
-    je vous écoute » (TTS, désormais rapide) → la conversation prend le relais.
-
-    GPU CHAUD (`chaud`, décidé par le pipeline pour que le contexte du modèle dise la
-    même chose que la voix ; à défaut, `gpu_chaud()`) : ni réveil ni musique. Même GPU
-    allumé, le réveil ouvrait une connexion de plus par appel — celle qui allumait un
-    deuxième GPU dès cinq appels simultanés au banc — et faisait patienter l'appelant
-    pour rien. « Je vous écoute. » s'enchaîne alors sur la fin de l'accueil.
-
-    GPU INTROUVABLE à la fin de l'attente : message pré-rendu « rappelez dans quelques
-    minutes », puis on raccroche. La reprise partait vers un serveur absent, et
-    l'appelant restait dans le silence jusqu'à raccrocher de lui-même.
+    « Je vous écoute. » s'enchaîne sur la fin de l'accueil (`_AVANCE_REPRISE`).
     """
-    from pipecat.frames.frames import (
-        EndFrame, OutputAudioRawFrame, STTMuteFrame, TTSSpeakFrame,
-    )
+    from pipecat.frames.frames import STTMuteFrame, TTSSpeakFrame
 
-    # Voix Voxtral : aucun GPU à réveiller, l'appel est « chaud » d'office.
-    sans_gpu = voix_sans_gpu(tenant)
-    if sans_gpu:
-        chaud = True
-    elif chaud is None:
-        chaud = gpu_chaud()
-
-    # STT muté pendant l'intro : la parole du client pendant l'attente est ignorée
-    # (il est « en ligne d'attente ») ; on écoute à la reprise. La musique, elle, ne
-    # passe plus par le STT (send_audio) : le mute ne concerne donc que l'entrée réelle.
+    # STT muté pendant l'intro : la parole du client pendant l'accueil est ignorée ;
+    # on écoute à la reprise.
     await task.queue_frames([STTMuteFrame(mute=True)])
-    raccroche = False
 
     # Attend le démarrage effectif du pipeline avant d'émettre le moindre audio.
     if pipeline_ready is not None:
@@ -383,115 +226,14 @@ async def run_switchboard_intro(
         else:
             await task.queue_frames([TTSSpeakFrame(_texte(tenant))])  # repli TTS live
 
-        if chaud and (sans_gpu or is_moshi_server()):
-            # `send_audio` met en file et rend la main aussitôt : l'accueil est encore en
-            # train d'être joué. On attend sa fin, moins le temps de rendu de la reprise.
-            logger.info("Voix Voxtral : pas de GPU à réveiller." if sans_gpu
-                        else "GPU chaud : ni réveil ni musique d'attente.")
-            reste = debut + duree_accueil - _AVANCE_REPRISE - time.monotonic()
-            if reste > 0:
-                await asyncio.sleep(reste)
-        elif is_moshi_server():
-            # 2. Réveil du GPU en tâche de fond (retourne quand le serveur est chaud).
-            warm = asyncio.create_task(warmup_moshi_server())
+        # `send_audio` met en file et rend la main aussitôt : l'accueil est encore en
+        # train d'être joué. On attend sa fin, moins le temps de rendu de la reprise.
+        reste = debut + duree_accueil - _AVANCE_REPRISE - time.monotonic()
+        if reste > 0:
+            await asyncio.sleep(reste)
 
-            # 3. Musique d'attente jusqu'au réveil, en morceaux de 1 s envoyés DIRECT à la
-            #    sortie (pacé : le transport joue à débit réel, on garde un petit tampon).
-            rate, chunks = load_hold_music_chunks(chunk_ms=1000, tenant_id=tenant.id)
-            deadline = time.monotonic() + float(os.getenv("MOSHI_HOLD_MAX_SECONDS", "90"))
-            i = 0
-            if chunks:
-                logger.info("Musique d'attente : lecture pendant le réveil du GPU.")
-                while not warm.done() and time.monotonic() < deadline:
-                    await output_transport.send_audio(OutputAudioRawFrame(
-                        audio=chunks[i % len(chunks)], sample_rate=rate, num_channels=1))
-                    i += 1
-                    await asyncio.sleep(0.9)  # < 1 s : petit tampon d'avance anti-coupure
-            pret = False
-            try:
-                pret = bool(await asyncio.wait_for(
-                    warm, timeout=max(0.0, deadline - time.monotonic())))
-            except Exception:  # noqa: S110 — voir la ligne suivante
-                pass  # warmup expiré : le GPU n'est pas venu
-            message = None if pret else cached_indisponible_path(tenant)
-            if message is not None:
-                logger.warning(f"GPU toujours injoignable après ~{i}s de musique : « rappelez "
-                               "dans quelques minutes », puis on raccroche.")
-                for frame in load_greeting_frames(message):
-                    await output_transport.send_audio(frame)
-                # Pas d'attente ici : le transport de sortie ne traite l'EndFrame qu'une
-                # fois joué tout l'audio déjà en file (musique restante, puis message).
-                await task.queue_frames([EndFrame()])
-                raccroche = True
-                return INDISPONIBLE
-            if not pret:
-                logger.warning("GPU toujours injoignable, et aucun message d'indisponibilité "
-                               "en cache : reprise tentée quand même.")
-            logger.info(f"Fin de l'attente (~{i}s de musique jouée) : reprise proactive.")
-
-        # 4. Reprise proactive (TTS désormais chaud → ~1,2 s), via le pipeline normal.
-        await task.queue_frames([TTSSpeakFrame(texte_de_reprise(chaud))])
-        return None
+        # 2. Reprise, via le pipeline normal.
+        await task.queue_frames([TTSSpeakFrame(texte_de_reprise())])
     finally:
-        # Démute : le client peut désormais parler et être transcrit. Sauf si l'on
-        # raccroche : rien ne doit plus suivre l'EndFrame.
-        if not raccroche:
-            await task.queue_frames([STTMuteFrame(mute=False)])
-
-
-_PLAGE = re.compile(r"\s*(\d{1,2})(?:[:h](\d{2}))?\s*-\s*(\d{1,2})(?:[:h](\d{2}))?\s*")
-
-
-def plages_keepwarm(brut: Optional[str] = None) -> Optional[list[tuple[int, int]]]:
-    """Fenêtres du keep-warm, en minutes depuis minuit à l'heure du restaurant.
-
-    `MOSHI_KEEPWARM_HEURES="11:30-14:30,18:30-23"` : le GPU n'est gardé chaud que
-    pendant ces plages (une plage qui finit avant de commencer passe minuit). None =
-    toute la journée : variable vide, ou illisible — dans ce cas on le DIT, et on garde
-    chaud plutôt que de laisser un appelant subir un démarrage à froid qu'on croyait
-    évité : MOSHI_KEEPWARM_SECONDS posé exprime déjà ce choix."""
-    brut = (os.getenv("MOSHI_KEEPWARM_HEURES", "") if brut is None else brut).strip()
-    if not brut:
-        return None
-    plages = []
-    for morceau in brut.split(","):
-        m = _PLAGE.fullmatch(morceau)
-        debut = int(m[1]) * 60 + int(m[2] or 0) if m else -1
-        fin = int(m[3]) * 60 + int(m[4] or 0) if m else -1
-        if not m or not 0 <= debut < 1440 or not 0 < fin <= 1440 or debut == fin:
-            logger.warning(f"MOSHI_KEEPWARM_HEURES illisible (« {brut} ») : keep-warm "
-                           "toute la journée. Format : 11:30-14:30,18:30-23.")
-            return None
-        plages.append((debut, fin))
-    return plages
-
-
-def keepwarm_maintenant(plages: Optional[list[tuple[int, int]]], instant=None) -> bool:
-    """Vrai si le GPU doit être gardé chaud à cet instant (heure du restaurant)."""
-    if plages is None:
-        return True
-    instant = instant or horloge.maintenant()
-    minute = instant.hour * 60 + instant.minute
-    return any(debut <= minute < fin if debut < fin else (minute >= debut or minute < fin)
-               for debut, fin in plages)
-
-
-async def keep_warm_loop() -> None:
-    """Boucle de préchauffage périodique (opt-in via MOSHI_KEEPWARM_SECONDS > 0).
-
-    Le cold start (≈ 46 s) est plus long que tout accueil : seul un GPU maintenu
-    chaud le supprime vraiment. ⚠️ COÛTE de l'argent (≈ 0,80 $ par heure chaude sur une
-    L4) : d'où MOSHI_KEEPWARM_HEURES, qui limite la chaleur aux heures où l'on appelle
-    vraiment, et laisse le GPU s'éteindre la nuit. Régler l'intervalle sous le
-    scaledown Modal (120 s) — p. ex. 90 s."""
-    interval = float(os.getenv("MOSHI_KEEPWARM_SECONDS", "0") or "0")
-    if interval <= 0 or not is_moshi_server():
-        return
-    plages = plages_keepwarm()
-    fenetre = (os.getenv("MOSHI_KEEPWARM_HEURES", "").strip() + ", heure du restaurant"
-               if plages else "toute la journée")
-    logger.info(f"keep-warm moshi-server activé (toutes les {interval:.0f}s, {fenetre}).")
-    while True:
-        if keepwarm_maintenant(plages):
-            await warmup_moshi_server()
-        await asyncio.sleep(interval)
+        # Démute : le client peut désormais parler et être transcrit.
+        await task.queue_frames([STTMuteFrame(mute=False)])

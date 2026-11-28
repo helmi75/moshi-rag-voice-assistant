@@ -1,4 +1,4 @@
-"""La voix Marie de Voxtral (Mistral), à côté des voix Moshi (SCRUM-94 à 97).
+"""La voix Marie de Voxtral (Mistral) (SCRUM-94 à 97).
 
 Aucun appel réseau : l'API de Mistral est jouée par un transport httpx qui rend des
 Server-Sent Events à la forme exacte de ceux relevés le 28/09/2026
@@ -9,7 +9,6 @@ import asyncio
 import base64
 import json
 import wave
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -37,7 +36,6 @@ def _base():
 def _propre(monkeypatch, tmp_path):
     monkeypatch.setenv("GREETING_CACHE_DIR", str(tmp_path))
     monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
-    monkeypatch.delenv("MOSHI_TTS_VOICE", raising=False)
     voxtral_tts.oublier_echecs()
     yield
     voxtral_tts.oublier_echecs()
@@ -81,18 +79,34 @@ class TestCatalogue:
         assert voices.resolve(_tenant()) == MARIE
         assert voices.label_for(_tenant()) == "Marie · joyeuse"
 
-    def test_sans_cle_on_retombe_sur_la_voix_moshi_par_defaut(self, monkeypatch):
-        """Jamais le silence : un appel ne doit pas dépendre d'une clé absente."""
-        monkeypatch.delenv("MISTRAL_API_KEY")
-        assert voices.resolve(_tenant()) == voices.DEFAULT_VOICE
+    def test_une_ancienne_voix_moshi_enregistree_est_servie_par_marie(self):
+        """Retrait de Moshi (ASSISTANTE-103) : la base garde l'ancien identifiant, la
+        lecture le résout vers la voix par défaut — pas de réécriture, pas de silence."""
+        ancienne = "unmute-prod-website/developpeuse-3.wav"
+        assert voices.resolve(_tenant(voice=ancienne)) == voices.default_id()
+        assert voices.resolve(_tenant(voice="dossier-bidon/inconnue.wav")) == voices.default_id()
+        assert voices.resolve(_tenant(voice=None)) == voices.default_id()
 
-    def test_build_tts_choisit_voxtral_meme_sans_serveur_moshi(self, monkeypatch):
+    def test_build_tts_d_une_ancienne_voix_moshi_rend_marie(self):
         from app.voice import bot
 
-        monkeypatch.delenv("MOSHI_TTS_URL", raising=False)
-        tts = bot.build_tts(_tenant())
+        tts = bot.build_tts(_tenant(voice="cml-tts/fr/4937_3731_000004-0001_enhanced.wav"))
         assert isinstance(tts, voxtral_tts.VoxtralTTSService)
-        assert tts._voix_id == voices.get(MARIE).voxtral_id
+        assert tts._voix_id == voices.get(voices.default_id()).voxtral_id
+
+    def test_une_url_moshi_posee_n_a_aucun_effet(self, monkeypatch):
+        """Aucun appel ne tente de joindre moshi-server : la variable est ignorée, et
+        sans clé Mistral le pipeline refuse franchement au lieu de chercher un GPU."""
+        from app.voice import bot
+
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        assert isinstance(bot.build_tts(_tenant()), voxtral_tts.VoxtralTTSService)
+        monkeypatch.delenv("MISTRAL_API_KEY")
+        with pytest.raises(ValueError, match="MISTRAL_API_KEY"):
+            bot.build_tts(_tenant())
+        import importlib.util
+
+        assert importlib.util.find_spec("app.voice.moshi_server_tts") is None
 
 
 def _service(transport):
@@ -136,7 +150,7 @@ class TestServiceDeVoix:
 class TestAccueilEtDecroche:
     def test_l_accueil_est_rendu_par_voxtral(self, monkeypatch):
         """Pas de websocket vers le GPU : l'accueil de Marie vient de Mistral."""
-        monkeypatch.delenv("MOSHI_TTS_URL", raising=False)
+        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
         demandes = []
 
         async def faux_rendu(texte, voix_id):
@@ -149,40 +163,6 @@ class TestAccueilEtDecroche:
         assert demandes[0] == voices.get(MARIE).voxtral_id
         with wave.open(str(chemin)) as w:
             assert w.getframerate() == 8000
-
-    def test_ni_reveil_ni_musique_meme_annonce_froid(self, monkeypatch):
-        """Même si l'appelant de l'intro croit le GPU froid, Marie n'a rien à réveiller :
-        « Je vous écoute. » suit directement l'accueil."""
-        reveils = []
-
-        async def faux_reveil():
-            reveils.append(1)
-            return True
-
-        async def sans_attente(secondes):
-            return None
-
-        monkeypatch.setattr(g, "warmup_moshi_server", faux_reveil)
-        monkeypatch.setattr(g.asyncio, "sleep", sans_attente)
-        chemin = g._cache_path(_tenant())
-        chemin.parent.mkdir(parents=True, exist_ok=True)
-        with wave.open(str(chemin), "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(8000)
-            w.writeframes(b"\x00\x00" * 4000)
-        task = SimpleNamespace(queue_frames=AsyncMock())
-        sortie = SimpleNamespace(send_audio=AsyncMock())
-        asyncio.run(g.run_switchboard_intro(task, sortie, _tenant(), None, chaud=False))
-        textes = [f.text for appel in task.queue_frames.await_args_list for f in appel.args[0]
-                  if type(f).__name__ == "TTSSpeakFrame"]
-        assert reveils == [] and textes == ["Je vous écoute."]
-        assert sortie.send_audio.await_count == 25  # l'accueil seul, aucune musique
-
-    def test_seule_la_voix_de_secours_reveille_un_gpu(self, monkeypatch):
-        assert g.voix_sans_gpu(_tenant()) is True
-        monkeypatch.delenv("MISTRAL_API_KEY")
-        assert g.voix_sans_gpu(_tenant()) is False
 
 
 class TestSupervision:
@@ -210,7 +190,6 @@ class TestSupervision:
 class TestAdmin:
     @pytest.fixture()
     def resto(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HOLD_MUSIC_DIR", str(tmp_path / "hold"))
         tenant = tenants.create_tenant("Voix Marie", f"+3363{id(object()) % 10_000_000:07d}")
         yield tenant
         tenants.delete_tenant(tenant.id)
@@ -306,11 +285,9 @@ class TestDansLePipeline:
 
 
 class TestStatutDeLAccueil:
-    def test_on_n_annonce_pas_90_s_de_gpu_pour_marie(self):
+    def test_on_n_annonce_pas_de_gpu_pour_marie(self):
         from app.admin import deps
 
         gabarit = deps.templates.env.get_template("voice/_greeting_status.html")
-        marie = gabarit.render(tenant=_tenant(), greeting_ready=False, voix_sans_gpu=True)
-        moshi = gabarit.render(tenant=_tenant(), greeting_ready=False, voix_sans_gpu=False)
+        marie = gabarit.render(tenant=_tenant(), greeting_ready=False)
         assert "quelques secondes" in marie and "GPU" not in marie
-        assert "90 s" in moshi

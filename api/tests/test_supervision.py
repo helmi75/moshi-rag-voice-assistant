@@ -82,7 +82,7 @@ class TestEnumeration:
     """Filet de sécurité : un contrôle supprimé par mégarde ferait passer la sonde au
     vert sans que rien ne le signale. Le même piège que les tests de sécurité vides."""
 
-    ATTENDUS = ["base", "configuration", "signatures", "jeton_voix", "appels_muets",
+    ATTENDUS = ["base", "configuration", "signatures", "appels_muets",
                 "appels_echoues", "appels_inacheves", "latence", "twilio", "solde_twilio", "secours_twilio",
                 "carnets",
                 "voxtral", "secours",
@@ -168,7 +168,7 @@ class TestConfiguration:
     def test_le_chemin_d_appel_exige_ses_quatre_variables(self, base, monkeypatch):
         """Un seul chemin d'appel (flux média, Deepgram, voix Mistral) : les quatre
         variables sont exigées sans condition. Depuis le 28/09/2026, la voix est celle
-        de Mistral : c'est sa clé qui est exigée, plus l'adresse du serveur Moshi."""
+        de Mistral : c'est sa clé qui est exigée, plus l'adresse d'un serveur de voix."""
         monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
         monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
         monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
@@ -256,7 +256,7 @@ class TestLesDeuxPannesQueLeControleNAvaitPasVues:
 
         _appel(etablissement.id, "CA-llm", transcript=[
             ACCUEIL,
-            {"role": "assistant", "content": greeting.texte_de_reprise(False)},
+            {"role": "assistant", "content": greeting.texte_de_reprise()},
             {"role": "user", "content": "Je voudrais réserver une table"},
             {"role": "assistant", "content": bot.relance(1, "fr")[0]},
             {"role": "user", "content": "Allô ?"},
@@ -264,14 +264,13 @@ class TestLesDeuxPannesQueLeControleNAvaitPasVues:
         ])
         assert _controle("appels_muets")["mesure"]["muets"] == 1
 
-    def test_le_message_d_indisponibilite_n_est_pas_une_reponse(self, etablissement):
-        """25/09/2026 : GPU introuvable, l'assistante demande de rappeler et raccroche.
-        L'appel est perdu pour le restaurant : il doit compter parmi les muets, sinon
-        le filet de sécurité masquerait la panne qu'il amortit."""
+    def test_la_reprise_d_avant_le_retrait_de_moshi_reste_du_decor(self, etablissement):
+        """Les appels d'avant le 28/11/2026 portent « Merci d'avoir patienté… » : ils
+        restent lisibles comme du décor, sinon l'historique se lirait faussé."""
         from app.voice import greeting
 
-        _appel(etablissement.id, "CA-indispo", transcript=[
-            ACCUEIL, {"role": "assistant", "content": greeting.texte_indisponible()}])
+        _appel(etablissement.id, "CA-ancien", transcript=[
+            ACCUEIL, {"role": "assistant", "content": greeting.REPRISES_HISTORIQUES[0]}])
         assert _controle("appels_muets")["mesure"]["muets"] == 1
 
     def test_des_relances_fusionnees_en_un_seul_tour_restent_du_decor(self, etablissement):
@@ -379,24 +378,6 @@ class TestLatence:
         monkeypatch.setenv("SUPERVISION_LATENCE_PANNE_MS", "4000")
         _appel(etablissement.id, "CA-fige", transcript=DIALOGUE, latences=[5000, 6000, 7000])
         assert _controle("latence")["niveau"] == supervision.PANNE
-
-
-class TestJetonVoix:
-    """La clé de démonstration de Kyutai ouvre le GPU à qui connaît l'URL."""
-
-    @pytest.mark.parametrize("valeur", ["", "public_token", "  public_token  "])
-    def test_cle_publique_ou_absente_est_signalee(self, base, monkeypatch, valeur):
-        monkeypatch.setenv("MOSHI_TTS_API_KEY", valeur)
-        controle = _controle("jeton_voix")
-        assert controle["niveau"] == supervision.ATTENTION
-        assert controle["mesure"]["cle_privee"] is False
-
-    def test_cle_privee_est_verte(self, base, monkeypatch):
-        monkeypatch.setenv("MOSHI_TTS_API_KEY", "0f" * 32)
-        controle = _controle("jeton_voix")
-        assert controle["niveau"] == supervision.OK
-        # La valeur de la clé n'apparaît nulle part dans la sonde, qui sort du serveur.
-        assert "0f" * 32 not in json.dumps(controle)
 
 
 class TestSauvegarde:
@@ -1136,7 +1117,7 @@ class TestCablage:
         compose = self._compose()
         lues = self._variables_lues()
         assert {"SUPERVISION_TOKEN", "SUPERVISION_FENETRE_JOURS",
-                "MOSHI_KEEPWARM_SECONDS"} <= lues, (
+                "MISTRAL_API_KEY"} <= lues, (
             "la lecture des variables ne trouve plus ce qu'elle devrait : le test ne "
             "vérifie rien")
         oubliees = sorted(v for v in lues if f"{v}:" not in compose)
@@ -1160,9 +1141,8 @@ class TestCablage:
             "les deux sont à proscrire dans un dépôt public")
 
 
-class TestMessageDIndisponibilite:
-    """Le message « rappelez dans quelques minutes » ne sert que GPU introuvable. S'il
-    manque, personne ne le remarque — jusqu'au jour où l'appelant retrouve le silence."""
+class TestAccueilsPreRendus:
+    """Un accueil manquant se voit ; le message « rappelez » de l'ère Moshi n'existe plus."""
 
     def _wav(self, chemin):
         import wave
@@ -1174,23 +1154,21 @@ class TestMessageDIndisponibilite:
             w.setframerate(8000)
             w.writeframes(b"\x00\x00" * 800)
 
-    def test_un_message_manquant_se_voit(self, etablissement, tmp_path, monkeypatch):
+    def test_un_accueil_manquant_se_voit(self, etablissement, tmp_path, monkeypatch):
         from app.voice import greeting
 
-        monkeypatch.setenv("MOSHI_TTS_URL", "wss://exemple.modal.run")
+        monkeypatch.setenv("MISTRAL_API_KEY", "cle-de-test")
         monkeypatch.setenv("GREETING_CACHE_DIR", str(tmp_path / "accueils"))
         liste = tenants.list_all()
+        controle = _controle("accueils")
+        assert controle["niveau"] == supervision.ATTENTION
+        assert controle["mesure"]["manquants"] == len(liste)
+
         for t in liste:
             self._wav(greeting._cache_path(t))
         controle = _controle("accueils")
-        assert controle["niveau"] == supervision.ATTENTION
-        assert controle["mesure"]["sans_message_d_indisponibilite"] == len(liste)
-
-        for t in liste:
-            self._wav(greeting._chemin_indisponible(t))
-        controle = _controle("accueils")
         assert controle["niveau"] == supervision.OK
-        assert controle["mesure"]["sans_message_d_indisponibilite"] == 0
+        assert controle["mesure"]["manquants"] == 0
 
 
 class TestCreditOpenAI:

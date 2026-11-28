@@ -67,7 +67,7 @@ services:
       # n'ai pas bien entendu » (voice/rattrapage.py). « off » le retire.
       RATTRAPAGE_PAROLE: "${RATTRAPAGE_PAROLE:-on}"
       # Voix Marie (Voxtral, Mistral) — SCRUM-94. Sans clé, Marie ne se choisit pas et un
-      # établissement qui l'avait choisie retombe sur la voix Moshi par défaut.
+      # établissement ne peut pas parler : l'appel est rendu au restaurant (renvoi).
       MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
       # GPT-Live, la voix-à-voix d'OpenAI (api/app/voice/live.py, docs/TEMPS_REEL.md). Le
       # moteur se choisit par établissement dans l'admin ; sans choix, c'est GPT-Live
@@ -106,15 +106,8 @@ services:
       DEEPGRAM_MODEL: "${DEEPGRAM_MODEL:-nova-3}"
       DEEPGRAM_LANGUAGE: "${DEEPGRAM_LANGUAGE:-}"
       DEEPGRAM_KEYWORDS: "${DEEPGRAM_KEYWORDS:-}"
-      # Voix : le serveur Rust moshi-server sur Modal — le seul moteur TTS depuis le
-      # 18/09/2026. URL wss, clé (défaut public_token jusqu'à la rotation prévue) et
-      # voix par défaut du parc.
-      MOSHI_TTS_URL: "${MOSHI_TTS_URL:-}"
-      MOSHI_TTS_API_KEY: "${MOSHI_TTS_API_KEY:-public_token}"
-      # Voix par défaut du parc. Chaque établissement peut choisir la sienne dans
-      # l'admin (colonne tenants.voice) ; ce réglage ne sert qu'à ceux qui n'ont rien
-      # choisi. Une valeur hors catalogue (api/app/voice/voices.py) est ignorée.
-      MOSHI_TTS_VOICE: "${MOSHI_TTS_VOICE:-unmute-prod-website/developpeuse-3.wav}"
+      # Voix : Voxtral de Mistral (MISTRAL_API_KEY, plus bas). Moshi et son GPU Modal ont
+      # été retirés le 28/11/2026 (ASSISTANTE-103) : MOSHI_* et MODAL_* n'ont plus d'effet.
       # Notifications au restaurateur par e-mail (réservations, messages pris) : SMTP
       # générique. Sans SMTP_HOST, rien ne part et rien ne casse. SMTP_SSL=1 pour un port
       # 465 (TLS implicite) ; sinon STARTTLS sur 587.
@@ -185,24 +178,10 @@ services:
       # 19/09/2026 ils n'étaient pas listés : posés dans le .env (env.example en documente
       # plusieurs), ils n'avaient AUCUN effet. Un test exige que toute variable lue par
       # l'application figure dans ce fichier (test_supervision.py::TestCablage).
-      #  - GPU chaud : MOSHI_KEEPWARM_SECONDS (90 = actif, ≈ 0,80 $/h de GPU) et
-      #    MOSHI_KEEPWARM_HEURES (« 11:30-14:30,18:30-23 », heure du restaurant).
-      MOSHI_KEEPWARM_SECONDS:
-      MOSHI_KEEPWARM_HEURES:
-      MOSHI_CHAUD_SECONDES:
-      MOSHI_HOLD_AFTER_SECONDS:
-      MOSHI_HOLD_MAX_SECONDS:
-      MOSHI_HOLD_MUSIC_PATH:
-      MOSHI_RESUME_TEXT:
-      MOSHI_RESUME_TEXT_CHAUD:
-      MOSHI_INDISPONIBLE_TEXT:
       # Carnet resOS (app/connecteurs/resos.py) : RESOS_API_KEYS="<id établissement>=<clé>,…".
       RESOS_API_KEYS:
       RESOS_API_URL:
-      MOSHI_TTS_OPEN_TIMEOUT:
-      MOSHI_WARMUP_TEXT:
       GREETING_CACHE_DIR:
-      HOLD_MUSIC_DIR:
       REPONSE_ANTICIPEE:
       USER_IDLE_TIMEOUT:
       RESTAURANT_TIMEZONE:
@@ -246,7 +225,6 @@ services:
       RETENTION_RECETTE_JOURS: "${RETENTION_RECETTE_JOURS:-30}"
       RECETTE_ARCHIVE_DIR: "${RECETTE_ARCHIVE_DIR:-/app/data/recette/archives}"
       COST_DEEPGRAM_PER_MIN:
-      COST_MODAL_PER_MIN:
       COST_LLM_PER_CALL:
       COST_LLM_ENTREE_PAR_MILLION:
       COST_LLM_CACHE_PAR_MILLION:

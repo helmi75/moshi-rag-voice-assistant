@@ -187,8 +187,9 @@ Twilio ─▶ POST /twilio/voice (signé) ─▶ TwiML <Connect><Stream>, puis <
   le super-admin ; `live.moteur` tranche). Les outils passent toujours par `llm.run_tool`.
   Le pipeline ci-dessus est son secours : une session qui ne s'ouvre pas lui rend l'appel,
   et `live.mettre_a_l_ecart` lui confie les suivants trois minutes. Voir `docs/TEMPS_REEL.md`.
-- Voix : `voxtral_tts.py` (Mistral, catalogue dans `voices.py`). `moshi_server_tts.py`
-  et `deploy/modal_moshi_server.py` (GPU Modal) ne sont plus qu'un secours à retirer.
+- Voix : `voxtral_tts.py` (Mistral, catalogue dans `voices.py`), seule voix depuis le
+  retrait de Moshi et de son GPU Modal (ASSISTANTE-103) : une voix enregistrée qui n'est
+  plus au catalogue est servie par la voix par défaut, sans clé Mistral la vigie rend la ligne.
 - Région : Twilio traite un appel aux États-Unis (`us1`) ou en Irlande (`ie1`), et chaque
   région a son jeton et son API. Tout appel à l'API Twilio passe par `twilio_region.py`
   (`hote`, `identifiants`), jamais par `api.twilio.com` écrit en dur ; la signature
@@ -321,5 +322,5 @@ disque : une fixture qui l'utilise efface son fichier en sortie.
 | `docs/RESOS.md`, `docs/VOXTRAL.md`, `docs/TARIFS.md` | carnet resOS, voix Mistral, grille tarifaire |
 
 Historiques, à ne pas suivre : `ROADMAP.md` (état du 19/09/2026), `docs/PASSATION.md`
-(août 2026), `docs/VOICE_STACK.md` (étude de juillet 2026), `docs/MODAL.md` (la voix de
-secours Moshi), `docs/GITHUB_SETUP.md`.
+(août 2026), `docs/VOICE_STACK.md` (étude de juillet 2026), `docs/MODAL.md` (la voix Moshi,
+archivée), `docs/GITHUB_SETUP.md`.

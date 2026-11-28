@@ -27,7 +27,7 @@ Assistante en panne ─▶ elle rend la ligne ─▶ POST /twilio/suite ─▶ l
 ```
 
 Depuis le 28/09/2026, la voix vient de Mistral. La voix Moshi (`moshi-server` sur un GPU
-Modal) n'est plus qu'un secours quand la clé Mistral manque ; son retrait est prévu.
+Modal) a été retirée le 28/11/2026 (ASSISTANTE-103) : sans clé Mistral, la vigie rend la ligne.
 
 Détail des choix : [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -45,7 +45,7 @@ Détail des choix : [ARCHITECTURE.md](ARCHITECTURE.md).
 | E-mail au restaurateur à chaque réservation, modification, annulation, message | `app/notifications.py` (SMTP) |
 | Admin : parc, salle de contrôle, journal des appels (transcription, écoute), calendrier des réservations, voix, fiche, comptes ; thème clair ou sombre ; tout à l'heure de Paris | `app/admin/` — `/admin` |
 | Coût de chaque appel chiffré poste par poste à sa clôture | `app/calls.py`, admin « Santé & coûts » |
-| Supervision : 22 contrôles, tournée quotidienne à 8 h, sonde `/supervision`, alerte GitHub Actions | `app/supervision.py` |
+| Supervision : 21 contrôles, tournée quotidienne à 8 h, sonde `/supervision`, alerte GitHub Actions | `app/supervision.py` |
 | RGPD : purges automatiques, droit à l'effacement | `app/rgpd.py`, [docs/RGPD.md](docs/RGPD.md) |
 | Formules et plafond mensuel (compte, prévient, ne coupe jamais la ligne) | `app/plans.py`, `app/quotas.py` |
 
@@ -95,7 +95,7 @@ api/
   app/
     main.py              webhooks Twilio, flux média, sondes /health et /supervision
     llm.py               prompt système + outils métier (partagés voix et SMS)
-    voice/               pipeline Pipecat, voix Mistral (et Moshi en secours), accueil,
+    voice/               pipeline Pipecat, voix Mistral, accueil,
                          langue, journal de bord, vigie des pannes
     admin/               plateforme admin (Jinja2 + htmx, rendue côté serveur)
     connecteurs/         carnet de réservations : interne, resOS, faux resOS de test
@@ -108,7 +108,6 @@ api/
     supervision.py rgpd.py quotas.py plans.py taches.py db.py
     requirements.txt     l'intention ; requirements.lock : les versions exactes installées
   tests/
-deploy/modal_moshi_server.py   la voix de secours Moshi, sur Modal
 scripts/                       déploiement, sauvegarde, bancs d'essai, contrôle de mutation
 caddy/Caddyfile                TLS, en-têtes de sécurité (CSP)
 docs/                          déploiement, recette, supervision, RGPD, tarifs, resOS, voix
@@ -124,7 +123,6 @@ dans `.env` n'atteint le conteneur que si `docker-compose.yml` la liste.
 | `OPENROUTER_API_KEY`, `LLM_MODEL` | LLM (production : `google/gemini-2.5-flash`) |
 | `DEEPGRAM_API_KEY` | transcription |
 | `MISTRAL_API_KEY`, `VOIX_PAR_DEFAUT` | voix Mistral (Voxtral) et voix des établissements qui n'ont rien choisi |
-| `MOSHI_TTS_URL`, `MOSHI_TTS_API_KEY` | voix de SECOURS Moshi (GPU Modal), seulement si la clé Mistral manque ; abandon prévu |
 | `PUBLIC_WS_URL`, `PUBLIC_URL` | URL publiques : flux média, et base de la signature Twilio |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SIGNATURE` | compte Twilio ; vérification des signatures (`enforce` par défaut) |
 | `TWILIO_NUMBER`, `SEED_DEMO` | restaurant de démonstration d'une base vide |
@@ -150,4 +148,4 @@ dans `.env` n'atteint le conteneur que si `docker-compose.yml` la liste.
 Documents historiques, conservés pour leur raisonnement et **non tenus à jour** :
 [ROADMAP.md](ROADMAP.md) (état du 19/09/2026 ; le suivi est aujourd'hui dans Jira),
 [docs/PASSATION.md](docs/PASSATION.md) (août 2026), [docs/VOICE_STACK.md](docs/VOICE_STACK.md)
-(étude de juillet 2026), [docs/MODAL.md](docs/MODAL.md) (la voix de secours Moshi).
+(étude de juillet 2026), [docs/MODAL.md](docs/MODAL.md) (la voix Moshi, archivée).

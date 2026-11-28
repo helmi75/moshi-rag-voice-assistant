@@ -1,8 +1,8 @@
 """La voix Voxtral de Mistral (Marie), en flux HTTPS (SCRUM-94).
 
 La liaison avec Twilio ne change pas : l'appel reste un websocket Media Streams, et le
-pipeline Pipecat reste le même. Seule la synthèse change de fournisseur : au lieu d'un
-websocket vers moshi-server sur notre GPU, une requête HTTPS par phrase à l'API de
+pipeline Pipecat reste le même. Seule la synthèse a changé de fournisseur (Moshi, retiré en
+novembre 2026) : une requête HTTPS par phrase à l'API de
 Mistral, dont la réponse arrive EN FLUX (Server-Sent Events, `speech.audio.delta`, PCM
 float32 24 kHz). Le premier morceau arrive en 0,43 s de médiane (mesuré le 28/09/2026,
 dix phrases réelles) : l'audio part vers l'appelant pendant que la suite se calcule.

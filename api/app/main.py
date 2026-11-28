@@ -1,7 +1,7 @@
 """API du SaaS d'accueil téléphonique : webhooks Twilio multi-tenant, flux média, admin.
 
 Un seul chemin d'appel : Twilio Media Streams → Pipecat (Deepgram, LLM via OpenRouter,
-voix Moshi servie par moshi-server). La boucle Gather/Say et les moteurs locaux (Pocket
+voix Voxtral de Mistral). La boucle Gather/Say et les moteurs locaux (Pocket
 TTS, Kyutai en PyTorch) ont été retirés le 18/09/2026 : deux chemins, c'était deux
 produits à tester, et le second n'était plus ni journalisé ni compté au forfait. Le code
 reste lisible au tag `archive/moteurs-locaux`.
@@ -115,14 +115,12 @@ async def _partager_le_modele_de_fin_de_tour():
 
 
 async def _prerender_greetings():
-    """Phase 3 : pré-rend les accueils (voix « Développeuse ») HORS du chemin d'appel,
-    pour que le tout premier appelant entende un accueil instantané. Déclenche au
-    passage un cold start du GPU une seule fois, au démarrage, plutôt qu'en appel.
-    Active aussi le keep-warm périodique si MOSHI_KEEPWARM_SECONDS > 0."""
+    """Pré-rend les accueils HORS du chemin d'appel, pour que le tout premier appelant
+    entende un accueil instantané."""
     from .voice import greeting as greeting_mod
     from .voice import voices
 
-    if not (greeting_mod.is_moshi_server() or voices.voxtral_disponible()):
+    if not voices.voxtral_disponible():
         return
 
     async def _prerender():
@@ -140,7 +138,6 @@ async def _prerender_greetings():
             logger.warning(f"Pré-rendu des accueils échoué (repli TTS live au 1er appel): {exc}")
 
     taches.lancer(_prerender(), nom="pré-rendu des accueils")
-    taches.lancer(greeting_mod.keep_warm_loop(), nom="keep-warm moshi-server")
     if voices.voxtral_disponible():
         # Le catalogue des voix Mistral, relu au démarrage puis toutes les heures : une
         # voix ajoutée chez Mistral apparaît dans l'admin sans redéployer.

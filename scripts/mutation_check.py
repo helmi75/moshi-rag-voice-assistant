@@ -43,11 +43,11 @@ GARDE_FOUS = [
     GardeFou(
         nom="Voix hors catalogue → voix par défaut",
         fichier="api/app/voice/voices.py",
-        avant="    voix = get(getattr(tenant, \"voice\", None))\n    if voix is not None and voix.fournisseur == VOXTRAL:",
-        apres="    voix = get(getattr(tenant, \"voice\", None)) or Voice(getattr(tenant, \"voice\", None) or \"\", \"\", \"\", VOXTRAL)  # mutation\n    if voix is not None and voix.fournisseur == VOXTRAL:",
+        avant="    return voix.id if voix is not None else default_id()",
+        apres="    return (voix.id if voix is not None else voice_id) or default_id()  # mutation",
         tests=["test_voices.py", "test_greeting.py", "test_admin_voice.py"],
-        k="hors_catalogue or outside_catalogue",
-        panne="moshi-server remplacerait la voix EN SILENCE par sa voix de repli",
+        k="hors_catalogue or outside_catalogue or ancienne_voix",
+        panne="une voix inconnue ou une ancienne voix Moshi partirait chez Mistral, qui la refuse : phrases muettes",
     ),
     GardeFou(
         nom="`reasoning` emballé dans extra_body",
@@ -429,7 +429,7 @@ GARDE_FOUS = [
         apres="        if True:  # mutation",
         tests=["test_twilio_signature.py"],
         k="forgee",
-        panne="n'importe qui ferait parler l'assistante, payer le LLM et réveiller le GPU",
+        panne="n'importe qui ferait parler l'assistante, payer la voix et le LLM",
     ),
     GardeFou(
         nom="Avec un jeton par région, une signature forgée reste refusée",
@@ -503,15 +503,6 @@ GARDE_FOUS = [
         tests=["test_quotas.py"],
         k="banc",
         panne="un seul essai du banc, connexion restée ouverte sept heures, ajouterait 420 minutes au forfait d'un client",
-    ),
-    GardeFou(
-        nom="La clé publique du serveur de voix est signalée",
-        fichier="api/app/supervision.py",
-        avant='    if cle and cle != "public_token":',
-        apres="    if True:  # mutation",
-        tests=["test_supervision.py"],
-        k="cle_publique",
-        panne="le GPU resterait ouvert à qui connaît l'URL Modal, supervision au vert",
     ),
     GardeFou(
         nom="Une sauvegarde restée sur la machine n'est pas verte",
@@ -685,26 +676,6 @@ GARDE_FOUS = [
               "s'afficherait « illisible » au moment où l'on veut le regarder",
     ),
     GardeFou(
-        nom="GPU introuvable : l'appelant entend qu'il faut rappeler",
-        fichier="api/app/voice/greeting.py",
-        avant="            message = None if pret else cached_indisponible_path(tenant)",
-        apres="            message = None  # mutation",
-        tests=["test_greeting.py"],
-        k="GpuIntrouvable",
-        panne="24/09 : Modal sans GPU en Europe, 90 s de musique puis le SILENCE — les "
-              "appels 158 et 159 raccrochés sans que personne leur dise de rappeler",
-    ),
-    GardeFou(
-        nom="Le message d'indisponibilité ne passe pas pour une réponse",
-        fichier="api/app/voice/bot.py",
-        avant="        greeting.texte_indisponible(),",
-        apres="        # mutation",
-        tests=["test_supervision.py"],
-        k="indisponibilite",
-        panne="le filet de sécurité masquerait la panne qu'il amortit : des appels "
-              "perdus comptés comme servis, le voyant « Appels muets » au vert",
-    ),
-    GardeFou(
         nom="Une ligne muette en ce moment est une panne, pas une moyenne",
         fichier="api/app/supervision.py",
         avant="    if d_affilee:",
@@ -807,20 +778,10 @@ GARDE_FOUS = [
               "l'anglais avec un Français",
     ),
     GardeFou(
-        nom="Sans clé Mistral, une voix qui parle plutôt que le silence",
-        fichier="api/app/voice/voices.py",
-        avant="    if not voxtral_disponible():\n        # Clé absente",
-        apres="    if False:  # mutation\n        # Clé absente",
-        tests=["test_voxtral.py", "test_voices.py"],
-        k="sans_cle or secours",
-        panne="clé retirée : chaque phrase de l'établissement échouerait chez Mistral — une "
-              "assistante muette au lieu d'une voix Moshi",
-    ),
-    GardeFou(
         nom="La voix Mistral se paie aux caractères dits",
         fichier="api/app/calls.py",
-        avant="        voix = int(conso.get(\"caracteres_voix\") or 0) * _COST_VOIX_PAR_CARACTERE",
-        apres="        voix = 0.0  # mutation",
+        avant="    voix = int(conso.get(\"caracteres_voix\") or 0) * _COST_VOIX_PAR_CARACTERE",
+        apres="    voix = 0.0  # mutation",
         tests=["test_admin_core.py"],
         k="caracteres or postes",
         panne="la voix disparaîtrait du coût des appels : une grille tarifaire arrêtée sur "
@@ -837,14 +798,14 @@ GARDE_FOUS = [
               "les 97 $ affichés dans l'admin",
     ),
     GardeFou(
-        nom="Marie décroche sans musique d'attente",
-        fichier="api/app/voice/greeting.py",
-        avant="    if sans_gpu:\n        chaud = True",
-        apres="    if False:  # mutation\n        chaud = True",
-        tests=["test_voxtral.py"],
-        k="reveil",
-        panne="l'appelant de Marie entendrait la musique d'attente et un réveil de GPU pour "
-              "une voix qui n'en a pas",
+        nom="Sans clé Mistral, le pipeline refuse au lieu de démarrer muet",
+        fichier="api/app/voice/bot.py",
+        avant="    if not voices.voxtral_disponible():\n        raise ValueError(",
+        apres="    if False:  # mutation\n        raise ValueError(",
+        tests=["test_voices.py", "test_voxtral.py"],
+        k="refuse or ancienne_voix_moshi_rend_marie or url_moshi",
+        panne="clé retirée : chaque phrase échouerait chez Mistral, l'appel se déroulerait "
+              "sans voix au lieu d'être rendu au restaurant (main.py)",
     ),
     GardeFou(
         nom="La fin de chaque phrase de Marie est dite",
@@ -858,12 +819,12 @@ GARDE_FOUS = [
     GardeFou(
         nom="Une clé Mistral absente sonne l'alerte",
         fichier="api/app/supervision.py",
-        avant="    if not voices.voxtral_disponible():",
-        apres="    if False:  # mutation",
+        avant="    if not voices.voxtral_disponible():\n        return Controle(\n            \"voxtral\"",
+        apres="    if False:  # mutation\n        return Controle(\n            \"voxtral\"",
         tests=["test_voxtral.py"],
         k="cle_retiree",
-        panne="des établissements en Marie basculés en silence sur la voix Moshi, avec son "
-              "réveil de 46 s, sans que personne le sache",
+        panne="des établissements en Marie sans voix, chaque phrase échouant chez Mistral, "
+              "sans que personne le sache",
     ),
     GardeFou(
         nom="Fiches : une base modifiée entre-temps n'est pas écrasée",

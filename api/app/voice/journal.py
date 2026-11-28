@@ -136,7 +136,7 @@ def _etage(processeur: Optional[str]) -> Optional[str]:
     """À quel maillon appartient cette métrique.
 
     Les noms de classe de Pipecat portent l'étage : `DeepgramSTTService`,
-    `OpenAILLMService`, `MoshiServerTTSService`. On lit ce marqueur plutôt que le nom du
+    `OpenAILLMService`, `VoxtralTTSService`. On lit ce marqueur plutôt que le nom du
     fournisseur — sinon « kyutai », qui existe en STT ET en TTS, serait ambigu."""
     nom = (processeur or "").lower()
     for marqueur in ("stt", "llm", "tts"):
