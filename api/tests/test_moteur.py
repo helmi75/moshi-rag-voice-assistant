@@ -34,7 +34,6 @@ def client():
 @pytest.fixture(autouse=True)
 def _cle(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-jamais-utilisee")
-    monkeypatch.delenv("GPT_LIVE_ETABLISSEMENTS", raising=False)
     monkeypatch.delenv("GPT_LIVE_MODELE", raising=False)
 
 
@@ -105,9 +104,10 @@ def _appel(tenant_id: int, sid: str, voix: str, secondes: float, *, telephonie: 
 
 
 class TestLaColonne:
-    def test_un_etablissement_nait_sans_choix_et_reste_sur_la_chaine_classique(self, resto):
+    def test_un_etablissement_nait_sans_choix_et_passe_par_gpt_live(self, resto):
+        """Décision du 28/11/2026 : sans choix, GPT-Live (la chaîne classique en secours)."""
         assert resto.moteur_voix is None
-        assert live.moteur(resto) == live.CLASSIQUE and live.actif(resto) is False
+        assert live.moteur(resto) == live.GPT_LIVE and live.actif(resto) is True
 
     def test_le_choix_se_range_et_se_relit(self, resto):
         assert tenants.update_tenant(resto.id, moteur_voix="gpt_live").moteur_voix == "gpt_live"
@@ -187,10 +187,8 @@ class TestLaFiche:
         _admin(client)
         page = _page(client.get(f"/admin/tenants/{resto.id}/edit"))
         assert "Moteur de l'appel" in page and "GPT-Live · secours classique" in page
-        assert _selectionne(page) == "classique"
-        # L'ancien réglage du .env se voit dans la fiche tant qu'aucun choix n'est rangé.
-        monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", str(resto.id))
-        assert _selectionne(_page(client.get(f"/admin/tenants/{resto.id}/edit"))) == "gpt_live"
+        # Sans choix rangé, la fiche montre le défaut qui vaut aujourd'hui : GPT-Live.
+        assert _selectionne(page) == "gpt_live"
         tenants.update_tenant(resto.id, moteur_voix="classique")
         assert _selectionne(_page(client.get(f"/admin/tenants/{resto.id}/edit"))) == "classique"
 
@@ -219,6 +217,7 @@ class TestLaFiche:
 
     def test_la_liste_des_etablissements_dit_le_moteur_de_chacun(self, client, resto, voisin):
         tenants.update_tenant(resto.id, moteur_voix="gpt_live")
+        tenants.update_tenant(voisin.id, moteur_voix="classique")
         _admin(client)
         page = _page(client.get("/admin/tenants"))
         ligne = lambda nom: page[page.index(nom):page.index("Voir comme le gérant", page.index(nom))]  # noqa: E731

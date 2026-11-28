@@ -394,9 +394,9 @@ restaurant, « en général GPT-Live par défaut et l'ancienne version en secour
   secours classique » ou « Chaîne classique seule ». Super-admin seulement : un
   restaurateur ne voit pas le menu, et la route ignore le champ s'il l'envoie. Aucun
   redéploiement : le prochain appel suit le nouveau réglage.
-- **Sans choix enregistré**, l'ancien réglage vaut encore : `GPT_LIVE_ETABLISSEMENTS` dans
-  le `.env` du serveur. La migration n'a donc changé le moteur de personne. Une fois la
-  fiche enregistrée, la liste ne compte plus pour cet établissement.
+- **Sans choix enregistré**, c'est GPT-Live (décision du 28/11/2026, après le refus de la
+  voix Mistral le 25/11 : les démonstrations, créées sans choix, restaient muettes).
+  L'ancienne liste `GPT_LIVE_ETABLISSEMENTS` du `.env` n'est plus lue.
 - **Un nouvel établissement** est proposé sur GPT-Live quand la clé OpenAI est posée ; rien
   n'est écrit tant que le formulaire n'est pas enregistré.
 - **Le secours.** Session refusée, trop longue à s'ouvrir, OpenAI injoignable : l'appel est

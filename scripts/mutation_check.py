@@ -1317,14 +1317,14 @@ GARDE_FOUS = [
     ),
     # ---- GPT-Live : il ne sert que les établissements dont c'est le moteur ----------------
     GardeFou(
-        nom="GPT-Live : un établissement sans choix ni essai ne passe jamais par OpenAI",
+        nom="GPT-Live : sans clé OpenAI, aucun appel ne lui est confié",
         fichier="api/app/voice/live.py",
-        avant="    return GPT_LIVE if tenant is not None and tenant.id in etablissements() else CLASSIQUE",
-        apres="    return GPT_LIVE  # mutation",
+        avant="    return bool(tenant is not None and cle() and moteur(tenant) == GPT_LIVE)",
+        apres="    return bool(tenant is not None and moteur(tenant) == GPT_LIVE)  # mutation",
         tests=["test_live.py"],
-        k="par_defaut or nommes or hors_essai",
-        panne="tous les appels de tous les restaurants partiraient chez OpenAI, voix du client "
-              "comprise, dès qu'une clé existe",
+        k="jamais_sans_cle",
+        panne="sans clé, chaque appel attendrait une session qui ne s'ouvre pas avant de "
+              "retomber sur la chaîne classique",
     ),
     GardeFou(
         nom="GPT-Live : la chaîne classique choisie dans l'admin l'emporte sur la liste du .env",
