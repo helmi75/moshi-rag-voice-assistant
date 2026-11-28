@@ -180,7 +180,7 @@ Budget de l'essai : une heure d'appels sur GPT-Live-1 coûte environ 4 $.
 
 Helmi a dit « lance l'essai » le 04/10/2026 et posé une clé OpenAI. Ce qui existe :
 
-- **`api/app/voice/live.py`** : pour les établissements de `GPT_LIVE_ETABLISSEMENTS`,
+- **`api/app/voice/live.py`** : pour les établissements de `GPT_LIVE_ETABLISSEMENTS` (liste retirée le 28/11/2026 : GPT-Live est le défaut),
   l'appel est relayé à GPT-Live. Sans Pipecat, finalement : GPT-Live accepte le format du
   téléphone (µ-law 8 kHz) et rend un flux continu, silences compris, au rythme de la
   parole — il n'y a rien à détecter ni à assembler, et monter Pipecat de version aurait

@@ -64,8 +64,8 @@ LIBELLES_MOTEUR = {live.GPT_LIVE: "GPT-Live", live.CLASSIQUE: "chaîne classique
 
 def _moteur_appel(tenant) -> dict:
     """Le moteur de l'appel tel que la fiche et la liste l'affichent : celui qui vaut
-    AUJOURD'HUI pour cet établissement (choix enregistré, sinon l'ancien réglage du
-    .env), et si la clé d'OpenAI est posée — jamais sa valeur. Pour un établissement à
+    AUJOURD'HUI pour cet établissement (choix enregistré, sinon GPT-Live depuis le
+    28/11/2026), et si la clé d'OpenAI est posée — jamais sa valeur. Pour un établissement à
     créer, GPT-Live est proposé d'emblée quand la clé existe : c'est le réglage que
     Helmi donne en général (05/10/2026), et il reste un choix affiché, pas un défaut
     caché — rien n'est écrit tant que le formulaire n'envoie pas le champ."""

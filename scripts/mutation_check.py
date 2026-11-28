@@ -1327,14 +1327,14 @@ GARDE_FOUS = [
               "retomber sur la chaîne classique",
     ),
     GardeFou(
-        nom="GPT-Live : la chaîne classique choisie dans l'admin l'emporte sur la liste du .env",
+        nom="GPT-Live : la chaîne classique choisie dans l'admin l'emporte sur le défaut",
         fichier="api/app/voice/live.py",
         avant="    if choix in MOTEURS:",
         apres="    if choix == GPT_LIVE:  # mutation",
         tests=["test_live.py"],
         k="l_emporte or regle_sur_la_chaine_classique",
-        panne="un restaurant que l'exploitant a remis sur la chaîne classique continuerait de "
-              "partir chez OpenAI tant que le .env le nomme : le réglage de l'admin mentirait",
+        panne="un restaurant que l'exploitant a mis sur la chaîne classique continuerait de "
+              "partir chez OpenAI : le réglage de l'admin mentirait",
     ),
     # ---- ASSISTANTE-137 : une réservation annoncée et rien d'enregistré ---------------------
     GardeFou(
