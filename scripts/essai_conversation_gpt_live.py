@@ -250,7 +250,6 @@ async def converser() -> None:
     tenants.seed_demo_tenant()
     tenant = tenants.list_all()[0]
     numero = "+33612345678"
-    os.environ["GPT_LIVE_ETABLISSEMENTS"] = str(tenant.id)
     call_sid = f"CAESSAI{int(time.time())}"
     call_id = calls.start_call(call_sid, tenant.id, numero)
 

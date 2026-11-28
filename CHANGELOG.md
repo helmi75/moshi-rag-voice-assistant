@@ -32,6 +32,15 @@
 ### À faire à la main (pas dans ce lot)
 - `modal app stop moshi-server` : c'est ce qui arrête la facture du GPU.
 
+## Non publiée — GPT-Live par défaut (28/11/2026)
+
+### Modifié
+- Un établissement sans moteur choisi dans sa fiche, et donc toute démonstration, passe par
+  GPT-Live, la chaîne classique en secours. Celui qu'on a mis sur « Chaîne classique seule »
+  y reste. Cause : le 25/11, Mistral a refusé la voix de la chaîne classique (HTTP 402,
+  compte sans budget) et les rappels de démonstration restaient muets puis raccrochaient.
+- `GPT_LIVE_ETABLISSEMENTS` n'est plus lue.
+
 ## Non publiée — SMS de confirmation facturés au restaurateur (24/11/2026, ASSISTANTE-198)
 
 ### Ajouté

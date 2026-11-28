@@ -9,6 +9,11 @@ _tmpdir = tempfile.mkdtemp(prefix="voice-assistant-tests-")
 os.environ["DB_PATH"] = os.path.join(_tmpdir, "app.db")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key-not-used")
 os.environ["TWILIO_NUMBER"] = "+33100000000"
+# GPT-Live est le moteur par défaut (28/11/2026) : une clé OpenAI venue de l'environnement
+# enverrait chez OpenAI tout appel de test sur un établissement sans moteur choisi. Les
+# tests de GPT-Live posent leur fausse clé eux-mêmes.
+os.environ.pop("OPENAI_API_KEY", None)
+os.environ.pop("OPENAI_APIkEY", None)
 # Un seul chemin d'appel (Media Streams) : le TwiML annonce toujours une URL de flux et la
 # supervision l'exige. Une valeur de test, sauf si l'environnement en fournit déjà une.
 os.environ.setdefault("PUBLIC_WS_URL", "wss://testserver/ws/voice")
