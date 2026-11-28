@@ -112,7 +112,6 @@ def tenant():
 @pytest.fixture(autouse=True)
 def _essai(monkeypatch, tenant):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-jamais-utilisee")
-    monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", str(tenant.id))
     monkeypatch.delenv("GPT_LIVE_VOIX", raising=False)
     monkeypatch.delenv("GPT_LIVE_MODELE", raising=False)
     monkeypatch.setenv("ENREGISTREMENT_APPELS", "0")
@@ -169,15 +168,11 @@ def _ligne(call_sid: str) -> dict:
 
 
 class TestQuiPasseParGptLive:
-    def test_personne_par_defaut(self, monkeypatch, tenant):
-        monkeypatch.delenv("GPT_LIVE_ETABLISSEMENTS")
-        assert live.etablissements() == set() and live.actif(tenant) is False
-
-    def test_seulement_les_etablissements_nommes(self, monkeypatch, tenant):
-        monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", f"{tenant.id + 1}, {tenant.id + 2}")
-        assert live.actif(tenant) is False
-        monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", f" {tenant.id} ,99;abc,²")
-        assert live.etablissements() == {tenant.id, 99} and live.actif(tenant) is True
+    def test_sans_choix_enregistre_gpt_live_par_defaut(self, tenant):
+        """Décision du 28/11/2026 : la voix Mistral refusée (HTTP 402), les démonstrations,
+        créées sans choix, restaient muettes. Sans choix, c'est GPT-Live."""
+        assert tenant.moteur_voix is None
+        assert live.moteur(tenant) == live.GPT_LIVE and live.actif(tenant) is True
 
     def test_jamais_sans_cle(self, monkeypatch, tenant):
         monkeypatch.delenv("OPENAI_API_KEY")
@@ -185,32 +180,21 @@ class TestQuiPasseParGptLive:
         # Même choisi dans l'admin : sans clé, c'est la chaîne classique qui sert.
         assert live.actif(replace(tenant, moteur_voix="gpt_live")) is False
 
-    def test_le_choix_de_l_admin_l_emporte_sur_la_liste_du_env(self, monkeypatch, tenant):
-        """Le moteur se règle dans la fiche de l'établissement (05/10/2026). La liste du
-        .env ne vaut plus que pour qui n'a aucun choix enregistré."""
-        # Nommé dans la liste, mais réglé sur la chaîne classique : il n'y passe plus.
+    def test_le_choix_de_l_admin_l_emporte_sur_le_defaut(self, tenant):
+        """Le moteur se règle dans la fiche de l'établissement (05/10/2026) : la chaîne
+        classique choisie y est respectée."""
         classique = replace(tenant, moteur_voix="classique")
         assert live.moteur(classique) == live.CLASSIQUE and live.actif(classique) is False
-        # Absent de la liste, mais réglé sur GPT-Live : il y passe.
-        monkeypatch.delenv("GPT_LIVE_ETABLISSEMENTS")
         choisi = replace(tenant, moteur_voix="gpt_live")
         assert live.moteur(choisi) == live.GPT_LIVE and live.actif(choisi) is True
 
-    def test_sans_choix_enregistre_l_ancien_reglage_vaut_encore(self, monkeypatch, tenant):
-        """La migration ne change le moteur de personne : l'établissement de l'essai reste
-        sur GPT-Live, les autres sur la chaîne classique."""
-        assert tenant.moteur_voix is None and live.moteur(tenant) == live.GPT_LIVE
-        monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", str(tenant.id + 1))
-        assert live.moteur(tenant) == live.CLASSIQUE
-
-    def test_un_moteur_inconnu_ne_choisit_rien(self, monkeypatch, tenant):
-        monkeypatch.delenv("GPT_LIVE_ETABLISSEMENTS")
-        assert live.moteur(replace(tenant, moteur_voix="autre")) == live.CLASSIQUE
+    def test_un_moteur_inconnu_vaut_absence_de_choix(self, tenant):
+        assert live.moteur(replace(tenant, moteur_voix="autre")) == live.GPT_LIVE
         assert live.moteur(None) == live.CLASSIQUE and live.actif(None) is False
 
     def test_un_etablissement_regle_sur_la_chaine_classique_ne_va_pas_chez_openai(
             self, client, monkeypatch, tenant):
-        """De bout en bout : nommé dans la liste du .env, mais la fiche dit « classique »."""
+        """De bout en bout : la fiche dit « classique », l'appel ne va pas chez OpenAI."""
         tenants.update_tenant(tenant.id, moteur_voix="classique")
         session = FausseSession()
         _brancher(monkeypatch, session)
@@ -227,15 +211,15 @@ class TestQuiPasseParGptLive:
             tenants.update_tenant(tenant.id, moteur_voix=None)
         assert run_bot.await_count == 1 and session.recus == []
 
-    def test_un_etablissement_hors_essai_suit_le_pipeline_habituel(self, client, monkeypatch, tenant):
-        monkeypatch.setenv("GPT_LIVE_ETABLISSEMENTS", str(tenant.id + 1))
+    def test_sans_cle_l_appel_suit_le_pipeline_habituel(self, client, monkeypatch, tenant):
+        monkeypatch.delenv("OPENAI_API_KEY")
         session = FausseSession()
         _brancher(monkeypatch, session)
         run_bot = AsyncMock()
         with patch("app.main._get_bot_runner", return_value=run_bot):
             with client.websocket_connect("/ws/voice") as ws:
                 ws.send_text(json.dumps({"event": "connected"}))
-                ws.send_text(_debut("CA-live-hors-essai"))
+                ws.send_text(_debut("CA-live-sans-cle"))
                 fin = time.monotonic() + 2
                 while run_bot.await_count == 0 and time.monotonic() < fin:
                     time.sleep(0.01)

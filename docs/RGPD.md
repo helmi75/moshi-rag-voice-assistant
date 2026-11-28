@@ -116,7 +116,7 @@ faux du traitement.** Vérifié dans le code le 30/08/2026 :
 | **Deepgram** | **Transcription : reçoit l'audio de la conversation** | 🇺🇸 endpoint par défaut, **aucune région EU configurée** |
 | **OpenRouter → Google** | **LLM : reçoit le texte de la conversation** | 🇺🇸 |
 | **Twilio** | **Téléphonie : transporte l'appel** | 🇺🇸 au 04/10/2026 (`voice_region: us1`, relevé par l'API) ; 🇮🇪 Irlande pour les appels une fois le numéro basculé (ASSISTANTE-123, `docs/TWILIO_SETUP.md` § 8) — les SMS restent aux États-Unis |
-| **OpenAI (GPT-Live)** | **Depuis le 04/10/2026, pour les seuls établissements dont c'est le moteur (choisi par l'exploitant dans la fiche de l'établissement, jamais par le restaurateur) : reçoit TOUTE la voix du client et de l'assistante, et la conversation en texte** | 🇺🇸 ; résidence des données non vérifiée |
+| **OpenAI (GPT-Live)** | **Depuis le 04/10/2026, pour les établissements dont c'est le moteur ; depuis le 28/11/2026, c'est le moteur de tout établissement (démonstrations comprises) que l'exploitant n'a pas mis sur « Chaîne classique seule » dans la fiche (jamais le restaurateur) : reçoit TOUTE la voix du client et de l'assistante, et la conversation en texte** | 🇺🇸 ; résidence des données non vérifiée |
 | Grafana Labs (Grafana Cloud) | Métriques d'exploitation (ASSISTANTE-156) : compteurs d'appels par établissement, noms des établissements, blancs, erreurs. **Aucune donnée d'appelant** — ni numéro, ni propos, ni identifiant d'appel, exigé par `tests/test_metriques.py` | Pile à créer **en région européenne** ; à vérifier à la création |
 
 

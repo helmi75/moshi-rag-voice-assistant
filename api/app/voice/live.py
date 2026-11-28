@@ -22,7 +22,8 @@ ses refus ; l'appel est au journal, enregistré, chiffré. Et si la session ne s
 (clé, crédit, réseau), l'appel est servi par le pipeline habituel : `ouvrir` rend None.
 
 Le moteur se choisit par établissement dans l'admin (fiche de l'établissement, super-admin
-seulement : `tenants.moteur_voix`, décision de Helmi du 05/10/2026). La chaîne classique
+seulement : `tenants.moteur_voix`, décision de Helmi du 05/10/2026) ; sans choix enregistré,
+c'est GPT-Live (décision du 28/11/2026). La chaîne classique
 est le secours de GPT-Live : après un échec, les appels suivants passent d'emblée par elle
 pendant `MISE_A_L_ECART_SECONDES`, sans faire attendre chaque appelant à son tour.
 
@@ -103,13 +104,6 @@ def cle() -> str:
     return os.getenv("OPENAI_API_KEY", "").strip()
 
 
-def etablissements() -> set[int]:
-    """L'ancien réglage, du temps de l'essai : `GPT_LIVE_ETABLISSEMENTS=3,7`. Il ne vaut
-    plus que pour un établissement dont le moteur n'a jamais été enregistré dans l'admin."""
-    return {int(m) for m in os.getenv("GPT_LIVE_ETABLISSEMENTS", "").replace(";", ",").split(",")
-            if m.strip().isascii() and m.strip().isdigit()}
-
-
 # Les deux moteurs d'un appel, tels qu'ils sont rangés dans `tenants.moteur_voix`.
 GPT_LIVE, CLASSIQUE = "gpt_live", "classique"
 MOTEURS = (GPT_LIVE, CLASSIQUE)
@@ -117,12 +111,16 @@ MOTEURS = (GPT_LIVE, CLASSIQUE)
 
 def moteur(tenant: Optional[Tenant]) -> str:
     """Le moteur CHOISI pour cet établissement. Le choix fait dans l'admin l'emporte ;
-    sans choix enregistré, c'est la liste du .env qui dit qui passe par GPT-Live — et
-    personne d'autre : GPT-Live coûte le double, il ne s'allume jamais tout seul."""
-    choix = (tenant.moteur_voix or "").strip() if tenant is not None else ""
+    sans choix enregistré, GPT-Live (décision de Helmi du 28/11/2026) : la voix Mistral de
+    la chaîne classique a été refusée par Mistral le 25/11 (HTTP 402, compte sans budget)
+    et les démonstrations, créées sans choix, restaient muettes. La chaîne classique reste
+    le secours, et celle qu'on a choisie dans la fiche est respectée."""
+    if tenant is None:
+        return CLASSIQUE
+    choix = (tenant.moteur_voix or "").strip()
     if choix in MOTEURS:
         return choix
-    return GPT_LIVE if tenant is not None and tenant.id in etablissements() else CLASSIQUE
+    return GPT_LIVE
 
 
 def actif(tenant: Optional[Tenant]) -> bool:
