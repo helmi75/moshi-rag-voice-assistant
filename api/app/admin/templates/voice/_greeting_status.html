@@ -7,8 +7,7 @@
 <p class="muted" aria-busy="true"
    hx-get="/admin/tenants/{{ tenant.id }}/greeting/status"
    hx-target="#greeting-status" hx-trigger="every 3s" hx-swap="innerHTML">
-  {% if voix_sans_gpu %}Rendu de la voix en cours (quelques secondes)…
-  {% else %}Rendu de la voix en cours (jusqu'à 90 s si le GPU était endormi)…{% endif %}
+  Rendu de la voix en cours (quelques secondes)…
 </p>
 {% endif %}
 <p class="card-sub" style="margin-top: .6rem">Texte prononcé au décroché, mention

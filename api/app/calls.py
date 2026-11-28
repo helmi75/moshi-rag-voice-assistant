@@ -28,7 +28,7 @@ from . import db, essai, horloge, metriques
 #   jetons d'entrée, 0,03 $ s'ils sont lus en cache, 2,50 $ en sortie. Le forfait de
 #   0,35 c par appel ne sert plus qu'aux appels sans mesure.
 # - Voix Mistral (Voxtral) : 0,016 $ pour 1 000 caractères (mistral.ai, mars 2026).
-# - Voix Moshi (GPU Modal, secours seulement) : ~2 c/min.
+# - Voix Moshi (GPU Modal) : retirée le 28/11/2026 ; les appels d'avant gardent leur coût en base.
 _COST_TWILIO_PER_MIN = float(os.getenv("COST_TWILIO_PER_MIN", "0.01"))
 # Le flux audio vers notre serveur (Media Streams) est une ligne À PART de la facture, que
 # nous ne comptions pas : en septembre 2026, 387 minutes pour 1,70 $, soit 0,0044 $ la
@@ -41,7 +41,6 @@ _COST_LLM_CACHE = float(os.getenv("COST_LLM_CACHE_PAR_MILLION", "0.03")) / 1e6
 _COST_LLM_SORTIE = float(os.getenv("COST_LLM_SORTIE_PAR_MILLION", "2.50")) / 1e6
 _COST_LLM_PER_CALL = float(os.getenv("COST_LLM_PER_CALL", "0.0035"))
 _COST_VOIX_PAR_CARACTERE = float(os.getenv("COST_VOIX_PAR_MILLE_CARACTERES", "0.016")) / 1000
-_COST_MODAL_PER_MIN = float(os.getenv("COST_MODAL_PER_MIN", "0.02"))
 # Essai GPT-Live (app/voice/live.py), tarifs d'OpenAI relevés le 04/10/2026 : 0,05 $ la
 # minute de session, à la seconde, transcription comprise ; le modèle d'arrière-plan
 # (gpt-6-luna) à part : 0,10 $ le million de jetons d'entrée, 0,01 $ en cache, 0,50 $
@@ -158,10 +157,7 @@ def couts_appel(duration_seconds: float, journal: Optional[dict] = None,
                          + int(conso.get("jetons_sortie") or 0) * _COST_LLM_SORTIE)
     else:
         comprehension = _COST_LLM_PER_CALL
-    if fournisseur == "moshi":
-        voix = minutes * _COST_MODAL_PER_MIN
-    else:
-        voix = int(conso.get("caracteres_voix") or 0) * _COST_VOIX_PAR_CARACTERE
+    voix = int(conso.get("caracteres_voix") or 0) * _COST_VOIX_PAR_CARACTERE
     # Chaque poste arrondi au millionième, et le total = leur somme : la répartition de
     # l'admin retombe exactement sur le coût de l'appel.
     return {

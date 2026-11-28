@@ -23,7 +23,7 @@ Server-rendered, même app/conteneur que l'API vocale. Un seul worker uvicorn.
    Pour un OBJET (réservation, appel) : charger l'objet puis
    `deps.check_tenant_access(user, obj["tenant_id"])`.
 5. `FileResponse` : uniquement des chemins déterministes construits côté serveur
-   (cache greeting, `hold_music_dir()/tenant{id}.wav`) — jamais un nom de fichier client.
+   (cache greeting, `greeting.cached_greeting_path(tenant)`) — jamais un nom de fichier client.
 6. bcrypt (verify/hash/create_user) → TOUJOURS `await asyncio.to_thread(...)` :
    l'event loop sert des appels vocaux en parallèle.
 

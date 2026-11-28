@@ -93,6 +93,7 @@ def format_duration(seconds) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
+# « moshi » : les appels d'avant le retrait du GPU (28/11/2026) gardent leur étiquette.
 MOTEURS_SERVIS = {"gpt-live": "GPT-Live", "voxtral": "chaîne classique",
                   "moshi": "chaîne classique, voix Moshi"}
 

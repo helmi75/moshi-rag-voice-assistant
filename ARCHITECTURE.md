@@ -11,7 +11,7 @@ Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.p
                  │                        ├─ /twilio/voice|sms|webhook  (signés)     │
                  │                        ├─ /ws/voice ─▶ Pipecat  api/app/voice/    │
                  │                        │     Deepgram ─▶ LLM (OpenRouter) ─▶ voix │──▶ Mistral (Voxtral)
-                 │                        ├─ /twilio/suite … (assistante en panne)   │    secours : Modal (GPU L4)
+                 │                        ├─ /twilio/suite … (assistante en panne)   │
                  │                        ├─ /admin      (Jinja2 + htmx)             │
                  │                        └─ /health, /supervision                   │
                  │                     SQLite (volume api_data) · enregistrements    │
@@ -43,10 +43,8 @@ Appel ─▶ Twilio ─┼─▶ Caddy (TLS, CSP) ─▶ FastAPI  api/app/main.p
    entendu » (`voice/rattrapage.py`) ; **LLM** via OpenRouter, raisonnement
    coupé (c'est du silence au téléphone) ; **voix** de Mistral (Voxtral), 30 voix au
    choix de l'établissement, en HTTPS et en flux, sans GPU (`voice/voxtral_tts.py`,
-   `docs/VOXTRAL.md`). Sans clé Mistral, voix de secours Moshi sur Modal
-   (`voice/moshi_server_tts.py`), dont l'abandon est prévu.
-4. L'accueil est un WAV pré-rendu par établissement : l'appelant l'entend tout de suite
-   (avec la voix de secours Moshi, la musique d'attente meuble le réveil du GPU). Il est
+   `docs/VOXTRAL.md`). Sans clé Mistral, plus de voix de secours : la vigie rend la ligne.
+4. L'accueil est un WAV pré-rendu par établissement : l'appelant l'entend tout de suite. Il est
    pré-inscrit au contexte du modèle **parce qu'il ne traverse pas le pipeline** ; tout
    ce que dit le TTS du pipeline, l'agrégateur l'inscrit seul (`bot.amorce_assistante`).
 5. À la fin : durée, transcription, latences par tour et journal de bord en base ;
@@ -136,15 +134,14 @@ pipeline STT → LLM → TTS qu'on contrôle, où Moshi n'était plus que la **v
 Le 28/09/2026, la voix elle-même est passée à Mistral (Voxtral) : un GPU loué coûtait la
 moitié d'un appel, mettait jusqu'à 46 s à se réveiller, et Modal n'en trouvait pas
 toujours (pannes de capacité des 23, 24 et 25/09). Voxtral se facture au caractère et
-répond sans réveil. Moshi reste la voix de secours quand la clé Mistral manque ; son
-retrait est prévu (`docs/VOXTRAL.md`).
+répond sans réveil. Moshi est resté la voix de secours quand la clé Mistral manquait,
+puis il a été retiré avec son GPU le 28/11/2026 (ASSISTANTE-103, `docs/VOXTRAL.md`).
 
 ## Sécurité
 
 | Menace | Parade |
 |---|---|
 | Requête forgée sur les webhooks ou le flux | `X-Twilio-Signature` vérifiée (`twilio_signature.py`), URL publique reconstruite depuis `PUBLIC_URL` ; mode `log` pour observer avant `enforce` ; un jeton par région de Twilio (`twilio_region.py`), chacun accepté |
-| GPU de secours utilisé par un tiers | clé privée `MOSHI_TTS_API_KEY` posée au démarrage du conteneur Modal |
 | Assistante en panne, client sans personne | renvoi vers le restaurant ou répondeur (`renvoi.py`) ; les adresses de secours exigent elles aussi la signature Twilio |
 | Rappel demandé sur le site, détourné pour faire sonner un tiers ou gonfler la facture | numéros de métropole seulement, plafonds par numéro, par adresse et par jour, pas d'appel la nuit, durée bornée par Twilio (`rappel.py`) ; JSON de notre origine seulement |
 | Admin | session signée, CSRF, bcrypt, limitation des tentatives, cloisonnement par établissement (`deps.resolve_tenant`), CSP stricte (Caddy) |
@@ -154,7 +151,7 @@ retrait est prévu (`docs/VOXTRAL.md`).
 
 ## Exploitation
 
-- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 22
+- **Supervision** (`supervision.py`, [docs/SUPERVISION.md](docs/SUPERVISION.md)) : 21
   contrôles, une seule source pour l'écran « Santé & coûts » et la sonde `/supervision`.
   « Pas de mesure » n'est jamais un feu vert. La tournée de 8 h (`tournee.py`) les relit
   avec les échecs de GitHub Actions et n'écrit aux super-admins que si un point est à voir.

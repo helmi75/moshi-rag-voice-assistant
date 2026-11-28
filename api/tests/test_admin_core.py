@@ -217,10 +217,6 @@ class TestCalls:
             r["cout_telephonie"] + r["cout_transcription"] + r["cout_comprehension"]
             + r["cout_voix"], abs=1e-9)
 
-    def test_la_voix_de_secours_moshi_se_paie_a_la_minute(self):
-        c = calls.couts_appel(120, {"voix": {"fournisseur": "moshi"}})
-        assert c["voix"] == pytest.approx(2 * calls._COST_MODAL_PER_MIN)
-
     def test_stats_daily(self, fresh_db, tenant_id):
         calls.start_call("CA-1", tenant_id)
         with db.get_conn() as conn:

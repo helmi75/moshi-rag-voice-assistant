@@ -84,10 +84,9 @@ def accueil(tenant) -> str:
     rendus, au lieu de laisser tourner l'ancienne version en silence.
     """
     texte = " ".join((getattr(tenant, "greeting", "") or "").split())
-    if _sans_attente(tenant):
-        # « Un instant s'il vous plaît » annonçait la musique d'attente du réveil du GPU.
-        # Avec une voix Mistral, rien n'attend : la formule ne fait que rallonger.
-        texte = _UN_INSTANT.sub("", texte).rstrip(" ,;")
+    # « Un instant s'il vous plaît » annonçait la musique d'attente du réveil du GPU
+    # Moshi. Avec Mistral, rien n'attend : la formule ne fait que rallonger.
+    texte = _UN_INSTANT.sub("", texte).rstrip(" ,;")
     if texte and texte[-1] not in ".!?…":
         # Sans point, la voix enchaînait l'accueil et la mention d'une traite.
         texte += "."
@@ -97,15 +96,6 @@ def accueil(tenant) -> str:
 
 
 _UN_INSTANT = re.compile(r"[,.;]?\s*un instant,?\s*s'il vous pla[iî]t\s*[.!]?\s*$", re.IGNORECASE)
-
-
-def _sans_attente(tenant) -> bool:
-    try:
-        from .voice import greeting
-
-        return greeting.voix_sans_gpu(tenant)
-    except Exception:
-        return False
 
 
 def _jours(nom: str, defaut: int) -> int:

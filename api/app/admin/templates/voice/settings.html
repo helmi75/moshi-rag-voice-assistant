@@ -17,12 +17,9 @@
   <article class="card">
     <h2>Message d'accueil</h2>
     <p class="card-sub">{% if voix_par_defaut_seule %}Dit par l'assistante dès qu'elle décroche.
-       {% elif voix_sans_gpu %}Joué instantanément au décroché (pré-rendu en voix IA).
-       L'assistante enchaîne tout de suite : pas de mise en
-       route, donc pas de musique d'attente.
        {% else %}Joué instantanément au décroché (pré-rendu en voix IA).
-       Terminez par « un instant s'il vous plaît » : la musique d'attente enchaîne
-       pendant la mise en route, puis l'assistante reprend la parole.{% endif %}</p>
+       L'assistante enchaîne tout de suite : pas de mise en route, donc pas de
+       musique d'attente.{% endif %}</p>
     <form method="post" action="/admin/tenants/{{ tenant.id }}/voice" style="margin-top: 1rem">
       <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
       <textarea name="greeting" rows="3" required>{{ tenant.greeting }}</textarea>
@@ -72,34 +69,10 @@
       {% if not voxtral_disponible %}
       <p class="card-sub" style="margin-top: .5rem"><b>Clé Mistral absente</b> : ajoutez
          <code>MISTRAL_API_KEY</code> au fichier <code>.env</code> du serveur, puis redéployez.
-         D'ici là, l'assistante parle avec la voix de secours.</p>
+         D'ici là, l'assistante ne peut pas parler et rend la ligne.</p>
       {% endif %}
       {% endif %}
     </article>
-
-    {% if not voix_sans_gpu and not voix_par_defaut_seule %}
-    <article class="card">
-      <h2>Musique d'attente</h2>
-      <p class="card-sub">Ne sert qu'avec la voix de secours (Moshi), qui doit réveiller un GPU.</p>
-      <p class="card-sub">
-        {% if has_custom_music %}Musique personnalisée en place.
-        {% else %}Musique par défaut (Vivaldi synthétisé). Envoyez un WAV pour la remplacer
-        — utilisez un enregistrement libre de droits.{% endif %}
-      </p>
-      <form method="post" action="/admin/tenants/{{ tenant.id }}/hold-music"
-            enctype="multipart/form-data" style="margin-top: .9rem">
-        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
-        <input type="file" name="file" accept=".wav,audio/wav" required>
-        <button type="submit">Envoyer (WAV 16 bits, 5 Mo max)</button>
-      </form>
-      {% if has_custom_music %}
-      <form method="post" action="/admin/tenants/{{ tenant.id }}/hold-music/delete">
-        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf', '') }}">
-        <button type="submit" class="secondary">Revenir à la musique par défaut</button>
-      </form>
-      {% endif %}
-    </article>
-    {% endif %}
   </div>
 </div>
 {% endblock %}

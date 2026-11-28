@@ -174,7 +174,7 @@ def _controle_base() -> Controle:
 
 
 # Ce dont le chemin d'appel a RÉELLEMENT besoin. Il n'y a plus qu'un chemin — Media
-# Streams, Deepgram, moshi-server — donc plus de « selon le mode » : les quatre sont
+# Streams, Deepgram, Mistral — donc plus de « selon le mode » : les quatre sont
 # toujours exigées. Chaque entrée vient d'une panne possible et silencieuse : la variable
 # manque, le service démarre quand même, et l'appelant tombe sur un blanc.
 def _configuration_requise() -> list[tuple[str, str]]:
@@ -183,8 +183,8 @@ def _configuration_requise() -> list[tuple[str, str]]:
         ("PUBLIC_WS_URL",
          "Twilio ne saurait pas où brancher le flux audio : l'appel raccroche"),
         ("DEEPGRAM_API_KEY", "sans transcription, l'assistante n'entend rien"),
-        ("MISTRAL_API_KEY", "sans clé Mistral, pas de voix Mistral : l'assistante parle "
-                            "avec la voix de secours Moshi, ou pas du tout"),
+        ("MISTRAL_API_KEY", "sans clé Mistral, pas de voix Mistral : l'assistante ne "
+                            "peut pas parler et la vigie rend la ligne"),
     ]
 
 
@@ -316,28 +316,6 @@ def _controle_signatures() -> Controle:
     )
 
 
-def _controle_jeton_voix() -> Controle:
-    """Le serveur de voix est-il fermé par une clé privée ?
-
-    `public_token` est la clé de démonstration de Kyutai, connue de tous : avec l'URL
-    Modal, n'importe qui peut faire parler le GPU à nos frais, et l'occuper pendant les
-    vrais appels. Les appels passent quand même : c'est une ATTENTION, pas une panne.
-    Une clé vide revient au même, l'application retombant alors sur `public_token`."""
-    titre = "Jeton du serveur de voix"
-    cle = os.getenv("MOSHI_TTS_API_KEY", "").strip()
-    if cle and cle != "public_token":
-        return Controle("jeton_voix", titre, OK, "Clé privée posée.",
-                        mesure={"cle_privee": True})
-    return Controle(
-        "jeton_voix", titre, ATTENTION,
-        "Le serveur de voix accepte la clé publique `public_token`.",
-        "Quiconque connaît l'URL Modal peut faire tourner le GPU à nos frais. Générer une "
-        "clé (`openssl rand -hex 32`), la poser dans le .env du VPS et dans le .env local, "
-        "puis `modal deploy` : voir docs/MODAL.md, section Jeton.",
-        mesure={"cle_privee": False},
-    )
-
-
 # Nombre d'appels relus au maximum par la sonde. Au trafic actuel (24 appels en 30
 # jours) la fenêtre entière tient largement dedans ; la borne existe pour que la sonde
 # reste à coût constant le jour où le parc grossit.
@@ -454,9 +432,8 @@ def _controle_appels_muets(appels: list[dict]) -> Controle:
          f"{len(muets)} appel(s) sans réponse de l'assistante sur {len(candidats)} "
          f"appel(s) de plus de {seuil} s."),
         "L'appelant n'a entendu que l'accueil, la musique ou des relances : rien n'est "
-        "venu du modèle. Vérifier dans l'ordre le serveur de voix (`modal app logs "
-        "moshi-server` : « waiting to be scheduled » = plus de GPU disponible) puis le "
-        "fournisseur LLM." if muets else
+        "venu du modèle. Vérifier dans l'ordre la voix Mistral (contrôle « Voix "
+        "Mistral ») puis le fournisseur LLM." if muets else
         "L'assistante a répondu sur tous les appels de la période.",
         mesure={"candidats": len(candidats), "muets": len(muets),
                 "d_affilee": d_affilee},
@@ -537,11 +514,10 @@ def _controle_latence() -> Controle:
 def _controle_accueils() -> Controle:
     """Le WAV d'accueil de chaque établissement est-il en cache ?
 
-    Sans lui, le décroché passe par un TTS live — donc par un éventuel démarrage à
-    froid du GPU (≈ 46 s mesurées). L'appel n'échoue pas : il commence par un
-    très long silence, ce que l'appelant lit comme « ça ne marche pas ».
+    Sans lui, le décroché passe par un TTS live : l'appel n'échoue pas, mais l'accueil
+    n'est plus instantané, ce que l'appelant lit comme « ça ne marche pas ».
     """
-    # Import local : `voice.greeting` tire la pile audio (numpy, client websocket).
+    # Import local : `voice.greeting` tire la pile audio (numpy).
     # La sonde doit rester chargeable même dans un contexte qui n'en a pas besoin.
     from .voice import greeting as greeting_mod
 
@@ -549,29 +525,19 @@ def _controle_accueils() -> Controle:
     if not liste:
         return Controle(
             "accueils", "Voix d'accueil", OK,
-            "Sans objet : ni moshi-server ni Voxtral pour rendre un accueil.",
+            "Sans objet : pas de voix Mistral pour rendre un accueil.",
             mesure={"applicable": False},
         )
     manquants = [t.name for t in liste if greeting_mod.cached_greeting_path(t) is None]
-    # Le message « rappelez dans quelques minutes » ne sert que GPU introuvable : son
-    # absence ne se remarquerait qu'au pire moment, en rendant le silence à l'appelant.
-    sans_excuse = [t.name for t in liste
-                   if greeting_mod.cached_indisponible_path(t) is None]
-    explication = []
+    explication = ""
     if manquants:
-        explication.append("Décroché non instantané pour : " + ", ".join(manquants[:5])
-                           + ". Le premier appel supportera un démarrage à froid du GPU.")
-    if sans_excuse:
-        explication.append("Pas de message « rappelez dans quelques minutes » pour : "
-                           + ", ".join(sans_excuse[:5]) + ". Si le GPU ne vient pas, "
-                           "l'appelant n'entendra que le silence après la musique.")
+        explication = ("Décroché non instantané pour : " + ", ".join(manquants[:5])
+                       + ". Le premier appel passera par la synthèse en direct.")
     return Controle(
-        "accueils", "Voix d'accueil", ATTENTION if manquants or sans_excuse else OK,
-        f"{len(liste) - len(manquants)} / {len(liste)} accueil(s) pré-rendu(s), "
-        f"{len(liste) - len(sans_excuse)} / {len(liste)} message(s) d'indisponibilité.",
-        " ".join(explication),
-        mesure={"total": len(liste), "manquants": len(manquants),
-                "sans_message_d_indisponibilite": len(sans_excuse)},
+        "accueils", "Voix d'accueil", ATTENTION if manquants else OK,
+        f"{len(liste) - len(manquants)} / {len(liste)} accueil(s) pré-rendu(s).",
+        explication,
+        mesure={"total": len(liste), "manquants": len(manquants)},
     )
 
 
@@ -1107,8 +1073,8 @@ def _controle_voxtral() -> Controle:
         return Controle(
             "voxtral", "Voix Mistral", PANNE,
             f"Clé Mistral absente : {len(liste)} établissement(s) sans leur voix.",
-            "MISTRAL_API_KEY manque dans le .env du serveur. Les appels partent sur la voix "
-            "de secours Moshi, avec son réveil de GPU — ou sans voix si le GPU n'est plus là.",
+            "MISTRAL_API_KEY manque dans le .env du serveur. Sans voix, la vigie rend la ligne "
+            "(renvoi) : plus de voix de secours depuis le retrait de Moshi.",
             mesure={"etablissements": len(liste), "cle": False})
     echecs = voxtral_tts.echecs_depuis(3600)
     if echecs:
@@ -1339,7 +1305,6 @@ def controles() -> list[Controle]:
         ("base", _controle_base),
         ("configuration", _controle_configuration),
         ("signatures", _controle_signatures),
-        ("jeton_voix", _controle_jeton_voix),
         ("appels_muets", _sur_appels(_controle_appels_muets)),
         ("appels_echoues", _sur_appels(_controle_appels_echoues)),
         ("appels_inacheves", _sur_appels(_controle_appels_inacheves)),

@@ -27,23 +27,21 @@ Trois choix qui portent tout le reste :
 surveille ne signale jamais la panne qui compte le plus — celle où la machine ne
 répond plus. Le workflow tourne chez GitHub : `curl` qui échoue **est** l'alerte.
 
-**La sonde ne fait aucun appel réseau.** Réveiller le GPU Modal toutes les 15 minutes
-pour « vérifier que le TTS répond » coûterait plus cher que servir les appels : le
-scale-to-zero est l'économie du produit. Le TTS est donc surveillé par ce que les
-appels RÉELS en révèlent, pas par une sonde synthétique. Voir les angles morts plus bas.
+**La sonde ne fait aucun appel réseau.** Une synthèse Mistral par sonde serait facturée
+et ne prouverait rien de plus. Le TTS est donc surveillé par ce que les appels RÉELS en
+révèlent, pas par une sonde synthétique. Voir les angles morts plus bas.
 
 **Pas de mesure ≠ tout va bien.** Zéro appel sur la fenêtre ne donne pas « 0 % d'échec » :
 ça donne « pas de mesure », et le contrôle le dit. Le projet s'interdit les chiffres
 décoratifs ; les feux verts décoratifs sont la même faute.
 
-## Les vingt-deux contrôles
+## Les vingt et un contrôles
 
 | Contrôle | Ce qu'il attrape | Panne |
 |---|---|---|
 | Base de données | Volume plein ou en lecture seule. Il **écrit** vraiment : lire prouve que la base répond, pas qu'elle accepte encore une réservation | oui |
 | Configuration du chemin d'appel | Une des quatre variables du chemin d'appel manque (`OPENROUTER_API_KEY`, `PUBLIC_WS_URL`, `DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`), ou `PUBLIC_WS_URL` contient une espace — l'appel raccroche alors sans un mot. Attention seulement : `TWILIO_REGION` demande une région dont le jeton n'est pas posé (l'application se replie sur `us1`) | oui |
 | Signature des requêtes Twilio | Jeton absent ou vérification coupée (attention) ; en `log`, des requêtes qui seraient refusées (attention : vérifier `PUBLIC_URL`) ; en `enforce`, **toutes** refusées = l'URL publique n'est plus celle que Twilio signe, plus un appel n'aboutit. Compte par région (`us1`, `ie1`) dès que l'Irlande a signé une requête | oui, si tout est refusé |
-| Jeton du serveur de voix | `MOSHI_TTS_API_KEY` vide ou égale à `public_token`, la clé de démonstration connue de tous : qui trouve l'URL Modal fait tourner le GPU à nos frais | non |
 | Appels muets | Appel `completed`, plus de 15 s, **aucune réponse venue du modèle** : l'accueil pré-rendu, la reprise et les relances ne comptent pas, puisqu'ils partent sans lui. Voit la panne LLM du 30/07 comme la panne GPU du 23/09 | si majoritaire, **ou si les 3 derniers appels n'ont rien obtenu** |
 | Appels en échec | Le pipeline a levé une erreur pendant l'appel | si majoritaire |
 | Appels jamais clôturés | `finish_call` n'a pas tourné : le worker est mort avec l'appel | si majoritaire |
@@ -52,11 +50,11 @@ décoratifs ; les feux verts décoratifs sont la même faute.
 | Solde Twilio | Le solde du compte, relevé avec les alertes (un seul compte pour les deux régions, lu à l'API américaine). Sous `SUPERVISION_SOLDE_TWILIO_MIN` (5 $, décision du 23/10/2026) : attention, un e-mail aux super-admins une fois par épisode, et la recette automatique ne compose plus — elle refuse aussi un solde inconnu ou relevé il y a plus d'une heure. Le 12/10/2026, le solde s'est vidé sans prévenir et la ligne est restée morte onze jours | à zéro, ou compte suspendu |
 | URL de secours Twilio | Un numéro du compte sans URL de secours (*Voice Fallback URL*) servie hors de notre serveur (ASSISTANTE-157). Quand le serveur ne répond plus, c'est la seule chose que Twilio peut encore jouer : `renvoi.py` et la vigie tournent dans l'application. Relevé avec les alertes, à l'API américaine (les numéros sont au compte). Une URL de secours sur notre propre domaine compte comme absente ; les numéros sont nommés par leurs quatre derniers chiffres | non |
 | Carnet resOS | Établissements dont les réservations vont dans resOS : clé API absente, ou resOS en échec (état écrit sur l'ardoise à chaque changement, il survit aux redémarrages). Pendant la panne, l'assistante prend des messages au lieu de réserver. Le bac à sable plafonne à « attention » : une panne simulée ne réveille pas l'alerte | oui si dernier échec < 1 h |
-| Voix Mistral | La voix de tous les établissements (Voxtral) : clé `MISTRAL_API_KEY` absente (voix de secours Moshi, réveil de GPU), ou synthèses échouées dans l'heure — chacune est une phrase que l'appelant n'a pas entendue. On ne sonde pas Mistral : chaque sonde serait facturée | oui si la clé manque |
+| Voix Mistral | La voix de tous les établissements (Voxtral) : clé `MISTRAL_API_KEY` absente (plus de voix de secours depuis le retrait de Moshi : la vigie rend la ligne), ou synthèses échouées dans l'heure — chacune est une phrase que l'appelant n'a pas entendue. On ne sonde pas Mistral : chaque sonde serait facturée | oui si la clé manque |
 | Appels passés en secours | Des appels que l'assistante n'a pas pu servir (ASSISTANTE-118) : renvoyés au restaurant, passés au répondeur, ou repartis sans personne — une panne de fournisseur de dix minutes ne laisse rien d'autre dans la base. Attention aussi si un établissement n'a pas de numéro de secours. Les essais lancés depuis l'admin ne comptent pas. Les renvois d'une vidange de déploiement (ASSISTANTE-159) comptent, mais en attention seulement | oui si un appel est passé en secours dans les 20 dernières minutes, hors vidange |
 | Crédit OpenAI | Un refus de session GPT-Live pour crédit épuisé (ASSISTANTE-151), vu depuis le démarrage : l'heure du premier refus, le nombre de refus, et la marche à suivre (recharger le crédit dans la console OpenAI ; la chaîne classique sert les appels en attendant). **Ce n'est pas une mesure du solde** — OpenAI ne le donne pas par son API : « OK » veut dire « aucun refus vu ». Revient au vert dès qu'une session s'ouvre. Un e-mail part aux super-admins au premier refus de l'épisode. Sans clé GPT-Live : OK, rien à surveiller. Mémoire du processus : un redéploiement l'efface | oui dès le premier refus Deux heures sans nouveau refus : l'alerte descend à « attention » (rien ne dit si le crédit est revenu), pour ne pas masquer les autres pannes ; elle ne s'efface qu'à la première session ouverte. |
 | Crédit OpenRouter | Le crédit qui paie le cerveau de la chaîne classique, aussi secours de GPT-Live (ASSISTANTE-172) : acheté moins consommé, lu à `/api/v1/credits` par la tournée quotidienne. Sous `SUPERVISION_CREDIT_OPENROUTER_MIN` (3 $, décision du 24/10/2026) : attention ; épuisé : panne. Relève ratée ou vieille de plus de 26 h : attention. Sans clé : OK, rien à surveiller | oui à 0 |
-| Voix d'accueil | WAV non pré-rendu : décroché non instantané (démarrage à froid du GPU) ; message « rappelez dans quelques minutes » absent — si le GPU ne vient pas, l'appelant n'entendra que le silence | non |
+| Voix d'accueil | WAV non pré-rendu : décroché non instantané (l'accueil passe par la synthèse en direct) | non |
 | Sauvegarde | Fraîcheur du jeton écrit par `backup-db.sh` **après** le contrôle d'intégrité ; copie hors du serveur absente ou arrêtée (attention) | oui à 72 h |
 | Réplication continue de la base | Litestream (ASSISTANTE-158) a-t-il rattrapé la copie locale ? Une tâche de fond lit ses métriques chaque minute (aucun appel réseau dans la sonde) et compare la position de la réplique à celle du WAL local. Attention si les métriques sont injoignables, si la relève est vieille de plus de 5 min, ou si la réplique est en retard depuis 10 min. Sans `LITESTREAM_REPLICA_URL` : OK, « Non configurée », la sauvegarde quotidienne reste la seule protection | non : un appelant n'est pas concerné |
 | Purge des données personnelles | Deux cycles manqués = la durée annoncée au registre n'est plus tenue | oui |
@@ -130,7 +128,7 @@ Grafana Cloud, qui les garde et les trace. C'est là que se posent les alertes p
 Grafana Cloud ──1 min──► GET /metrics  (Authorization: Bearer METRIQUES_TOKEN)
   relève, garde,           api/app/metriques.py
   trace, alerte            • compteurs en mémoire, ZÉRO appel réseau
-                           • niveaux des 22 contrôles de supervision
+                           • niveaux des 21 contrôles de supervision
 ```
 
 Les mesures sont prises là où l'appel passe déjà — ouverture du flux (`main.py`), clôture
@@ -287,9 +285,9 @@ sont pas envoyés à Sentry : rien ne garantit qu'ils ne recopient pas une phras
 
 ## Angles morts, assumés
 
-- **Le TTS Modal n'est pas sondé activement.** Si le serveur de voix tombe et que
-  personne n'appelle, rien ne le dit. Le prix de cette certitude serait un démarrage à
-  froid du GPU par sonde. Au trafic actuel, c'est le bon arbitrage ; il cessera de
+- **Le TTS Mistral n'est pas sondé activement.** Si Mistral tombe et que personne
+  n'appelle, rien ne le dit. Le prix de cette certitude serait une synthèse facturée par
+  sonde. Au trafic actuel, c'est le bon arbitrage ; il cessera de
   l'être quand la voix sera vendue avec une garantie.
 - **Le `cron` de GitHub est approximatif** (retards de plusieurs minutes aux heures
   chargées). C'est une supervision, pas une astreinte.

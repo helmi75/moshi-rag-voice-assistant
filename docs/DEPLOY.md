@@ -2,11 +2,11 @@
 
 > But : faire tourner l'app **en continu sur un serveur cloud EU**, avec un **domaine
 > stable + HTTPS**, pour que la ligne téléphonique soit disponible 24/7 **sans dépendre
-> d'un PC ni de ngrok**. Modal reste dédié au TTS GPU (voix Moshi). C'est la Phase 2 de
+> d'un PC ni de ngrok**. La voix vient de Mistral (Voxtral). C'est la Phase 2 de
 > `docs/PASSATION.md`.
 >
 > Architecture : `Twilio → https://votre-domaine (Caddy HTTPS → api:8000, FastAPI+Pipecat,
-> SQLite) → websocket → Modal GPU EU (moshi-server)`.
+> SQLite) → API de Mistral (voix), Deepgram, OpenRouter`.
 
 ## Prérequis
 
@@ -15,7 +15,7 @@
    pointe sur l'IP du VPS. Indispensable : Twilio exige un webhook stable et Let's Encrypt ne
    certifie pas une IP nue.
 3. **Clés fraîches** (rotation) : Twilio auth token, Deepgram, OpenRouter — ne jamais réutiliser
-   une clé qui a été exposée. Le serveur Modal doit être déployé (voir `docs/MODAL.md`).
+   une clé qui a été exposée.
 
 ## 1 — VPS + Docker
 
@@ -51,9 +51,6 @@ PUBLIC_WS_URL=wss://assistant.mondomaine.fr/ws/voice
 DEEPGRAM_API_KEY=<clé fraîche>
 
 MISTRAL_API_KEY=<clé Mistral>                   # la voix (docs/VOXTRAL.md)
-# Voix de secours, seulement si la clé Mistral manque (abandon prévu) :
-MOSHI_TTS_URL=wss://<vous>--moshi-server-tts-server.modal.run
-MOSHI_TTS_API_KEY=<openssl rand -hex 32>       # même valeur que pour modal deploy (docs/MODAL.md)
 
 LLM_MODEL=google/gemini-2.5-flash
 OPENROUTER_API_KEY=<clé fraîche>
@@ -94,24 +91,12 @@ https://assistant.mondomaine.fr/twilio/voice   (HTTP POST)
 ```
 Fini ngrok. L'URL ne changera plus.
 
-## 6 — Modal (voix de secours Moshi, facultatif)
+## 6 — Modal (retiré)
 
-> Depuis le 28/09/2026 la voix vient de Mistral : cette étape ne sert qu'à garder la voix
-> de **secours**, utilisée seulement si `MISTRAL_API_KEY` manque. Son retrait est prévu.
-
-Le serveur Modal est déjà en **région EU** par défaut (`MODAL_REGION=eu`). Redéployer si besoin :
-```bash
-modal deploy deploy/modal_moshi_server.py
-```
-**Cold start / GPU chaud** (`MODAL_MIN_CONTAINERS`, à décider selon le budget) :
-- **Scale-to-zero** (défaut, recommandé au lancement) : `0`. Gratuit à vide ; le 1er appel après
-  une pause attend ~46 s, **couvert par l'accueil pré-enregistré + la musique d'attente**.
-- **GPU chaud aux heures de service** (côté application, sans redéployer Modal) :
-  `MOSHI_KEEPWARM_SECONDS=90` et `MOSHI_KEEPWARM_HEURES=11:30-14:30,18:30-23` dans le `.env`,
-  puis `docker compose up -d api`. ≈ 0,80 $ par heure chaude : 7 h 30 par jour ≈ 180 $/mois.
-  Le GPU s'éteint la nuit ; un appel hors plage retrouve le démarrage à froid couvert.
-- **GPU chaud 24/7** : `1` → 0 cold start, mais ~250-290 €/mois (L4 24/7). À activer quand un client
-  payant le justifie : `MODAL_MIN_CONTAINERS=1 modal deploy deploy/modal_moshi_server.py`.
+Moshi et son GPU Modal sont retirés depuis le 28/11/2026 (ASSISTANTE-103) : plus rien à
+déployer ici. Les variables `MOSHI_*` et `MODAL_*` d'un ancien `.env` n'ont plus d'effet et
+peuvent être supprimées. L'application Modal `moshi-server`, si elle tourne encore, s'arrête
+à la main (`modal app stop moshi-server`) : c'est ce qui arrête la facture du GPU.
 
 ## Vérification (bout en bout)
 
@@ -449,7 +434,6 @@ a pu fuir avec la machine.
 | `MISTRAL_API_KEY` | Console Mistral |
 | `OPENROUTER_API_KEY` | openrouter.ai, Keys |
 | `OPENAI_API_KEY` | Console OpenAI (voix temps réel) |
-| `MOSHI_TTS_API_KEY` | `openssl rand -hex 32`, la même valeur redéployée sur Modal (`docs/MODAL.md`) |
 | `SMTP_PASSWORD` | Le fournisseur de messagerie |
 | `ADMIN_PASSWORD` | Au choix ; ne sert qu'à créer le premier compte sur une base vide |
 | `SESSION_SECRET` | `openssl rand -hex 32` (les sessions ouvertes sont perdues, sans autre effet) |
