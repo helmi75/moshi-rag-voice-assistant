@@ -805,7 +805,7 @@ GARDE_FOUS = [
         tests=["test_voices.py", "test_voxtral.py"],
         k="refuse or ancienne_voix_moshi_rend_marie or url_moshi",
         panne="clé retirée : chaque phrase échouerait chez Mistral, l'appel se déroulerait "
-              "sans voix au lieu d'être rendu au renvoi par la vigie",
+              "sans voix au lieu d'être rendu au restaurant (main.py)",
     ),
     GardeFou(
         nom="La fin de chaque phrase de Marie est dite",

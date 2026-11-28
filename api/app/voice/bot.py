@@ -103,6 +103,10 @@ def build_tts(tenant: Optional[Tenant] = None):
     if not voices.voxtral_disponible():
         raise ValueError("MISTRAL_API_KEY manquante : aucune voix à joindre")
     voix = voices.get(voices.resolve(tenant))
+    if voix is None:
+        # Catalogue relu chez Mistral sans la voix par défaut, ou illisible : avant le
+        # retrait de Moshi, ce cas partait vers lui. Une erreur qui dit la cause.
+        raise ValueError("voix par défaut absente du catalogue Mistral")
     logger.info(f"Voix Voxtral : {voix.label}")
     return VoxtralTTSService(voix_id=voix.voxtral_id)
 

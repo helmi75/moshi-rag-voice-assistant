@@ -23,7 +23,7 @@
   servie par la voix par défaut, Marie : résolu à la lecture (`voices.resolve_id`), la base
   n'est pas réécrite. `MOSHI_TTS_URL` posée n'a plus aucun effet.
 - **Sans clé Mistral**, il n'y a plus de voix de secours : `build_tts` refuse de monter le
-  pipeline, la vigie rend la ligne (renvoi) et la supervision est en panne (« Voix Mistral »,
+  pipeline, l'appel est rendu au restaurant (renvoi) et la supervision est en panne (« Voix Mistral »,
   « Configuration »). Rien de nouveau n'a été inventé : c'est le chemin de panne existant.
 - Les appels d'avant (voix Moshi) gardent leur étiquette, leur coût et leur transcription ;
   « Merci d'avoir patienté, je vous écoute. » reste reconnue comme du décor.

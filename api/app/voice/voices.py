@@ -153,7 +153,7 @@ def voix_voxtral() -> tuple[Voice, ...]:
 
 def voxtral_disponible() -> bool:
     """La clé Mistral est-elle posée ? Sans elle, rien ne se dit chez Mistral : la
-    supervision (contrôle « Voix Mistral ») le signale en panne et la vigie rend la ligne."""
+    supervision (contrôle « Voix Mistral ») le signale en panne et l'appel est rendu au restaurant."""
     return bool(os.getenv("MISTRAL_API_KEY", "").strip())
 
 

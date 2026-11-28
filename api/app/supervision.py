@@ -184,7 +184,7 @@ def _configuration_requise() -> list[tuple[str, str]]:
          "Twilio ne saurait pas où brancher le flux audio : l'appel raccroche"),
         ("DEEPGRAM_API_KEY", "sans transcription, l'assistante n'entend rien"),
         ("MISTRAL_API_KEY", "sans clé Mistral, pas de voix Mistral : l'assistante ne "
-                            "peut pas parler et la vigie rend la ligne"),
+                            "peut pas parler et l'appel est rendu au restaurant"),
     ]
 
 
@@ -1073,7 +1073,7 @@ def _controle_voxtral() -> Controle:
         return Controle(
             "voxtral", "Voix Mistral", PANNE,
             f"Clé Mistral absente : {len(liste)} établissement(s) sans leur voix.",
-            "MISTRAL_API_KEY manque dans le .env du serveur. Sans voix, la vigie rend la ligne "
+            "MISTRAL_API_KEY manque dans le .env du serveur. Sans voix, l'appel est rendu au restaurant "
             "(renvoi) : plus de voix de secours depuis le retrait de Moshi.",
             mesure={"etablissements": len(liste), "cle": False})
     echecs = voxtral_tts.echecs_depuis(3600)

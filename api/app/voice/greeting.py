@@ -9,7 +9,7 @@ fichier est rendu et l'ancien est ignoré — pas de resynchronisation manuelle.
 
 Depuis le retrait de Moshi (ASSISTANTE-103), il n'y a plus de GPU à réveiller, de
 musique d'attente ni de message « rappelez dans quelques minutes » pré-rendu : sans clé
-Mistral, la vigie rend la ligne (renvoi).
+Mistral, l'appel est rendu au restaurant (renvoi).
 """
 import asyncio
 import hashlib
@@ -32,7 +32,9 @@ _NATIVE_RATE = 24000
 # de Moshi portent aussi « Merci d'avoir patienté… » (après la musique d'attente) : la
 # supervision doit continuer à les reconnaître comme du décor.
 _REPRISE = "Je vous écoute."
-REPRISES_HISTORIQUES = ("Merci d'avoir patienté, je vous écoute.",)
+REPRISES_HISTORIQUES = ("Merci d'avoir patienté, je vous écoute.",
+                        "Toutes nos excuses, nous rencontrons un petit souci technique. "
+                        "Merci de nous rappeler dans quelques minutes. Au revoir.")
 
 # Avance de la reprise sur la fin de l'accueil : le temps que la synthèse rende sa
 # première syllabe (≈ 610 ms mesurés, journal de bord de l'appel 39). Lancée plus tard,
@@ -108,6 +110,8 @@ async def _render_pcm(text: str, voice: Optional[str] = None) -> np.ndarray | No
     from .voxtral_tts import rendre_pcm
 
     voix = voices.get(voices.resolve_id(voice))
+    if voix is None:
+        raise ValueError("voix par défaut absente du catalogue Mistral")
     return await rendre_pcm(text, voix.voxtral_id)
 
 

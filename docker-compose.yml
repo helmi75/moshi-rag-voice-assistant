@@ -67,7 +67,7 @@ services:
       # n'ai pas bien entendu » (voice/rattrapage.py). « off » le retire.
       RATTRAPAGE_PAROLE: "${RATTRAPAGE_PAROLE:-on}"
       # Voix Marie (Voxtral, Mistral) — SCRUM-94. Sans clé, Marie ne se choisit pas et un
-      # établissement ne peut pas parler : la vigie rend la ligne (renvoi).
+      # établissement ne peut pas parler : l'appel est rendu au restaurant (renvoi).
       MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
       # GPT-Live, la voix-à-voix d'OpenAI (api/app/voice/live.py, docs/TEMPS_REEL.md). Le
       # moteur se choisit par établissement dans l'admin ; GPT_LIVE_ETABLISSEMENTS
